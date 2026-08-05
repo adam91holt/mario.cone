@@ -1,0 +1,27 @@
+{
+  "phase": "Wave 1",
+  "phaseNote": "Foundation pieces in build-and-review. Engine, module contracts and the headless review harness are done; the five pieces everything else sits on are now with their owner agents and critics.",
+  "pieces": [
+    { "id": "feel", "name": "Kart feel & drift", "scope": "src/physics", "state": "build", "rounds": 0, "verdict": "", "gap": "" },
+    { "id": "camera", "name": "Camera", "scope": "src/render/camera", "state": "build", "rounds": 0, "verdict": "", "gap": "" },
+    { "id": "track", "name": "Track & course design", "scope": "src/track", "state": "build", "rounds": 0, "verdict": "", "gap": "" },
+    { "id": "look", "name": "Lighting & post", "scope": "src/render", "state": "build", "rounds": 0, "verdict": "", "gap": "" },
+    { "id": "cast", "name": "Vehicle models", "scope": "src/vehicles", "state": "build", "rounds": 0, "verdict": "", "gap": "" },
+    { "id": "fx", "name": "Effects & spectacle", "scope": "src/fx", "state": "queued", "rounds": 0, "verdict": "", "gap": "" },
+    { "id": "items", "name": "Items", "scope": "src/items", "state": "queued", "rounds": 0, "verdict": "", "gap": "" },
+    { "id": "ai", "name": "CPU racers", "scope": "src/ai", "state": "queued", "rounds": 0, "verdict": "", "gap": "" },
+    { "id": "hud", "name": "HUD & minimap", "scope": "src/ui", "state": "queued", "rounds": 0, "verdict": "", "gap": "" },
+    { "id": "world", "name": "World dressing", "scope": "src/world", "state": "queued", "rounds": 0, "verdict": "", "gap": "" },
+    { "id": "audio", "name": "Music & sound", "scope": "src/audio", "state": "queued", "rounds": 0, "verdict": "", "gap": "" },
+    { "id": "flow", "name": "Race flow & results", "scope": "src/race", "state": "queued", "rounds": 0, "verdict": "", "gap": "" },
+    { "id": "menus", "name": "Front-end & menus", "scope": "src/ui/menus", "state": "queued", "rounds": 0, "verdict": "", "gap": "" },
+    { "id": "courses", "name": "Course roster", "scope": "src/track/courses", "state": "queued", "rounds": 0, "verdict": "", "gap": "" },
+    { "id": "perf", "name": "Performance", "scope": "engine-wide", "state": "queued", "rounds": 0, "verdict": "", "gap": "" }
+  ],
+  "log": [
+    { "at": "Wave 1", "text": "<b>Five foundation pieces dispatched.</b> Kart feel, camera, track, art direction and the cast each go to an owner agent, then to a critic that plays the real game and compares it blind against Mario Kart 8. Pieces loop until the critic can no longer name a gap." },
+    { "at": "Scaffold", "text": "<b>Capture harness made practical.</b> Shots now fast-forward the simulation without drawing and render only the settling moment. The nine-shot review sheet went from timing out at 290s to 99s — which is what makes repeated review affordable." },
+    { "at": "Scaffold", "text": "<b>Four defects found by looking, not reading.</b> The road mesh was wound backwards and was being discarded entirely by backface culling — karts appeared to float over bare ground. The camera inherited stale state between races, and un-rendered landing impulses accumulated until the camera launched 350m into the air." },
+    { "at": "Scaffold", "text": "<b>Engine, contracts and harness in place.</b> Deterministic 120Hz simulation with interpolated rendering, a TypeScript contract every module compiles against, and <code>window.__GAME</code> so reviewers can drive and photograph the real game rather than trust a description of it." }
+  ]
+}
