@@ -1,0 +1,362 @@
+<title>MARIO.CONE — Build Board</title>
+
+<style>
+  /* Palette is the game's own high-vis roadworks kit, so the board and the
+     thing it is building look like they come from the same site. */
+  :root {
+    --orange: #FF6B1A;
+    --yellow: #FFC300;
+    --asphalt: #2A2D34;
+    --cream: #FFF8F0;
+
+    --pass: #3FA85C;
+    --fail: #D93A2B;
+    --work: #1E88C7;
+    --wait: #8A8F9A;
+
+    --bg: #F2EEE7;
+    --surface: #FFFFFF;
+    --surface-2: #FAF7F2;
+    --ink: #23262C;
+    --ink-2: #5A606C;
+    --ink-3: #8A8F9A;
+    --rule: #DED8CE;
+    --shadow: 0 1px 2px rgba(35,38,44,.06), 0 8px 24px rgba(35,38,44,.06);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181D;
+      --surface: #1E2128;
+      --surface-2: #23262E;
+      --ink: #F2EFE9;
+      --ink-2: #A9AFBB;
+      --ink-3: #757B87;
+      --rule: #31353E;
+      --pass: #55C577;
+      --fail: #F2604F;
+      --work: #4FC3F7;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16181D; --surface: #1E2128; --surface-2: #23262E;
+    --ink: #F2EFE9; --ink-2: #A9AFBB; --ink-3: #757B87; --rule: #31353E;
+    --pass: #55C577; --fail: #F2604F; --work: #4FC3F7;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+  }
+  :root[data-theme="light"] {
+    --bg: #F2EEE7; --surface: #FFFFFF; --surface-2: #FAF7F2;
+    --ink: #23262C; --ink-2: #5A606C; --ink-3: #8A8F9A; --rule: #DED8CE;
+    --pass: #3FA85C; --fail: #D93A2B; --work: #1E88C7;
+    --shadow: 0 1px 2px rgba(35,38,44,.06), 0 8px 24px rgba(35,38,44,.06);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 clamp(1rem, 4vw, 2.5rem) 5rem; }
+
+  /* ── masthead ─────────────────────────────────────────────────────── */
+
+  .hazard {
+    height: 10px;
+    background: repeating-linear-gradient(
+      -45deg, var(--yellow) 0 14px, var(--asphalt) 14px 28px);
+  }
+
+  header { padding: 2.6rem 0 1.6rem; }
+
+  .wordmark {
+    font-family: "Arial Black", "Helvetica Neue", Impact, sans-serif;
+    font-weight: 900;
+    font-size: clamp(2.1rem, 5.5vw, 3.4rem);
+    letter-spacing: -.035em;
+    line-height: 1;
+    margin: 0;
+    color: var(--orange);
+  }
+  .wordmark .dot { color: var(--yellow); }
+  .wordmark .sub {
+    display: block; margin-top: .5rem;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    font-size: .72rem; font-weight: 700;
+    letter-spacing: .3em; text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .tagline {
+    margin: 1rem 0 0; max-width: 62ch;
+    color: var(--ink-2); font-size: 1.02rem;
+  }
+
+  /* ── summary strip ────────────────────────────────────────────────── */
+
+  .summary {
+    display: grid; gap: 1px;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 10px; overflow: hidden;
+    margin-top: 2rem;
+  }
+  .stat { background: var(--surface); padding: 1rem 1.15rem; }
+  .stat dt {
+    margin: 0; font-size: .68rem; font-weight: 700;
+    letter-spacing: .16em; text-transform: uppercase; color: var(--ink-3);
+  }
+  .stat dd {
+    margin: .3rem 0 0; font-size: 1.85rem; font-weight: 800;
+    letter-spacing: -.02em; font-variant-numeric: tabular-nums;
+  }
+  .stat dd small { font-size: .95rem; font-weight: 600; color: var(--ink-3); }
+
+  .phase-line {
+    margin-top: 1rem; display: flex; flex-wrap: wrap; gap: .55rem .9rem;
+    align-items: baseline; color: var(--ink-2); font-size: .92rem;
+  }
+  .phase-line b { color: var(--ink); }
+
+  /* ── section headings ─────────────────────────────────────────────── */
+
+  h2 {
+    margin: 3.2rem 0 .3rem;
+    font-size: .74rem; font-weight: 800;
+    letter-spacing: .2em; text-transform: uppercase; color: var(--ink-3);
+  }
+  h2 + .hint { margin: 0 0 1.2rem; color: var(--ink-2); font-size: .92rem; max-width: 68ch; }
+
+  /* ── piece cards ──────────────────────────────────────────────────── */
+
+  .pieces { display: grid; gap: .9rem; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); }
+
+  .piece {
+    position: relative; background: var(--surface);
+    border: 1px solid var(--rule); border-radius: 10px;
+    padding: 1.05rem 1.15rem 1.15rem 1.5rem;
+    box-shadow: var(--shadow);
+    display: flex; flex-direction: column; gap: .6rem;
+  }
+  /* Severity stripe: state readable before a single word is parsed. */
+  .piece::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0;
+    width: 5px; border-radius: 10px 0 0 10px; background: var(--wait);
+  }
+  .piece[data-state="pass"]::before { background: var(--pass); }
+  .piece[data-state="build"]::before { background: var(--work); }
+  .piece[data-state="review"]::before { background: var(--yellow); }
+  .piece[data-state="fail"]::before { background: var(--fail); }
+
+  .piece-head { display: flex; align-items: flex-start; justify-content: space-between; gap: .8rem; }
+  .piece-name { margin: 0; font-size: 1.02rem; font-weight: 750; letter-spacing: -.01em; }
+  .piece-scope {
+    margin: .15rem 0 0; font-size: .76rem; color: var(--ink-3);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  .chip {
+    flex: none; font-size: .66rem; font-weight: 800;
+    letter-spacing: .1em; text-transform: uppercase;
+    padding: .27rem .55rem; border-radius: 999px;
+    background: var(--surface-2); color: var(--ink-2);
+    border: 1px solid var(--rule); white-space: nowrap;
+  }
+  .chip[data-state="pass"] { background: color-mix(in srgb, var(--pass) 14%, transparent); color: var(--pass); border-color: color-mix(in srgb, var(--pass) 35%, transparent); }
+  .chip[data-state="build"] { background: color-mix(in srgb, var(--work) 14%, transparent); color: var(--work); border-color: color-mix(in srgb, var(--work) 35%, transparent); }
+  .chip[data-state="review"] { background: color-mix(in srgb, var(--yellow) 20%, transparent); color: #9A7400; border-color: color-mix(in srgb, var(--yellow) 45%, transparent); }
+  .chip[data-state="fail"] { background: color-mix(in srgb, var(--fail) 14%, transparent); color: var(--fail); border-color: color-mix(in srgb, var(--fail) 35%, transparent); }
+  @media (prefers-color-scheme: dark) { .chip[data-state="review"] { color: var(--yellow); } }
+
+  .verdict { font-size: .9rem; color: var(--ink-2); margin: 0; }
+  .verdict .lead { color: var(--ink); font-weight: 650; }
+
+  .gap {
+    margin: 0; padding: .6rem .7rem;
+    background: var(--surface-2); border-radius: 7px;
+    border-left: 2px solid var(--orange);
+    font-size: .86rem; color: var(--ink-2);
+  }
+  .gap b { color: var(--ink); font-weight: 700; }
+
+  .rounds {
+    display: flex; gap: .28rem; align-items: center;
+    font-size: .7rem; color: var(--ink-3); letter-spacing: .1em; text-transform: uppercase; font-weight: 700;
+  }
+  .pip { width: 7px; height: 7px; border-radius: 50%; background: var(--rule); }
+  .pip.done { background: var(--ink-3); }
+  .pip.win { background: var(--pass); }
+
+  /* ── shots ────────────────────────────────────────────────────────── */
+
+  .shots { display: grid; gap: .9rem; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+  .shot { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow); }
+  .shot img { display: block; width: 100%; height: auto; background: var(--asphalt); }
+  .shot figcaption { padding: .6rem .8rem .75rem; font-size: .82rem; color: var(--ink-2); }
+  .shot figcaption b { display: block; color: var(--ink); font-size: .88rem; font-weight: 700; margin-bottom: .1rem; }
+
+  .empty {
+    border: 1px dashed var(--rule); border-radius: 10px;
+    padding: 2rem 1.2rem; text-align: center; color: var(--ink-3); font-size: .92rem;
+  }
+
+  /* ── log ──────────────────────────────────────────────────────────── */
+
+  .log { border-top: 1px solid var(--rule); }
+  .entry { display: grid; grid-template-columns: 5.5rem 1fr; gap: 1rem; padding: .85rem 0; border-bottom: 1px solid var(--rule); align-items: baseline; }
+  .entry time { font-size: .72rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .entry p { margin: 0; font-size: .93rem; color: var(--ink-2); }
+  .entry p b { color: var(--ink); font-weight: 650; }
+
+  @media (max-width: 560px) {
+    .entry { grid-template-columns: 1fr; gap: .2rem; }
+  }
+
+  footer { margin-top: 3rem; padding-top: 1.2rem; border-top: 1px solid var(--rule); color: var(--ink-3); font-size: .82rem; }
+</style>
+
+<div class="hazard"></div>
+
+<div class="wrap">
+  <header>
+    <h1 class="wordmark">
+      mario<span class="dot">.</span>cone
+      <span class="sub">Build Board</span>
+    </h1>
+    <p class="tagline">
+      A Mario Kart-class racer in Three.js, starring road cones, planes, helicopters,
+      diggers, trains, trucks and cars. Each piece is built by one agent and judged by a
+      separate one that plays the real game — never the builder's write-up — and sends it
+      back until it holds up against Mario Kart 8.
+    </p>
+
+    <dl class="summary" id="summary"></dl>
+    <div class="phase-line" id="phaseLine"></div>
+  </header>
+
+  <h2>Pieces</h2>
+  <p class="hint">
+    Each piece is owned by one agent and reviewed independently. A piece only turns green
+    when a critic, comparing it blind against Mario Kart, stops being able to name a gap.
+  </p>
+  <div class="pieces" id="pieces"></div>
+
+  <h2>Latest capture</h2>
+  <p class="hint">Frames pulled straight from the running game by the review harness.</p>
+  <div id="shotsHost"></div>
+
+  <h2>Log</h2>
+  <div class="log" id="log"></div>
+
+  <footer id="footer"></footer>
+</div>
+
+<script>
+  // ── board state ──────────────────────────────────────────────────────
+  // Updated as the build progresses. Everything below renders from this.
+  const STATE = {
+    updated: "—",
+    phase: "Scaffold",
+    phaseNote: "Engine, contracts and review harness in place. Wave 1 next.",
+    pieces: [
+      { id: "feel",     name: "Kart feel & drift",     scope: "src/physics",        state: "queued", rounds: 0, verdict: "", gap: "" },
+      { id: "camera",   name: "Camera",                scope: "src/render/camera",  state: "queued", rounds: 0, verdict: "", gap: "" },
+      { id: "track",    name: "Track & course design", scope: "src/track",          state: "queued", rounds: 0, verdict: "", gap: "" },
+      { id: "look",     name: "Lighting & post",       scope: "src/render",         state: "queued", rounds: 0, verdict: "", gap: "" },
+      { id: "cast",     name: "Vehicle models",        scope: "src/vehicles",       state: "queued", rounds: 0, verdict: "", gap: "" },
+      { id: "fx",       name: "Effects & spectacle",   scope: "src/fx",             state: "queued", rounds: 0, verdict: "", gap: "" },
+      { id: "items",    name: "Items",                 scope: "src/items",          state: "queued", rounds: 0, verdict: "", gap: "" },
+      { id: "ai",       name: "CPU racers",            scope: "src/ai",             state: "queued", rounds: 0, verdict: "", gap: "" },
+      { id: "hud",      name: "HUD & minimap",         scope: "src/ui",             state: "queued", rounds: 0, verdict: "", gap: "" },
+      { id: "world",    name: "World dressing",        scope: "src/world",          state: "queued", rounds: 0, verdict: "", gap: "" },
+      { id: "audio",    name: "Music & sound",         scope: "src/audio",          state: "queued", rounds: 0, verdict: "", gap: "" },
+      { id: "flow",     name: "Race flow & results",   scope: "src/race",           state: "queued", rounds: 0, verdict: "", gap: "" },
+      { id: "menus",    name: "Front-end & menus",     scope: "src/ui/menus",       state: "queued", rounds: 0, verdict: "", gap: "" },
+      { id: "courses",  name: "Course roster",         scope: "src/track/courses",  state: "queued", rounds: 0, verdict: "", gap: "" },
+      { id: "perf",     name: "Performance",           scope: "engine-wide",        state: "queued", rounds: 0, verdict: "", gap: "" }
+    ],
+    shots: [],
+    log: []
+  };
+
+  const LABEL = { queued: "Queued", build: "Building", review: "In review", fail: "Sent back", pass: "Passed" };
+
+  function renderSummary() {
+    const by = (s) => STATE.pieces.filter((p) => p.state === s).length;
+    const passed = by("pass");
+    const active = by("build") + by("review") + by("fail");
+    const rounds = STATE.pieces.reduce((n, p) => n + p.rounds, 0);
+    const stats = [
+      ["Pieces", `${passed}<small> / ${STATE.pieces.length}</small>`],
+      ["In flight", String(active)],
+      ["Review rounds", String(rounds)],
+      ["Phase", `<span style="font-size:1.05rem">${STATE.phase}</span>`]
+    ];
+    document.getElementById("summary").innerHTML = stats
+      .map(([k, v]) => `<div class="stat"><dt>${k}</dt><dd>${v}</dd></div>`)
+      .join("");
+    document.getElementById("phaseLine").innerHTML =
+      `<span>${STATE.phaseNote}</span>`;
+  }
+
+  function pips(n, won) {
+    let out = "";
+    for (let i = 0; i < Math.max(n, 3); i++) {
+      const cls = i < n ? (won && i === n - 1 ? "pip win" : "pip done") : "pip";
+      out += `<span class="${cls}"></span>`;
+    }
+    return out;
+  }
+
+  function renderPieces() {
+    document.getElementById("pieces").innerHTML = STATE.pieces.map((p) => `
+      <article class="piece" data-state="${p.state}">
+        <div class="piece-head">
+          <div>
+            <h3 class="piece-name">${p.name}</h3>
+            <p class="piece-scope">${p.scope}</p>
+          </div>
+          <span class="chip" data-state="${p.state}">${LABEL[p.state] ?? p.state}</span>
+        </div>
+        ${p.verdict ? `<p class="verdict"><span class="lead">Critic:</span> ${p.verdict}</p>` : ""}
+        ${p.gap ? `<p class="gap"><b>Biggest gap:</b> ${p.gap}</p>` : ""}
+        <div class="rounds">${pips(p.rounds, p.state === "pass")}<span style="margin-left:.35rem">${p.rounds} round${p.rounds === 1 ? "" : "s"}</span></div>
+      </article>`).join("");
+  }
+
+  function renderShots() {
+    const host = document.getElementById("shotsHost");
+    if (!STATE.shots.length) {
+      host.innerHTML = `<div class="empty">No captures yet — the review harness posts frames here as soon as it runs.</div>`;
+      return;
+    }
+    host.className = "shots";
+    host.innerHTML = STATE.shots.map((s) => `
+      <figure class="shot">
+        <img src="${s.src}" alt="${s.name}" loading="lazy" />
+        <figcaption><b>${s.name}</b>${s.caption ?? ""}</figcaption>
+      </figure>`).join("");
+  }
+
+  function renderLog() {
+    const el = document.getElementById("log");
+    if (!STATE.log.length) {
+      el.innerHTML = `<div class="empty" style="border:none">Nothing logged yet.</div>`;
+      return;
+    }
+    el.innerHTML = STATE.log.map((e) => `
+      <div class="entry"><time>${e.at}</time><p>${e.text}</p></div>`).join("");
+  }
+
+  renderSummary();
+  renderPieces();
+  renderShots();
+  renderLog();
+  document.getElementById("footer").textContent = `Last updated ${STATE.updated}`;
+</script>
