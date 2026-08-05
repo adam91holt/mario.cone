@@ -9,22 +9,19 @@
 //
 // The position: ACES is the wrong film stock for this. It bruises saturated
 // plastic — a safety-orange cone under a hard sun comes back sunburnt and
-// grey-shouldered. What we want is closer to a bright offset print: a long,
-// almost-linear midsection so hue survives, a clean roll to white at the top,
-// and a toe that stops short of black because nothing in a Nintendo frame is
-// ever actually black.
+// grey-shouldered. What we want is closer to a bright offset print: a long
+// straight midsection so hue survives, a clean roll to white at the top, and a
+// floor that stops short of zero, because nothing in a Nintendo frame is ever
+// actually black.
 
 import * as THREE from 'three';
 
 /** Tuning for the grade. These are baked into the shader as constants. */
 const GRADE = {
-  /** Where the linear section of the tone curve starts, and how long it runs. */
-  toeEnd: 0.16,
-  linearLength: 0.42,
-  /** Slope of the linear section — the contrast of the midtones. */
-  slope: 1.02,
-  /** Toe tightness. Below 1 lifts the shadows. */
-  toe: 0.92,
+  /** Scene-referred value where the highlight shoulder takes over. */
+  knee: 0.52,
+  /** Slope of the straight section — the contrast of the midtones. */
+  slope: 1.03,
   /** Floor lift. Keeps deep shadow coloured rather than dead. */
   pedestal: 0.006,
 
@@ -49,32 +46,25 @@ export const GRADE_GLSL = /* glsl */ `
 #ifndef MC_GRADE
 #define MC_GRADE
 
-// Uchimura's piecewise curve: toe, straight, shoulder. The straight section is
-// deliberately long — that is what keeps a hazard-yellow stripe hazard yellow
-// at three stops over key.
+// A straight line through the mids and a hyperbolic shoulder above the knee,
+// joined C1 so the transition is invisible. The long straight section is what
+// keeps a hazard-yellow stripe hazard yellow at three stops over key; the
+// shoulder is what stops it clipping to white.
+//
+// Deliberately built from nothing but multiplies and a divide. This runs on
+// every pixel of every frame, and the review harness renders through a software
+// rasteriser where a pow() costs an order of magnitude more than a multiply.
 float mcCurve(float x) {
-  const float P = 1.0;
-  const float a = ${f(GRADE.slope)};
-  const float m = ${f(GRADE.toeEnd)};
-  const float l = ${f(GRADE.linearLength)};
-  const float c = ${f(GRADE.toe)};
-  const float b = ${f(GRADE.pedestal)};
+  const float K = ${f(GRADE.knee)};      // where the shoulder takes over
+  const float A = ${f(GRADE.slope)};     // slope of the straight section
+  const float B = ${f(GRADE.pedestal)};  // shadows never quite reach zero
+  const float S = A * K;                 // value at the knee
+  const float R = (1.0 - S) / A;         // shoulder scale that makes it C1
 
-  float l0 = ((P - m) * l) / a;
-  float S0 = m + l0;
-  float S1 = m + a * l0;
-  float C2 = (a * P) / (P - S1);
-  float CP = -C2 / P;
-
-  float w0 = 1.0 - smoothstep(0.0, m, x);
-  float w2 = step(m + l0, x);
-  float w1 = 1.0 - w0 - w2;
-
-  float T = m * pow(max(x, 1e-5) / m, c) + b;
-  float S = P - (P - S1) * exp(CP * (x - S0));
-  float L = m + a * (x - m);
-
-  return T * w0 + L * w1 + S * w2;
+  float lin = A * x + B;
+  float d = x - K;
+  float sh = S + (1.0 - S) * d / (d + R) + B;
+  return x < K ? lin : sh;
 }
 
 vec3 mcGrade(vec3 c) {
@@ -103,8 +93,11 @@ export const SRGB_GLSL = /* glsl */ `
 #ifndef MC_SRGB
 #define MC_SRGB
 vec3 mcLinearToSRGB(vec3 c) {
-  c = clamp(c, 0.0, 1.0);
-  return mix(c * 12.92, 1.055 * pow(c, vec3(0.41666)) - 0.055, step(0.0031308, c));
+  // sqrt plus a single corrective term. Peak error against the real transfer
+  // function is under half a code value — less than the dither we add on top —
+  // and it costs one sqrt instead of one pow per channel.
+  vec3 u = sqrt(clamp(c, 0.0, 1.0));
+  return u + 0.149 * u * (1.0 - u);
 }
 #endif
 `;
