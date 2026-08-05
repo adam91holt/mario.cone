@@ -271,14 +271,16 @@ export interface WheelOptions {
   cap?: boolean;
 }
 
+/** Built shapes, keyed by their options. A full grid asks for the same five or
+ *  six wheels forty times over; only their transforms differ. */
+const _wheelCache = new Map<string, [THREE.BufferGeometry, THREE.BufferGeometry]>();
+
 /**
  * A wheel with a hard-contrast rim, so rotation reads at speed.
  *
  * The tread lugs are the point: a smooth cylinder spinning at 200km/h is a
  * still image. Lugs give it a strobe, which is what the eye reads as "fast".
  */
-const _wheelCache = new Map<string, [THREE.BufferGeometry, THREE.BufferGeometry]>();
-
 export function makeWheel(opts: WheelOptions = {}): THREE.Group {
   const key = JSON.stringify(opts);
   const cached = _wheelCache.get(key);
@@ -350,8 +352,7 @@ export function makeWheel(opts: WheelOptions = {}): THREE.Group {
 
   g.add(mergeStatic(rubber), mergeStatic(rim));
   g.userData.radius = radius;
-  // Eight racers share a handful of wheel shapes; only the transforms differ.
-  // Shared geometry must outlive any one model, so it is flagged for
+  // Shared geometry has to outlive any one model, so it is flagged for
   // `disposeTree` to leave alone when a race tears its field down.
   const tyreGeo = (rubber.children[0] as THREE.Mesh).geometry;
   const rimGeo = (rim.children[0] as THREE.Mesh).geometry;
@@ -442,6 +443,7 @@ export function makeSpinDisc(radius: number, color = 0xcfe4f5, inner = 0.12): TH
     }));
   m.name = 'spinDisc';
   m.userData.noShadow = true;
+  m.userData.detail = true;
   return m;
 }
 
@@ -460,12 +462,6 @@ export interface Beacon {
 
 export function makeBeacon(radius = 0.12, color = 0xffa11a): Beacon {
   const group = new THREE.Group();
-  const base = new THREE.Mesh(
-    new THREE.CylinderGeometry(radius * 1.1, radius * 1.25, radius * 0.5, 12),
-    mat(0x2b2e36, { roughness: 0.5 }));
-  base.position.y = radius * 0.25;
-  group.add(base);
-
   const lensMat = new THREE.MeshStandardMaterial({
     color, emissive: color, emissiveIntensity: 0.9,
     roughness: 0.16, transparent: true, opacity: 0.85,
@@ -485,6 +481,7 @@ export function makeBeacon(radius = 0.12, color = 0xffa11a): Beacon {
   group.add(flash);
 
   group.traverse((o) => { o.userData.noShadow = true; });
+  group.userData.detail = true;
 
   let a = 0;
   return {
@@ -507,10 +504,11 @@ export function makeGlow(radius = 0.14, color = 0xffb257): Glow {
   const material = new THREE.MeshBasicMaterial({
     color, transparent: true, opacity: 0, depthWrite: false, toneMapped: false,
   });
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 10, 8), material);
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 8, 6), material);
   mesh.scale.setScalar(0.01);
   mesh.name = 'glow';
   mesh.userData.noShadow = true;
+  mesh.userData.detail = true;
   return {
     mesh,
     set(amount: number) {
@@ -529,13 +527,14 @@ export interface PuffSet {
   update(dt: number, rate: number, rise: number): void;
 }
 
-export function makePuffs(count = 4, size = 0.3, color = 0xf4f0e6): PuffSet {
+export function makePuffs(count = 3, size = 0.3, color = 0xf4f0e6): PuffSet {
   const group = new THREE.Group();
   const material = new THREE.MeshBasicMaterial({
     color, transparent: true, opacity: 0, depthWrite: false, toneMapped: false,
   });
   const geo = new THREE.SphereGeometry(size, 8, 6);
   const puffs: THREE.Mesh[] = [];
+  group.userData.detail = true;
   for (let i = 0; i < count; i++) {
     const m = new THREE.Mesh(geo, material.clone());
     m.userData.life = i / count;

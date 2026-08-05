@@ -201,6 +201,9 @@ export function makeFace(o: FaceOptions = {}): FaceRig {
   // A face is inset detail: it has no business in the shadow pass, which costs
   // a second draw call for every mesh in it.
   group.traverse((o) => { o.userData.noShadow = true; });
+  // Past about fifty metres an eye is four pixels wide. The vehicle system
+  // switches the whole face off out there; see index.ts.
+  group.userData.detail = true;
 
   return {
     group,

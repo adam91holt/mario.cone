@@ -193,7 +193,7 @@ const cone: VehicleDef = {
     // after, and a small face on a small body reads as a road cone, not a hero.
     const face = makeFace({
       radius: 0.17, spacing: 0.2, bulge: 0.15, flatten: 0.62,
-      mouthY: -0.18, mouthZ: 0.13, mouthWidth: 0.46, browColor: 0x8a3a10, seed,
+      mouthY: -0.18, mouthZ: 0.21, mouthWidth: 0.46, browColor: 0x6d2a0a, seed,
     });
     face.group.position.set(0, 1.3, 0.3);
     chassis.add(face.group);
@@ -301,6 +301,7 @@ const car: VehicleDef = {
     face.group.position.set(0, 0.86, 1.62);
     chassis.add(face.group);
 
+    part(shell, new THREE.CylinderGeometry(0.15, 0.17, 0.08, 12), mat(0x2b2e36), [0, 1.5, 0.12]);
     const beacon = makeBeacon(0.13, 0xffa11a);
     beacon.group.position.set(0, 1.54, 0.12);
     chassis.add(beacon.group);
@@ -407,13 +408,14 @@ const truck: VehicleDef = {
     face.group.position.set(0, 1.22, 2.0);
     chassis.add(face.group);
 
+    pair(shell, new THREE.CylinderGeometry(0.16, 0.18, 0.08, 12), mat(0x2b2e36), [0.6, 2.34, 1.86]);
     const beaconA = makeBeacon(0.14, 0xffa11a);
     const beaconB = makeBeacon(0.14, 0xffa11a);
     beaconA.group.position.set(-0.6, 2.38, 1.86);
     beaconB.group.position.set(0.6, 2.38, 1.86);
     chassis.add(beaconA.group, beaconB.group);
 
-    const smoke = makePuffs(4, 0.26, 0x5a5f68);
+    const smoke = makePuffs(3, 0.26, 0x5a5f68);
     smoke.group.position.set(0.92, 2.95, 0.42);
     chassis.add(smoke.group);
 
@@ -540,6 +542,7 @@ const digger: VehicleDef = {
     face.group.position.set(-0.5, 1.36, 0.92);
     house.add(face.group);
 
+    part(houseShell, new THREE.CylinderGeometry(0.14, 0.16, 0.08, 12), mat(0x2b2e36), [-0.5, 1.84, 0.0]);
     const beacon = makeBeacon(0.12, 0xffa11a);
     beacon.group.position.set(-0.5, 1.88, 0.0);
     house.add(beacon.group);
@@ -710,7 +713,7 @@ const train: VehicleDef = {
     face.group.position.set(0, 1.42, 2.16);
     chassis.add(face.group);
 
-    const steam = makePuffs(5, 0.34, 0xf2efe6);
+    const steam = makePuffs(4, 0.34, 0xf2efe6);
     steam.group.position.set(0, 2.72, 1.62);
     chassis.add(steam.group);
 
@@ -1055,6 +1058,7 @@ const helicopter: VehicleDef = {
     face.group.position.set(0, 1.32, 0.78);
     chassis.add(face.group);
 
+    part(shell, new THREE.CylinderGeometry(0.13, 0.15, 0.07, 12), mat(0x2b2e36), [0, 1.93, -0.7]);
     const beacon = makeBeacon(0.11, 0xff5a3c);
     beacon.group.position.set(0, 1.96, -0.7);
     chassis.add(beacon.group);
@@ -1119,10 +1123,11 @@ export function listVehicles(): readonly VehicleDef[] {
 }
 
 /** Builds and attaches a model to a racer, adding it to the scene. */
-export function attachModel(ctx: GameContext, racer: Racer): void {
+export function attachModel(ctx: GameContext, racer: Racer): VehicleModel {
   const def = getVehicle(racer.vehicleId);
   const model = def.build(ctx);
   racer.model = model;
   racer.visual = model.root;
   ctx.scene.add(model.root);
+  return model;
 }

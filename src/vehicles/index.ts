@@ -38,11 +38,22 @@ const _flat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0)
 const _level = new THREE.Quaternion();
 const _inv = new THREE.Quaternion();
 
+/**
+ * Beyond this, an eye is about four pixels across and a rotating beacon is
+ * one. Detail groups — faces, beacons, exhaust glows, spin discs, puffs —
+ * switch off past it, which costs a full grid of eight nothing visible and
+ * saves a hundred draw calls in the shots where the whole field is on screen.
+ */
+const DETAIL_DISTANCE = 52;
+
 interface VisualState {
   /** 0..1 how airborne the racer looks, for the contact shadow. */
   air: number;
   /** Seconds of visual time, for the stun blink. */
   t: number;
+  /** Nodes flagged `userData.detail` by the model, cached at build time. */
+  detail: THREE.Object3D[];
+  detailOn: boolean;
 }
 
 export function createVehicleSystem(ctx: GameContext): GameSystem {
@@ -50,8 +61,12 @@ export function createVehicleSystem(ctx: GameContext): GameSystem {
 
   function ensureModel(racer: Racer): void {
     if (racer.model) return;
-    attachModel(ctx, racer);
-    visuals.set(racer.id, { air: 0, t: 0 });
+    const model = attachModel(ctx, racer);
+    const detail: THREE.Object3D[] = [];
+    model.root.traverse((o) => {
+      if (o.userData.detail) detail.push(o);
+    });
+    visuals.set(racer.id, { air: 0, t: 0, detail, detailOn: true });
   }
 
   return {
@@ -70,7 +85,8 @@ export function createVehicleSystem(ctx: GameContext): GameSystem {
         const model = racer.model;
         if (!model) continue;
 
-        const vis = visuals.get(racer.id) ?? { air: 0, t: 0 };
+        const vis = visuals.get(racer.id);
+        if (!vis) continue;
         vis.t += step;
 
         // Interpolate between the last two fixed states, or the 120Hz
@@ -96,6 +112,22 @@ export function createVehicleSystem(ctx: GameContext): GameSystem {
         }
 
         model.update?.(racer, step, alpha);
+
+        // Detail LOD. Out of range it is held off every frame, because the
+        // model's own update also drives some of these (a prop disc fades in
+        // with rpm, an exhaust glow with boost) and would switch them back on.
+        // Coming back into range it is restored once, and the model owns it
+        // again from there.
+        if (vis.detail.length) {
+          const on = _pos.distanceToSquared(ctx.camera.position) < DETAIL_DISTANCE * DETAIL_DISTANCE;
+          if (!on) {
+            for (const d of vis.detail) d.visible = false;
+            vis.detailOn = false;
+          } else if (!vis.detailOn) {
+            for (const d of vis.detail) d.visible = true;
+            vis.detailOn = true;
+          }
+        }
 
         // Blink the model while spun out, and while briefly invulnerable after.
         if (racer.stunned > 0 || racer.invulnerable > 0) {
