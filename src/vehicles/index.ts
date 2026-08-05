@@ -2,37 +2,56 @@
 //
 // This is a pure `update` system. It reads simulation output and writes only to
 // scene nodes — nothing here may feed back into the simulation.
+//
+// What lives here versus in the model:
+//
+//   Here — anything true of *every* racer: interpolating the fixed-step
+//   transform, standing the model on the ground, the drift hop, the contact
+//   shadow, and the blink while spun out.
+//
+//   In the model (see rig.ts) — anything about how a particular machine
+//   *behaves*: suspension, lean, dive, the arm, the rotor, the face. Those are
+//   derived from racer state inside the model itself, so a model can be built
+//   and driven in isolation by the capture tooling with no system running.
 
 import * as THREE from 'three';
-import { clamp, clamp01, lerp } from '../core/math.ts';
+import { clamp01, damp, lerp } from '../core/math.ts';
 import { attachModel, getVehicle } from './registry.ts';
 import type { GameContext, GameSystem, Racer } from '../types.ts';
 
+/**
+ * Physics keeps `racer.pos` a fixed distance above the surface (RIDE_HEIGHT in
+ * physics/kart.ts) rather than at the contact patch. Models are built with
+ * their tyres at y = 0, as the VehicleModel contract asks, so the visual is
+ * dropped by that much along the kart's own up axis — along it, not straight
+ * down, so the wheels stay planted through banked corners too.
+ *
+ * If physics ever changes its ride height, this constant has to follow. It is
+ * the one number in this module that is not derived.
+ */
+const CONTACT_DROP = 0.55;
+
 const _pos = new THREE.Vector3();
 const _quat = new THREE.Quaternion();
+const _up = new THREE.Vector3();
+const _flat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+const _level = new THREE.Quaternion();
+const _inv = new THREE.Quaternion();
+
+interface VisualState {
+  /** 0..1 how airborne the racer looks, for the contact shadow. */
+  air: number;
+  /** Seconds of visual time, for the stun blink. */
+  t: number;
+}
 
 export function createVehicleSystem(ctx: GameContext): GameSystem {
-  // Squash-and-stretch state per racer, keyed by id.
-  const squash = new Map<number, { amount: number; vel: number }>();
-
-  // Impulses land on simulation events but integrate only on rendered frames, so
-  // they have to be bounded — otherwise a run of events between two frames
-  // (stalled tab, frame spike, headless capture) leaves the spring ringing wildly.
-  const kick = (racer: Racer, delta: number): void => {
-    const s = squash.get(racer.id);
-    if (s) s.vel = clamp(s.vel + delta, -14, 14);
-  };
-  ctx.bus.on<{ racer: Racer; impact: number }>('kart:land', ({ racer, impact }) => {
-    kick(racer, -impact * ctx.config.kart.air.landingSquash * 22);
-  });
-  ctx.bus.on<{ racer: Racer }>('kart:boost', ({ racer }) => {
-    kick(racer, 3.2); // a quick stretch on the launch
-  });
+  const visuals = new Map<number, VisualState>();
 
   function ensureModel(racer: Racer): void {
     if (racer.model) return;
     attachModel(ctx, racer);
-    squash.set(racer.id, { amount: 0, vel: 0 });
+    visuals.set(racer.id, { air: 0, t: 0 });
   }
 
   return {
@@ -44,58 +63,65 @@ export function createVehicleSystem(ctx: GameContext): GameSystem {
     },
 
     update(dt: number, alpha: number): void {
+      const step = Math.min(dt, 0.1);
+
       for (const racer of ctx.racers) {
         ensureModel(racer);
         const model = racer.model;
         if (!model) continue;
 
-        // Interpolate between the last two fixed states, or the 120Hz simulation
-        // visibly stair-steps at 60fps.
+        const vis = visuals.get(racer.id) ?? { air: 0, t: 0 };
+        vis.t += step;
+
+        // Interpolate between the last two fixed states, or the 120Hz
+        // simulation visibly stair-steps at 60fps.
         _pos.lerpVectors(racer.prevPos, racer.pos, alpha);
         _quat.copy(racer.prevQuat).slerp(racer.quat, alpha);
 
         const root = model.root;
-        root.position.copy(_pos);
         root.quaternion.copy(_quat);
+
+        // Stand it on the road. `up` comes from the kart's own orientation, so
+        // on a banked corner the drop follows the banking.
+        _up.set(0, 1, 0).applyQuaternion(_quat);
+        root.position.copy(_pos).addScaledVector(_up, -CONTACT_DROP);
 
         // Hop lifts the whole model rather than the simulated body, so the kart
         // keeps its ground contact for physics while looking airborne.
         const d = racer.drift;
         if (d.hopTime > 0) {
           const t = 1 - d.hopTime / ctx.config.kart.drift.hopTime;
-          root.position.y += Math.sin(t * Math.PI) * ctx.config.kart.drift.hopHeight * 0.5;
+          root.position.addScaledVector(
+            _up, Math.sin(t * Math.PI) * ctx.config.kart.drift.hopHeight * 0.6);
         }
 
-        // Spring the squash back to neutral; landings and boosts kick it.
-        const s = squash.get(racer.id);
-        if (s) {
-          s.vel += (0 - s.amount) * 130 * dt - s.vel * 13 * dt;
-          s.amount += s.vel * dt;
-          const sq = Math.max(-0.45, Math.min(0.45, s.amount));
-          root.scale.set(1 - sq * 0.5, 1 + sq, 1 - sq * 0.5);
-        }
-
-        model.update?.(racer, dt, alpha);
+        model.update?.(racer, step, alpha);
 
         // Blink the model while spun out, and while briefly invulnerable after.
         if (racer.stunned > 0 || racer.invulnerable > 0) {
-          const flash = Math.sin(ctx.time.elapsed * 40) > 0;
-          root.visible = racer.stunned > 0 ? true : flash;
+          root.visible = racer.stunned > 0 ? true : Math.sin(vis.t * 42) > 0;
         } else {
           root.visible = true;
         }
 
-        // Keep the blob shadow flat on the ground under a tilting kart.
+        // Contact shadow. It stays flat on the road while the kart is planted
+        // and levels off to horizontal once it leaves it, then shrinks away —
+        // a blob that follows a kart into the air is the fastest way to make a
+        // jump look weightless.
         const blob = root.getObjectByName('shadowBlob');
         if (blob) {
-          const lift = Math.max(0, _pos.y - 0.4);
-          blob.position.y = -0.5 - lift * 0.02;
-          const fade = clamp01(1 - lift * 0.12);
+          vis.air = damp(vis.air, racer.grounded ? 0 : 1, racer.grounded ? 0.0005 : 0.02, step);
+          const lift = clamp01(racer.airTime * 0.7 + vis.air * 0.2);
+          _inv.copy(_quat).invert();
+          _level.identity().slerp(_inv, vis.air);
+          blob.quaternion.copy(_level).multiply(_flat);
+          blob.position.y = 0.02 - lift * 0.02;
+          blob.scale.setScalar(lerp(1, 1.4, lift));
           const m = (blob as THREE.Mesh).material as THREE.MeshBasicMaterial;
-          m.opacity = 0.9 * fade;
-          const grow = lerp(1, 1.35, clamp01(lift * 0.1));
-          blob.scale.setScalar(grow);
+          m.opacity = 0.85 * (1 - lift * 0.85);
         }
+
+        visuals.set(racer.id, vis);
       }
     },
 
@@ -108,7 +134,7 @@ export function createVehicleSystem(ctx: GameContext): GameSystem {
           racer.visual = null;
         }
       }
-      squash.clear();
+      visuals.clear();
     },
   };
 }

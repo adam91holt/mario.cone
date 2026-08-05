@@ -81,9 +81,13 @@ export const coneCanyon: CourseDefEx = {
   points: loopFromWaypoints(WAYPOINTS, {
     width: 26,
     step: 10,
-    bankGain: 15,
-    maxBank: 0.19,
-    bankSmooth: 38,
+    bankGain: 20,
+    maxBank: 0.21,
+    // Banking has to arrive slowly. The kart's contact test treats the surface
+    // rolling out from under it as a launch, so a fast camber transition pops
+    // the whole field into the air mid-corner; ~70m of easing keeps the sweepers
+    // properly banked without ever throwing a kart off the road.
+    bankSmooth: 70,
   }),
   width: 26,
   laps: 3,

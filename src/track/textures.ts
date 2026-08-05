@@ -508,16 +508,16 @@ export function makeLightBoardTexture(): THREE.CanvasTexture {
   if (hit) return hit;
   const W = 320, H = 80;
   const [c, g] = canvas(W, H);
-  g.fillStyle = '#12151C';
+  g.fillStyle = '#232833';
   g.fillRect(0, 0, W, H);
-  g.strokeStyle = '#2A2F3A';
+  g.strokeStyle = '#4A515F';
   g.lineWidth = 4;
   g.strokeRect(2, 2, W - 4, H - 4);
   for (let i = 0; i < 5; i++) {
     const x = (i + 0.5) * (W / 5);
-    g.fillStyle = '#2A0E08';
+    g.fillStyle = '#3A1410';
     g.beginPath(); g.arc(x, H / 2, 22, 0, Math.PI * 2); g.fill();
-    g.fillStyle = 'rgba(255,120,60,0.10)';
+    g.fillStyle = 'rgba(255,140,80,0.16)';
     g.beginPath(); g.arc(x - 5, H / 2 - 6, 9, 0, Math.PI * 2); g.fill();
   }
   return finish(c, key, THREE.ClampToEdgeWrapping);

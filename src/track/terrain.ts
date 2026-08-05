@@ -72,11 +72,12 @@ function terrainHeight(d: number, sy: number, x: number, z: number, o: TerrainOp
 function colourFor(d: number, height: number, sy: number, out: THREE.Color): void {
   out.copy(C_SHOULDER).lerp(C_DUST, smoothstep(3, 40, d));
   const rel = height - sy;
-  // Exposed rock on the slopes, bleached sand on the tops.
-  out.lerp(C_ROCK, smoothstep(-4, -22, rel) * 0.75);
-  out.lerp(C_HIGH, smoothstep(6, 30, rel));
-  // A little scrub green in the sheltered low ground.
-  out.lerp(C_SCRUB, smoothstep(-2, -9, rel) * (1 - smoothstep(-14, -30, rel)) * 0.35);
+  // Exposed rock on the slopes, bleached sand on the tops, scrub in the
+  // sheltered low ground. The ramps are deliberately wide: the field mesh is
+  // coarse, and a tight ramp turns every grid cell into a visible facet.
+  out.lerp(C_ROCK, smoothstep(-8, -46, rel) * 0.7);
+  out.lerp(C_HIGH, smoothstep(4, 52, rel));
+  out.lerp(C_SCRUB, smoothstep(-1, -16, rel) * (1 - smoothstep(-20, -48, rel)) * 0.30);
 }
 
 export function buildTerrain(
@@ -232,7 +233,7 @@ function buildField(
   spline: TrackSpline, o: TerrainOptions, mat: THREE.Material, course: CourseDef,
 ): THREE.Mesh {
   const half = o.size * 0.5;
-  const CELLS = 124;
+  const CELLS = 150;
   const cell = o.size / CELLS;
 
   // Centre the field on the circuit, and remember its bounds so far-off

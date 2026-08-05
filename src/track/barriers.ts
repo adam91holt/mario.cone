@@ -49,26 +49,28 @@ export function buildBarriers(
     const at = (off: number) => (s: SplineSample): number => side * (edge(s) + off);
 
     // Footing: a battered face on the road side, a flat top, a back face.
+    // The footing's face sits just outside the line physics enforces, so a kart
+    // pressed against the barrier rests against it rather than inside it.
     const footing: Lane[] = [
-      { lat: at(-0.10), lift: () => -0.35, u: 0 },
-      { lat: at(0.06), lift: () => 0.34, u: 0.5 },
-      { lat: at(0.62), lift: () => 0.40, u: 1 },
-      { lat: at(0.72), lift: () => -0.40, u: 1.4 },
+      { lat: at(0.02), lift: () => -0.35, u: 0 },
+      { lat: at(0.16), lift: () => 0.34, u: 0.5 },
+      { lat: at(0.66), lift: () => 0.40, u: 1 },
+      { lat: at(0.76), lift: () => -0.40, u: 1.4 },
     ];
     if (side < 0) footing.reverse();
     base.addRibbon(spline, footing, { verge, step: 3, vScale: 5, closed: true });
 
     // Panel run: a board standing on the footing, plus its capping rail.
     const panel: Lane[] = [
-      { lat: at(0.30), lift: () => 0.34, u: 0 },
-      { lat: at(0.30), lift: () => 0.34 + h, u: 1 },
+      { lat: at(0.38), lift: () => 0.34, u: 0 },
+      { lat: at(0.38), lift: () => 0.34 + h, u: 1 },
     ];
     if (side < 0) panel.reverse();
     panels.addRibbon(spline, panel, { verge, step: 3, vScale: 6, closed: true });
 
     const cap: Lane[] = [
-      { lat: at(0.16), lift: () => 0.34 + h, u: 0 },
-      { lat: at(0.46), lift: () => 0.34 + h + 0.1, u: 0.28 },
+      { lat: at(0.24), lift: () => 0.34 + h, u: 0 },
+      { lat: at(0.54), lift: () => 0.34 + h + 0.1, u: 0.28 },
     ];
     if (side < 0) cap.reverse();
     panels.addRibbon(spline, cap, { verge, step: 3, vScale: 6, closed: true });
@@ -113,7 +115,7 @@ export function buildBarriers(
     for (let i = 0; i < postCount / 2; i++) {
       const d = (i / (postCount / 2)) * L;
       spline.atDistance(d, s);
-      surfacePoint(s, side * (edge(s) + 0.42), verge, 0.3, _pos);
+      surfacePoint(s, side * (edge(s) + 0.50), verge, 0.3, _pos);
       _up.copy(s.up);
       _right.copy(s.right);
       _fwd.crossVectors(_right, _up).normalize();
@@ -148,7 +150,7 @@ export function buildBarriers(
     const d = boards[i * 2] ?? 0;
     const side = boards[i * 2 + 1] ?? 1;
     spline.atDistance(d, s);
-    surfacePoint(s, side * (edge(s) + 0.30), verge, 0.34 + h + 0.72, _pos);
+    surfacePoint(s, side * (edge(s) + 0.38), verge, 0.34 + h + 0.72, _pos);
     _up.copy(s.up);
     _fwd.copy(s.tangent).multiplyScalar(-1);
     _right.crossVectors(_up, _fwd).normalize();
