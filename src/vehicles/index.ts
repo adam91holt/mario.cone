@@ -4,7 +4,7 @@
 // scene nodes — nothing here may feed back into the simulation.
 
 import * as THREE from 'three';
-import { clamp01, lerp } from '../core/math.ts';
+import { clamp, clamp01, lerp } from '../core/math.ts';
 import { attachModel, getVehicle } from './registry.ts';
 import type { GameContext, GameSystem, Racer } from '../types.ts';
 
@@ -15,13 +15,18 @@ export function createVehicleSystem(ctx: GameContext): GameSystem {
   // Squash-and-stretch state per racer, keyed by id.
   const squash = new Map<number, { amount: number; vel: number }>();
 
-  ctx.bus.on<{ racer: Racer; impact: number }>('kart:land', ({ racer, impact }) => {
+  // Impulses land on simulation events but integrate only on rendered frames, so
+  // they have to be bounded — otherwise a run of events between two frames
+  // (stalled tab, frame spike, headless capture) leaves the spring ringing wildly.
+  const kick = (racer: Racer, delta: number): void => {
     const s = squash.get(racer.id);
-    if (s) s.vel -= impact * ctx.config.kart.air.landingSquash * 22;
+    if (s) s.vel = clamp(s.vel + delta, -14, 14);
+  };
+  ctx.bus.on<{ racer: Racer; impact: number }>('kart:land', ({ racer, impact }) => {
+    kick(racer, -impact * ctx.config.kart.air.landingSquash * 22);
   });
   ctx.bus.on<{ racer: Racer }>('kart:boost', ({ racer }) => {
-    const s = squash.get(racer.id);
-    if (s) s.vel += 3.2; // a quick stretch on the launch
+    kick(racer, 3.2); // a quick stretch on the launch
   });
 
   function ensureModel(racer: Racer): void {

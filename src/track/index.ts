@@ -123,11 +123,14 @@ export function createTrackSystem(ctx: GameContext): TrackSystem {
         uvs.push(f, d / 12);
       }
     }
+    // Winding matters: `right` is tangent x up, so stepping +j then +i winds
+    // clockwise seen from above and the surface faces *down*. Ordering the
+    // triangles this way puts the face up, where the players are.
     for (let i = 0; i < N; i++) {
       for (let j = 0; j < cols; j++) {
         const a = i * (cols + 1) + j;
         const b = a + cols + 1;
-        indices.push(a, b, a + 1, b, b + 1, a + 1);
+        indices.push(a, a + 1, b, b, a + 1, b + 1);
       }
     }
 
@@ -171,9 +174,12 @@ export function createTrackSystem(ctx: GameContext): TrackSystem {
           uvs.push(u, d / 4);
         }
       }
+      // The two verges mirror each other, so their winding has to mirror too or
+      // the right-hand strip faces down and vanishes.
       for (let i = 0; i < N; i++) {
         const a = i * 2;
-        indices.push(a, a + 2, a + 1, a + 2, a + 3, a + 1);
+        if (side > 0) indices.push(a, a + 1, a + 2, a + 2, a + 1, a + 3);
+        else indices.push(a, a + 2, a + 1, a + 2, a + 3, a + 1);
       }
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));

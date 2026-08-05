@@ -10,7 +10,7 @@
 // able to influence the simulation.
 
 import * as THREE from 'three';
-import { clamp01, damp, dampAngle, lerp, ease } from '../core/math.ts';
+import { clamp, clamp01, damp, dampAngle, lerp, ease } from '../core/math.ts';
 import type { CameraMode, GameContext, GameSystem, Racer } from '../types.ts';
 
 const _desired = new THREE.Vector3();
@@ -43,7 +43,11 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
   ctx.bus.on<{ mode: CameraMode }>('camera:mode', ({ mode: m }) => { mode = m; });
   ctx.bus.on<{ racer: Racer; impact: number }>('kart:land', ({ racer, impact }) => {
     if (!racer.isPlayer) return;
-    dipVel -= impact * C.chase.landingDip * 26;
+    // Impulses arrive from the simulation but only integrate on rendered frames.
+    // If many land between two frames — a stalled tab, a frame spike, or a
+    // headless capture stepping without drawing — an unclamped accumulator
+    // launches the camera into orbit. Bound it at the source.
+    dipVel = clamp(dipVel - impact * C.chase.landingDip * 26, -18, 18);
     trauma = Math.min(1, trauma + impact * 0.35);
   });
   ctx.bus.on<{ racer: Racer; power: number }>('kart:boost', ({ racer, power }) => {
@@ -87,6 +91,11 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
 
     reset(): void {
       const p = ctx.player;
+      // Mode is sticky by design (the player can hold look-back across a lap),
+      // so a new race has to put it back or a capture inherits the previous
+      // shot's camera.
+      mode = 'chase';
+      introActive = false;
       trauma = 0; dip = 0; dipVel = 0; roll = 0;
       distance = C.chase.distance;
       height = C.chase.height;
@@ -124,8 +133,16 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
       const lookBack = ctx.inputState.look > 0.5;
       if (lookBack) targetYaw += Math.PI;
 
+      // Beyond a sane trailing distance the kart did not drive away — it was
+      // teleported (respawn, warp, or a headless capture stepping the simulation
+      // without rendering). Chasing that across the map looks broken, so the
+      // whole rig cuts to the new position. Heading has to be corrected *before*
+      // the desired position is derived from it, or the cut lands the camera the
+      // right distance away along the old heading.
+      const teleported = cam.position.distanceToSquared(_v) > 80 * 80;
+
       const yawSmooth = racer.grounded ? C.chase.yawSmoothing : C.chase.yawSmoothing * 4;
-      yaw = dampAngle(yaw, targetYaw, yawSmooth, dt);
+      yaw = teleported ? targetYaw : dampAngle(yaw, targetYaw, yawSmooth, dt);
 
       const modeDist = mode === 'far' ? 4.5 : mode === 'near' ? -2.2 : 0;
       const targetDist = C.chase.distance + modeDist
@@ -136,7 +153,7 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
 
       // Landing dip as a spring, so it overshoots and settles instead of snapping.
       dipVel += (0 - dip) * 90 * dt - dipVel * 11 * dt;
-      dip += dipVel * dt;
+      dip = clamp(dip + dipVel * dt, -3, 3);
 
       _fwd.set(Math.sin(yaw), 0, Math.cos(yaw));
       _desired.copy(_v)
@@ -145,10 +162,14 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
 
       // Position is damped rather than snapped; the kart can out-run the camera
       // for a few frames on a hard boost, which is exactly what sells the speed.
-      const posSmooth = racer.grounded ? C.chase.posSmoothing : C.chase.posSmoothing * 6;
-      cam.position.x = damp(cam.position.x, _desired.x, posSmooth, dt);
-      cam.position.y = damp(cam.position.y, _desired.y, posSmooth * 0.6, dt);
-      cam.position.z = damp(cam.position.z, _desired.z, posSmooth, dt);
+      if (teleported) {
+        cam.position.copy(_desired);
+      } else {
+        const posSmooth = racer.grounded ? C.chase.posSmoothing : C.chase.posSmoothing * 6;
+        cam.position.x = damp(cam.position.x, _desired.x, posSmooth, dt);
+        cam.position.y = damp(cam.position.y, _desired.y, posSmooth * 0.6, dt);
+        cam.position.z = damp(cam.position.z, _desired.z, posSmooth, dt);
+      }
 
       _look.copy(_v)
         .addScaledVector(_fwd, C.chase.lookAhead * (lookBack ? -0.4 : 1))

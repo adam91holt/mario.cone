@@ -63,6 +63,13 @@ const log = (...a) => { if (!OPTIONS.quiet) console.log(...a); };
 // when you add a feature that needs looking at — a feature with no shot is a
 // feature no reviewer will ever see.
 
+// `step()` advances the simulation without drawing, which costs almost nothing;
+// `advance()` renders every frame, which under software GL is the entire budget.
+// So each shot fast-forwards with step() and only renders the last moment, long
+// enough for the visual springs (camera, squash, dip) to settle. They are all
+// framerate-independent, so the settled frame is identical either way.
+const SETTLE = 0.9;
+
 const SHOTS = [
   {
     name: 'grid',
@@ -78,7 +85,8 @@ const SHOTS = [
     async run(game) {
       await game.reset({ instant: false });
       await game.seek('countdown');
-      await game.advance(2.4);
+      await game.step(1.6);
+      await game.advance(0.8);
     },
   },
   {
@@ -87,7 +95,8 @@ const SHOTS = [
     async run(game) {
       await game.reset({ instant: true });
       await game.setAutopilot(true);
-      await game.advance(9);
+      await game.step(9);
+      await game.advance(SETTLE);
     },
   },
   {
@@ -98,9 +107,10 @@ const SHOTS = [
       // guaranteed committed drift.
       await game.reset({ instant: true });
       await game.setInput({ accel: 1 });
-      await game.advance(3.2);
+      await game.step(3.2);
       await game.setInput({ accel: 1, steer: 0.85, drift: true });
-      await game.advance(1.9);
+      await game.step(1.0);
+      await game.advance(0.9);
     },
   },
   {
@@ -109,11 +119,12 @@ const SHOTS = [
     async run(game) {
       await game.reset({ instant: true });
       await game.setInput({ accel: 1 });
-      await game.advance(3.2);
+      await game.step(3.2);
       await game.setInput({ accel: 1, steer: 0.85, drift: true });
-      await game.advance(2.2);
+      await game.step(2.2);
+      // Release, then render immediately — the boost frame is the point.
       await game.setInput({ accel: 1, steer: 0.2, drift: false });
-      await game.advance(0.35);
+      await game.advance(0.3);
     },
   },
   {
@@ -122,7 +133,8 @@ const SHOTS = [
     async run(game) {
       await game.reset({ instant: true });
       await game.setAutopilot(true);
-      await game.advance(16);
+      await game.step(16);
+      await game.advance(SETTLE);
     },
   },
   {
@@ -131,9 +143,9 @@ const SHOTS = [
     async run(game) {
       await game.reset({ instant: true });
       await game.setAutopilot(true);
-      await game.advance(6);
+      await game.step(6);
       await game.setCamera('overhead');
-      await game.render();
+      await game.advance(0.3);
     },
   },
   {
@@ -143,9 +155,10 @@ const SHOTS = [
       await game.reset({ instant: true });
       await game.setAutopilot(false);
       await game.setInput({ accel: 1 });
-      await game.advance(2.5);
+      await game.step(2.5);
       await game.setInput({ accel: 1, steer: -1 });
-      await game.advance(2.2);
+      await game.step(1.4);
+      await game.advance(0.8);
     },
   },
   {
@@ -154,9 +167,9 @@ const SHOTS = [
     async run(game) {
       await game.reset({ instant: true });
       await game.setAutopilot(true);
-      await game.advance(11);
+      await game.step(11);
       await game.setCamera('far');
-      await game.advance(0.5);
+      await game.advance(SETTLE);
     },
   },
 ];
@@ -183,7 +196,12 @@ function makeGameProxy(page) {
     reset: (opts = {}) => call('reset', { vehicleId: OPTIONS.vehicle, courseId: OPTIONS.course, seed: OPTIONS.seed, ...opts }),
     step: (s) => call('step', s),
     render: () => call('render'),
-    advance: (s, fps) => call('advance', s, fps),
+    // Default to 20 rendered frames per simulated second rather than 60. The
+    // simulation still steps at the full 120Hz — only the number of *rendered*
+    // frames drops, which is what costs time on a software renderer. Every
+    // visual spring in the game is framerate-independent, so the settled frame
+    // we photograph is the same either way.
+    advance: (s, fps = 20) => call('advance', s, fps),
     setInput: (i) => call('setInput', i),
     clearInput: () => call('clearInput'),
     press: (n) => call('press', n),
@@ -337,6 +355,9 @@ async function runShots() {
         phase: snap.race?.phase,
         playerSpeed: player?.speed,
         playerPlace: player?.place,
+        playerSurface: player?.surface,
+        playerPos: player?.pos,
+        cameraPos: snap.camera?.pos,
         drifting: player?.drift?.active,
         driftTier: player?.drift?.tier,
         boosting: (player?.boost?.time ?? 0) > 0,

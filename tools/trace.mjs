@@ -102,6 +102,12 @@ for (let t = 0; t <= SECONDS; t += EVERY) {
   for (const r of list) {
     console.log(row([t.toFixed(0), ...(ALL ? [r.name] : []), ...FIELDS.map((f) => fmt(pick(r, f)))]));
   }
+  if (flag('camera')) {
+    const p = snap.racers.find((r) => r.isPlayer);
+    const c = snap.camera.pos;
+    const d = p ? Math.hypot(c[0] - p.pos[0], c[1] - p.pos[1], c[2] - p.pos[2]) : NaN;
+    console.log(`           cam ${c.map((n) => n.toFixed(1)).join(', ')}  fov ${snap.camera.fov}  distance to player ${d.toFixed(1)}m`);
+  }
   if (ALL) console.log();
 }
 
