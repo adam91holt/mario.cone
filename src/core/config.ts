@@ -36,6 +36,21 @@ export const config = {
     driftSteerSmoothing: 0.00001, // the wheel is quicker once committed
     counterSteerBoost: 1.35, // extra authority when catching a slide
 
+    // Nothing may take more than this much speed away in a single 8.3ms step.
+    // A barrier clip that removes 26 m/s inside one step does not read as a
+    // crash, it reads as the game deleting the player's race. The loss still
+    // lands — it just takes a handful of steps, which is what makes it a crunch
+    // rather than a teleport.
+    maxSpeedLoss: 8.5,       // m/s per fixed step
+    // damp() smoothing on the chassis' levelled orientation (before lean).
+    orientSmoothing: 0.0001,
+    // Body roll under ordinary grip steering: the driver leans *into* the
+    // corner. Small — the drift lean is the loud one and has to stay distinct.
+    leanRoll: 0.075,         // rad at full lock (4.3°)
+    // Weight transfer. The nose lifts under power and dives under braking.
+    pitchAccel: 0.055,       // rad at ±40 m/s^2
+    pitchSmoothing: 0.0004,
+
     grip: 17.0,              // lateral velocity killed per second
     driftGrip: 5.0,
     // Ceiling on sideways travel, as a fraction of forward speed. Without it the
@@ -57,19 +72,42 @@ export const config = {
       angleRate: 4.2,        // rad/s the chassis pivots toward its target angle
       snapAngle: 0.10,       // chassis offset at the instant the drift commits
       yawBonus: 1.70,        // extra turn rate while drifting
-      counterSteer: 0.15,    // baseline turn left when steering fully out of it
+      // Baseline turn kept when steering fully *out* of the drift. This is the
+      // width of the whole drift band: at 0.15 counter-steering read as "drive
+      // straight" and every corner spat the kart off the road before a tier-2
+      // could land. 0.45 puts the counter-steered radius at ~50m against ~23m
+      // at full lock — a 2.2:1 band, which is about where MK8 sits.
+      counterSteer: 0.45,
       yawKick: 1.60,         // ...and again, briefly, as the drift snaps in
       kickTime: 0.22,
-      chargeRate: 1.16,
+      chargeRate: 2.00,
       airChargeMul: 0.55,    // charge still builds over jumps, slower
       entryScrub: 0.012,     // committing costs a sliver of speed
-      // Charge accrues at ~1.5/s for a mid-handling kart holding full lock, so
-      // these read as roughly 0.4s / 1.0s / 1.7s of committed drift.
+      // Charge accrues at ~2.2/s for a mid-handling kart, so these read as
+      // roughly 0.35s / 0.8s / 1.35s of committed drift. Measured against the
+      // sharpest bend on Cone Canyon — a 42m-radius hairpin entered at 58 m/s —
+      // a held drift survives well past four seconds, so all three tiers are
+      // reachable there and orange is routine on an ordinary corner. Tiers you
+      // cannot reach are two thirds of the system no player will ever see.
       tiers: [
-        { at: 0.62, boost: 0.70, power: 26, color: 0x4FC3F7, name: 'blue' },
-        { at: 1.58, boost: 1.15, power: 34, color: 0xFF9800, name: 'orange' },
-        { at: 2.60, boost: 1.75, power: 43, color: 0xE040FB, name: 'purple' },
+        { at: 0.80, boost: 0.68, power: 24, color: 0x4FC3F7, name: 'blue' },
+        { at: 1.75, boost: 1.20, power: 34, color: 0xFF9800, name: 'orange' },
+        { at: 3.00, boost: 1.85, power: 46, color: 0xE040FB, name: 'purple' },
       ],
+      // Charge stops accruing a little past purple, so anything normalising it
+      // for a meter or a spark colour has a fixed range to work against.
+      chargeCap: 3.45,
+      // Body roll. The loudest visual tell the drift has: a kart that stays flat
+      // through a slide reads as a decal skating on ice. The chassis is thrown
+      // *outward*, away from the direction of the drift, and the amount tracks
+      // the chassis angle so the player can read how deep they are from the lean
+      // alone. MK8 banks 10-15°; this peaks at 13.5° at full lock.
+      roll: 0.235,           // rad at full drift angle
+      rollStiffness: 1400,   // spring in over ~5 fixed steps...
+      rollDamping: 52,
+      rollReleaseMul: 0.42,  // ...and back out over ~10
+      rollReleaseDamp: 0.68,
+
       hopHeight: 0.42,       // metres of actual air under the tyres
       hopTime: 0.32,         // and how long it lasts — the two are kept consistent
       hopGrace: 0.55,        // window after a hop in which steering still commits
@@ -96,13 +134,24 @@ export const config = {
       terminal: 70,
       control: 2.4,          // yaw authority while airborne, before speed falloff
       steerPull: 3.0,        // m/s^2 the trajectory bends toward the nose in the air
-      groundStick: 0.45,     // metres of clearance the kart still counts as planted
+      groundStick: 0.60,     // metres of clearance the kart still counts as planted
       stickRise: 1.2,        // ...unless it is climbing away faster than this
+      // One clear step is a kerb, a seam or a camber transition. The kart is
+      // only really airborne once it stays clear, and only if it is not being
+      // pressed back down — a real launch still leaves on the first step.
+      airGrace: 4,           // fixed steps of clearance before 'air' is believed
+      normalRate: 38,        // 1/s the ridden surface normal chases the real one
       trickWindow: 0.35,     // seconds after leaving the ground to input a trick
       trickMinAir: 0.30,     // ...and the airtime a trick has to survive to pay out
       trickMinLaunch: 3.0,   // m/s of upward launch that counts as a real jump
       landingSquash: 0.34,
       landingScrub: 0.16,    // fraction of speed lost on the hardest landing
+      // Downward speed that reads as a full-strength landing. Everything keyed
+      // off `kart:land` impact — squash, dust, thump — is scaled by this, so a
+      // drift hop has to report a real number even though it costs no speed.
+      impactScale: 13,
+      pitch: 0.20,           // rad the nose follows the trajectory in flight
+      leanMul: 0.55,         // body roll keeps this fraction of itself airborne
     },
 
     // Coins raise top speed, exactly like MK8. Ten is the cap.
@@ -120,12 +169,21 @@ export const config = {
     },
 
     wall: {
-      restitution: 0.35,     // how much of a square hit comes back at you
-      scrub: 0.60,           // fraction of speed lost on a dead-square first hit
-      grind: 11,             // m/s^2 bled while scraping along it afterwards
-      driftBreak: 0.30,      // squareness above which a drift is knocked loose
+      // Restitution and scrub are both weighted by how *square* the hit was, so
+      // a glancing rail contact is a scrape you keep driving through and only a
+      // genuine head-on throws the kart back. A rail that bounces a drifting
+      // kart across the road is worse than no rail at all.
+      restitution: 0.28,     // how much of a square hit comes back at you
+      scrub: 0.46,           // fraction of speed lost on a dead-square first hit
+      grind: 9,              // m/s^2 bled while scraping along it afterwards
+      driftBreak: 0.55,      // squareness above which a drift is knocked loose
+      driftBleed: 0.9,       // charge/s a shallower scrape costs instead
+      driftLockout: 0.30,    // ...and how long before a held button may hop again
       deflect: 1.6,          // how squarely you have to hit before the nose is turned
       deflectRate: 5.0,      // ...and how fast, per second, once it is
+      // Clearance between the kart's own flank and the barrier face, so a kart
+      // pressed against the rail rests against it instead of inside it.
+      gap: 0.3,
     },
 
     hitStun: { spin: 1.5, squish: 2.2, bump: 0.55 },

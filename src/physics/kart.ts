@@ -19,7 +19,10 @@
 // Math.random — the automated critics replay runs and diff them.
 
 import * as THREE from 'three';
-import { angleDelta, clamp01, damp, lerp, moveToward, sign } from '../core/math.ts';
+import {
+  angleDelta, clamp, clamp01, damp, lerp, moveToward, sign, smoothstep, spring,
+} from '../core/math.ts';
+import { getVehicle } from '../vehicles/registry.ts';
 import type {
   GameContext, GameSystem, Racer, Surface, SplineSample, BoostSource, VehicleStats,
 } from '../types.ts';
@@ -34,8 +37,19 @@ const _groundNormal = new THREE.Vector3();
 const _draftFwd = new THREE.Vector3();
 const _draftTo = new THREE.Vector3();
 const _q = new THREE.Quaternion();
+const _qLean = new THREE.Quaternion();
 const _m = new THREE.Matrix4();
+const WORLD_UP = new THREE.Vector3(0, 1, 0);
+/** Chassis-local axes: roll is about the nose, pitch about the axle. */
+const AXIS_ROLL = new THREE.Vector3(0, 0, 1);
+const AXIS_PITCH = new THREE.Vector3(1, 0, 0);
 const _sample: SplineSample = {
+  pos: new THREE.Vector3(), tangent: new THREE.Vector3(),
+  right: new THREE.Vector3(), up: new THREE.Vector3(),
+  width: 0, bank: 0, curvature: 0, distance: 0, t: 0, index: 0,
+};
+
+const _sample2: SplineSample = {
   pos: new THREE.Vector3(), tangent: new THREE.Vector3(),
   right: new THREE.Vector3(), up: new THREE.Vector3(),
   width: 0, bank: 0, curvature: 0, distance: 0, t: 0, index: 0,
@@ -134,6 +148,33 @@ interface KartRuntime {
   /** Sign of last step's lateral slip, so counter-steer can be detected before
    *  the heading is rotated. One 120Hz step of latency is invisible. */
   slipDir: number;
+  /** Levelled chassis orientation, before lean and pitch are laid on top. */
+  base: THREE.Quaternion;
+  baseSet: boolean;
+  /** The surface normal the kart is actually riding on — the raw one, eased.
+   *  This is the suspension: it is what stops a seam in the road model from
+   *  reading as a ramp. */
+  normal: THREE.Vector3;
+  normalSet: boolean;
+  /** Body roll about the nose, and the spring driving it. Positive leans left. */
+  roll: number;
+  rollVel: number;
+  /** Weight transfer about the axle. Positive is nose-down. */
+  pitch: number;
+  pitchVel: number;
+  /** Smoothed longitudinal acceleration, -1..1, feeding that pitch. */
+  accelFeel: number;
+  /** Consecutive steps with daylight under the wheels. */
+  airSteps: number;
+  /** Seconds during which a held drift button may not start a new hop. Set when
+   *  a barrier knocks a drift loose, so the kart does not hop straight back into
+   *  the wall it just bounced off. */
+  driftLockout: number;
+  /** Half the vehicle's own width, cached off its definition. */
+  halfWidth: number;
+  /** Last step's contact test, recorded for the diagnostics probe only. */
+  lastHeight: number;
+  lastRising: number;
 }
 
 function newRuntime(): KartRuntime {
@@ -142,6 +183,10 @@ function newRuntime(): KartRuntime {
     launchVy: 0, trickWindow: 0, trickArmed: false,
     draft: 0, draftAmount: 0, draftTarget: -1, draftCooldown: 0,
     offroad: false, onPad: false, wallContact: false, slipCap: 0.3, slipDir: 0,
+    base: new THREE.Quaternion(), baseSet: false,
+    normal: new THREE.Vector3(0, 1, 0), normalSet: false,
+    roll: 0, rollVel: 0, pitch: 0, pitchVel: 0, accelFeel: 0,
+    airSteps: 0, halfWidth: 0.8, driftLockout: 0, lastHeight: 0, lastRising: 0,
   };
 }
 
@@ -151,7 +196,16 @@ export function createKartPhysics(ctx: GameContext): GameSystem {
 
   const stateOf = (racer: Racer): KartRuntime => {
     let s = runtime.get(racer.id);
-    if (!s) { s = newRuntime(); runtime.set(racer.id, s); }
+    if (!s) {
+      s = newRuntime();
+      // A barrier has to hold the kart's *flank*, not its centre, or a wide
+      // machine ends up visibly inside the panels. Cached once: the definition
+      // never changes for the life of a racer.
+      s.halfWidth = clamp(getVehicle(racer.vehicleId).size.width * 0.5, 0.7, 1.5);
+      s.base.copy(racer.quat);
+      s.baseSet = true;
+      runtime.set(racer.id, s);
+    }
     return s;
   };
 
@@ -160,6 +214,23 @@ export function createKartPhysics(ctx: GameContext): GameSystem {
    * The road, the verge and the open ground each have their own answer.
    */
   function sampleGround(racer: Racer): Surface {
+    const surf = rawGround(racer);
+    // Suspension. The road is a resampled spline, and where two of its segments
+    // meet the normal can swing several degrees inside a single 8ms step. The
+    // launch test reads exactly that swing, so an un-eased normal turns every
+    // seam on a descent into a jump and the kart skips down the hill three
+    // times a second. A real chassis cannot react that fast, and neither should
+    // this one — but the ease is quick enough that the lip of a genuine ramp
+    // still reads as a ramp two steps later.
+    const st = stateOf(racer);
+    if (!st.normalSet) { st.normal.copy(_groundNormal); st.normalSet = true; }
+    st.normal.lerp(_groundNormal, 1 - Math.exp(-K.air.normalRate * ctx.config.sim.fixedDt))
+      .normalize();
+    _groundNormal.copy(st.normal);
+    return surf;
+  }
+
+  function rawGround(racer: Racer): Surface {
     const track = ctx.track;
     if (!track) {
       _groundPoint.set(racer.pos.x, 0, racer.pos.z);
@@ -187,8 +258,17 @@ export function createKartPhysics(ctx: GameContext): GameSystem {
       _groundNormal.copy(s.up);
       return (track.course.vergeSurface ?? 'dirt') as Surface;
     }
-    _groundPoint.set(racer.pos.x, track.course.groundY ?? -0.6, racer.pos.z);
-    _groundNormal.set(0, 1, 0);
+    // Beyond the shoulder the world is the terrain module's embankment: it falls
+    // away from the shoulder edge and only settles to the ground datum hundreds
+    // of metres out. Snapping straight to that datum here would put a ten-metre
+    // cliff one centimetre past the verge, and a kart brushing that line reads as
+    // airborne for a step, planted the next, forever. Follow the embankment
+    // instead, and level the frame off as it flattens.
+    const beyond = a - half - vergeW;
+    const emb = 0.35 + 5.4 * smoothstep(beyond / 26);
+    _groundPoint.copy(s.pos).addScaledVector(s.right, lateral).addScaledVector(s.up, -0.35);
+    _groundPoint.y -= emb - 0.35;
+    _groundNormal.copy(s.up).lerp(WORLD_UP, clamp01(beyond / 20)).normalize();
     return (track.course.offSurface ?? 'grass') as Surface;
   }
 
@@ -347,6 +427,7 @@ export function createKartPhysics(ctx: GameContext): GameSystem {
 
     const st = stateOf(racer);
     const d = racer.drift;
+    const speed0 = racer.speed;
 
     // A CPU driver, when present, authors this racer's input — including for the
     // player's kart under autopilot. Only a driverless racer reads the human.
@@ -390,21 +471,41 @@ export function createKartPhysics(ctx: GameContext): GameSystem {
     // several times a lap. So: stay planted while we are close to the ground and
     // not genuinely climbing away from it.
     const rising = racer.vel.dot(_groundNormal);
-    racer.grounded = height <= RIDE_HEIGHT + 0.02
+    st.lastHeight = height;
+    st.lastRising = rising;
+    const planted = height <= RIDE_HEIGHT + 0.02
       || (wasGrounded && height <= RIDE_HEIGHT + K.air.groundStick && rising < K.air.stickRise);
+    if (planted) st.airSteps = 0; else st.airSteps++;
+    // ...and one clear step is never a jump. A seam in the surface model, a
+    // camber transition or a kerb can open a few centimetres of daylight for a
+    // single 8ms step, and calling that 'air' makes the surface flag chatter
+    // uselessly for anything reading it. A kart that is actually climbing away
+    // still leaves on the very first step — this grace only holds down a kart
+    // that is falling or level.
+    racer.grounded = planted
+      || (wasGrounded && rising <= 0 && st.airSteps <= K.air.airGrace
+        && height <= RIDE_HEIGHT + K.air.groundStick * 2);
 
     if (racer.grounded) {
       const prevSurface = racer.surface;
       racer.surface = surf;
 
       if (!wasGrounded) {
-        // Impact is what the wheels actually took: how hard we came down, with a
-        // little credit for how long we hung there. A drift hop is free — it
-        // happens dozens of times a lap and must never feel like a tax.
+        // Two different numbers, because they answer two different questions.
+        //
+        // `impact` is what the landing *looks* like — how hard the wheels came
+        // down. Every landing has one, including a drift hop, because the squash,
+        // the dust and the thump all key off this payload and a landing that
+        // reports zero is a landing nobody can see or hear.
+        //
+        // `cost` is what it takes off the clock, and there the free energy the
+        // hop itself put in is refunded: hops happen dozens of times a lap and
+        // must never feel like a tax.
         const down = Math.max(0, -racer.vel.dot(_groundNormal));
         const free = st.fromHop ? Math.sqrt(2 * K.air.gravity * K.drift.hopHeight) : 0;
         const hang = Math.max(0, racer.airTime - (st.fromHop ? K.drift.hopTime : 0));
-        const impact = clamp01(Math.max(0, down - free) / 20 + hang * 0.25);
+        const impact = clamp01(down / K.air.impactScale + hang * 0.30);
+        const cost = clamp01(Math.max(0, down - free) / K.air.impactScale + hang * 0.30);
         const tricked = st.trickArmed && racer.airTime >= K.air.trickMinAir;
 
         if (tricked) {
@@ -413,13 +514,17 @@ export function createKartPhysics(ctx: GameContext): GameSystem {
           applyBoost(racer, 'trick', K.boost.trick.time, K.boost.trick.power);
           ctx.bus.emit('kart:trick', { racer, impact });
         } else {
-          racer.speed *= 1 - impact * K.air.landingScrub;
+          racer.speed *= 1 - cost * K.air.landingScrub;
         }
         racer.effects.delete('trick');
         st.trickArmed = false;
         st.trickWindow = 0;
         st.fromHop = false;
-        ctx.bus.emit('kart:land', { racer, impact, tricked });
+        // The landing squash the fx and vehicle rigs play is sized off `impact`,
+        // and `airTime` tells them whether it was a hop or a flight.
+        ctx.bus.emit('kart:land', {
+          racer, impact, tricked, airTime: racer.airTime, surface: racer.surface,
+        });
       }
 
       racer.airTime = 0;
@@ -427,8 +532,14 @@ export function createKartPhysics(ctx: GameContext): GameSystem {
       // position from the spline projection would also discard the kart's
       // along-track residual, which at speed cancels forward motion outright.
       racer.pos.addScaledVector(_groundNormal, RIDE_HEIGHT - height);
-      const into = racer.vel.dot(_groundNormal);
-      if (into < 0) racer.vel.addScaledVector(_groundNormal, -into);
+      // Glue the velocity to the surface. Removing only the *downward* part left
+      // the outward part intact, so on every descent the kart carried its old
+      // horizontal velocity off the falling road, went ballistic, landed, and
+      // did it again — a kart skipping down the hill at three hops a second.
+      // A launch does not need that leak: a kart rolling up a ramp already has
+      // its velocity in the ramp's plane, which points at the sky, so the moment
+      // the lip stops holding it down it leaves on a proper arc.
+      racer.vel.addScaledVector(_groundNormal, -racer.vel.dot(_groundNormal));
 
       // Leaving tarmac has to read on the very first frame, not two seconds
       // later once drag has done its work.
@@ -518,9 +629,16 @@ export function createKartPhysics(ctx: GameContext): GameSystem {
     if (d.hopTime > 0) d.hopTime = Math.max(0, d.hopTime - dt);
     if (st.hopGrace > 0) st.hopGrace = Math.max(0, st.hopGrace - dt);
     if (st.kickTime > 0) st.kickTime = Math.max(0, st.kickTime - dt);
+    if (st.driftLockout > 0) st.driftLockout = Math.max(0, st.driftLockout - dt);
 
     if (!frozen && racer.stunned <= 0) {
-      const fastEnough = racer.speed > K.drift.minSpeed;
+      // A kart still pressed against a barrier, or one a barrier has just
+      // knocked out of a drift, may not start a new one. Without this a player
+      // holding the button hops straight back into the wall they just hit,
+      // every step, and each hop hands the airborne branch a velocity that is
+      // pointing the wrong way relative to the nose.
+      const mayStart = st.driftLockout <= 0 && !st.wallContact;
+      const fastEnough = racer.speed > K.drift.minSpeed && mayStart;
 
       // 1. Press hops. Always. The hop is the anticipation beat — the kart leaves
       //    the ground before it commits to anything.
@@ -575,7 +693,7 @@ export function createKartPhysics(ctx: GameContext): GameSystem {
             * lerp(0.85, 1.12, into)
             * clamp01(racer.speed / (K.maxSpeed * 0.5))
             * (racer.grounded ? 1 : K.drift.airChargeMul);
-          d.charge += chargeRate * dt;
+          d.charge = Math.min(d.charge + chargeRate * dt, K.drift.chargeCap);
 
           const tiers = K.drift.tiers;
           let tier: 0 | 1 | 2 | 3 = 0;
@@ -663,8 +781,7 @@ export function createKartPhysics(ctx: GameContext): GameSystem {
       // Split velocity into "along the heading" and "sideways", then eat the
       // sideways part. How fast it is eaten *is* the handling model.
       _v.copy(racer.vel);
-      const vertical = _v.dot(_groundNormal);
-      _v.addScaledVector(_groundNormal, -vertical);
+      _v.addScaledVector(_groundNormal, -_v.dot(_groundNormal));
 
       _lat.copy(_v).addScaledVector(_fwd, -_v.dot(_fwd));
       const gripBase = d.active ? K.driftGrip : K.grip;
@@ -710,14 +827,25 @@ export function createKartPhysics(ctx: GameContext): GameSystem {
       // being free speed and makes the mini-turbo the thing you are paid with.
       const along = Math.sqrt(Math.max(0, racer.speed * racer.speed - latSpeed * latSpeed))
         * (racer.speed < 0 ? -1 : 1);
-      racer.vel.copy(_fwd).multiplyScalar(along).add(_lat).addScaledVector(_groundNormal, vertical);
+      racer.vel.copy(_fwd).multiplyScalar(along).add(_lat);
     } else {
       // Airborne: momentum rules, but the nose still drags the trajectory around
       // a little so a jump is steerable rather than a cutscene.
       _v.copy(racer.vel);
       _v.y = 0;
       const horizSpeed = _v.length();
-      racer.speed = horizSpeed * (_v.dot(_fwd) >= 0 ? 1 : -1);
+      // Signed ground speed — but the sign is *sticky*. A barrier strips the
+      // into-wall part of the velocity, which can leave the trajectory pointing
+      // behind the nose for a step or two; a naive sign test then rewrites
+      // +46 m/s as -46 m/s in one step and the kart is suddenly doing 170 km/h
+      // backwards. Reversing has to be something the kart *did*, so it takes a
+      // trajectory within ~30° of dead astern to flip, and much less to flip
+      // back.
+      const alongNose = _v.dot(_fwd);
+      const back = racer.speed < -0.5
+        ? alongNose < 0.3 * horizSpeed
+        : alongNose < -0.85 * horizSpeed;
+      racer.speed = horizSpeed * (back ? -1 : 1);
       if (horizSpeed > 0.001) {
         const pull = Math.min(1, (K.air.steerPull * dt) / Math.max(1, horizSpeed));
         racer.vel.x = lerp(racer.vel.x, _fwd.x * racer.speed, pull);
@@ -730,17 +858,31 @@ export function createKartPhysics(ctx: GameContext): GameSystem {
     // ── barriers ──────────────────────────────────────────────────────────
     if (ctx.track && ctx.track.course.walls !== false) {
       const s = ctx.track.spline.nearest(racer.pos, _sample);
-      const limit = s.width * 0.5 + (ctx.track.course.vergeWidth ?? 5) - 0.8;
+      // The barrier stops the kart's *flank*, not the point at its centre.
+      // Holding the centre on the old line left a wide machine standing inside
+      // the panels, which reads as the collision being fake.
+      const limit = s.width * 0.5 + (ctx.track.course.vergeWidth ?? 5)
+        - st.halfWidth - K.wall.gap;
       const lateral = s.lateral ?? 0;
       let touching = false;
       if (Math.abs(lateral) > limit) {
-        const over = Math.abs(lateral) - limit;
-        racer.pos.addScaledVector(s.right, -sign(lateral) * over);
-        const intoWall = racer.vel.dot(s.right) * sign(lateral);
+        const outward = sign(lateral);
+        // Push straight back out along the barrier's own normal, to the line and
+        // no further, so a kart held against the rail rides along it rather than
+        // being flicked off it.
+        racer.pos.addScaledVector(s.right, -outward * (Math.abs(lateral) - limit));
+        const intoWall = racer.vel.dot(s.right) * outward;
         if (intoWall > 0) {
           touching = true;
-          const squareness = clamp01(intoWall / Math.max(5, Math.abs(racer.speed)));
-          racer.vel.addScaledVector(s.right, -sign(lateral) * intoWall * (1 + K.wall.restitution));
+          // 0 is a graze down the rail, 1 is dead head-on. Everything the wall
+          // does is weighted by it, quadratically, so the punishment tracks the
+          // mistake instead of being a flat tax on touching the scenery.
+          const squareness = clamp01(intoWall / Math.max(8, Math.abs(racer.speed)));
+          // Kill the component going into the barrier, and only give a square hit
+          // anything back. A rail that bounces a drifting kart across the road is
+          // worse than no rail at all.
+          const rest = K.wall.restitution * squareness * squareness;
+          racer.vel.addScaledVector(s.right, -outward * intoWall * (1 + rest));
 
           if (!st.wallContact) {
             // The impact itself: one bite, sized by how square the hit was. A
@@ -748,12 +890,24 @@ export function createKartPhysics(ctx: GameContext): GameSystem {
             // you made. Charging this every step instead would compound at
             // 120Hz and stop the kart dead, which is not a wall — that is glue.
             racer.speed *= 1 - K.wall.scrub * squareness * squareness;
-            if (squareness > 0.12) ctx.bus.emit('kart:wall', { racer, force: squareness });
-            if (squareness > K.wall.driftBreak && d.active) releaseDrift(racer, false);
+            if (squareness > 0.08) {
+              ctx.bus.emit('kart:wall', { racer, force: squareness, surface: racer.surface });
+            }
+            // Only a real hit knocks the drift loose. Brushing the rail
+            // mid-corner is part of driving a kart racer, and losing a charged
+            // mini-turbo to it is the single most demoralising thing a barrier
+            // can do — so a shallow scrape just eats into the charge instead.
+            if (squareness > K.wall.driftBreak && d.active) {
+              releaseDrift(racer, false);
+              st.driftLockout = K.wall.driftLockout;
+            }
           } else {
             // Scraping along it: a steady rub you can drive out of.
-            racer.speed -= K.wall.grind * (0.25 + squareness) * dt;
+            racer.speed -= K.wall.grind * (0.12 + squareness) * dt;
             if (racer.speed < 0) racer.speed = 0;
+          }
+          if (d.active && squareness <= K.wall.driftBreak) {
+            d.charge = Math.max(0, d.charge - K.wall.driftBleed * squareness * dt);
           }
 
           // Deflect the nose along the barrier instead of leaving the kart
@@ -768,6 +922,14 @@ export function createKartPhysics(ctx: GameContext): GameSystem {
       st.wallContact = touching;
     }
 
+    // Whatever just happened — barrier, landing, gravel — no single 8.3ms step
+    // may delete more than this much speed. Instantaneous losses of 25 m/s do
+    // not read as a crash; they read as the game reaching in and stopping the
+    // kart. The full loss still lands, it just takes a few steps to arrive.
+    if (racer.grounded && speed0 - racer.speed > K.maxSpeedLoss) {
+      racer.speed = speed0 - K.maxSpeedLoss;
+    }
+
     // ── orientation ───────────────────────────────────────────────────────
     // Chassis yaw includes the drift offset, so the kart visibly points into the
     // slide while still travelling along its heading.
@@ -775,12 +937,53 @@ export function createKartPhysics(ctx: GameContext): GameSystem {
     _fwd.set(Math.sin(visualYaw), 0, Math.cos(visualYaw));
     _fwd.addScaledVector(_groundNormal, -_fwd.dot(_groundNormal)).normalize();
     if (racer.grounded) _up.copy(_groundNormal);
-    else _up.set(0, 1, 0);
+    else _up.copy(WORLD_UP);
     _right.crossVectors(_up, _fwd).normalize();
     _m.makeBasis(_right, _up, _fwd);
     _q.setFromRotationMatrix(_m);
-    // Ease into the target orientation so kerbs and crests do not snap the kart.
-    racer.quat.slerp(_q, 1 - Math.pow(0.0001, dt));
+    // Ease into the levelled orientation so kerbs and crests do not snap the
+    // kart. Lean and pitch are laid on top of *this*, not folded into it, so
+    // they keep their own — much faster — springs.
+    if (!st.baseSet) { st.base.copy(_q); st.baseSet = true; }
+    st.base.slerp(_q, 1 - Math.pow(K.orientSmoothing, dt));
+
+    // ── lean ──────────────────────────────────────────────────────────────
+    // The loudest thing the drift says. Under grip the body tips *into* the
+    // corner the way a driver does — a few degrees, barely conscious. Committed
+    // to a drift it is thrown the other way, hard, and the amount tracks the
+    // chassis angle, so a player reads how deep they are from the lean alone
+    // before a single spark has been drawn.
+    //
+    // Sign: a positive rotation about the nose tips the roof toward the kart's
+    // left. A right-hand drift (dir +1) therefore leans left — outward, away
+    // from the corner — and a right-hand grip turn leans right, into it.
+    const angFrac = clamp01(Math.abs(d.angle) / Math.max(0.01, K.drift.maxAngle));
+    const leanSpeed = clamp01(Math.abs(racer.speed) / (K.maxSpeed * 0.42));
+    let rollTarget = d.dir !== 0
+      ? K.drift.roll * d.dir * angFrac * lerp(0.55, 1, leanSpeed)
+      : -K.leanRoll * racer.steerAngle * leanSpeed;
+    if (!racer.grounded) rollTarget *= K.air.leanMul;
+
+    // Asymmetric spring: it snaps out in about five steps and settles back over
+    // ten. Weight goes on quickly and comes off slowly — the other way round
+    // reads as a glitch.
+    const growing = Math.abs(rollTarget) > Math.abs(st.roll);
+    const stiff = growing ? K.drift.rollStiffness : K.drift.rollStiffness * K.drift.rollReleaseMul;
+    const damping = growing ? K.drift.rollDamping : K.drift.rollDamping * K.drift.rollReleaseDamp;
+    [st.roll, st.rollVel] = spring(st.roll, st.rollVel, rollTarget, stiff, damping, dt);
+
+    // Weight transfer. The nose lifts under power, dives under braking, and in
+    // the air follows the trajectory so a jump has an arc rather than a slide.
+    st.accelFeel = damp(
+      st.accelFeel, clamp((racer.speed - speed0) / dt / 40, -1, 1), K.pitchSmoothing, dt);
+    let pitchTarget = -K.pitchAccel * st.accelFeel;
+    if (!racer.grounded) pitchTarget -= K.air.pitch * clamp(racer.vel.y / 18, -1, 1);
+    [st.pitch, st.pitchVel] = spring(
+      st.pitch, st.pitchVel, pitchTarget, K.drift.rollStiffness * 0.35, K.drift.rollDamping * 0.7, dt);
+
+    racer.quat.copy(st.base)
+      .multiply(_qLean.setFromAxisAngle(AXIS_ROLL, st.roll))
+      .multiply(_qLean.setFromAxisAngle(AXIS_PITCH, st.pitch));
   }
 
   /** Racer-vs-racer bumping. O(n^2) is fine for 12 karts. */
@@ -807,6 +1010,81 @@ export function createKartPhysics(ctx: GameContext): GameSystem {
         ctx.bus.emit('kart:bump', { a, b, force: push });
       }
     }
+  }
+
+  // ── diagnostics ───────────────────────────────────────────────────────────
+  //
+  // `window.__GAME.snapshot()` is core's contract with the review pipeline and is
+  // deliberately small and stable. This is physics' own instrument panel: the
+  // numbers you need to answer "is the drift model actually doing what it says"
+  // — lean, slip angle, wall contact, ride height — without attaching a
+  // debugger. Read-only, computed on demand, costs nothing when nobody asks.
+  const probe = (id = 0): Record<string, number | string | boolean> | null => {
+    const racer = ctx.racers.find((r) => r.id === id) ?? ctx.player;
+    if (!racer) return null;
+    const st = stateOf(racer);
+    _v.copy(racer.vel); _v.y = 0;
+    _fwd.set(Math.sin(racer.yaw), 0, Math.cos(racer.yaw));
+    const slip = _v.length() > 0.5 ? Math.acos(clamp(_v.dot(_fwd) / _v.length(), -1, 1)) : 0;
+    _up.set(0, 1, 0).applyQuaternion(racer.quat);
+    const s = ctx.track ? ctx.track.sample(racer.pos, _sample) : null;
+    return {
+      t: ctx.race.time,
+      speed: racer.speed,
+      surface: racer.surface,
+      grounded: racer.grounded,
+      airTime: racer.airTime,
+      y: racer.pos.y,
+      lateral: s?.lateral ?? 0,
+      halfWidth: s ? s.width * 0.5 : 0,
+      /** Straight-line distance from the kart to the centreline point the
+       *  surface query matched. It should never exceed the road half-width plus
+       *  the verge; if it does, the kart and the road it thinks it is on have
+       *  come apart. */
+      splineDist: s ? racer.pos.distanceTo(s.pos) : 0,
+      sx: s ? s.pos.x : 0, sy: s ? s.pos.y : 0, sz: s ? s.pos.z : 0,
+      px: racer.pos.x, py: racer.pos.y, pz: racer.pos.z,
+      /** Brute-force truth, for cross-checking the accelerated query above. */
+      ...(() => {
+        const t = ctx.track;
+        if (!t) return { trueDist: 0, trueLateral: 0, trueD: 0 };
+        let bestD = Infinity, bestAt = 0;
+        for (let d = 0; d < t.spline.length; d += 2) {
+          const q = t.spline.atDistance(d, _sample2);
+          const dd = q.pos.distanceTo(racer.pos);
+          if (dd < bestD) { bestD = dd; bestAt = d; }
+        }
+        const q = t.spline.atDistance(bestAt, _sample2);
+        _v.subVectors(racer.pos, q.pos);
+        return { trueDist: bestD, trueLateral: _v.dot(q.right), trueD: bestAt };
+      })(),
+      curvature: s?.curvature ?? 0,
+      driftActive: racer.drift.active,
+      dir: racer.drift.dir,
+      charge: racer.drift.charge,
+      tier: racer.drift.tier,
+      angle: racer.drift.angle,
+      roll: st.roll,
+      /** Degrees the chassis leans against the surface it is standing on. */
+      leanDeg: st.roll * 180 / Math.PI,
+      pitch: st.pitch,
+      // Degrees the roof is off vertical — the number a reviewer measures the
+      // bank with, straight off the published quaternion.
+      bankDeg: Math.acos(clamp(_up.y, -1, 1)) * 180 / Math.PI,
+      slipDeg: slip * 180 / Math.PI,
+      steerAngle: racer.steerAngle,
+      vy: racer.vel.y,
+      height: st.lastHeight,
+      rising: st.lastRising,
+      nose: _v.length() > 0.5 ? _v.dot(_fwd) / _v.length() : 1,
+      boostTime: racer.boost.time,
+      boostSource: racer.boost.source ?? '',
+      draft: st.draftAmount,
+      wall: st.wallContact,
+    };
+  };
+  if (typeof globalThis !== 'undefined') {
+    (globalThis as unknown as Record<string, unknown>).__PHYSICS = { probe };
   }
 
   return {
