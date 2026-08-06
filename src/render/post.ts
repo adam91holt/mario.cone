@@ -136,19 +136,31 @@ void main() {
   float ca = uAberration * r2;
   vec3 col = sampleScene(uv, ca);
 
-  // Boost: the frame stretches away from the middle. Cheap, coherent, and it
-  // sells speed harder than any particle can.
+  // ── Boost ──────────────────────────────────────────────────────────────
+  // A directional streak, not a blur: every pixel smears along the line back
+  // toward the middle of the frame, which is the direction the world is
+  // actually travelling past the camera. Eight taps rather than four, jittered
+  // per pixel so a long streak does not come apart into ghosts, and roughly
+  // four times the reach — at full boost the corners of the frame drag about
+  // eighty pixels, which is the difference between an effect you notice and an
+  // effect the reviewer has to be told about.
+  //
+  // Uniform branch, so it costs nothing on the ninety-odd percent of frames
+  // where nobody is boosting.
   if (uBoost > 0.002) {
-    float stretch = uBoost * r2 * 0.020;
-    vec3 acc = col;
-    float w = 1.0;
-    for (int i = 1; i < 5; i++) {
-      float f = float(i) * 0.25;
-      float k = 1.0 - f * 0.55;
+    float stretch = uBoost * (0.010 + r2 * 0.036);
+    float jitter = mcDither(gl_FragCoord.xy) + 0.5;
+    vec3 acc = vec3(0.0);
+    float w = 0.0;
+    for (int i = 0; i < 8; i++) {
+      float f = (float(i) + jitter) * 0.125;
+      float k = 1.0 - f * 0.62;
       acc += sampleScene(uv - toCentre * (stretch * f), ca) * k;
       w += k;
     }
-    col = acc / w;
+    // Held back a little in the very middle of the frame so the kart itself
+    // stays sharp while the world tears past it.
+    col = mix(col, acc / w, clamp(0.30 + r2 * 0.55, 0.0, 1.0));
   }
 
   // ── Depth ──────────────────────────────────────────────────────────────
@@ -190,16 +202,67 @@ void main() {
 
   col = mcGrade(col * uExposure);
 
-  // A wide, gentle vignette. High-key means the corners fall off, not close.
-  col *= 1.0 - uVignette * smoothstep(0.50, 1.90, r2 * (1.0 + uBoost * 0.45));
+  // A wide, gentle vignette. High-key means the corners fall off, not close —
+  // until a boost, when it closes down hard and fast and the frame narrows
+  // around the kart.
+  float vig = uVignette * (1.0 + uBoost * 1.9);
+  col *= 1.0 - vig * smoothstep(0.50 - uBoost * 0.34, 1.90, r2);
 
   // Warm the frame while boosting — the whole picture leans into it.
-  col = mix(col, col * vec3(1.10, 1.02, 0.90), clamp(uBoost, 0.0, 1.0) * 0.35);
+  col = mix(col, col * vec3(1.24, 1.06, 0.80), clamp(uBoost, 0.0, 1.0) * 0.85);
 
   col = mcLinearToSRGB(col);
   col += mcDither(gl_FragCoord.xy) * (1.4 / 255.0);
 
   gl_FragColor = vec4(col, 1.0);
+}`;
+
+/**
+ * FXAA 3.11's console preset, near enough.
+ *
+ * The engine asks for an antialiased canvas, and then the post stack renders
+ * into an offscreen target and hands the canvas a fullscreen quad — at which
+ * point the canvas's own multisampling has nothing left to resolve. So the
+ * effects tier was shipping *worse* edges than the tier with no effects at all.
+ * This buys them back at the end of the chain, after the grade, where the
+ * luminance the filter reasons about is the luminance the player sees.
+ */
+const FXAA_FRAG = /* glsl */ `
+uniform sampler2D tFrame;
+uniform vec2 uTexel;
+varying vec2 vUv;
+
+float mcLuma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+
+void main() {
+  vec3 m = texture2D(tFrame, vUv).rgb;
+  float lM  = mcLuma(m);
+  float lNW = mcLuma(texture2D(tFrame, vUv + uTexel * vec2(-1.0, -1.0)).rgb);
+  float lNE = mcLuma(texture2D(tFrame, vUv + uTexel * vec2( 1.0, -1.0)).rgb);
+  float lSW = mcLuma(texture2D(tFrame, vUv + uTexel * vec2(-1.0,  1.0)).rgb);
+  float lSE = mcLuma(texture2D(tFrame, vUv + uTexel * vec2( 1.0,  1.0)).rgb);
+
+  float lMin = min(lM, min(min(lNW, lNE), min(lSW, lSE)));
+  float lMax = max(lM, max(max(lNW, lNE), max(lSW, lSE)));
+
+  // Flat enough to leave alone. This is most of the frame, and skipping it is
+  // what makes the pass affordable.
+  if (lMax - lMin < max(0.028, lMax * 0.115)) {
+    gl_FragColor = vec4(m, 1.0);
+    return;
+  }
+
+  vec2 dir = vec2(-((lNW + lNE) - (lSW + lSE)), (lNW + lSW) - (lNE + lSE));
+  float reduce = max((lNW + lNE + lSW + lSE) * 0.03125, 0.0078125);
+  float rcp = 1.0 / (min(abs(dir.x), abs(dir.y)) + reduce);
+  dir = clamp(dir * rcp, -8.0, 8.0) * uTexel;
+
+  vec3 a = 0.5 * (texture2D(tFrame, vUv + dir * (1.0 / 3.0 - 0.5)).rgb
+                + texture2D(tFrame, vUv + dir * (2.0 / 3.0 - 0.5)).rgb);
+  vec3 b = a * 0.5 + 0.25 * (texture2D(tFrame, vUv + dir * -0.5).rgb
+                           + texture2D(tFrame, vUv + dir *  0.5).rgb);
+  float lB = mcLuma(b);
+  gl_FragColor = vec4((lB < lMin || lB > lMax) ? a : b, 1.0);
 }`;
 
 export interface PostStack {
@@ -247,12 +310,24 @@ export function createPostStack(
     depthBuffer: true,
     stencilBuffer: false,
     depthTexture,
-    // No multisampling. Resolving a 4x half-float target costs more than the
-    // rest of the stack put together on a software rasteriser, and the frame
-    // already carries a soft bloom and a dither that hide most of what MSAA
-    // would have caught. Edge quality is bought back with the grade, not with
-    // four times the fill rate.
+    // No multisampling here. Resolving a 4x half-float target with a depth
+    // texture attached costs more than the rest of the stack put together on a
+    // software rasteriser. Edges are bought back at the far end of the chain
+    // instead, with an FXAA resolve on the graded frame.
     samples: 0,
+  });
+
+  // Where the composite lands when antialiasing is on, so FXAA has a texture to
+  // read. sRGB-encoded 8-bit, because that is what the filter wants: it reasons
+  // about perceptual luminance, and running it on linear HDR would leave the
+  // dark side of every edge untouched.
+  const ldrTarget = new THREE.WebGLRenderTarget(width, height, {
+    type: THREE.UnsignedByteType,
+    format: THREE.RGBAFormat,
+    minFilter: THREE.LinearFilter,
+    magFilter: THREE.LinearFilter,
+    depthBuffer: false,
+    stencilBuffer: false,
   });
 
   const mips: THREE.WebGLRenderTarget[] = [];
@@ -272,7 +347,12 @@ export function createPostStack(
     uniforms: {
       tScene: { value: sceneTarget.texture },
       uTexel: { value: new THREE.Vector2() },
-      uThreshold: { value: 0.95 },
+      // Above the cloud deck, not through it. The threshold used to sit under
+      // the lit cumulus, which meant the entire sky went round the five-mip
+      // pyramid and came back as one uniform wash — the effects tier had a
+      // visibly worse sky than the tier with no effects. Only the sun disc, the
+      // boost flames and genuine speculars are allowed to glow.
+      uThreshold: { value: 1.35 },
       uKnee: { value: 0.40 },
     },
     vertexShader: QUAD_VERT,
@@ -312,9 +392,11 @@ export function createPostStack(
     uNear: { value: 0.1 },
     uFar: { value: 1000 },
     uExposure: { value: ctx.config.render.exposure },
-    uBloom: { value: 0.24 },
+    uBloom: { value: 0.30 },
     uVignette: { value: 0.22 },
-    uAberration: { value: 0.0009 },
+    // Off. Lateral colour error is a lens artefact that only reads as one when
+    // the edge it sits on is smooth; on a hard staircase it is just fringing.
+    uAberration: { value: 0.0 },
     uBoost: { value: 0 },
     uFogAmount: { value: 1.0 },
     uCloudShadow: { value: 0.22 },
@@ -325,6 +407,17 @@ export function createPostStack(
     uniforms: compositeUniforms,
     vertexShader: RAY_VERT,
     fragmentShader: COMPOSITE_FRAG,
+    depthTest: false,
+    depthWrite: false,
+  });
+
+  const fxaaMat = new THREE.ShaderMaterial({
+    uniforms: {
+      tFrame: { value: ldrTarget.texture },
+      uTexel: { value: new THREE.Vector2() },
+    },
+    vertexShader: QUAD_VERT,
+    fragmentShader: FXAA_FRAG,
     depthTest: false,
     depthWrite: false,
   });
@@ -350,11 +443,14 @@ export function createPostStack(
     if (w === width && h === height) return;
     width = w; height = h;
     sceneTarget.setSize(width, height);
+    ldrTarget.setSize(width, height);
+    (fxaaMat.uniforms.uTexel!.value as THREE.Vector2).set(1 / width, 1 / height);
     for (let i = 0; i < MIPS; i++) {
       mips[i]!.setSize(Math.max(2, width >> (i + 1)), Math.max(2, height >> (i + 1)));
     }
   }
   setSize();
+  (fxaaMat.uniforms.uTexel!.value as THREE.Vector2).set(1 / width, 1 / height);
 
   function render(): void {
     setSize();
@@ -395,7 +491,14 @@ export function createPostStack(
     (compositeUniforms.uCamRot!.value as THREE.Matrix3).setFromMatrix4(cam.matrixWorld);
     compositeUniforms.uNear!.value = cam.near;
     compositeUniforms.uFar!.value = cam.far;
-    blit(null, compositeMat);
+
+    // 6. resolve edges, if this tier is paying for them.
+    if (ctx.quality.aa) {
+      blit(ldrTarget, compositeMat);
+      blit(null, fxaaMat);
+    } else {
+      blit(null, compositeMat);
+    }
 
     renderer.setRenderTarget(prevTarget);
     renderer.autoClear = prevAutoClear;
@@ -409,6 +512,7 @@ export function createPostStack(
     setCloudShadow(v: number): void { compositeUniforms.uCloudShadow!.value = v; },
     dispose(): void {
       sceneTarget.dispose();
+      ldrTarget.dispose();
       depthTexture.dispose();
       for (const m of mips) m.dispose();
       quadGeo.dispose();
@@ -416,6 +520,7 @@ export function createPostStack(
       downMat.dispose();
       upMat.dispose();
       compositeMat.dispose();
+      fxaaMat.dispose();
     },
   };
 }

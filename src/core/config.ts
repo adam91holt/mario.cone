@@ -198,7 +198,11 @@ export const config = {
     fov: 50,
     near: 0.25,
     far: 3000,
-    /** damp() constant for the lens. Fast enough to punch, slow enough to breathe. */
+    /** damp() constants for the lens — asymmetric on purpose. It opens in about
+     *  a tenth of a second and closes over a quarter, so a boost's sustain is
+     *  already there when the transient lands instead of arriving after it and
+     *  flattening the punch into a bump. Fast to hit, slow to let go. */
+    fovAttack: 0.00004,
     fovSmoothing: 0.02,
 
     chase: {
@@ -219,17 +223,60 @@ export const config = {
       /** Multiplier on those constants while airborne — the rig goes loose. */
       airEase: 6,
 
-      /** Radians the rig swings around the kart at a fully committed drift. This
-       *  adds to the chassis' own drift angle, so it stays modest: the flank
-       *  should read, not fill the frame. */
-      driftYawOffset: 0.14,
+      // ── the drift commit ──────────────────────────────────────────────
+      // The defining frame of the genre. All of it runs on its own eased clock
+      // (`driftSwingTime`) and is applied *outside* the smoothing constants
+      // above: those exist to absorb the road, and they are an order of
+      // magnitude too slow to stage a move the player asked for on this frame.
+      /** Radians the rig swings around the kart at a committed drift. ~19°:
+       *  enough that the flank and the chassis angle are the subject of the
+       *  shot, not a detail in it. */
+      driftYawOffset: 0.34,
+      /** ...and how far across the frame the kart is thrown with it, as a
+       *  fraction of the half-frame. 0.34 puts its centre 17% of screen width
+       *  off centre — toward the *outside* of the corner, so the road it is
+       *  turning into is the space that opens up. */
+      driftFrameSide: 0.34,
+      /** Ceiling on the combined corner + drift lateral lead, same units. */
+      maxFrameSide: 0.44,
+      /** Seconds to full commitment, and to unwind again on release. */
+      driftSwingTime: 0.28,
+      driftSwingRelease: 0.34,
+      /** Shape of the commit: 0 = pure smootherstep, 1 = pure outCubic. Toward
+       *  the cubic so the move leaves on the first frame instead of creeping. */
+      driftSwingBias: 0.55,
+      /** ...plus a little front-loading on top of that. */
+      driftSwingLead: 0.16,
+      /** Fraction of the swing a shallow, counter-steered drift still gets. */
+      driftSwingFloor: 0.78,
+      /** Fraction of the swing the hop already spends, before the drift
+       *  commits — the anticipation beat, so the lens moves with the button —
+       *  and how long a hop that never lands a drift may hold it. */
+      driftHopLead: 0.35,
+      driftHopGrace: 0.60,
+      /** Metres the rig pulls in and drops on the same curve. A drift has to
+       *  read *bigger*, and pulling in is how a camera says that. */
+      driftPullIn: 0.85,
+      driftDrop: 0.26,
+
       /** Metres the aim reads down the road, at rest and at top speed. */
       lookAhead: 10,
       lookAheadSpeed: 22,
-      /** Ceiling on how far the aim leads into a corner, radians. */
+      /** How much of the road's bend the aim leads by, and the ceiling on it. */
+      cornerLeadGain: 0.60,
       cornerLead: 0.20,
       /** Ceiling on downhill/uphill aim compensation, radians. */
       slopeAim: 0.15,
+
+      /** Where the true horizon sits, as a fraction down the frame, and how
+       *  hard the aim is held to it. Pull-back and drop between them flatten
+       *  the angle down to the kart as speed rises, which hands the top of the
+       *  frame to the sky at exactly the moment the player needs to read the
+       *  road. This holds the line level with speed instead. */
+      horizonAnchor: 0.45,
+      horizonHold: 0.85,
+      /** Bound on that correction, radians — it may never win over framing. */
+      horizonMax: 0.14,
 
       speedPullback: 2.3,    // extra distance at top speed
       speedFov: 9,           // extra fov degrees at top speed
@@ -240,7 +287,10 @@ export const config = {
       dipDamping: 11,
 
       bankRoll: 0.075,       // roll from steering
-      driftRoll: 0.055,
+      // Roll into a drift. Deliberately small next to the swing: MK8's default
+      // camera keeps the horizon dead level, and now that committing moves the
+      // rig 19° and a sixth of the frame, the tilt only has to *support* that.
+      driftRoll: 0.042,
       rollStiffness: 70,
       rollDamping: 13,
       /** Fraction of the road's own banking the frame adopts. */
@@ -260,15 +310,22 @@ export const config = {
       overhead: { height: 62 },
     },
 
-    /** The boost punch. `fovScale` is how much of kart.boost.fovKick the lens
-     *  actually sustains; the rest of these are the transient hit. */
+    /** The boost punch. The transient is the hit; the *sustain* is what tells
+     *  the player the boost is still live, so it has to hold — a lens that
+     *  spikes and sags reads as a bump in the road, not as speed.
+     *  `powerRef` is the boost power that counts as a full-strength hit: a
+     *  mushroom (40) maxes it out, and a blue mini-turbo (24) still spends two
+     *  thirds of it. */
     boost: {
-      fovScale: 0.6,
-      kickFov: 8,
+      powerRef: 36,
+      fovScale: 0.72,
+      kickFov: 7,
       pullback: 2.0,
+      /** Metres the rig sits further back for the duration of the boost. */
+      distance: 1.8,
       drop: 0.5,
       attack: 0.06,
-      decay: 4.6,
+      decay: 3.8,
       roll: 0.03,
     },
 

@@ -31,11 +31,20 @@ import { installFilmStock } from './grade.ts';
 import { installMaterialStyle } from './materials.ts';
 import { createSky, makeAtmosphereUniforms } from './sky.ts';
 import { createPostStack } from './post.ts';
+import { createContactShadows } from './contact.ts';
+import type { ContactShadows } from './contact.ts';
 import type { PostStack } from './post.ts';
 import type { CourseTheme, GameContext, GameSystem, QualitySettings } from '../types.ts';
 
-/** Extra exposure on top of the engine's, so the grade is tuned in one place. */
-const EXPOSURE_TRIM = 1.06;
+/**
+ * Extra exposure on top of the engine's, so the grade is tuned in one place.
+ *
+ * Nudged up when the fill came down: cutting the ambient by more than half is
+ * what buys the modelling, but taken on its own it also takes a stop out of the
+ * whole picture, and this game is high-key. The ratio is the art direction; the
+ * absolute level is a knob.
+ */
+const EXPOSURE_TRIM = 1.12;
 
 /** Shadow map extent in metres, per quality tier. Smaller = sharper contact. */
 const SHADOW_EXTENT: Record<QualitySettings['tier'], number> = {
@@ -43,6 +52,30 @@ const SHADOW_EXTENT: Record<QualitySettings['tier'], number> = {
   med: 52,
   low: 46,
 };
+
+/**
+ * The sun's working range, radians above the horizon.
+ *
+ * Mid-morning, not noon. Above about 35 degrees a kart's cast shadow is shorter
+ * than the kart is tall, which means it hides underneath the chassis and the
+ * player never sees it; below about 25 it starts throwing thirty-metre streaks
+ * across the racing line and the road stops being readable. This window is
+ * narrow on purpose — courses get an opinion about *where* the sun is, not about
+ * whether the game has shadows.
+ */
+const SUN_ELEVATION = { min: 0.50, max: 0.60 };
+
+/**
+ * House rotation applied on top of whatever azimuth a course asks for.
+ *
+ * Courses tend to author the sun facing down the start straight, which throws
+ * every shadow directly away from the chase camera where it is invisible. A
+ * quarter turn puts the light across the road instead, so shadows rake sideways
+ * and a player reads them in peripheral vision.
+ */
+const AZIMUTH_TRIM = Math.PI * 0.5;
+
+const WHITE = new THREE.Color(0xffffff);
 
 /** Defaults for a course whose theme leaves the sky out. */
 const DEFAULT_SKY = { top: 0x2e86d6, bottom: 0xbfe7ff, horizon: 0xffe2b0 };
@@ -57,6 +90,7 @@ export function createLightingSystem(ctx: GameContext): GameSystem {
   // clips the ground plane leaves a ring on the horizon.
   const sky = createSky(atmos, ctx.config.camera.far * 0.9);
   let post: PostStack | null = null;
+  let contact: ContactShadows | null = null;
 
   // ── the three lights ─────────────────────────────────────────────────────
 
@@ -66,22 +100,27 @@ export function createLightingSystem(ctx: GameContext): GameSystem {
   sun.shadow.mapSize.set(ctx.quality.shadowSize, ctx.quality.shadowSize);
   sun.shadow.camera.near = 1;
   sun.shadow.camera.far = 460;
-  sun.shadow.bias = -0.00035;
-  sun.shadow.normalBias = 0.028;
+  sun.shadow.bias = -0.00042;
+  sun.shadow.normalBias = 0.034;
   // Widens the PCF kernel. A pin-sharp shadow edge on a cartoon kart reads as a
-  // decal; a couple of texels of penumbra reads as contact.
-  sun.shadow.radius = 1.7;
+  // decal; a texel or so of penumbra reads as contact. Kept tight, because the
+  // contact pass owns softness now and a wide PCF radius on a four-tap kernel
+  // is where the stipple in the penumbra was coming from.
+  sun.shadow.radius = 1.15;
   group.add(sun, sun.target);
 
   // Fill. Cool from the sky, warm from the ground the sun is bouncing off.
-  // This is what stops shadowed sides going to a dead neutral grey.
-  const hemi = new THREE.HemisphereLight(0xa8dcff, 0xd4a870, 1.45);
+  // This is what stops shadowed sides going to a dead neutral grey — but it is
+  // *fill*, at roughly a fifth of key. At parity, which is where this was, the
+  // game has no light side and no dark side and every model reads as paper.
+  const hemi = new THREE.HemisphereLight(0xa8dcff, 0xd4a870, 0.78);
   group.add(hemi);
 
   // Rim. Cold, low, and opposite the sun: it lands on the shaded edge of every
-  // object and is the single cheapest way to keep a silhouette off its
-  // background. Deliberately blue enough to read as a *colour*, not a shine.
-  const rim = new THREE.DirectionalLight(0x9fd4ff, 1.75);
+  // object. Kept deliberately faint — the rim that actually draws the line
+  // around a silhouette is the view-dependent Fresnel term in materials.ts; a
+  // second directional light at any real strength is just more flat fill.
+  const rim = new THREE.DirectionalLight(0x9fd4ff, 0.50);
   group.add(rim);
 
   // ── scratch ──────────────────────────────────────────────────────────────
@@ -106,8 +145,13 @@ export function createLightingSystem(ctx: GameContext): GameSystem {
 
     const su = { ...DEFAULT_SUN, ...(theme.sun ?? {}) };
     // A 50-degree sun flattens everything and leaves nothing under the karts.
-    // Courses get a say, but not enough of one to lose the shadows.
-    sunDirection(su.azimuth, clamp(su.elevation, 0.32, 0.72), _dir);
+    // Courses get a say, but not enough of one to lose the shadows — and the
+    // house quarter-turn puts what is left across the road rather than down it.
+    sunDirection(
+      su.azimuth + AZIMUTH_TRIM,
+      clamp(su.elevation, SUN_ELEVATION.min, SUN_ELEVATION.max),
+      _dir,
+    );
     atmos.uSunDir.value.copy(_dir);
     atmos.uSunColor.value.setHex(su.color);
 
@@ -118,16 +162,19 @@ export function createLightingSystem(ctx: GameContext): GameSystem {
     // The rim mirrors the sun across the vertical axis and sits low, so it
     // grazes rather than lights. Its colour is the sky's own blue, pushed.
     rim.position.set(-_dir.x, 0.20, -_dir.z).normalize().multiplyScalar(200);
-    rim.color.copy(atmos.uZenith.value).lerp(new THREE.Color(0xffffff), 0.34);
+    rim.color.copy(atmos.uZenith.value).lerp(WHITE, 0.34);
 
     // Fill picks its two ends off the theme: sky above, ground below. Saturated
     // on purpose — a neutral hemisphere light is what makes a scene look like a
-    // render instead of a painting.
-    hemi.color.copy(atmos.uHorizon.value).lerp(atmos.uZenith.value, 0.38);
+    // render instead of a painting — and weighted toward the sky end, because
+    // the whole point of the fill is that the *shaded* side of a safety-orange
+    // cone comes back blue rather than brown.
+    hemi.color.copy(atmos.uHorizon.value).lerp(atmos.uZenith.value, 0.58);
     // Bounce off sand is warm but not *orange*: the ground already is, and
-    // multiplying the two turns the desert into a traffic cone.
+    // multiplying the two turns the desert into a traffic cone. Held well below
+    // the sky end so a vertical surface reads cool rather than neutral.
     hemi.groundColor.setHex(theme.ground ?? 0xc9a063)
-      .lerp(new THREE.Color(0xffffff), 0.26).multiplyScalar(0.9);
+      .lerp(WHITE, 0.18).multiplyScalar(0.58);
 
     // Distance. `far` is treated as a visibility hint rather than a hard plane:
     // the atmosphere is exponential, so there is no wall for things to pop
@@ -201,6 +248,7 @@ export function createLightingSystem(ctx: GameContext): GameSystem {
   }
 
   function applyQuality(): void {
+    contact?.applyQuality();
     sun.castShadow = ctx.quality.shadows;
     if (sun.shadow.mapSize.x !== ctx.quality.shadowSize) {
       sun.shadow.mapSize.setScalar(ctx.quality.shadowSize);
@@ -230,6 +278,9 @@ export function createLightingSystem(ctx: GameContext): GameSystem {
       ctx.scene.add(group);
       ctx.scene.add(sky.mesh);
 
+      contact = createContactShadows(ctx);
+      ctx.scene.add(contact.mesh);
+
       post = createPostStack(ctx, atmos, sky.noise);
       post.setExposure(ctx.config.render.exposure * EXPOSURE_TRIM);
       ctx.composer = post;
@@ -243,17 +294,25 @@ export function createLightingSystem(ctx: GameContext): GameSystem {
       post?.setBoost(0);
     },
 
-    update(dt: number): void {
+    update(dt: number, alpha: number): void {
       fitShadow();
       sky.update(ctx.camera, ctx.time.elapsed);
+      contact?.update(alpha);
 
-      // The frame leans into a boost: radial stretch out of the middle plus a
-      // warm push. Read off sim state rather than an event so it decays with
-      // the boost instead of on a timer of its own.
+      // The frame leans into a boost: a directional streak out of the middle,
+      // a warm push and a vignette pulse. Read off sim state rather than an
+      // event so it decays with the boost instead of on a timer of its own.
+      //
+      // Normalised, not proportional. The weakest boost in the game (a
+      // slipstream, power 24) and the strongest drift release (purple, 46) are
+      // both *events*, and both have to land. Scaling linearly off raw power
+      // meant a slipstream barely moved the frame at the fastest the game ever
+      // goes; this floors the response and lets power decide the top of it.
       const p = ctx.player;
       let target = 0;
       if (p && p.boost.time > 0) {
-        target = clamp01(p.boost.power / 46) * clamp01(p.boost.time / 0.22);
+        const strength = 0.58 + 0.42 * clamp01((p.boost.power - 20) / 30);
+        target = strength * clamp01(p.boost.time / 0.18);
       }
       // Fast attack, slower release — the punch should arrive on the frame it
       // is earned and let go over about a fifth of a second.
@@ -264,6 +323,9 @@ export function createLightingSystem(ctx: GameContext): GameSystem {
     dispose(): void {
       ctx.scene.remove(group);
       ctx.scene.remove(sky.mesh);
+      if (contact) ctx.scene.remove(contact.mesh);
+      contact?.dispose();
+      contact = null;
       sky.dispose();
       post?.dispose();
       if (ctx.composer === post) ctx.composer = null;

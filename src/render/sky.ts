@@ -91,8 +91,12 @@ vec3 mcSkyBase(vec3 d) {
 
   // Zenith down to horizon. sqrt in place of the pow it wants: the difference
   // is a few thousandths and this function runs on every pixel of the frame,
-  // twice — once for the dome and once for the fog it has to match.
-  vec3 col = mix(uHorizon, uZenith, sqrt(up));
+  // twice — once for the dome and once for the fog it has to match. The extra
+  // shaping term pulls the zenith blue down into the band a chase camera can
+  // actually see; without it the only properly blue sky in the game is directly
+  // overhead, where nobody is looking.
+  float s = sqrt(up);
+  vec3 col = mix(uHorizon, uZenith, s * (1.0 + (1.0 - s) * 0.55));
 
   // Warm haze packed into the last few degrees above the horizon. Distance fog
   // fades into this exact colour, so the join cannot drift. The rational decay
@@ -209,29 +213,53 @@ vec4 mcCloudDeck(vec3 d, float height, float scale, vec2 stretch, float drift,
   cov += coverage - uCoverage;
   float a = smoothstep(cov, cov + softness, dens) * density;
 
-  // Self-shadow: step toward the sun *across the deck* and ask whether there is
-  // more cloud that way. The step has to be a real fraction of a cloud, not a
-  // texel, or every puff comes back uniformly white.
-  vec2 toward = normalize(uSunDir.xz + vec2(1e-4, 0.0)) * sunStep;
-  float covAhead;
-  float ahead = mcDeckShadow(p + toward, covAhead);
-  float lit = clamp(1.0 - (ahead - dens) * 5.5, 0.0, 1.0);
-  // Thin edges are translucent, so they burn brighter than the core.
-  lit = mix(lit, 1.0, (1.0 - smoothstep(cov, cov + softness * 0.5, dens)) * 0.35);
-  // Low in the sky we are looking at undersides, which are never bright.
-  lit *= mix(0.52, 1.0, smoothstep(0.04, 0.46, d.y));
+  // ── Form ────────────────────────────────────────────────────────────────
+  // A flat noise field has no top and no underside, so it has to be given one.
+  // The density itself stands in for how tall the puff is: where the field is
+  // barely over the coverage threshold we are looking at a thin translucent
+  // fringe, and where it is deep we are looking at the belly of a cauliflower
+  // that has several hundred metres of cloud above it.
+  float thick = clamp((dens - cov) / 0.16, 0.0, 1.0);
 
-  vec3 col = mix(uCloudShade, uCloudLit, lit * lit);
+  // Two probes toward the sun at different reaches. The long one finds the
+  // terminator across the whole puff, the short one picks out the individual
+  // lumps on the lit flank. Without the long one the field only ever varies by
+  // a couple of percent and the whole deck comes back as flat cream cutouts.
+  vec2 toward = normalize(uSunDir.xz + vec2(1e-4, 0.0)) * sunStep;
+  float covA;
+  float farAhead = mcDeckShadow(p + toward * 2.6, covA);
+  float nearAhead = mcDeckShadow(p + toward, covA);
+  float slope = (farAhead - dens) * 0.62 + (nearAhead - dens) * 0.38;
+
+  // Sun-facing flank up into the highlight, away flank down into the shade.
+  float lit = clamp(0.72 - slope * 9.0, 0.0, 1.0);
+  // The deep body self-shadows: a fat cumulus is bright on top and blue-grey
+  // underneath, and from down here we are mostly looking at underneath.
+  lit *= mix(1.0, 0.55, thick);
+  // Thin edges are translucent, so they burn out brighter than any core — but
+  // only the genuinely thin ones. Applied any wider than this it lifts the
+  // whole deck back to flat cream, which is where this started.
+  float fringe = 1.0 - thick;
+  lit = mix(lit, 1.0, fringe * fringe * fringe * 0.55);
+  // Low in the sky it is undersides all the way down.
+  lit *= mix(0.55, 1.0, smoothstep(0.02, 0.40, d.y));
+
+  // An S about the middle rather than a square: squaring drags the whole deck
+  // toward the shade colour, and what this wants is contrast at both ends — a
+  // hot lit flank, a blue-grey belly, and a fast terminator between them.
+  vec3 col = mix(uCloudShade, uCloudLit, smoothstep(0.05, 0.95, lit));
 
   // Silver lining: sun behind a shaded edge burns through it.
   float mu = max(dot(d, uSunDir), 0.0);
   float mu2 = mu * mu;
-  col += uSunColor * (mu2 * mu2 * mu2 * mu) * (1.0 - lit) * 1.1;
+  col += uSunColor * (mu2 * mu2 * mu2 * mu) * (1.0 - lit) * 1.3;
   col += uSunColor * mu2 * 0.05;
 
   // Aerial perspective on the deck itself, so the field recedes instead of
-  // tiling flatly out to the horizon.
-  col = mix(col, uHaze * 1.02, (1.0 - smoothstep(0.05, 0.55, d.y)) * 0.72);
+  // tiling flatly out to the horizon. Held back from the mid sky — pushed as
+  // far as it was, it washed the form out of exactly the clouds a player is
+  // looking at.
+  col = mix(col, uHaze * 1.02, (1.0 - smoothstep(0.0, 0.34, d.y)) * 0.46);
   a *= smoothstep(0.045, 0.20, d.y);
 
   return vec4(col, clamp(a, 0.0, 1.0));
@@ -282,10 +310,15 @@ export function createSky(atmos: AtmosphereUniforms, radius = 2700): Sky {
   const uniforms: Record<string, THREE.IUniform> = {
     ...atmos,
     uNoise: { value: noise },
-    // Cloud tops sit above display white on purpose: they are the brightest
-    // thing in the frame and they should bloom a little.
-    uCloudLit: { value: new THREE.Color(0xfffaf0).multiplyScalar(1.55) },
-    uCloudShade: { value: new THREE.Color(0x9ec4e8).multiplyScalar(0.70) },
+    // Lit tops sit just over display white — bright enough to hold the top of
+    // the tone curve, deliberately *under* the bloom threshold, because a
+    // cumulus deck that blooms is a cumulus deck that has stopped having edges.
+    uCloudLit: { value: new THREE.Color(0xfffaf2).multiplyScalar(1.05) },
+    // The shaded side, at a little under half the lit side in linear terms —
+    // which the tone curve's shoulder compresses back to roughly the 0.55 that
+    // reads correctly on screen. Blue-grey, because the only thing lighting the
+    // underside of a cloud is the sky.
+    uCloudShade: { value: new THREE.Color(0x93b6dc) },
   };
 
   const mesh = new THREE.Mesh(

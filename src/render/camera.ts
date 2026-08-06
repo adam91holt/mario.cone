@@ -1,18 +1,23 @@
 // Chase camera.
 //
 // In a kart racer the camera *is* half the feel, so this file is built around
-// four promises it will not break:
+// five promises it will not break:
 //
 //   1. It trails the direction the kart is *travelling*, never the direction the
 //      chassis happens to be pointing. A drift shows the kart's flank; a spin-out
 //      spins the kart, not the world.
 //   2. The kart is framed, not merely followed. The aim is derived from the
-//      camera→kart vector every frame and then rotated by a fixed screen-space
-//      anchor, so no amount of positional lag, teleporting or airtime can push
-//      the kart out of shot.
-//   3. Speed reads through the lens. Pull-back, a widening FOV and a hard punch
-//      on boost — a boost has to be unmistakable with the sound off.
-//   4. Nothing moves linearly. Landing dips, banking and impacts are springs and
+//      camera→kart vector every frame and then rotated by a screen-space anchor,
+//      so no amount of positional lag, teleporting or airtime can push the kart
+//      out of shot — and that anchor is what the camera *composes* with.
+//   3. Committing to a drift is a camera event. Nineteen degrees of swing, a
+//      pull-in, a drop, a roll and a sixth of the frame's width of throw, all on
+//      one eased 0.3s clock that starts when the player asks for it. A frame
+//      mid-drift must never be mistakable for the same instant driving straight.
+//   4. Speed reads through the lens. Pull-back, a widening FOV and a hard punch
+//      on boost — a boost has to be unmistakable with the sound off — while the
+//      horizon stays put, so going faster never means seeing less road.
+//   5. Nothing moves linearly. Landing dips, banking and impacts are springs and
 //      decaying impulses; only the sweep is keyframed, and that is deliberate.
 //
 // Orientation is built as an explicit basis rather than via `lookAt`, because
@@ -102,9 +107,19 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
   let lookAmt = 0;
   let lookSnap = 0;
 
-  // Drift lead survives the release of the drift: `drift.dir` clears the instant
-  // the button comes up but `drift.angle` decays, so the rig eases back out.
-  let lastDriftDir = 0;
+  // The drift commit. This is the one move in the game that has to land on the
+  // frame the player asks for it, and the smoothing constants above are an order
+  // of magnitude too slow to stage it — they exist to absorb the road. So the
+  // swing runs on its own eased clock and every part of it is applied *outside*
+  // the dampers: the settled boom is rotated and pulled in after the fact, and
+  // the screen offset is a lead on the aim. Committing is a decision, not a lag.
+  let swingDir = 0;      // -1/+1, armed on the hop, confirmed on the commit
+  let swingNext = 0;     // a flipped drift unwinds through zero before swinging back
+  let swingU = 0;        // linear 0..1 clock
+  let swingHop = 0;      // fraction of the swing the hop alone is worth
+  let swingHopT = 0;     // ...and how long a hop that never lands keeps it
+  let swingDepth = 1;    // how deep the drift was while it was held
+  let swing = 0;         // signed, shaped — the term everything else reads
 
   let introT = 0, introActive = false;
   let celebT = -1;
@@ -153,9 +168,35 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
 
   ctx.bus.on<{ racer: Racer; power: number }>('kart:boost', ({ racer, power }) => {
     if (!racer.isPlayer) return;
-    const p = clamp01(power / 60);
+    const p = clamp01(power / C.boost.powerRef);
     punch(0.45 + p * 0.55);
     addTrauma(p * ctx.config.kart.boost.shake);
+  });
+
+  // The hop is the anticipation beat, and the direction is already decided by
+  // then — physics arms it off the same steer threshold. Spending part of the
+  // swing here is what makes the lens move with the *button* rather than with
+  // the touchdown a third of a second later; the rest lands on the commit.
+  ctx.bus.on<{ racer: Racer }>('kart:hop', ({ racer }) => {
+    if (!racer.isPlayer) return;
+    const s = ctx.inputState.steer;
+    if (Math.abs(s) <= 0.2) return;
+    const dir = s > 0 ? 1 : -1;
+    if (swingU <= 0.02 || dir === swingDir) { swingDir = dir; swingNext = 0; }
+    else swingNext = dir;
+    swingHop = C.chase.driftHopLead;
+    swingHopT = C.chase.driftHopGrace;
+    swingDepth = 1;
+  });
+
+  ctx.bus.on<{ racer: Racer; dir: -1 | 1 }>('kart:drift:start', ({ racer, dir }) => {
+    if (!racer.isPlayer) return;
+    if (swingU <= 0.02 || dir === swingDir) { swingDir = dir; swingNext = 0; }
+    else swingNext = dir;
+    swingHop = 0;
+    // A flick of trauma on the commit. The kart just changed what it is doing;
+    // the lens should admit it noticed.
+    addTrauma(0.05);
   });
 
   ctx.bus.on<{ racer: Racer; tier: number }>('kart:drift:charge', ({ racer, tier }) => {
@@ -259,6 +300,22 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
    *  position on screen while the FOV breathes with speed. */
   function framePitch(): number {
     return Math.atan(C.chase.frameLow * Math.tan(cam.fov * DEG * 0.5));
+  }
+
+  /** The commit curve. Front-loaded rather than eased-in, so the move leaves on
+   *  the first frame, and flat at the top, so it arrives without a bounce. */
+  function swingShape(u: number): number {
+    if (u <= 0) return 0;
+    if (u >= 1) return 1;
+    const e = lerp(smootherstep(u), ease.outCubic(u), C.chase.driftSwingBias);
+    return clamp01(e + C.chase.driftSwingLead * Math.sin(Math.PI * u) * (1 - u));
+  }
+
+  /** An angle off the view axis expressed as a fraction of the half-frame's
+   *  *width*. Keeping screen offsets in frame fractions rather than radians is
+   *  what stops them breathing with the FOV. */
+  function frameSide(frac: number): number {
+    return Math.atan(frac * cam.aspect * Math.tan(cam.fov * DEG * 0.5));
   }
 
   function setFov(v: number): void {
@@ -396,7 +453,7 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
       kickT = 99; kickAmp = 0;
       lookAmt = 0;
       lookSnap = 0;
-      lastDriftDir = 0;
+      swingDir = 0; swingNext = 0; swingU = 0; swingHop = 0; swingDepth = 1; swing = 0;
       celebT = -1;
       // The race director resets first and emits `race:intro` from inside that
       // reset, so the sweep has to be armed from the config rather than from the
@@ -418,8 +475,14 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
       const sdt = Math.min(dt, 1 / 30);
 
       // The simulation runs at 120Hz; without this the camera inherits its
-      // stair-stepping.
-      _pos.lerpVectors(racer.prevPos, racer.pos, alpha);
+      // stair-stepping. Clamped, because `alpha` is a blend and this rig may not
+      // trust it to be one: the engine derives it from an accumulator that goes
+      // negative after the harness steps the simulation without drawing, and a
+      // measured alpha of -400 extrapolates the anchor two hundred metres behind
+      // the kart — the camera then faithfully frames a patch of empty desert.
+      // The fix belongs in the engine (vehicles interpolate off the same number),
+      // but losing the kart is the one thing this file may never do.
+      _pos.lerpVectors(racer.prevPos, racer.pos, clamp01(alpha));
 
       if (kickT < 9) kickT += dt;
       if (celebT >= 0) celebT += dt;
@@ -431,7 +494,7 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
       const cls = ctx.config.race.classes[ctx.race.engineClass];
       const refSpeed = Math.max(1, K.maxSpeed * cls.speedMul);
       const speedFrac = clamp01(Math.abs(racer.speed) / refSpeed);
-      const boostFrac = racer.boost.time > 0 ? clamp01(racer.boost.power / 60) : 0;
+      const boostFrac = racer.boost.time > 0 ? clamp01(racer.boost.power / C.boost.powerRef) : 0;
       const kick = kickT < 9 && kickAmp > 0
         ? kickAmp * (kickT < C.boost.attack
             ? ease.outQuad(kickT / C.boost.attack)
@@ -456,10 +519,6 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
       // ── heading ────────────────────────────────────────────────────────
       const travelYaw = travelYawOf(racer);
 
-      if (racer.drift.dir !== 0) lastDriftDir = racer.drift.dir;
-      const driftAmt = clamp01(racer.drift.angle / K.drift.maxAngle);
-      const driftLead = lastDriftDir * C.chase.driftYawOffset * driftAmt;
-
       const celeb = celebT >= 0 ? ease.inOutCubic(clamp01(celebT / C.victory.time)) : 0;
 
       const lookBack = ctx.inputState.look > 0.5;
@@ -469,7 +528,32 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
       else lookSnap = Math.max(0, lookSnap - dt);
       const lookRot = Math.PI * smootherstep(lookAmt);
 
-      const targetYaw = travelYaw + driftLead + celeb * C.victory.orbit;
+      // ── the drift commit ───────────────────────────────────────────────
+      // One eased 0..1 clock drives the whole gesture — swing, pull in, drop,
+      // roll, and the throw across the frame — so they arrive as a single move
+      // instead of four springs finding their own way there. It runs to full in
+      // `driftSwingTime`, monotonically, from the moment the kart commits.
+      const drifting = racer.drift.active && swingNext === 0;
+      if (racer.drift.active) {
+        // Missed the event (a camera built mid-drift, a replayed state): the
+        // direction is on the racer either way.
+        if (swingDir === 0 && racer.drift.dir !== 0) swingDir = racer.drift.dir;
+        swingDepth = lerp(C.chase.driftSwingFloor, 1,
+          clamp01(racer.drift.angle / K.drift.maxAngle));
+      } else if (swingHop > 0) {
+        // A hop that never became a drift — released, or too slow to commit —
+        // gives the anticipation back rather than leaving the rig leaning on it.
+        swingHopT -= dt;
+        if (swingHopT <= 0 || !ctx.inputState.drift) swingHop = 0;
+      }
+      const swingWant = drifting ? 1 : swingNext !== 0 ? 0 : swingHop;
+      swingU = moveToward(swingU, swingWant, dt / Math.max(0.02,
+        swingWant > swingU ? C.chase.driftSwingTime : C.chase.driftSwingRelease));
+      if (swingNext !== 0 && swingU <= 0) { swingDir = swingNext; swingNext = 0; }
+      // Looking behind is a different shot; the commit has no business in it.
+      swing = swingShape(swingU) * swingDepth * swingDir * (1 - lookAmt);
+
+      const targetYaw = travelYaw + celeb * C.victory.orbit;
       const airEase = racer.grounded ? 1 : C.chase.airEase;
 
       // Two ways the kart can stop having *driven* to where it is: a respawn or
@@ -485,7 +569,13 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
       rigYaw = cut ? targetYaw
         : dampAngle(rigYaw, targetYaw, Math.min(0.9, C.chase.yawSmoothing * airEase), dt);
 
-      const viewYaw = rigYaw + lookRot + (mode === 'front' ? Math.PI : 0);
+      // The boom is aimed at the *unswung* heading and the commit is rotated on
+      // afterwards, so the smoothing never has to chase the swing and the swing
+      // never has to wait for the smoothing.
+      const rigSwing = mode === 'free' ? 0 : swing;
+      const swingYaw = rigSwing * C.chase.driftYawOffset;
+      const baseYaw = rigYaw + lookRot + (mode === 'front' ? Math.PI : 0);
+      const viewYaw = baseYaw + swingYaw;
       _fwd.set(Math.sin(viewYaw), 0, Math.cos(viewYaw));
       _right.set(_fwd.z, 0, -_fwd.x);
 
@@ -499,8 +589,8 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
       const countIn = phase === 'countdown'
         ? C.countdown.pullback * clamp01(ctx.race.countdown / 3) : 0;
 
-      let targetDist = baseDist + speedFrac * C.chase.speedPullback + boostFrac * 1.2
-        + countIn + celeb * C.victory.distance;
+      let targetDist = baseDist + speedFrac * C.chase.speedPullback
+        + boostFrac * C.boost.distance + countIn + celeb * C.victory.distance;
       let targetHeight = baseHeight - speedFrac * C.chase.speedDrop
         + celeb * C.victory.height;
       if (md) {
@@ -534,7 +624,7 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
       } else {
         // A slow trackside orbit on a long lens in cinematic; straight behind
         // otherwise. Deterministic either way: sim time, never a wall clock.
-        const a = mode === 'cinematic' ? viewYaw + ctx.time.elapsed * M.cinematic.orbit : viewYaw;
+        const a = mode === 'cinematic' ? baseYaw + ctx.time.elapsed * M.cinematic.orbit : baseYaw;
         const wantX = -Math.sin(a) * distance;
         const wantZ = -Math.cos(a) * distance;
         // Rigid while the look-behind rotation is in flight, smoothed otherwise.
@@ -552,18 +642,40 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
         }
       }
 
+      // The commit rides outside the boom's smoothing, exactly like the boost
+      // punch below it. Rotating the *settled* boom around the kart and pulling
+      // it in means the whole gesture lands on the authored curve rather than on
+      // the road-absorbing damper: swing, close in, drop, in three tenths of a
+      // second. Through the lens it reads as one decision.
+      let armX = boomX, armZ = boomZ;
+      const commit = Math.abs(rigSwing);
+      if (swingYaw !== 0) {
+        const cs = Math.cos(swingYaw), sn = Math.sin(swingYaw);
+        armX = boomX * cs + boomZ * sn;
+        armZ = boomZ * cs - boomX * sn;
+      }
+      if (commit > 0) {
+        const len = Math.hypot(armX, armZ);
+        if (len > 0.01) {
+          const k = Math.max(0.3, (len - commit * C.chase.driftPullIn) / len);
+          armX *= k; armZ *= k;
+        }
+      }
+
       // Never let the lens sink into the road behind a crest, or under the world.
-      const floorY = surfaceYAt(_pos.x + boomX, _pos.z + boomZ, camY) + C.chase.groundClearance;
+      const floorY = surfaceYAt(_pos.x + armX, _pos.z + armZ, camY) + C.chase.groundClearance;
       if (camY < floorY) camY = floorY;
       // The boost punch rides *outside* the damped boom, exactly like the FOV
       // kick: run it through the smoothing and the smoothing eats it, which is
       // the difference between the kart tearing away from the lens and the lens
       // politely easing back. Snapping back and dropping at the same instant is
-      // the whole shot.
+      // the whole shot. The drops may eat into the ground clearance, never
+      // through it.
+      const drop = commit * C.chase.driftDrop + kick * C.boost.drop;
       cam.position.set(
-        _pos.x + boomX - Math.sin(viewYaw) * kick * C.boost.pullback,
-        camY - kick * C.boost.drop,
-        _pos.z + boomZ - Math.cos(viewYaw) * kick * C.boost.pullback);
+        _pos.x + armX - Math.sin(viewYaw) * kick * C.boost.pullback,
+        Math.max(camY - drop, floorY - Math.min(drop, 0.6)),
+        _pos.z + armZ - Math.cos(viewYaw) * kick * C.boost.pullback);
 
       // ── aim ────────────────────────────────────────────────────────────
       // Read the road ahead and lead the aim into the corner, so the apex is on
@@ -580,8 +692,14 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
         // The spline's tangent points one way around the loop; the kart may not.
         const along = Math.sign(s.tangent.x * Math.sin(travelYaw) + s.tangent.z * Math.cos(travelYaw)) || 1;
         const a = track.spline.atDistance(s.distance + ahead * along, _sAhead);
+        const hereYaw = Math.atan2(s.tangent.x * along, s.tangent.z * along);
         const aheadYaw = Math.atan2(a.tangent.x * along, a.tangent.z * along);
-        cornerLead = clamp(angleDelta(travelYaw, aheadYaw) * 0.55,
+        // Measured road-against-road, not travel-against-road. Against travel it
+        // *inverts* the instant the kart out-rotates the corner — which is
+        // precisely what a committed drift does — so the aim used to throw the
+        // kart to the inside of the frame at the one moment the shot has to be
+        // decisive, and the drift swing would be fighting it.
+        cornerLead = clamp(angleDelta(hereYaw, aheadYaw) * C.chase.cornerLeadGain,
           -C.chase.cornerLead, C.chase.cornerLead);
         // Follow the gradient: tip down over a crest so the landing stays in
         // frame, tip up on a climb so you can see over it.
@@ -593,7 +711,7 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
 
       // ── roll: a spring, never a lerp ───────────────────────────────────
       const targetRoll = (-racer.steerAngle * C.chase.bankRoll * (0.35 + 0.65 * speedFrac)
-        - lastDriftDir * C.chase.driftRoll * driftAmt
+        - swing * C.chase.driftRoll
         + kick * C.boost.roll) * (1 - 2 * lookAmt);
       rollVel += (targetRoll - roll) * C.chase.rollStiffness * sdt
         - rollVel * C.chase.rollDamping * sdt;
@@ -623,13 +741,38 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
         + boostFrac * ctx.config.kart.boost.fovKick * C.boost.fovScale
         + (phase === 'countdown' ? C.countdown.fov : 0)
         + celeb * C.victory.fov;
-      fov = damp(fov, targetFov, C.fovSmoothing, dt);
+      fov = damp(fov, targetFov, targetFov > fov ? C.fovAttack : C.fovSmoothing, dt);
       // The punch is added *after* damping. Damping a transient would swallow it,
       // and the whole point is that it lands on the frame the boost fires.
       setFov(clamp(fov + kick * C.boost.kickFov, 20, 110));
 
-      frame(_anchor, cornerLead + shakeYaw, framePitch() + slopeAim + shakePitch,
-        _upRef, roll + shakeRoll);
+      // ── framing ────────────────────────────────────────────────────────
+      // Lateral lead: the road's own bend plus the drift commit. Both throw the
+      // kart toward the *outside* of the corner, which is what opens the road it
+      // is turning into — the composition the genre is built on. Bounded
+      // together so a drift through a hairpin cannot pin the kart to the edge.
+      const sideMax = frameSide(C.chase.maxFrameSide);
+      const side = clamp(cornerLead + swing * aimFade * frameSide(C.chase.driftFrameSide),
+        -sideMax, sideMax);
+
+      // Horizon anchor. The pull-back and the drop between them flatten the
+      // angle down to the kart as speed rises, so an uncorrected rig gives up
+      // more and more of the frame to sky exactly when the player most needs to
+      // read the road — you see the most sky at the moment you are fastest,
+      // which is backwards. Solve for the pitch that puts the true horizon where
+      // it belongs, then hold most of the way to it. Bounded so framing always
+      // wins in the end, and released in the air, where following the kart
+      // matters more than keeping the world level.
+      let pitchLead = framePitch() + slopeAim;
+      if (mode !== 'cinematic' && mode !== 'free') {
+        _tmp.subVectors(_anchor, cam.position);
+        const aimPitch = Math.atan2(_tmp.y, Math.hypot(_tmp.x, _tmp.z)) + pitchLead;
+        const want = -Math.atan((1 - 2 * C.chase.horizonAnchor) * Math.tan(cam.fov * DEG * 0.5));
+        const hold = C.chase.horizonHold * (racer.grounded ? 1 : 0.4) * aimFade * (1 - celeb);
+        pitchLead += clamp((want - aimPitch) * hold, -C.chase.horizonMax, C.chase.horizonMax);
+      }
+
+      frame(_anchor, side + shakeYaw, pitchLead + shakePitch, _upRef, roll + shakeRoll);
     },
   };
 }
