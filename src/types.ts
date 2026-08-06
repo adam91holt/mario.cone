@@ -1,0 +1,449 @@
+/**
+ * The contract every module compiles against.
+ *
+ * Many agents work on this repo in parallel. These interfaces are how they stay
+ * compatible without reading each other's code: if your change breaks someone
+ * else's module, `npm run typecheck` fails before it ever reaches the game.
+ *
+ * Adding an optional field is safe. Changing or removing an existing one is a
+ * cross-module change — say so in your report.
+ */
+
+import type * as THREE from 'three';
+import type { EventBus } from './core/bus.ts';
+import type { Rng } from './core/math.ts';
+import type { InputController, InputState } from './core/input.ts';
+import type { Config } from './core/config.ts';
+
+// ── Surfaces & racing ──────────────────────────────────────────────────────
+
+export type Surface = 'road' | 'dirt' | 'grass' | 'sand' | 'rail' | 'water' | 'boost' | 'air';
+
+export type RacePhase = 'loading' | 'intro' | 'countdown' | 'racing' | 'finished' | 'results';
+
+export type EngineClass = '50cc' | '100cc' | '150cc' | '200cc';
+
+export type VehicleId = 'cone' | 'plane' | 'helicopter' | 'digger' | 'train' | 'truck' | 'car';
+
+export type BoostSource =
+  | 'mushroom' | 'pad' | 'star' | 'bullet' | 'slipstream' | 'trick'
+  | 'drift1' | 'drift2' | 'drift3' | 'rocketStart';
+
+export type ItemId =
+  | 'banana' | 'greenShell' | 'redShell' | 'mushroom' | 'tripleMushroom'
+  | 'star' | 'bulletBill' | 'lightning' | 'blooper' | 'boo' | 'bomb'
+  | 'coin' | 'horn';
+
+// ── Vehicle stats ──────────────────────────────────────────────────────────
+
+/** Each 0..1. Mirrors Mario Kart's stat bars — they trade off against each other. */
+export interface VehicleStats {
+  speed: number;
+  accel: number;
+  weight: number;
+  handling: number;
+  traction: number;
+}
+
+export interface VehicleDef {
+  id: VehicleId;
+  name: string;
+  /** One-line character read, shown on the select screen. */
+  blurb: string;
+  stats: VehicleStats;
+  /** Primary/secondary colours used by HUD, minimap blips and trails. */
+  colors: { primary: number; secondary: number; accent: number };
+  /** Metres. Used for camera framing, collision radius and shadow size. */
+  size: { length: number; width: number; height: number };
+  /** Builds the display model. Must return an Object3D centred on its contact point. */
+  build(ctx: GameContext): VehicleModel;
+}
+
+/** The visual rig for a racer. Animation hooks are optional but expected. */
+export interface VehicleModel {
+  root: THREE.Object3D;
+  /** Per-frame animation driven by the owning racer's state. */
+  update?(racer: Racer, dt: number, alpha: number): void;
+  /** Wheels/rotors/etc. that other systems may want to reference. */
+  parts?: Record<string, THREE.Object3D>;
+  dispose?(): void;
+}
+
+// ── Racer ──────────────────────────────────────────────────────────────────
+
+export interface DriftState {
+  active: boolean;
+  /** -1 left, +1 right, 0 none. */
+  dir: -1 | 0 | 1;
+  charge: number;
+  /** 0 = not yet charged, 1..3 = mini-turbo tier reached. */
+  tier: 0 | 1 | 2 | 3;
+  /** Visual yaw offset of the chassis relative to travel direction. */
+  angle: number;
+  hopTime: number;
+}
+
+export interface BoostState {
+  time: number;
+  power: number;
+  source: BoostSource | null;
+}
+
+export interface Racer {
+  id: number;
+  name: string;
+  vehicleId: VehicleId;
+  isPlayer: boolean;
+
+  // Simulation truth. Written only by physics.
+  pos: THREE.Vector3;
+  vel: THREE.Vector3;
+  quat: THREE.Quaternion;
+  /** Previous fixed-step transform, for render interpolation. */
+  prevPos: THREE.Vector3;
+  prevQuat: THREE.Quaternion;
+
+  /** Scene node. Written only by the render/vehicle layer. */
+  visual: THREE.Object3D | null;
+  model: VehicleModel | null;
+
+  speed: number;
+  maxSpeed: number;
+  steerAngle: number;
+  yaw: number;
+
+  drift: DriftState;
+  boost: BoostState;
+
+  grounded: boolean;
+  airTime: number;
+  surface: Surface;
+
+  // Written by the race director.
+  lap: number;
+  checkpoint: number;
+  place: number;
+  /** Monotonic race progress in metres, laps included. Sorting key for places. */
+  progress: number;
+  finished: boolean;
+  finishTime: number;
+  lapTimes: number[];
+
+  // Written by the item system.
+  coins: number;
+  item: ItemId | null;
+  itemCount: number;
+  stunned: number;
+  invulnerable: number;
+  effects: Set<string>;
+
+  stats: VehicleStats;
+  /** AI brain, absent for the human player. */
+  ai: AiDriver | null;
+  /** Input the AI authored for this step. Physics reads it in place of the
+   *  player's input. Absent for the human player. */
+  aiInput?: InputState;
+  /** Rubber-band top-speed multiplier written by the AI system and folded into
+   *  top speed by physics. 1 = no adjustment. */
+  rubberBand?: number;
+}
+
+export interface AiDriver {
+  skill: number;
+  /** Lateral offset from the racing line this driver prefers, in metres. */
+  linePreference: number;
+  update(racer: Racer, dt: number): void;
+}
+
+// ── Track ──────────────────────────────────────────────────────────────────
+
+export interface SplineSample {
+  pos: THREE.Vector3;
+  tangent: THREE.Vector3;
+  right: THREE.Vector3;
+  up: THREE.Vector3;
+  width: number;
+  bank: number;
+  curvature: number;
+  distance: number;
+  t: number;
+  index: number;
+  /** Present only on `nearest()` results. */
+  lateral?: number;
+  height?: number;
+  distanceTo?: number;
+  onRoad?: boolean;
+  edgeDistance?: number;
+  surface?: Surface;
+}
+
+export interface ControlPoint {
+  x: number;
+  y?: number;
+  z: number;
+  width?: number;
+  /** Roll about the tangent, radians. Positive banks the right side up. */
+  bank?: number;
+}
+
+export interface Checkpoint {
+  index: number;
+  distance: number;
+  pos: THREE.Vector3;
+  forward: THREE.Vector3;
+  width: number;
+}
+
+export interface GridSlot {
+  pos: THREE.Vector3;
+  forward: THREE.Vector3;
+  up: THREE.Vector3;
+  distance: number;
+}
+
+export interface CourseDef {
+  id: string;
+  name: string;
+  /** Cup this course belongs to, for the course-select screen. */
+  cup?: string;
+  points: ControlPoint[];
+  width?: number;
+  laps?: number;
+  vergeWidth?: number;
+  vergeSurface?: Surface;
+  offSurface?: Surface;
+  walls?: boolean;
+  wallHeight?: number;
+  groundSize?: number;
+  groundY?: number;
+  startDistance?: number;
+  checkpoints?: number;
+  theme?: CourseTheme;
+}
+
+export interface CourseTheme {
+  ground?: number;
+  sky?: { top: number; bottom: number; horizon?: number };
+  fog?: { color: number; near: number; far: number };
+  sun?: { color: number; intensity: number; azimuth: number; elevation: number };
+  road?: { base?: string; line?: string; edge?: string };
+  /** Free-form hook for the world system's set dressing. */
+  props?: Record<string, unknown>;
+}
+
+export interface Track {
+  id: string;
+  name: string;
+  course: CourseDef;
+  spline: TrackSplineLike;
+  group: THREE.Object3D;
+  length: number;
+  laps: number;
+  checkpoints: Checkpoint[];
+  theme: CourseTheme;
+  sample(worldPos: THREE.Vector3, out?: SplineSample): SplineSample;
+  gridSlot(index: number, total: number): GridSlot;
+}
+
+/** The subset of TrackSpline that other modules are allowed to depend on. */
+export interface TrackSplineLike {
+  length: number;
+  at(t: number, out?: SplineSample): SplineSample;
+  atDistance(d: number, out?: SplineSample): SplineSample;
+  nearest(worldPos: THREE.Vector3, out?: SplineSample): SplineSample;
+  pointAt(distance: number, lateral?: number, height?: number, out?: THREE.Vector3): THREE.Vector3;
+  forwardDistance(a: number, b: number): number;
+  signedDistance(a: number, b: number): number;
+}
+
+// ── Race state ─────────────────────────────────────────────────────────────
+
+export interface RaceState {
+  phase: RacePhase;
+  time: number;
+  totalLaps: number;
+  engineClass: EngineClass;
+  /** Racer ids, sorted — index 0 is first place. */
+  standings: number[];
+  countdown: number;
+  finishedCount: number;
+}
+
+// ── Systems & context ──────────────────────────────────────────────────────
+
+/**
+ * Every system is created by a factory taking the context.
+ *
+ * `fixedUpdate` is deterministic simulation at a constant dt. `update` is
+ * per-frame visuals only. Putting gameplay in `update` desynchronises the
+ * simulation from the automated critics and will be rejected.
+ */
+export interface GameSystem {
+  readonly name: string;
+  /** Lower runs first. See the reserved slots in ARCHITECTURE.md §4.1. */
+  readonly order: number;
+  init?(): void | Promise<void>;
+  reset?(cfg: RaceConfig): void;
+  fixedUpdate?(dt: number): void;
+  update?(dt: number, alpha: number): void;
+  dispose?(): void;
+}
+
+export interface RaceConfig {
+  courseId: string;
+  vehicleId: VehicleId;
+  engineClass: EngineClass;
+  racerCount: number;
+  laps?: number;
+  seed?: number;
+  /** Skip intro/countdown — used by the capture harness. */
+  instant?: boolean;
+}
+
+export interface QualitySettings {
+  tier: 'low' | 'med' | 'high';
+  shadows: boolean;
+  shadowSize: number;
+  postfx: boolean;
+  particles: number;
+  drawDistance: number;
+  aa: boolean;
+}
+
+export interface TimeState {
+  elapsed: number;
+  dt: number;
+  alpha: number;
+  frame: number;
+  /** Global time multiplier. Slow-mo on finish, 0 when paused. */
+  scale: number;
+}
+
+/** Optional subsystem handles other modules may look up off the context. */
+export interface AudioSystem {
+  play(id: string, opts?: { volume?: number; rate?: number; pos?: THREE.Vector3 }): void;
+  setMusic(id: string | null, opts?: { fade?: number }): void;
+  setListener(pos: THREE.Vector3, quat: THREE.Quaternion): void;
+  setEngine(racer: Racer): void;
+  unlock(): Promise<void>;
+}
+
+export interface FxSystem {
+  spawn(id: string, pos: THREE.Vector3, opts?: Record<string, unknown>): void;
+  shake(amount: number, duration?: number): void;
+  flash(color: number, amount?: number): void;
+}
+
+export interface GameContext {
+  THREE: typeof THREE;
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  renderer: THREE.WebGLRenderer;
+  /** Post-processing stack, installed by the render module. */
+  composer: { render(dt: number): void; setSize(w: number, h: number): void } | null;
+
+  bus: EventBus;
+  rng: Rng;
+  config: Config;
+  quality: QualitySettings;
+  input: InputController;
+  inputState: InputState;
+  time: TimeState;
+
+  track: Track | null;
+  racers: Racer[];
+  player: Racer | null;
+  race: RaceState;
+
+  audio: AudioSystem | null;
+  fx: FxSystem | null;
+
+  /** Set by the harness installer. */
+  harness?: HarnessApi;
+}
+
+// ── Automation surface ─────────────────────────────────────────────────────
+
+/**
+ * `window.__GAME`. Every automated critic sees the game only through this.
+ * Renaming or removing a member here blinds the review pipeline — don't.
+ */
+export interface HarnessApi {
+  ready: boolean;
+  version: string;
+  step(seconds?: number): number;
+  render(): void;
+  advance(seconds?: number, fps?: number): number;
+  reset(opts?: Partial<RaceConfig>): Promise<void>;
+  setInput(partial: Partial<VirtualInput>): void;
+  clearInput(key?: keyof VirtualInput): void;
+  press(name: string): void;
+  setCamera(mode: CameraMode): CameraMode;
+  setQuality(tier: QualitySettings['tier']): void;
+  setTimeScale(s: number): void;
+  /** Hand the player's kart to a CPU driver, so a capture can travel a real
+   *  racing line instead of ploughing straight into the first barrier. */
+  setAutopilot(on: boolean): void;
+  seek(phase: RacePhase): RacePhase;
+  stats(): RenderStats;
+  snapshot(): Snapshot;
+  errors: string[];
+}
+
+export type CameraMode = 'chase' | 'far' | 'near' | 'cinematic' | 'free' | 'front' | 'overhead';
+
+export interface VirtualInput {
+  steer: number;
+  accel: number;
+  brake: number;
+  drift: boolean;
+  item: boolean;
+  look: number;
+  pause: boolean;
+}
+
+export interface RenderStats {
+  fps: number;
+  ms: number;
+  worstMs: number;
+  drawCalls: number;
+  triangles: number;
+  programs: number;
+  geometries: number;
+  textures: number;
+}
+
+export interface Snapshot {
+  version: string;
+  time: { elapsed: number; frame: number };
+  race: Pick<RaceState, 'phase' | 'time' | 'totalLaps' | 'standings'> | null;
+  track: { id: string; name: string; length: number } | null;
+  racers: SnapshotRacer[];
+  camera: { pos: [number, number, number]; fov: number };
+  errors: string[];
+}
+
+export interface SnapshotRacer {
+  id: number;
+  name: string;
+  vehicleId: VehicleId;
+  isPlayer: boolean;
+  pos: [number, number, number];
+  speed: number;
+  place: number;
+  lap: number;
+  progress: number;
+  coins: number;
+  item: ItemId | null;
+  grounded: boolean;
+  surface: Surface;
+  drift: { active: boolean; tier: number; charge: number };
+  boost: { time: number; source: BoostSource | null };
+  stunned: number;
+}
+
+declare global {
+  interface Window {
+    __GAME?: HarnessApi;
+  }
+}
