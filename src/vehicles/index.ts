@@ -59,14 +59,38 @@ interface VisualState {
 export function createVehicleSystem(ctx: GameContext): GameSystem {
   const visuals = new Map<number, VisualState>();
 
-  function ensureModel(racer: Racer): void {
-    if (racer.model) return;
-    const model = attachModel(ctx, racer);
+  function makeVisualState(model: { root: THREE.Object3D }): VisualState {
     const detail: THREE.Object3D[] = [];
     model.root.traverse((o) => {
       if (o.userData.detail) detail.push(o);
     });
-    visuals.set(racer.id, { air: 0, t: 0, detail, detailOn: true });
+    return { air: 0, t: 0, detail, detailOn: true };
+  }
+
+  /**
+   * Guarantees both halves of a racer's visual state: the model, and the
+   * bookkeeping keyed off its id.
+   *
+   * These have to be repaired independently. A racer can arrive here already
+   * holding a model — carried across a reset, or attached by tooling that
+   * builds a model in isolation — with no entry in `visuals`, and previously
+   * that combination made the update loop skip the racer entirely, so its
+   * model sat wherever it was last placed while the simulation drove on
+   * without it.
+   */
+  function ensureModel(racer: Racer): VisualState {
+    if (!racer.model) {
+      const model = attachModel(ctx, racer);
+      const state = makeVisualState(model);
+      visuals.set(racer.id, state);
+      return state;
+    }
+    let state = visuals.get(racer.id);
+    if (!state) {
+      state = makeVisualState(racer.model);
+      visuals.set(racer.id, state);
+    }
+    return state;
   }
 
   return {
@@ -74,6 +98,9 @@ export function createVehicleSystem(ctx: GameContext): GameSystem {
     order: 85,
 
     reset(): void {
+      // Racer ids are reused across races, so any bookkeeping left over from the
+      // previous field would otherwise be inherited by a different racer.
+      visuals.clear();
       for (const racer of ctx.racers) ensureModel(racer);
     },
 
@@ -81,12 +108,10 @@ export function createVehicleSystem(ctx: GameContext): GameSystem {
       const step = Math.min(dt, 0.1);
 
       for (const racer of ctx.racers) {
-        ensureModel(racer);
+        const vis = ensureModel(racer);
         const model = racer.model;
         if (!model) continue;
 
-        const vis = visuals.get(racer.id);
-        if (!vis) continue;
         vis.t += step;
 
         // Interpolate between the last two fixed states, or the 120Hz

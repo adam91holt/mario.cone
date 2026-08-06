@@ -269,10 +269,13 @@ async function runSmoke() {
     const failures = [];
 
     // Autopilot, so this asserts the kart can actually race the course rather
-    // than that it can accelerate into the first barrier.
+    // than that it can accelerate into the first barrier. Same step-then-settle
+    // shape as the shots: rendering all twelve seconds costs more than the whole
+    // rest of the suite and proves nothing extra.
     await game.reset({ instant: true });
     await game.setAutopilot(true);
-    await game.advance(12);
+    await game.step(11);
+    await game.advance(1);
 
     const snap = await game.snapshot();
     const stats = await game.stats();

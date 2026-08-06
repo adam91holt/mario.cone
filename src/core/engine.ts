@@ -82,10 +82,21 @@ export function createEngine(ctx: GameContext, canvas: HTMLCanvasElement): Engin
     ctx.time.frame++;
   }
 
-  /** Visual update plus draw. `alpha` blends between the last two fixed states. */
+  /**
+   * Visual update plus draw. `alpha` blends between the last two fixed states.
+   *
+   * It is clamped here because every consumer treats it as a blend factor and
+   * feeds it straight to `lerp`. Anything outside 0..1 stops being a blend and
+   * becomes an extrapolation: a measured alpha of -438 put each kart two
+   * hundred metres behind itself, so the karts vanished from their own chase
+   * cameras while the simulation drove on perfectly correctly. Clamping at the
+   * single point that hands the number out is the only way to know that every
+   * consumer got a real blend.
+   */
   function renderFrame(frameDt: number = FIXED_DT, alpha = 1): void {
-    ctx.time.alpha = alpha;
-    for (let i = 0; i < systems.length; i++) systems[i]!.update?.(frameDt, alpha);
+    const blend = alpha > 1 ? 1 : alpha > 0 ? alpha : 0; // NaN lands on 0
+    ctx.time.alpha = blend;
+    for (let i = 0; i < systems.length; i++) systems[i]!.update?.(frameDt, blend);
     renderer.info.reset();
     // A post-processing stack, if one is installed, owns the final draw.
     if (ctx.composer && ctx.quality.postfx) ctx.composer.render(frameDt);
@@ -110,6 +121,10 @@ export function createEngine(ctx: GameContext, canvas: HTMLCanvasElement): Engin
       steps++;
     }
     if (steps === MAX_STEPS_PER_FRAME) accumulator = 0; // give up on the backlog
+    // The harness drives `stepFixed` directly, outside this loop, so the
+    // accumulator can be left describing time this loop never owned. Reset it
+    // rather than let it leak into the frame blend.
+    if (accumulator < 0) accumulator = 0;
 
     renderFrame(wallDt, accumulator / FIXED_DT);
 
