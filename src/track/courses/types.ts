@@ -42,6 +42,33 @@ export interface ShortcutDef {
   side: -1 | 1;
 }
 
+/**
+ * A hero landform: a butte, a mesa or a spire, placed on the map so it sits at
+ * the vanishing point of a straight. Landmarks are what a lap is navigated by —
+ * without one, every corner exit looks like every other corner exit.
+ */
+export interface LandmarkDef {
+  x: number;
+  z: number;
+  /** Footprint radius, metres. */
+  radius: number;
+  /** Height above the surrounding land, metres. */
+  height: number;
+  /** 'mesa' is a flat-topped block; 'spire' is a needle. */
+  kind?: 'mesa' | 'spire';
+}
+
+/** Shaping of the landscape the circuit is cut into. */
+export interface TerrainDef {
+  /** Metres beyond the shoulder at which the canyon rim starts to rise. */
+  rimStart?: number;
+  /** Metres beyond which it is at full height. */
+  rimEnd?: number;
+  /** Peak height of the rim above the local datum, metres. */
+  rimHeight?: number;
+  landmarks?: LandmarkDef[];
+}
+
 export interface TrackFeatures {
   pads?: BoostPadDef[];
   patches?: SurfacePatchDef[];
@@ -50,6 +77,7 @@ export interface TrackFeatures {
   gantryAt?: number;
   /** Curvature above which a kerb is laid on the inside of a corner. */
   kerbCurvature?: number;
+  terrain?: TerrainDef;
 }
 
 export interface CourseDefEx extends CourseDef {

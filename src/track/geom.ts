@@ -16,6 +16,13 @@
 // Ribbons accumulate into a MeshBuilder so a dozen pieces can share one draw
 // call, and normals are averaged per ribbon so the crease between (say) a kerb
 // top and its outer face stays sharp.
+//
+// Ribbons can also carry a vertex colour. That is how the tarmac gets its
+// large-scale structure — the polished racing line, the dusty off-line edges,
+// the tonal breaks between one patch of asphalt and the next. Those have to
+// live in geometry rather than in the texture: a tiled texture mipmaps to a
+// flat average by twenty metres out, which is exactly the range at which a
+// driver is reading the road.
 
 import * as THREE from 'three';
 import type { SplineSample } from '../types.ts';
@@ -58,6 +65,9 @@ export interface Lane {
   u: number | ((s: SplineSample, f: number) => number);
 }
 
+/** Fills `out` with the vertex tint at a point on a ribbon. */
+export type RibbonTint = (s: SplineSample, lat: number, f: number, out: THREE.Color) => void;
+
 export interface RibbonOptions {
   from?: number;
   to?: number;
@@ -69,18 +79,24 @@ export interface RibbonOptions {
   verge: number;
   /** Close the ribbon into a loop when it spans the whole lap. */
   closed?: boolean;
+  /** Per-vertex tint. Multiplies the map, so 1,1,1 is "as authored". */
+  tint?: RibbonTint;
 }
 
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _c = new THREE.Vector3();
 const _n = new THREE.Vector3();
+const _col = new THREE.Color();
 
 export class MeshBuilder {
   positions: number[] = [];
   normals: number[] = [];
   uvs: number[] = [];
+  colors: number[] = [];
   indices: number[] = [];
+  /** Set once any ribbon supplies a tint; gates the colour attribute. */
+  tinted = false;
 
   get vertexCount(): number { return this.positions.length / 3; }
 
@@ -101,6 +117,8 @@ export class MeshBuilder {
     const base = this.vertexCount;
     const cols = lanes.length;
     const s: SplineSample = spline.atDistance(from);
+    const tint = opts.tint;
+    if (tint) this.tinted = true;
 
     for (let i = 0; i < rings; i++) {
       const f = i / (rings - 1);
@@ -114,6 +132,13 @@ export class MeshBuilder {
         this.positions.push(_p.x, _p.y, _p.z);
         this.normals.push(0, 0, 0);
         this.uvs.push(typeof lane.u === 'number' ? lane.u : lane.u(s, f), d / vScale);
+        if (tint) {
+          _col.setRGB(1, 1, 1);
+          tint(s, lat, f, _col);
+          this.colors.push(_col.r, _col.g, _col.b);
+        } else {
+          this.colors.push(1, 1, 1);
+        }
       }
     }
 
@@ -138,10 +163,53 @@ export class MeshBuilder {
     for (const v of [a, b, c, d]) {
       this.positions.push(v.x, v.y, v.z);
       this.normals.push(0, 0, 0);
+      this.colors.push(1, 1, 1);
     }
     this.uvs.push(uv[0], uv[1], uv[2], uv[1], uv[0], uv[3], uv[2], uv[3]);
     this.indices.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
     this.accumulateNormals(base, base + 4, start);
+  }
+
+  /**
+   * A flat patch of paint on the road surface, subdivided in both axes.
+   *
+   * Anything laid on the tarmac has to be sampled across its width, not drawn
+   * as a single chord: `surfaceHeight` crowns the road by 16cm at the
+   * centreline, so a three-metre quad spanning that crown sinks under the
+   * surface in the middle and disappears. Every transverse marking on the
+   * circuit goes through here.
+   */
+  addPatch(
+    spline: TrackSpline, verge: number,
+    d0: number, d1: number, lat0: number, lat1: number, lift: number,
+    uv: [number, number, number, number] = [0, 0, 1, 1],
+  ): void {
+    const cols = Math.max(2, Math.min(24, Math.ceil(Math.abs(lat1 - lat0) / 0.9) + 1));
+    const rows = Math.max(2, Math.min(24, Math.ceil(Math.abs(d1 - d0) / 1.2) + 1));
+    const base = this.vertexCount;
+    const iStart = this.indices.length;
+    const s: SplineSample = spline.atDistance(d0);
+
+    for (let i = 0; i < rows; i++) {
+      const fv = i / (rows - 1);
+      spline.atDistance(d0 + (d1 - d0) * fv, s);
+      for (let j = 0; j < cols; j++) {
+        const fu = j / (cols - 1);
+        surfacePoint(s, lat0 + (lat1 - lat0) * fu, verge, lift, _p);
+        this.positions.push(_p.x, _p.y, _p.z);
+        this.normals.push(0, 0, 0);
+        this.colors.push(1, 1, 1);
+        this.uvs.push(uv[0] + (uv[2] - uv[0]) * fu, uv[1] + (uv[3] - uv[1]) * fv);
+      }
+    }
+    for (let i = 0; i < rows - 1; i++) {
+      for (let j = 0; j < cols - 1; j++) {
+        const a = base + i * cols + j;
+        const b = a + cols;
+        this.indices.push(a, a + 1, b, b, a + 1, b + 1);
+      }
+    }
+    this.accumulateNormals(base, this.vertexCount, iStart);
   }
 
   /** Face normals summed into the vertices a batch of triangles touches. */
@@ -170,6 +238,9 @@ export class MeshBuilder {
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.positions, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.normals, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uvs, 2));
+    if (this.tinted) {
+      g.setAttribute('color', new THREE.Float32BufferAttribute(this.colors, 3));
+    }
     g.setIndex(this.indices);
     g.computeBoundingSphere();
     return g;

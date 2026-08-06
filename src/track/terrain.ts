@@ -21,6 +21,7 @@
 import * as THREE from 'three';
 import { fbm, noise2, smoothstep } from './geom.ts';
 import { makeGroundTexture } from './textures.ts';
+import { features, type LandmarkDef } from './courses/types.ts';
 import type { CourseDef, SplineSample } from '../types.ts';
 import type { TrackSpline } from './spline.ts';
 
@@ -37,12 +38,18 @@ const C_DUST = new THREE.Color(0xc9a063);
 const C_ROCK = new THREE.Color(0xb2683f);
 const C_HIGH = new THREE.Color(0xdcbb85);
 const C_SCRUB = new THREE.Color(0x8a9350);
+/** The band that makes a mesa read as sedimentary rock rather than a lump. */
+const C_STRATA = new THREE.Color(0x9d4f30);
 
 export interface TerrainOptions {
   /** Datum the landscape settles to far from the circuit. */
   groundY: number;
   size: number;
   verge: number;
+  rimStart: number;
+  rimEnd: number;
+  rimHeight: number;
+  landmarks: LandmarkDef[];
 }
 
 /**
@@ -60,13 +67,34 @@ function terrainHeight(d: number, sy: number, x: number, z: number, o: TerrainOp
   // Long-wavelength dunes only: anything finer than the grid that samples it
   // turns into faceted triangles when seen from above.
   const dunes = fbm(x / 150 + 11, z / 150 - 7) * 3.6 * smoothstep(20, 110, d);
-  // Canyon rim: mesas ringing the circuit — and rising in the middle of it —
-  // which is what gives the horizon something to do, hides the edge of the
-  // world, and stops the far side of the lap reading as clutter.
-  const rim = (0.5 + 0.5 * noise2(x / 380 + 3, z / 380 + 5))
-    * 42 * smoothstep(260, 560, d);
 
-  return ref - embankment + hills + dunes + rim;
+  // Canyon rim. The old version was a smooth noise field starting 260m out and
+  // capped at 42m — under five degrees of subtense from the road, which is why
+  // it read as low dunes and the horizon had nothing in it. Now it is a mesa
+  // field: the noise is pushed through a hard ramp so the tops go flat and the
+  // sides go steep, and it starts close enough and stands tall enough to be a
+  // canyon wall. `rimStart` keeps its foot clear of the circuit.
+  const gate = smoothstep(o.rimStart, o.rimEnd, d);
+  const plateau = smoothstep(0.40, 0.57, noise2(x / 420 + 3, z / 420 + 5));
+  const terrace = 0.42 + 0.58 * smoothstep(0.34, 0.52, noise2(x / 165 + 9, z / 165 - 4));
+  const erosion = 0.86 + 0.14 * noise2(x / 58 - 21, z / 58 + 13);
+  const rim = plateau * terrace * erosion * o.rimHeight * gate;
+
+  // Hero landforms, placed by the course so a straight has something at the end
+  // of it. Held back from the circuit by the same gate as the rim.
+  let hero = 0;
+  for (let i = 0; i < o.landmarks.length; i++) {
+    const lm = o.landmarks[i]!;
+    const r = Math.hypot(x - lm.x, z - lm.z) / lm.radius;
+    if (r >= 1.35) continue;
+    const shape = lm.kind === 'spire'
+      ? Math.pow(Math.max(0, 1 - r), 2.2)
+      : 1 - smoothstep(0.52, 1.05, r);
+    const wobble = 0.84 + 0.16 * noise2(x / 44 + lm.x * 0.01, z / 44 + lm.z * 0.01);
+    hero += lm.height * shape * wobble * smoothstep(o.rimStart * 0.7, o.rimStart * 1.5, d);
+  }
+
+  return ref - embankment + hills + dunes + rim + hero;
 }
 
 function colourFor(d: number, height: number, sy: number, out: THREE.Color): void {
@@ -78,16 +106,26 @@ function colourFor(d: number, height: number, sy: number, out: THREE.Color): voi
   out.lerp(C_ROCK, smoothstep(-8, -46, rel) * 0.7);
   out.lerp(C_HIGH, smoothstep(4, 52, rel));
   out.lerp(C_SCRUB, smoothstep(-1, -16, rel) * (1 - smoothstep(-20, -48, rel)) * 0.30);
+  // Horizontal strata on anything that stands up. Keyed on absolute height so
+  // the bands run level across neighbouring buttes the way real ones do, and
+  // faded in with elevation so the flats stay clean.
+  const band = 0.5 + 0.5 * Math.sin(height * 0.21);
+  out.lerp(C_STRATA, band * smoothstep(14, 55, rel) * 0.34);
 }
 
 export function buildTerrain(
   spline: TrackSpline, course: CourseDef, parent: THREE.Group,
 ): void {
   const verge = course.vergeWidth ?? 5;
+  const t = features(course).terrain ?? {};
   const o: TerrainOptions = {
     groundY: course.groundY ?? -8,
     size: course.groundSize ?? 4000,
     verge,
+    rimStart: t.rimStart ?? 260,
+    rimEnd: t.rimEnd ?? 560,
+    rimHeight: t.rimHeight ?? 42,
+    landmarks: t.landmarks ?? [],
   };
   // The landscape is the largest thing on screen every single frame, so it is
   // deliberately the cheapest thing to shade: the key light and sky fill are
@@ -233,7 +271,9 @@ function buildField(
   spline: TrackSpline, o: TerrainOptions, mat: THREE.Material, course: CourseDef,
 ): THREE.Mesh {
   const half = o.size * 0.5;
-  const CELLS = 150;
+  // Enough resolution that a butte reads as a block with faces rather than as a
+  // smooth blob, without paying for detail the fog will eat anyway.
+  const CELLS = 176;
   const cell = o.size / CELLS;
 
   // Centre the field on the circuit, and remember its bounds so far-off

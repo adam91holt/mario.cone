@@ -39,12 +39,13 @@ function rand(seed: number): () => number {
 function finish(
   c: HTMLCanvasElement, key: string,
   wrap: THREE.Wrapping = THREE.RepeatWrapping,
+  anisotropy = 4,
 ): THREE.CanvasTexture {
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = wrap;
   tex.wrapT = wrap;
-  tex.anisotropy = 4;
+  tex.anisotropy = anisotropy;
   _cache.set(key, tex);
   return tex;
 }
@@ -62,7 +63,18 @@ export interface RoadTextureOptions {
   size?: number;
 }
 
-/** Asphalt. Tiles in both directions on a 8m pitch. */
+/**
+ * Asphalt. Tiles in both directions on a 12m pitch: u runs across the road, v
+ * along it.
+ *
+ * The hard constraint is minification. The road is seen at a grazing angle, so
+ * the along-track axis is crushed to nothing within twenty metres and any
+ * detail that varies along v averages out to flat grey — which is exactly the
+ * distance band a driver reads. What survives is *lateral* structure, because
+ * across the road the texel density stays high. So the surface is built from
+ * lengthwise features: polish lanes where the traffic runs, tonal breaks
+ * between one pour of asphalt and the next, and only then the aggregate.
+ */
 export function makeAsphaltTexture(opts: RoadTextureOptions = {}): THREE.CanvasTexture {
   const key = `asphalt:${opts.base ?? ''}`;
   const hit = cached(key);
@@ -76,34 +88,66 @@ export function makeAsphaltTexture(opts: RoadTextureOptions = {}): THREE.CanvasT
   g.fillStyle = base;
   g.fillRect(0, 0, S, S);
 
-  // Big soft patches first: old repairs and sun bleaching. These are what stop
-  // the road reading as a flat grey plane from a distance.
-  for (let i = 0; i < 26; i++) {
-    const x = rnd() * S, y = rnd() * S, r = 40 + rnd() * 120;
+  // Lengthwise polish lanes. Constant along v, so they survive every mip level
+  // the road is ever drawn at — this is the single reason the tarmac stops
+  // reading as a smooth plane at distance.
+  for (let i = 0; i < 7; i++) {
+    const x = rnd() * S;
+    const w = 26 + rnd() * 64;
+    const dark = rnd() > 0.42;
+    const a = 0.09 + rnd() * 0.10;
+    const grad = g.createLinearGradient(x - w, 0, x + w, 0);
+    const col = dark ? '22,24,31' : '214,208,196';
+    grad.addColorStop(0, `rgba(${col},0)`);
+    grad.addColorStop(0.5, `rgba(${col},${a.toFixed(3)})`);
+    grad.addColorStop(1, `rgba(${col},0)`);
+    g.fillStyle = grad;
+    g.fillRect(x - w, 0, w * 2, S);
+    // Wrap the tail so the tile has no seam across the road.
+    if (x - w < 0) { g.save(); g.translate(S, 0); g.fillRect(x - w, 0, w * 2, S); g.restore(); }
+    if (x + w > S) { g.save(); g.translate(-S, 0); g.fillRect(x - w, 0, w * 2, S); g.restore(); }
+  }
+
+  // Tonal breaks: old repairs and sun bleaching, three times the amplitude they
+  // used to carry so they still separate once the mip chain has had its way.
+  for (let i = 0; i < 30; i++) {
+    const x = rnd() * S, y = rnd() * S, r = 50 + rnd() * 150;
     const light = rnd() > 0.45;
     const grad = g.createRadialGradient(x, y, 0, x, y, r);
-    const a = 0.035 + rnd() * 0.035;
-    grad.addColorStop(0, light ? `rgba(255,246,232,${a})` : `rgba(12,14,20,${a})`);
+    const a = 0.075 + rnd() * 0.075;
+    grad.addColorStop(0, light ? `rgba(255,246,232,${a})` : `rgba(10,12,18,${a})`);
     grad.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = grad;
     g.fillRect(x - r, y - r, r * 2, r * 2);
   }
 
-  // Aggregate. Wrapped so the tile has no seam.
-  for (let i = 0; i < S * 9; i++) {
-    const x = rnd() * S, y = rnd() * S;
-    const r = 0.4 + rnd() * 1.5;
+  // Coarse aggregate clumps — big enough to hold together for a mip level or
+  // two, which is what puts texture on the road at 10-25m.
+  for (let i = 0; i < S * 1.2; i++) {
+    const x = rnd() * S, y = rnd() * S, r = 2.2 + rnd() * 4.4;
+    const grad = g.createRadialGradient(x, y, 0, x, y, r);
     const light = rnd() > 0.5;
-    g.fillStyle = light ? `rgba(255,255,255,0.05)` : `rgba(0,0,0,0.07)`;
-    g.beginPath();
-    g.arc(x, y, r, 0, Math.PI * 2);
-    g.fill();
+    grad.addColorStop(0, light ? 'rgba(226,222,214,0.20)' : 'rgba(14,15,20,0.24)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grad;
+    g.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+
+  // Chip: the stones themselves, lit top-left with a shadow bottom-right so
+  // they read as gravel in a binder rather than as noise.
+  for (let i = 0; i < S * 11; i++) {
+    const x = rnd() * S, y = rnd() * S;
+    const r = 0.5 + rnd() * 1.7;
+    g.fillStyle = 'rgba(8,9,13,0.22)';
+    g.beginPath(); g.arc(x + 0.6, y + 0.7, r, 0, Math.PI * 2); g.fill();
+    g.fillStyle = `rgba(236,232,224,${(0.10 + rnd() * 0.16).toFixed(3)})`;
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
   }
 
   // A couple of tar-seam repairs for silhouette interest at close range.
-  g.strokeStyle = 'rgba(22,22,28,0.16)';
-  for (let i = 0; i < 2; i++) {
-    g.lineWidth = 1.5 + rnd() * 1.5;
+  g.strokeStyle = 'rgba(20,20,26,0.26)';
+  for (let i = 0; i < 3; i++) {
+    g.lineWidth = 1.5 + rnd() * 2.5;
     g.beginPath();
     let x = rnd() * S, y = 0;
     g.moveTo(x, y);
@@ -115,7 +159,7 @@ export function makeAsphaltTexture(opts: RoadTextureOptions = {}): THREE.CanvasT
     g.stroke();
   }
 
-  return finish(c, key);
+  return finish(c, key, THREE.RepeatWrapping, 8);
 }
 
 /** Compacted gravel for the verges and run-off. */
@@ -199,7 +243,16 @@ export interface KerbOptions {
   pitch?: number;
 }
 
-/** Kerb / rumble strip. u runs across the kerb, v along the track in metres. */
+/**
+ * Kerb / rumble strip. v runs along the track in metres; u runs across the
+ * *block*, and the atlas is split so one texture skins both of its faces:
+ *
+ *   u 0.00 .. 0.63   the top, from the chamfered inner lip outward
+ *   u 0.63 .. 1.00   the vertical outer face, in shadow under the lip
+ *
+ * The stripes line up in v across the split, so the block reads as one object
+ * wrapped in paint rather than two ribbons that happen to touch.
+ */
 export function makeKerbTexture(opts: KerbOptions = {}): THREE.CanvasTexture {
   const a = opts.a ?? '#E33B2E';
   const b = opts.b ?? '#FFF8F0';
@@ -207,27 +260,41 @@ export function makeKerbTexture(opts: KerbOptions = {}): THREE.CanvasTexture {
   const hit = cached(key);
   if (hit) return hit;
 
-  const W = 64, H = 128;
+  const W = 128, H = 128;
+  const SPLIT = Math.round(W * 0.63);
   const [c, g] = canvas(W, H);
   g.fillStyle = b;
   g.fillRect(0, 0, W, H);
   g.fillStyle = a;
   g.fillRect(0, 0, W, H / 2);
 
-  // A dark keyline along the inner edge and a highlight along the outer one:
-  // the kerb reads as a raised block even where the mesh is nearly flat.
-  const grad = g.createLinearGradient(0, 0, W, 0);
-  grad.addColorStop(0, 'rgba(0,0,0,0.34)');
-  grad.addColorStop(0.28, 'rgba(255,255,255,0.16)');
-  grad.addColorStop(1, 'rgba(0,0,0,0.16)');
-  g.fillStyle = grad;
-  g.fillRect(0, 0, W, H);
+  // Top face: a dark keyline where it meets the tarmac, a bright chamfer just
+  // outboard of it, then a slow fall-off to the outer lip.
+  const top = g.createLinearGradient(0, 0, SPLIT, 0);
+  top.addColorStop(0, 'rgba(0,0,0,0.40)');
+  top.addColorStop(0.10, 'rgba(0,0,0,0.06)');
+  top.addColorStop(0.30, 'rgba(255,255,255,0.22)');
+  top.addColorStop(1, 'rgba(0,0,0,0.10)');
+  g.fillStyle = top;
+  g.fillRect(0, 0, SPLIT, H);
+
+  // Outer face: the same stripes, dropped into shade and darkening downward, so
+  // the block has a side you can see rather than an edge you infer.
+  const face = g.createLinearGradient(SPLIT, 0, W, 0);
+  face.addColorStop(0, 'rgba(6,8,14,0.30)');
+  face.addColorStop(0.35, 'rgba(6,8,14,0.46)');
+  face.addColorStop(1, 'rgba(6,8,14,0.66)');
+  g.fillStyle = face;
+  g.fillRect(SPLIT, 0, W - SPLIT, H);
+  // A hard highlight exactly on the arris — the lip catches the sun.
+  g.fillStyle = 'rgba(255,250,240,0.5)';
+  g.fillRect(SPLIT - 3, 0, 3, H);
 
   // Scuff marks where karts clip it.
   const rnd = rand(0x7f4a7c15);
-  for (let i = 0; i < 70; i++) {
-    g.fillStyle = `rgba(40,34,30,${0.05 + rnd() * 0.12})`;
-    g.fillRect(rnd() * W, rnd() * H, 2 + rnd() * 10, 1 + rnd() * 3);
+  for (let i = 0; i < 90; i++) {
+    g.fillStyle = `rgba(40,34,30,${(0.05 + rnd() * 0.12).toFixed(3)})`;
+    g.fillRect(rnd() * SPLIT, rnd() * H, 2 + rnd() * 10, 1 + rnd() * 3);
   }
   return finish(c, key);
 }
@@ -271,6 +338,11 @@ export function makeCheckerTexture(squares = 8, dark = '#22242B', light = '#FFF8
  * Boost strip: chevrons pointing down the road on a dark bed. v is the
  * along-track axis and scrolls at runtime, which is what makes the strip feel
  * like it is pulling you forward before you have even touched it.
+ *
+ * The arrow's proportions are the whole trick. Mapped onto a 5.5m-wide strip at
+ * 15m of tile, each arm sits about 30 degrees off the road axis; drawn any
+ * shallower — as they were — perspective flattens the V into a horizontal bar
+ * and the strip reads as a cattle grid instead of an arrow.
  */
 export function makeBoostTexture(): THREE.CanvasTexture {
   const key = 'boost';
@@ -279,33 +351,37 @@ export function makeBoostTexture(): THREE.CanvasTexture {
 
   const W = 128, H = 128;
   const [c, g] = canvas(W, H);
-  g.fillStyle = '#141821';
+  g.fillStyle = '#10141C';
   g.fillRect(0, 0, W, H);
-  g.fillStyle = 'rgba(255,107,26,0.20)';
+  g.fillStyle = 'rgba(255,107,26,0.16)';
   g.fillRect(0, 0, W, H);
 
-  // Two chevrons per tile, pointing toward -v (the direction of travel).
-  const chevron = (yTop: number, h: number, color: string): void => {
+  // Two chevrons per tile, apex toward +v — the direction of travel.
+  const chevron = (yTop: number, depth: number, thick: number, color: string): void => {
     g.fillStyle = color;
     g.beginPath();
     g.moveTo(W * 0.5, yTop);
-    g.lineTo(W, yTop + h * 0.55);
-    g.lineTo(W, yTop + h);
-    g.lineTo(W * 0.5, yTop + h * 0.45);
-    g.lineTo(0, yTop + h);
-    g.lineTo(0, yTop + h * 0.55);
+    g.lineTo(W, yTop + depth);
+    g.lineTo(W, yTop + depth + thick);
+    g.lineTo(W * 0.5, yTop + thick);
+    g.lineTo(0, yTop + depth + thick);
+    g.lineTo(0, yTop + depth);
     g.closePath();
     g.fill();
   };
   for (let i = 0; i < 2; i++) {
     const y = i * (H / 2);
-    chevron(y + 4, H * 0.42, '#FFC300');
-    chevron(y + 2, H * 0.42, '#FFF4C2');
+    chevron(y + 3, 40, 22, '#F07A12');   // shadow, offset down-track
+    chevron(y, 40, 22, '#FFC300');
+    chevron(y - 3, 40, 13, '#FFF6CE');   // hot inner edge along the leading arm
   }
   // Edge rails keep the strip's silhouette crisp against the tarmac.
   g.fillStyle = '#FF6B1A';
-  g.fillRect(0, 0, 5, H);
-  g.fillRect(W - 5, 0, 5, H);
+  g.fillRect(0, 0, 6, H);
+  g.fillRect(W - 6, 0, 6, H);
+  g.fillStyle = 'rgba(255,246,206,0.7)';
+  g.fillRect(0, 0, 2, H);
+  g.fillRect(W - 2, 0, 2, H);
   return finish(c, key);
 }
 
