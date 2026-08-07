@@ -21,11 +21,17 @@ import * as THREE from 'three';
 import type { GameContext } from '../types.ts';
 
 /** Metres between stamps. Shorter is smoother and costs quads. */
-const STEP = 1.6;
+const STEP = 1.1;
 /** Beyond this a racer was moved, not driven — break the ribbon. */
 const BREAK = 26;
-/** Seconds a mark takes to fade out completely. */
-const LIFE = 7.0;
+/**
+ * Seconds a mark takes to fade out completely.
+ *
+ * Long, on purpose. The point of a mark is that a corner still shows what
+ * happened in it after the pack has gone through, so the number has to cover a
+ * whole lap of traffic rather than one machine's own drift.
+ */
+const LIFE = 11.0;
 
 const VERT = /* glsl */ `
 attribute float aBirth;
@@ -59,9 +65,21 @@ varying float vSide;
 varying vec3 vTint;
 
 void main() {
-  // Soft shoulders across the strip: a hard-edged rectangle reads as tape.
-  float edge = 1.0 - vSide * vSide;
-  float a = vFade * edge * edge;
+  // A tyre lays a *patch*, not a hairline. The previous profile was
+  // (1 - s^2)^2, which is a spike: it reaches full strength only along the
+  // exact centreline and has fallen to a fifth of it a third of the way out, so
+  // however wide the quad was, what landed on screen was two pencil strokes.
+  // From overhead on tarmac that is indistinguishable from the road's own
+  // aggregate, which is exactly how a three-and-a-half second drift managed to
+  // leave a track with no memory of it.
+  //
+  // A plateau with a shoulder instead: full darkness out to half the width,
+  // then a soft edge over the remainder. That is the shape of the contact patch
+  // of a tyre with a rounded sidewall, and it is what makes the mark read as a
+  // band of spent rubber rather than as a scratch.
+  float s = abs(vSide);
+  float edge = 1.0 - smoothstep(0.46, 1.0, s);
+  float a = vFade * edge;
   if (a < 0.004) discard;
   gl_FragColor = vec4(mix(vec3(1.0), vTint, a), 1.0);
 }`;

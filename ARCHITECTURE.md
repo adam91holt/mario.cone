@@ -178,10 +178,28 @@ Canonical events — add new ones to this list when you introduce them:
 | `item:bounce` | `{ kind, pos, bounces }` — shell off a barrier | items |
 | `item:blast` | `{ pos, ownerId, radius }` — a bob-omb went off | items |
 | `item:strike` | `{ racer, by, item, kind }` — *what* hit you, before the stun | items |
+| `item:reaction` | `{ racer, kind, force }` — the spin-out that follows a strike | items |
+| `item:block` | `{ racer, by, item, blocked }` — a carried item ate the hit | items |
 | `item:effect` | `{ racer, effect, on }` — star/bullet/shrunk/inked/boo | items |
 | `item:steal` | `{ racer, from, item }` | items |
 | `coin:get` | `{ racer, total }` | items |
 | `coin:lose` | `{ racer, count, total }` | items |
+
+**Hit kinds.** `item:strike` and `item:reaction` carry a `kind` from
+`HitKind` (exported by `src/items/index.ts`), and it is the item system's
+authoritative statement of *what the hit looks like*: `spin` (a slip — one
+lazy turn, no launch, tyre smoke: a banana), `flip` (a smash — launched, a turn
+and a quarter, sparks: a shell or a bob-omb), `bump` (a shove — mostly sideways,
+almost no rotation: a star, a bullet bill, a horn) and `squish` (flattened on
+the spot: lightning). Anything hanging a sound, a particle or a camera move off
+a hit should read `item:strike`, not `kart:hit` — physics emits the latter from
+`stunRacer` and only knows its own three-value vocabulary.
+
+The item system integrates the spin-out itself, in `fixedUpdate` at order 50,
+*after* the kart model has stepped: it holds the racer's world-space direction
+of travel fixed, rotates the heading about it, decays the speed, and writes
+`pos`/`vel`/`yaw`/`quat`/`stunned` for the duration. Nothing else may drive a
+stunned racer at the same time.
 
 ---
 

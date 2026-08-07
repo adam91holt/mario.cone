@@ -305,13 +305,23 @@ const ids = (args && args.pieces) || ['items', 'fx', 'hud'];
 const MAX_ROUNDS = (args && args.rounds) || 2;
 const PASS_SCORE = 8.5;
 
+/**
+ * Verdicts carried in from an earlier run, keyed by piece id.
+ *
+ * A wave that ends without a pass has produced its most valuable output — a
+ * critic's measured directive — and that has to survive into the next run.
+ * Without this, round 3 opens by rediscovering what round 2 already proved.
+ */
+const CARRY = (args && args.carry) || {};
+
 const selected = ids.map((id) => ({ id, ...PIECES[id] })).filter((p) => p.name);
 log(`Wave: ${selected.map((p) => p.id).join(', ')} — up to ${MAX_ROUNDS} rounds each.`);
+for (const id of Object.keys(CARRY)) log(`  carrying forward a prior verdict for ${id}`);
 
 const results = await pipeline(
   selected,
   async (piece) => {
-    let verdict = null;
+    let verdict = CARRY[piece.id] || null;
     let round = 0;
     const history = [];
 

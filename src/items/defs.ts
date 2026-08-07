@@ -146,8 +146,14 @@ export const REEL_FACES: readonly ItemEntry[] = [
   { id: 'lightning', count: 1 },
 ];
 
-/** Every face the HUD reel may ever have to show, so it can prebuild them all. */
-export const ALL_FACES: readonly ItemEntry[] = (() => {
+/**
+ * Every distinct (item, count) the table can produce.
+ *
+ * Not used to build the HUD — the slot keys its icons on the item alone, so a
+ * triple that has been half spent still has a face. This is here as the
+ * balance-facing view of the table: what a race can actually hand out.
+ */
+export function tableEntries(): ItemEntry[] {
   const seen = new Set<string>();
   const out: ItemEntry[] = [];
   for (const row of TABLE) {
@@ -156,11 +162,5 @@ export const ALL_FACES: readonly ItemEntry[] = (() => {
     seen.add(key);
     out.push({ id: row.id, count: row.count });
   }
-  for (const face of REEL_FACES) {
-    const key = `${face.id}:${face.count}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({ id: face.id, count: face.count });
-  }
   return out;
-})();
+}

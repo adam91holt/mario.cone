@@ -20,16 +20,19 @@
 //   Everything else is a timer with a mesh on it.
 
 import * as THREE from 'three';
-import { clamp, clamp01, damp } from '../core/math.ts';
+import { clamp, clamp01, damp, ease } from '../core/math.ts';
 import {
+  addProjectileGlow, addProjectileShadow,
   buildBanana, buildBlast, buildBlooper, buildBomb, buildBoo, buildBurst,
-  buildRing, buildShell, cloneWithMaterials, setColor, setOpacity,
+  buildRing, buildScorch, buildShell, cloneWithMaterials, setColor, setOpacity,
+  setRimStrength,
 } from './models.ts';
+import { surfaceHeight } from '../track/geom.ts';
 import type { GameContext, Racer, SplineSample } from '../types.ts';
 
 export type EntityKind =
   | 'banana' | 'greenShell' | 'redShell' | 'bomb'
-  | 'blast' | 'ring' | 'ghost' | 'squid' | 'burst';
+  | 'blast' | 'ring' | 'ghost' | 'squid' | 'burst' | 'scorch';
 
 export interface Entity {
   kind: EntityKind;
@@ -57,6 +60,8 @@ export interface Entity {
   node: THREE.Object3D | null;
   /** Which item drew this, for the strike report. */
   source: EntityKind;
+  /** Visual emitter clock for the flight trail. Written only from `update`. */
+  puff: number;
 }
 
 export interface SpawnOptions {
@@ -90,13 +95,36 @@ const _sample: SplineSample = {
   width: 0, bank: 0, curvature: 0, distance: 0, t: 0, index: 0,
 };
 
+/**
+ * How far the tarmac stands proud of the spline's own surface at a given
+ * lateral offset.
+ *
+ * The road is *crowned*: the driving surface is lifted 16cm at the centreline
+ * and falls away past the kerbs, the way a real road sheds water. None of that
+ * is visible in a spline sample, so anything placed at `s.pos + right * lateral`
+ * is placed **under the road** — by the better part of a shell's radius in the
+ * middle, which is where almost everything in this module ends up.
+ *
+ * That single omission is why a green shell photographed half-sunk in the
+ * tarmac, why a bob-omb's scorch mark could not be found on the road it had
+ * just been burned into, and why the contact shadows under the item boxes were
+ * invisible: all three were being drawn inside the asphalt.
+ *
+ * `surfaceHeight` is the track module's own profile — the one the road mesh is
+ * built from and the one kart physics drives on — so this cannot drift out of
+ * agreement with either of them.
+ */
+export function roadCrown(lateral: number, width: number, verge = 5): number {
+  return surfaceHeight(lateral, width, verge);
+}
+
 function blank(): Entity {
   return {
     kind: 'banana', active: false, ownerId: -1,
     pos: new THREE.Vector3(), prevPos: new THREE.Vector3(), vel: new THREE.Vector3(),
     life: 0, age: 0, arm: 0, bounces: 0, targetId: -1,
     dist: 0, lat: 0, yaw: 0, spin: 0, radius: 1.5, scale: 1, groundY: 0,
-    node: null, source: 'banana',
+    node: null, source: 'banana', puff: 0,
   };
 }
 
@@ -124,7 +152,7 @@ export function createEntityField(ctx: GameContext): EntityField {
   const pools = new Map<EntityKind, THREE.Object3D[]>();
   /** Kinds whose material state is animated per copy, so each needs its own. */
   const PRIVATE: ReadonlySet<EntityKind> =
-    new Set<EntityKind>(['bomb', 'blast', 'ring', 'ghost', 'squid', 'burst']);
+    new Set<EntityKind>(['bomb', 'blast', 'ring', 'ghost', 'squid', 'burst', 'scorch']);
 
   function init(): void {
     if (prototypes.size) return;
@@ -137,6 +165,21 @@ export function createEntityField(ctx: GameContext): EntityField {
     prototypes.set('ghost', buildBoo());
     prototypes.set('squid', buildBlooper());
     prototypes.set('burst', buildBurst());
+    prototypes.set('scorch', buildScorch());
+
+    // Everything that travels gets a contact shadow and — for the two that
+    // travel *fast* — a halo. A projectile is on screen for under a second and
+    // spends it against tarmac; without these it is a coloured lump nobody can
+    // find. See `addProjectileShadow`.
+    addProjectileShadow(prototypes.get('banana')!, 1.25);
+    addProjectileShadow(prototypes.get('bomb')!, 1.3);
+    for (const [kind, colour] of [
+      ['greenShell', 0x8CFF6A], ['redShell', 0xFF7A5A],
+    ] as Array<[EntityKind, number]>) {
+      addProjectileShadow(prototypes.get(kind)!, 1.6);
+      addProjectileGlow(prototypes.get(kind)!, colour, 0.46);
+    }
+
     for (const kind of prototypes.keys()) pools.set(kind, []);
     // Warm the pools before the race rather than during it. Two reasons, and
     // the second is the important one: a spawn inside the fixed step must not
@@ -147,7 +190,7 @@ export function createEntityField(ctx: GameContext): EntityField {
     // them at once.
     for (const [kind, count] of [
       ['banana', 6], ['greenShell', 4], ['redShell', 4], ['bomb', 3], ['burst', 5],
-      ['blast', 2], ['ring', 2], ['ghost', 1], ['squid', 1],
+      ['blast', 2], ['ring', 2], ['ghost', 1], ['squid', 1], ['scorch', 3],
     ] as Array<[EntityKind, number]>) {
       for (let i = 0; i < count; i++) pools.get(kind)!.push(makeNode(kind));
     }
@@ -186,7 +229,8 @@ export function createEntityField(ctx: GameContext): EntityField {
   }
 
   function surfaceY(s: SplineSample, lateral: number): number {
-    _v.copy(s.pos).addScaledVector(s.right, lateral);
+    _v.copy(s.pos).addScaledVector(s.right, lateral)
+      .addScaledVector(s.up, roadCrown(lateral, s.width, ctx.track?.course.vergeWidth ?? 5));
     return _v.y;
   }
 
@@ -226,10 +270,13 @@ export function createEntityField(ctx: GameContext): EntityField {
     e.radius = opts.radius ?? 1.55;
     e.scale = 1;
     e.groundY = opts.groundY ?? e.pos.y;
+    e.puff = 0;
     e.node = acquire(kind);
     e.node.position.copy(e.pos);
     e.node.rotation.set(0, e.yaw, 0);
-    e.node.scale.setScalar(kind === 'blast' || kind === 'ring' || kind === 'burst' ? 0.01 : 1);
+    e.node.scale.setScalar(
+      kind === 'blast' || kind === 'ring' || kind === 'burst' ? 0.01
+        : kind === 'scorch' ? e.radius : 1);
     if (opts.color !== undefined) setColor(e.node, opts.color);
     return e;
   }
@@ -277,9 +324,16 @@ export function createEntityField(ctx: GameContext): EntityField {
     }
     // Ride the road rather than the world: a shell that keeps its launch height
     // over a crest ends up flying at head height down the next straight.
-    const targetY = surfaceY(s, lateral) + 0.45;
+    //
+    // 0.16, not 0.45. The model stands *on* its origin — a hat's brim is at
+    // y=0.12 and its crown at 0.58 — so half a metre of ride height hung the
+    // whole thing in mid-air with a shadow a metre beneath it, which reads as
+    // an object with no relationship to the road it is supposed to be
+    // skittering along. Low enough to belong to the tarmac, high enough that
+    // the brim clears it.
+    const targetY = surfaceY(s, lateral) + 0.16;
     e.pos.y = damp(e.pos.y, targetY, 0.0001, dt);
-    e.groundY = targetY - 0.45;
+    e.groundY = targetY - 0.16;
     e.yaw = Math.atan2(e.vel.x, e.vel.z);
   }
 
@@ -313,10 +367,10 @@ export function createEntityField(ctx: GameContext): EntityField {
 
     const s = spline.atDistance(e.dist, _sample);
     e.lat = clamp(e.lat, -s.width * 0.5 - 2, s.width * 0.5 + 2);
-    e.pos.copy(s.pos).addScaledVector(s.right, e.lat).addScaledVector(s.up, 0.55);
+    e.pos.copy(s.pos).addScaledVector(s.right, e.lat).addScaledVector(s.up, 0.18);
     e.yaw = Math.atan2(s.tangent.x, s.tangent.z);
     e.spin += dt * 16;
-    e.groundY = e.pos.y - 0.55;
+    e.groundY = e.pos.y - 0.18;
   }
 
   function stepBomb(e: Entity, dt: number): void {
@@ -354,7 +408,14 @@ export function createEntityField(ctx: GameContext): EntityField {
           e.scale = clamp01(e.age / 0.16) * (1 + e.age * 0.5);
           break;
         case 'ring':
-          e.scale = e.age / 0.34;
+          // Out fast, then settle. A shockwave that expands linearly spends its
+          // first tenth of a second inside the kart that fired it, which from a
+          // chase camera means the player never sees it leave at all.
+          //
+          // 0.42s rather than 0.30: at 0.30 the wave had crossed nine metres and
+          // gone past the lens before the eye had registered it starting, and
+          // the only frames that caught it were the ones nobody was looking at.
+          e.scale = ease.outCubic(clamp01(e.age / 0.42));
           break;
         case 'ghost':
         case 'squid': {
@@ -365,6 +426,9 @@ export function createEntityField(ctx: GameContext): EntityField {
         case 'burst':
           e.scale = 1 + e.age * 6;
           e.spin += dt * 7;
+          break;
+        case 'scorch':
+          // A mark on the road. It does nothing but cool.
           break;
         default: break;
       }
@@ -391,14 +455,19 @@ export function createEntityField(ctx: GameContext): EntityField {
 
       // A shell sweeping a banana off the road is free, and it is the kind of
       // thing a player notices once and remembers for the rest of the game.
+      // Two shells meeting head-on take each other out — which is the only
+      // thing that makes throwing a shell *backwards* at an incoming one a real
+      // decision rather than a waste.
       if (e.kind === 'greenShell' || e.kind === 'redShell') {
         for (let j = 0; j < list.length; j++) {
           const o = list[j]!;
           if (!o.active || o === e) continue;
-          if (o.kind !== 'banana' && o.kind !== 'bomb') continue;
-          if (o.pos.distanceToSquared(e.pos) > 3.2) continue;
+          const shell = o.kind === 'greenShell' || o.kind === 'redShell';
+          if (o.kind !== 'banana' && o.kind !== 'bomb' && !shell) continue;
+          if (o.pos.distanceToSquared(e.pos) > (shell ? 5.5 : 3.2)) continue;
           o.life = 0.0001;
           o.arm = 0;
+          if (shell) e.life = 0.0001;
           break;
         }
       }
@@ -407,8 +476,55 @@ export function createEntityField(ctx: GameContext): EntityField {
 
   // ── visuals ──────────────────────────────────────────────────────────────
 
+  /**
+   * Put the contact shadow on the road under an item.
+   *
+   * Divided through by the node's own scale because the squash a banana lands
+   * with, and the swell a bob-omb goes off with, are on the node — and a shadow
+   * that grows with them is a shadow that has left the ground.
+   */
+  function groundShadow(e: Entity, node: THREE.Object3D): void {
+    const s = node.getObjectByName('shadow');
+    if (!s) return;
+    const h = Math.max(0, node.position.y - e.groundY);
+    s.position.y = (0.05 - h) / Math.max(0.01, node.scale.y);
+    // A shadow spreads and weakens as the thing casting it climbs. Materials
+    // are shared across the pool, so this is done with scale rather than alpha.
+    s.scale.setScalar(clamp(1 - h * 0.06, 0.5, 1.15) / Math.max(0.01, node.scale.x));
+  }
+
+  /**
+   * The dust and sparks a projectile drags behind it.
+   *
+   * A shell crosses the frame in a third of a second. Whether the player *sees*
+   * it is decided almost entirely by what it leaves behind — a bare mesh moving
+   * at sixty metres a second across tarmac of a similar value is, in a still
+   * frame, nothing. The trail is also the only thing that survives motion blur
+   * and a small window.
+   *
+   * Emitted on the render clock. Nothing in the simulation reads it, and the
+   * effect queue drops anything it cannot fit, so a crowded frame loses trail
+   * before it loses a hit.
+   */
+  function flightTrail(e: Entity, node: THREE.Object3D, dt: number): void {
+    const fx = ctx.fx;
+    if (!fx) return;
+    e.puff -= dt;
+    if (e.puff > 0) return;
+    e.puff = 0.055;
+    // Out of shot, and it is not worth a slot in the queue.
+    if (node.position.distanceToSquared(ctx.camera.position) > 120 * 120) return;
+    const hot = e.kind === 'redShell' ? 0xFF9A72 : 0x9CFF74;
+    if (Math.floor(e.age * 18) % 3 === 0) {
+      _v.set(node.position.x, e.groundY + 0.06, node.position.z);
+      fx.spawn('dust', _v, { scale: 0.3 });
+    } else {
+      _v.copy(node.position);
+      fx.spawn('sparks', _v, { color: hot, scale: 0.2 });
+    }
+  }
+
   function update(dt: number, alpha: number, time: number): void {
-    void dt;
     for (let i = 0; i < list.length; i++) {
       const e = list[i]!;
       const node = e.node;
@@ -421,12 +537,24 @@ export function createEntityField(ctx: GameContext): EntityField {
           node.rotation.set(0, e.spin, 0);
           // A banana that has just landed settles with a squash.
           node.scale.setScalar(1 + Math.max(0, 0.35 - e.age) * 0.6);
+          groundShadow(e, node);
           break;
         case 'greenShell':
         case 'redShell':
-          node.rotation.set(0, e.yaw, 0);
-          node.rotation.z = Math.sin(e.spin) * 0.25;
+          // It *spins*. The old build pinned yaw to the direction of travel —
+          // which for a shell going down a straight is a constant — and put the
+          // whole animation into a six-degree roll, so a hat crossing the frame
+          // at sixty metres a second was, frame to frame, a static object being
+          // slid sideways. Yaw is the spin now, and the brim under it is what
+          // makes the rotation legible at speed.
+          node.rotation.set(0, e.spin * 1.4, Math.sin(e.spin * 0.7) * 0.22);
           node.position.y += Math.sin(e.spin * 0.5) * 0.05;
+          // Bigger than it is in the hand. A hat that reads at two metres, in
+          // the slot, is four pixels of green forty metres down a straight —
+          // and forty metres down a straight is where a shell has to be read.
+          node.scale.setScalar(1.3);
+          groundShadow(e, node);
+          flightTrail(e, node, dt);
           break;
         case 'bomb': {
           node.rotation.set(0, e.spin, Math.sin(e.age * 8) * 0.12);
@@ -439,20 +567,37 @@ export function createEntityField(ctx: GameContext): EntityField {
           }
           // It swells as it is about to blow. Anticipation, and a warning.
           node.scale.setScalar(1 + urgency * urgency * 0.25);
+          groundShadow(e, node);
           break;
         }
         case 'blast': {
-          node.scale.setScalar(e.radius * e.scale * 0.8);
+          // 0.45, not 0.8. The damage radius is 7.4 metres, and a *fireball*
+          // drawn at eight tenths of that is twelve metres across — bigger than
+          // the road is wide, and from anywhere inside it the frame is a sheet
+          // of orange. The reach of a bob-omb is reported by the shockwave ring
+          // and by the karts it throws, not by how much of the lens it covers.
+          node.scale.setScalar(e.radius * e.scale * 0.45);
           node.rotation.set(e.age * 1.2, e.age * 1.7, 0);
-          setOpacity(node, clamp01(e.life * 2.4));
+          // The two fireball layers are fresnel shells, so their fade lives in
+          // `uStrength`, not in an alpha the blend never reads.
+          const fade = clamp01(e.life * 2.4);
+          setOpacity(node, fade);
+          setRimStrength(node, fade * 1.55);
           const ring = node.getObjectByName('ring');
           if (ring) ring.scale.setScalar(1 + e.age * 2.4);
           break;
         }
-        case 'ring':
-          node.scale.set(e.radius * e.scale, 1, e.radius * e.scale);
-          setOpacity(node, clamp01(e.life * 3.4) * 0.9);
+        case 'ring': {
+          // Uniform, so the annuli keep their thickness and the dome stays a
+          // dome. The ring is built at unit radius; the entity's radius is the
+          // reach the damage pass actually used.
+          const r = e.radius * e.scale;
+          node.scale.set(r, r, r);
+          const a = clamp01(e.life * 3.4);
+          setOpacity(node, a * 0.9);
+          setRimStrength(node, a * 1.2);
           break;
+        }
         case 'ghost':
           node.rotation.set(0, e.yaw + Math.sin(e.spin) * 0.4, 0);
           node.position.y += Math.sin(time * 3 + e.ownerId) * 0.25;
@@ -463,6 +608,28 @@ export function createEntityField(ctx: GameContext): EntityField {
           node.position.y += Math.sin(time * 4 + e.ownerId) * 0.3;
           setOpacity(node, clamp01(e.life * 1.5));
           break;
+        case 'scorch': {
+          // Two clocks. The embers are gone in a second, the mark takes the
+          // rest of its life — a bob-omb should leave the road changed for
+          // longer than the fireball was on it.
+          const fade = clamp01(e.life / Math.max(0.01, e.life + e.age)) * clamp01(e.age * 6);
+          const mark = node.getObjectByName('mark') as THREE.Mesh | undefined;
+          if (mark) (mark.material as THREE.MeshBasicMaterial).opacity = fade;
+          const ash = node.getObjectByName('ash') as THREE.Mesh | undefined;
+          if (ash) {
+            (ash.material as THREE.MeshBasicMaterial).opacity = fade * 0.5;
+            // It spreads a little as it settles, which is the only motion a
+            // mark on the road gets.
+            ash.scale.setScalar(1 + clamp01(e.age * 0.7) * 0.16);
+          }
+          const embers = node.getObjectByName('embers') as THREE.Mesh | undefined;
+          if (embers) {
+            const k = clamp01(1 - e.age / 1.1);
+            (embers.material as THREE.MeshBasicMaterial).opacity = k * k * 0.9;
+            embers.scale.setScalar(1 + e.age * 0.22);
+          }
+          break;
+        }
         case 'burst':
           // Billboarded: a flat starburst edge-on is no starburst at all. Kept
           // small — this is a punctuation mark on the hit, not the hit itself,
@@ -490,6 +657,7 @@ export function createEntityField(ctx: GameContext): EntityField {
       for (const e of list) {
         if (!e.active || e.ownerId === except) continue;
         if (e.kind === 'blast' || e.kind === 'ring' || e.kind === 'burst') continue;
+        if (e.kind === 'scorch') continue;
         if (e.pos.distanceToSquared(pos) > r2) continue;
         release(e);
         n++;

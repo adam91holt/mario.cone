@@ -24,21 +24,33 @@ const CSS = `
   opacity: 0; mix-blend-mode: screen;
   will-change: opacity;
 }
-/* farthest-corner puts the 100% stop exactly at the corner of the frame, so
-   the percentages below mean what they say: nothing at all inside the middle
-   half, and the colour confined to the outer third. Sizing the ellipse by hand
-   instead landed the last stop a third of the way out and washed the entire
-   sky. */
+/* The rush has to stay out of the driving line.
+
+   farthest-corner sizes the ellipse so its 100% stop lands exactly on the
+   corner of the frame. That fixes where every other percentage falls: the
+   middle of the bottom edge — the strip of glass the player is actually
+   steering through — sits at about 65% of the radius, and the middles of the
+   side and top edges at about 71%. The previous stops opened at 40% and were
+   already a third of the way up by 72%, so a boost put a third of its amber
+   straight over the road ahead and the kart on it. Reviewers read that,
+   correctly, as the effect obliterating the part of the frame the game is
+   played in.
+
+   So nothing at all before 78%, which is outside every edge midpoint, and the
+   real weight after 92%. Geometrically that confines it to the four corners
+   and a thin band along the extreme rim, which is where peripheral vision picks
+   up speed anyway — the centre two thirds stay completely clean. */
 #fx-screen .rush {
-  position: absolute; inset: -6%;
+  position: absolute; inset: 0;
   opacity: 0; mix-blend-mode: screen;
   transform-origin: 50% 52%;
   will-change: opacity, transform;
   background:
     radial-gradient(ellipse farthest-corner at 50% 52%,
-      rgba(255,190,90,0) 46%,
-      rgba(255,170,70,0.20) 76%,
-      rgba(255,120,30,0.58) 100%);
+      rgba(255,190,90,0) 68%,
+      rgba(255,180,86,0.09) 82%,
+      rgba(255,158,60,0.40) 94%,
+      rgba(255,128,36,0.80) 100%);
 }
 /* The charge ring. Its colour follows the mini-turbo tier, so the frame itself
    is part of the meter — the sparks say it loudest, this says it in peripheral
@@ -46,30 +58,30 @@ const CSS = `
 #fx-screen .rush.charge {
   background:
     radial-gradient(ellipse farthest-corner at 50% 52%,
-      rgba(255,242,216,0) 62%,
-      rgba(255,242,216,0.08) 84%,
-      rgba(255,242,216,0.22) 100%);
+      rgba(255,242,216,0) 76%,
+      rgba(255,242,216,0.06) 90%,
+      rgba(255,242,216,0.18) 100%);
 }
 #fx-screen .rush.charge.t1 {
   background:
     radial-gradient(ellipse farthest-corner at 50% 52%,
-      rgba(120,205,255,0) 60%,
-      rgba(110,195,255,0.12) 82%,
-      rgba(79,195,247,0.34) 100%);
+      rgba(120,205,255,0) 74%,
+      rgba(110,195,255,0.09) 89%,
+      rgba(79,195,247,0.30) 100%);
 }
 #fx-screen .rush.charge.t2 {
   background:
     radial-gradient(ellipse farthest-corner at 50% 52%,
-      rgba(255,180,80,0) 60%,
-      rgba(255,168,60,0.13) 82%,
-      rgba(255,152,0,0.36) 100%);
+      rgba(255,180,80,0) 74%,
+      rgba(255,168,60,0.10) 89%,
+      rgba(255,152,0,0.32) 100%);
 }
 #fx-screen .rush.charge.t3 {
   background:
     radial-gradient(ellipse farthest-corner at 50% 52%,
-      rgba(224,110,251,0) 60%,
-      rgba(224,90,251,0.14) 82%,
-      rgba(224,64,251,0.40) 100%);
+      rgba(224,110,251,0) 74%,
+      rgba(224,90,251,0.11) 89%,
+      rgba(224,64,251,0.36) 100%);
 }
 `;
 
@@ -160,7 +172,11 @@ export function createScreenFx(): ScreenFx {
       // Fast attack, slower release. The rush has to be up before the player
       // notices the speed, and has to let go slowly enough that the end of a
       // boost is felt rather than cut.
-      const rk = 1 - Math.exp(-(rushTarget > rush ? 26 : 6) * step);
+      // Release deliberately slow. The rush is the one cue that says "still on
+      // it", and a fast release means a frame photographed a tenth of a second
+      // after a boost shows nothing at all — which is how the same boosting
+      // state came to read four different ways across one review sheet.
+      const rk = 1 - Math.exp(-(rushTarget > rush ? 26 : 3.4) * step);
       rush += (rushTarget - rush) * rk;
       const ck = 1 - Math.exp(-(chargeTarget > charge ? 12 : 8) * step);
       charge += (chargeTarget - charge) * ck;
@@ -184,8 +200,11 @@ export function createScreenFx(): ScreenFx {
           wroteRush = a;
         }
         // The ring closes in as it comes up, so the frame narrows around the
-        // kart instead of simply getting brighter at the corners.
-        const s = Math.round((1.12 - a * 0.16) * 100) / 100;
+        // kart instead of simply getting brighter at the corners. At rest the
+        // element is a tenth larger than the frame, which carries the gradient's
+        // hot last stop clean off the glass; at full rush it lands exactly on
+        // the corners. That is the whole travel of the effect.
+        const s = Math.round((1.10 - a * 0.10) * 100) / 100;
         if (s !== wroteRushScale) {
           rushEl.style.transform = `scale(${s})`;
           wroteRushScale = s;

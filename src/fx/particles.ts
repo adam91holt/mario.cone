@@ -45,7 +45,9 @@ export interface ParticleSpec {
   gravity: number;
   /** Exponential velocity decay, 1/s. */
   drag: number;
-  /** Extra half-length per m/s of speed. 0 for a round sprite. */
+  /** Metres of extra half-length per m/s of *camera-relative* speed, applied in
+   *  the vertex shader. 0 for a round sprite. Only meaningful with
+   *  `mode: MODE.velocity`. */
   stretch: number;
   /** Fraction of life spent fading in. */
   fadeIn: number;
@@ -220,16 +222,16 @@ export function createParticlePool(capacity: number): ParticlePool {
       const mode = Math.floor(packed / 8);
       const cell = packed - mode * 8;
 
-      const vx = data[o + S.vx], vy = data[o + S.vy], vz = data[o + S.vz];
-      let stretch = data[o + S.stretch];
-      if (stretch > 0) stretch *= Math.sqrt(vx * vx + vy * vy + vz * vz);
-
+      // `stretch` goes across as the raw coefficient. Turning it into a length
+      // needs the camera's velocity, which only the shader has — and doing it
+      // here against world speed is what used to make every spark riding along
+      // with the chase camera into a long dash pointing nowhere.
       const layer = isAdd ? additive : alpha;
       layer.push(
         data[o + S.px], data[o + S.py], data[o + S.pz],
-        vx, vy, vz,
+        data[o + S.vx], data[o + S.vy], data[o + S.vz],
         r, g, b, a,
-        size, stretch, data[o + S.rot],
+        size, data[o + S.stretch], data[o + S.rot],
         cell, mode,
       );
     }

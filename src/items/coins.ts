@@ -19,8 +19,17 @@ import type { GameContext, Track } from '../types.ts';
 
 /** Metres above the tarmac the field coins hang — roughly bonnet height, so
  *  they read against the road rather than disappearing into it. */
-const FLOAT = 1.0;
-const RESPAWN = 8.0;
+const FLOAT = 0.92;
+/**
+ * Seconds before a collected coin comes back.
+ *
+ * Tuned against the spill: a hit costs three coins, and ten coins are worth
+ * about 11% of top speed, so the punishment is only real if getting back to ten
+ * takes a corner or two. With the field as dense as it first was — and this
+ * timer as short — every racer in the audit sat pinned at ten coins for the
+ * whole race and the stat may as well not have existed.
+ */
+const RESPAWN = 11.0;
 const PICK_RADIUS = 2.1;
 export const COIN_PICK_SQ = PICK_RADIUS * PICK_RADIUS;
 
@@ -28,8 +37,14 @@ export const COIN_PICK_SQ = PICK_RADIUS * PICK_RADIUS;
 const LOOSE_MAX = 36;
 /** Seconds a spilled coin lies there before it fades out. */
 const LOOSE_LIFE = 7.5;
-/** ...and how long before the racer who dropped it may take it back. */
-const LOOSE_ARM = 0.55;
+/**
+ * ...and how long a spilled coin is in the air before *anyone* may take it.
+ *
+ * The racer who dropped it never may — see `sweep`. This is only so that the
+ * kart directly behind cannot hoover up a spill on the same frame it is thrown,
+ * before the coins have had time to arc out and be seen.
+ */
+const LOOSE_ARM = 0.35;
 const BIN = 12;
 /** How much of the lap's coins are drawn, ahead of and behind the driver. */
 const DRAW_AHEAD = 260;
@@ -128,9 +143,15 @@ export function createCoinField(ctx: GameContext): CoinField {
     // Runs of coins along the line, with a gap between runs. A continuous
     // ribbon of coins all lap would be wallpaper; runs give the player
     // something to aim at and a reason to hold the line through a corner.
-    const RUN = 6;
-    const SPACING = 6;
-    const GAP = 38;
+    //
+    // The gap does the balancing. Ten coins has to be a state you *reach* and
+    // then defend, not the state you are in by the first corner — so a lap
+    // carries roughly a hundred coins rather than the two hundred it started
+    // with, and the run you drove through is still gone when the pack behind
+    // arrives.
+    const RUN = 5;
+    const SPACING = 6.5;
+    const GAP = 62;
     let d = start + 55;
     const end = start + L - 30;
     let index = 0;
@@ -226,7 +247,14 @@ export function createCoinField(ctx: GameContext): CoinField {
       for (let i = 0; i < loose.length; i++) {
         const c = loose[i]!;
         if (!c.active || c.life <= 0) continue;
-        if (c.arm > 0 && c.ownerId === racerId) continue;
+        // The racer who dropped these never gets them back. Not a timer — a
+        // rule. With a short arming window the victim was still spinning
+        // *inside* their own spill when it expired and swept two of the three
+        // coins straight back up, which refunds most of the penalty within two
+        // seconds and leaves a hit costing nothing but the spin. They are for
+        // whoever is behind.
+        if (c.ownerId === racerId) continue;
+        if (c.arm > 0) continue;
         if (c.pos.distanceToSquared(pos) > COIN_PICK_SQ + 1.2) continue;
         c.active = false;
         got++;

@@ -9,9 +9,13 @@
 // If the UI module ever grows its own slot it only has to mark it
 // `data-item-slot` and this one stands down, leaving the screen effects behind.
 
-import { ALL_FACES, ITEMS } from './defs.ts';
+import { ITEMS } from './defs.ts';
 import type { ItemEntry } from './defs.ts';
 import type { ItemId } from '../types.ts';
+
+/** Every icon the slot may ever have to show. One per item, not one per
+ *  (item, count) — see `key` below for why that distinction matters. */
+const ICON_IDS = Object.keys(ITEMS) as ItemId[];
 
 const CSS = `
 #item-hud {
@@ -35,13 +39,25 @@ const CSS = `
     0 6px 18px rgba(0,0,0,.4);
   display: grid; place-items: center;
 }
-#item-hud .slot.empty { opacity: .62; }
+/* An empty slot is *waiting*, not disabled. Fading it out reads as a greyed
+   control; keeping it lit with a bright hazard "?" reads as a socket with
+   nothing in it yet, which is what it is. */
+#item-hud .slot.empty { box-shadow:
+    inset 0 0 0 3px rgba(255,195,0,.55),
+    inset 0 0 0 5px rgba(28,32,42,.6),
+    inset 0 -10px 18px rgba(0,0,0,.4),
+    0 6px 18px rgba(0,0,0,.35);
+}
 #item-hud .mark {
-  position: absolute; font-size: 3rem; font-weight: 900; line-height: 1;
-  color: rgba(255,248,240,.6); text-shadow: 0 3px 0 rgba(0,0,0,.4);
+  position: absolute; font-size: 3.4rem; font-weight: 900; line-height: 1;
+  color: #FFC300;
+  text-shadow:
+    0 0 0 #000, 2px 2px 0 rgba(20,24,34,.9), -2px 2px 0 rgba(20,24,34,.9),
+    2px -2px 0 rgba(20,24,34,.9), -2px -2px 0 rgba(20,24,34,.9),
+    0 4px 0 rgba(0,0,0,.45);
   opacity: 0;
 }
-#item-hud .slot.empty .mark { opacity: 1; }
+#item-hud .slot.empty .mark { opacity: .92; }
 #item-hud .icons { position: relative; width: 4.3rem; height: 4.3rem; }
 #item-hud .icons svg {
   position: absolute; inset: 0; width: 100%; height: 100%;
@@ -63,25 +79,66 @@ const CSS = `
 
 /* Blooper ink. It has to *hurt to see through* without being a black screen:
    the splats crowd the edges, leave a gap where the road vanishes, and carry
-   a soft falloff so there is always something readable between them. */
+   a soft falloff so there is always something readable between them.
+
+   "closest-side" is doing the load-bearing work. A radial-gradient defaults to
+   "farthest-corner", so on a square element its 100% stop sits out at the
+   corner and the alpha where the circle actually ends is still around 0.4 —
+   which is why the first version of this photographed as a screenful of hard
+   grey discs rather than as ink. Pinning 100% to the edge of the circle is what
+   turns a disc into a splat. */
 #item-ink {
   position: fixed; inset: 0; z-index: 12; pointer-events: none;
   opacity: 0;
 }
+/* The pale ring at 88% is not decoration. Ink is near-black, the road is
+   near-black, and a splat that lands on tarmac with no rim is a splat the
+   player never sees — so the item reads as "the sky got dirty" and costs them
+   nothing. A thin lifted edge gives every splat a silhouette on both. */
 #item-ink i {
-  position: absolute; display: block; border-radius: 50%;
-  background: radial-gradient(circle at 40% 36%,
-    rgba(16,20,36,.94) 0 38%, rgba(20,26,46,.72) 62%,
-    rgba(20,26,46,.28) 82%, rgba(20,26,46,0) 100%);
+  position: absolute; display: block;
+  background: radial-gradient(circle closest-side at 44% 40%,
+    rgba(9,11,26,1) 0 34%, rgba(14,17,38,.96) 55%,
+    rgba(24,30,62,.66) 76%, rgba(96,112,168,.42) 88%, rgba(20,26,52,0) 100%);
+}
+/* A few flecks thrown clear of the main splats. Ink that is all circles reads
+   as a lens problem; ink that has spatter reads as something hitting you. */
+#item-ink i.fleck {
+  background: radial-gradient(circle closest-side at 50% 50%,
+    rgba(9,11,26,.98) 0 46%, rgba(16,20,44,.5) 78%, rgba(16,20,44,0) 100%);
 }
 #item-flash {
   position: fixed; inset: 0; z-index: 13; pointer-events: none;
   opacity: 0; mix-blend-mode: screen;
 }
+
+/* Incoming. A red vignette that closes in from the edges as the thing chasing
+   you gets nearer — read in peripheral vision, which is the only place it can
+   be read, because the player is looking at the corner. */
+#item-warn {
+  position: fixed; inset: 0; z-index: 10; pointer-events: none; opacity: 0;
+  background: radial-gradient(ellipse 78% 68% at 50% 50%,
+    rgba(255,40,20,0) 40%, rgba(255,45,20,.30) 74%, rgba(190,15,5,.72) 100%);
+}
+/* Below the item slot, not behind it. The slot is the one thing on screen the
+   player checks under pressure, and this is the moment they are under it.
+
+   On its own plate, because half the circuit is framed against a bright sky and
+   glowing text on a cloud is a smudge: the word has to be legible at the moment
+   it first fades up, not only once it is at full strength. */
+#item-warn b {
+  position: absolute; left: 50%; top: 8.9rem; transform: translateX(-50%);
+  display: block; padding: .34rem .8rem .3rem; border-radius: .42rem;
+  font: 900 1.05rem/1 'Trebuchet MS', system-ui, sans-serif;
+  letter-spacing: .22em; color: #FFF1E4; white-space: nowrap;
+  background: linear-gradient(180deg, rgba(150,18,6,.92), rgba(74,8,2,.92));
+  box-shadow: inset 0 0 0 2px rgba(255,120,80,.9), 0 3px 10px rgba(0,0,0,.5);
+  text-shadow: 0 0 9px rgba(255,90,50,.9), 0 2px 0 rgba(0,0,0,.7);
+}
 `;
 
 /** Bold, flat, 64px-legible. Silhouette first — these are read at a glance. */
-function iconSvg(id: ItemId, count: number): string {
+function iconSvg(id: ItemId): string {
   const body = (): string => {
     switch (id) {
       case 'banana':
@@ -141,7 +198,7 @@ function iconSvg(id: ItemId, count: number): string {
         return '';
     }
   };
-  return `<svg viewBox="0 0 64 64" data-face="${id}:${count}">${body()}</svg>`;
+  return `<svg viewBox="0 0 64 64" data-face="${id}">${body()}</svg>`;
 }
 
 export interface ItemHud {
@@ -155,6 +212,8 @@ export interface ItemHud {
   punch(): void;
   /** Ink on the lens, 0..1. */
   setInk(amount: number): void;
+  /** How close the nearest thing aimed at you is, 0..1. Drives the vignette. */
+  warn(amount: number): void;
   /** One-off coloured wash: lightning, a hit, a star. */
   flash(color: number, amount: number): void;
   update(dt: number): void;
@@ -168,6 +227,7 @@ export function createItemHud(): ItemHud {
   let glowEl: HTMLDivElement | null = null;
   let inkEl: HTMLDivElement | null = null;
   let flashEl: HTMLDivElement | null = null;
+  let warnEl: HTMLDivElement | null = null;
   let style: HTMLStyleElement | null = null;
   const faces = new Map<string, SVGElement>();
   let shown: string | null = null;
@@ -179,8 +239,19 @@ export function createItemHud(): ItemHud {
   let inkTarget = 0;
   let inkShown = 0;
   let jitterPhase = 0;
+  let warnTarget = 0;
+  let warnShown = 0;
+  let warnPhase = 0;
 
-  const key = (e: ItemEntry): string => `${e.id}:${e.count}`;
+  /**
+   * The face is keyed on the *item*, never on the item and its count.
+   *
+   * Keying on both looks tidier and is wrong: fire one of a triple and the slot
+   * is asked for "greenShell:2", which no table ever produced, so the icon
+   * silently vanishes and the player is left holding two invisible shells. The
+   * count is a badge on the corner, and that is all it ever was.
+   */
+  const key = (e: ItemEntry): string => e.id;
 
   function build(): void {
     if (root || typeof document === 'undefined') return;
@@ -193,14 +264,34 @@ export function createItemHud(): ItemHud {
     // published one of its own.
     inkEl = document.createElement('div');
     inkEl.id = 'item-ink';
-    // x%, y%, size in vmax. Weighted to the corners and the bottom, where the
-    // player is not looking for the apex.
-    const SPLATS: Array<[number, number, number]> = [
-      [-4, 2, 26], [22, -8, 20], [64, -6, 24], [88, 8, 22],
-      [-8, 46, 24], [80, 52, 26], [16, 62, 28], [52, 70, 30], [38, 26, 16],
+    // x%, y%, size in vmax, and a squash/rotation so no two are the same disc.
+    // Weighted to the corners and the bottom, where the player is not looking
+    // for the apex — the hole left in the middle is deliberate, and it is the
+    // difference between a handicap and a blindfold.
+    const SPLATS: Array<[number, number, number, number, number]> = [
+      [-6, -2, 30, 1.15, -18], [20, -10, 24, 0.9, 24], [62, -9, 28, 1.2, 12],
+      [86, 4, 26, 0.95, -30], [-9, 42, 27, 1.1, 40], [79, 48, 30, 1.25, -12],
+      [12, 60, 32, 0.92, 18], [50, 70, 34, 1.3, -8], [36, 22, 17, 1.0, 55],
+      [70, 24, 14, 0.85, -40], [4, 22, 13, 1.1, 10],
     ];
-    for (const [x, y, r] of SPLATS) {
+    for (const [x, y, r, squash, rot] of SPLATS) {
       const s = document.createElement('i');
+      s.style.left = `${x}%`;
+      s.style.top = `${y}%`;
+      s.style.width = `${r}vmax`;
+      s.style.height = `${r}vmax`;
+      s.style.transform = `rotate(${rot}deg) scaleY(${squash})`;
+      inkEl.appendChild(s);
+    }
+    // Spatter. Deterministic positions — this is decoration, but decoration
+    // that must not differ between two runs of the same seeded capture.
+    const FLECKS: Array<[number, number, number]> = [
+      [30, 8, 4.5], [58, 14, 3.2], [15, 34, 3.8], [72, 38, 4.2], [44, 52, 3],
+      [88, 30, 3.6], [26, 74, 4.4], [64, 62, 3.4], [8, 58, 3],
+    ];
+    for (const [x, y, r] of FLECKS) {
+      const s = document.createElement('i');
+      s.className = 'fleck';
       s.style.left = `${x}%`;
       s.style.top = `${y}%`;
       s.style.width = `${r}vmax`;
@@ -208,6 +299,11 @@ export function createItemHud(): ItemHud {
       inkEl.appendChild(s);
     }
     document.body.appendChild(inkEl);
+
+    warnEl = document.createElement('div');
+    warnEl.id = 'item-warn';
+    warnEl.innerHTML = '<b>INCOMING</b>';
+    document.body.appendChild(warnEl);
 
     flashEl = document.createElement('div');
     flashEl.id = 'item-flash';
@@ -220,7 +316,7 @@ export function createItemHud(): ItemHud {
     root.innerHTML = `<div class="slot empty">
       <div class="glow"></div>
       <div class="mark">?</div>
-      <div class="icons">${ALL_FACES.map((f) => iconSvg(f.id, f.count)).join('')}</div>
+      <div class="icons">${ICON_IDS.map((id) => iconSvg(id)).join('')}</div>
       <div class="count"></div>
     </div>`;
     document.body.appendChild(root);
@@ -268,6 +364,8 @@ export function createItemHud(): ItemHud {
 
     setInk(amount: number): void { inkTarget = amount; },
 
+    warn(amount: number): void { warnTarget = amount; },
+
     flash(color: number, amount: number): void {
       if (!flashEl) return;
       flashEl.style.background = hex(color);
@@ -287,6 +385,16 @@ export function createItemHud(): ItemHud {
         inkEl.style.opacity = String(inkShown);
       }
 
+      if (warnEl && (warnTarget > 0 || warnShown > 0)) {
+        // Rises fast, releases slowly, and pulses harder the closer it gets —
+        // the pulse rate is the distance readout.
+        warnShown += (warnTarget - warnShown) * Math.min(1, dt * (warnTarget > warnShown ? 16 : 7));
+        if (warnShown < 0.004) warnShown = 0;
+        warnPhase += dt * (5 + warnShown * 16);
+        const pulse = 0.72 + Math.sin(warnPhase) * 0.28;
+        warnEl.style.opacity = String(warnShown * pulse);
+      }
+
       if (!slot) return;
       if (punchT > 0) punchT = Math.max(0, punchT - dt * 3.2);
       if (glow > 0) glow = Math.max(0, glow - dt * 2.2);
@@ -302,10 +410,12 @@ export function createItemHud(): ItemHud {
     dispose(): void {
       root?.remove();
       inkEl?.remove();
+      warnEl?.remove();
       flashEl?.remove();
       style?.remove();
       root = null;
       inkEl = null;
+      warnEl = null;
       flashEl = null;
       style = null;
       faces.clear();

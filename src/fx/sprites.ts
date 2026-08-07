@@ -22,8 +22,18 @@
 //              the pools of light under a drifting kart's wheels — anything
 //              that has to read as being *on* the road rather than in front of
 //              it.
-//   velocity   faces the camera and stretches along its own motion, projected
-//              into screen space. This is what makes a spark a streak.
+//   velocity   faces the camera and stretches along its own motion *relative to
+//              the camera*, projected into screen space. This is what makes a
+//              spark a streak.
+//
+// That "relative to the camera" is the whole trick. A spark thrown off a kart
+// doing 60 m/s is, in world space, also doing about 60 m/s — but so is the
+// camera chasing it, so on screen it barely moves and must not streak. Stretch
+// it by its world speed and every spark in the game becomes a two-metre dash
+// pointing wherever the world happens to be flowing. Subtracting the camera's
+// own velocity first makes the streak length equal to the distance the particle
+// actually travels across the frame, which is the only definition that looks
+// right from a chase camera *and* from a stationary one.
 
 import * as THREE from 'three';
 
@@ -40,8 +50,14 @@ const VERT = /* glsl */ `
 attribute vec3 iPos;
 attribute vec3 iVel;
 attribute vec4 iColor;
-/** x size (diameter, metres), y extra half-length, z rotation, w cell + mode*8. */
+/** x size (diameter, metres), z rotation, w cell + mode*8.
+ *  y is extra half-length in metres — except in velocity mode, where it is
+ *  metres of half-length per m/s of camera-relative speed. */
 attribute vec4 iParams;
+
+/** The camera's own world velocity, so a streak can be measured against the
+ *  frame rather than against the world. */
+uniform vec3 uCamVel;
 
 varying vec2 vUv;
 varying vec4 vColor;
@@ -69,10 +85,13 @@ void main() {
     mv = modelViewMatrix * vec4(iPos, 1.0);
     vec2 ax = vec2(cos(rot), sin(rot));
     if (mode > 1.5) {
-      // Along its own travel, measured in view space, so the streak lies on the
-      // screen-space path the particle is actually taking.
-      vec3 vv = (modelViewMatrix * vec4(iVel, 0.0)).xyz;
+      // Along its own travel *through the frame*, measured in view space, so
+      // the streak lies on the screen-space path the particle is really taking
+      // and is exactly as long as the ground it covers while the shutter is
+      // open. A spark keeping pace with the chase camera stays a point.
+      vec3 vv = (modelViewMatrix * vec4(iVel - uCamVel, 0.0)).xyz;
       float vl = length(vv.xy);
+      along = rad + iParams.y * vl;
       if (vl > 1e-4) ax = vv.xy / vl;
     }
     vec2 ay = vec2(-ax.y, ax.x);
@@ -125,6 +144,9 @@ export interface SpriteLayer {
     size: number, stretch: number, rot: number,
     cell: number, mode: number,
   ): void;
+  /** The camera's world velocity this frame. Velocity-mode quads streak against
+   *  it, so a particle riding along with the chase camera stays a point. */
+  setCameraVelocity(x: number, y: number, z: number): void;
   commit(): void;
   dispose(): void;
 }
@@ -162,8 +184,9 @@ export function createSpriteLayer(opts: SpriteLayerOptions): SpriteLayer {
   // call and always on screen somewhere.
   geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
 
+  const camVel = new THREE.Vector3();
   const material = new THREE.ShaderMaterial({
-    uniforms: { tAtlas: { value: opts.atlas } },
+    uniforms: { tAtlas: { value: opts.atlas }, uCamVel: { value: camVel } },
     vertexShader: VERT,
     fragmentShader: FRAG,
     transparent: true,
@@ -203,6 +226,10 @@ export function createSpriteLayer(opts: SpriteLayerOptions): SpriteLayer {
       parData[i4] = size; parData[i4 + 1] = stretch; parData[i4 + 2] = rot;
       parData[i4 + 3] = cell + mode * 8;
       count++;
+    },
+
+    setCameraVelocity(x, y, z): void {
+      camVel.set(x, y, z);
     },
 
     commit(): void {

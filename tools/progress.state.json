@@ -1,6 +1,6 @@
 {
-  "phase": "Wave 2",
-  "phaseNote": "Wave 1 merged to main. Items, effects and the HUD are now in build-and-review \u2014 the three biggest player-visible gaps.",
+  "phase": "Wave 2 round 3",
+  "phaseNote": "Items, effects and HUD all failed their critics after two rounds and go back with measured directives. The critics are now finding faults by instrumenting the running game \u2014 sampling CSS opacity over 1200 frames, measuring atlas alpha, measuring spark streak length in metres.",
   "pieces": [
     {
       "id": "feel",
@@ -51,19 +51,19 @@
       "id": "fx",
       "name": "Effects & spectacle",
       "scope": "src/fx",
-      "state": "build",
-      "rounds": 0,
-      "verdict": "",
-      "gap": ""
+      "state": "fail",
+      "rounds": 2,
+      "verdict": "5.5/10, blind A/B went to Mario Kart. Drift sparks, boost flames, dust, tyre marks and screen effects all present and firing off the right events.",
+      "gap": "Mini-turbo sparks stretch along world velocity instead of velocity relative to the kart, so each renders as a 2-3m golden bar and a charged drift lays ~40 of them across 7m of track, burying the road edge and the kart itself."
     },
     {
       "id": "items",
       "name": "Items",
       "scope": "src/items",
-      "state": "build",
-      "rounds": 0,
-      "verdict": "",
-      "gap": ""
+      "state": "fail",
+      "rounds": 2,
+      "verdict": "7/10, blind A/B went to Mario Kart. Boxes, roulette, the full item set, coins and hit reactions all exist and work. Blind A/B still goes to Mario Kart.",
+      "gap": "The incoming-projectile warning sits over the vanishing point for 52% of the race and never exceeds 0.79 opacity \u2014 too constant to mean anything, too faint to read."
     },
     {
       "id": "ai",
@@ -78,10 +78,10 @@
       "id": "hud",
       "name": "HUD & minimap",
       "scope": "src/ui",
-      "state": "build",
-      "rounds": 0,
-      "verdict": "",
-      "gap": ""
+      "state": "fail",
+      "rounds": 2,
+      "verdict": "6.5/10, blind A/B went to Mario Kart. Item slot, minimap, lap pips, coin and position plates, banners \u2014 a real instrument set that scales to a phone.",
+      "gap": "Every racer sits at place 1 through the countdown, so the first thing the game tells the player after GO! is a gold \"1st\" followed by four false lost-a-place alarms cascading to 8th."
     },
     {
       "id": "world",
@@ -139,6 +139,14 @@
     }
   ],
   "log": [
+    {
+      "at": "Wave 2",
+      "text": "<b>All three pieces failed and go back.</b> Items 7/10, HUD 6.5/10, effects 5.5/10 \u2014 every blind A/B went to Mario Kart. The critics measured rather than eyeballed: CSS opacity sampled every four fixed steps across 40s, particle-atlas alpha peaks read off the live texture, spark streak length computed in metres against the length of the kart."
+    },
+    {
+      "at": "Recovered",
+      "text": "<b>Wave 2 was dead for 11.5 hours before anyone noticed.</b> The container suspended overnight and silently killed both in-flight agents and the check-in job. Liveness is now proven by transcript timestamp every 12 minutes, because files and processes both outlive the agents that made them."
+    },
     {
       "at": "Wave 2",
       "text": "<b>Items, effects and HUD dispatched.</b> The item system does not exist yet, and without it this is a time trial rather than a kart racer. Effects are equally absent \u2014 a drift currently looks identical to driving straight."

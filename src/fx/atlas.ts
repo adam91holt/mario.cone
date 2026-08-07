@@ -77,25 +77,48 @@ function drawGlow(c: CanvasRenderingContext2D): void {
   c.fillRect(0, 0, SIZE, SIZE);
 }
 
+/**
+ * The dust / smoke cell.
+ *
+ * This is the sprite the whole continuous layer is made of, and the last pass
+ * got it wrong in the way that matters most: it had a dense middle. Seven lobes
+ * at 52% alpha stacked additively saturate to a solid disc within about a third
+ * of the radius, so every puff in the game arrived as an opaque soft ball. An
+ * opaque soft ball takes whatever colour it is given and holds it — which is
+ * how tyre smoke ended up reading as an oil stain on the asphalt, and how one
+ * puff over a locomotive funnel ended up looking like a boulder.
+ *
+ * Smoke is not opaque. It is a *thin* thing you see the world through, and the
+ * only place it approaches solid is where several wisps happen to overlap in
+ * depth — which is the pool's job, not the texture's. So: many more lobes, each
+ * far fainter, spread out to the rim rather than clustered at the middle, and a
+ * ceiling low enough that a single sprite can never be more than a suggestion.
+ * The visible density then comes from *count*, which is the axis where it can be
+ * traded against distance, quality and budget.
+ */
 function drawPuff(c: CanvasRenderingContext2D): void {
   const h = SIZE * 0.5;
-  // Seven overlapping lobes, added together. A single radial gradient reads as
-  // an airbrush; dust has to have a silhouette with bumps in it.
+  // Thirteen faint overlapping lobes, added together. Enough of them for a
+  // ragged silhouette, none of them strong enough to be a shape on its own.
   c.globalCompositeOperation = 'lighter';
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 13; i++) {
     const a = hash(i * 3.1 + 0.7) * Math.PI * 2;
-    const d = h * (0.10 + hash(i * 7.3 + 2.1) * 0.30);
-    const r = h * (0.34 + hash(i * 5.9 + 4.4) * 0.26);
+    // Pushed out toward the rim rather than piled on the centre: the middle
+    // gets its density from overlap, not from every lobe starting there.
+    const d = h * (0.16 + hash(i * 7.3 + 2.1) * 0.40);
+    const r = h * (0.26 + hash(i * 5.9 + 4.4) * 0.22);
     c.fillStyle = radial(c, h + Math.cos(a) * d, h + Math.sin(a) * d, r, [
-      [0.00, 0.52], [0.45, 0.28], [1.00, 0.0],
+      [0.00, 0.20], [0.42, 0.10], [1.00, 0.0],
     ]);
     c.fillRect(0, 0, SIZE, SIZE);
   }
-  // Then clip the whole thing back inside a soft disc, so no lobe leaves a hard
-  // edge at the cell boundary and the mip chain stays clean.
+  // Clip back inside a soft disc — no lobe may leave a hard edge at the cell
+  // boundary — and take the ceiling down at the same time, so the brightest
+  // pixel in the cell is a little over half opaque and the sprite is physically
+  // incapable of covering what is behind it.
   c.globalCompositeOperation = 'destination-in';
-  c.fillStyle = radial(c, h, h, h * 0.96, [
-    [0.00, 1.0], [0.55, 1.0], [0.80, 0.55], [1.00, 0.0],
+  c.fillStyle = radial(c, h, h, h * 0.99, [
+    [0.00, 0.72], [0.46, 0.66], [0.76, 0.36], [1.00, 0.0],
   ]);
   c.fillRect(0, 0, SIZE, SIZE);
   c.globalCompositeOperation = 'source-over';

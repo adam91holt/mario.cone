@@ -17,22 +17,34 @@
 // shadow — three draw calls for the whole circuit's worth.
 
 import * as THREE from 'three';
-import { ease } from '../core/math.ts';
-import { makeShadowBlob } from '../vehicles/parts.ts';
+import { clamp, ease } from '../core/math.ts';
 import { features } from '../track/courses/types.ts';
+import { roadCrown } from './entities.ts';
+import type { RacingLine } from '../track/racingline.ts';
 import {
-  boxCoreGeometry, boxShellGeometry, makeBoxMaterials, type BoxMaterials,
+  boxCoreGeometry, boxHaloGeometry, boxHaloMaterial, boxShellGeometry,
+  contactShadowGeometry, contactShadowMaterial, makeBoxMaterials, type BoxMaterials,
 } from './models.ts';
 import type { GameContext, Track } from '../types.ts';
 
 /** Metres the box floats above the tarmac, at the centre of its bob. */
-const FLOAT = 1.35;
-const SIZE = 1.5;
+const FLOAT = 1.45;
+/** Edge length. Sized against a ~2m kart: a box you have to aim at is a box
+ *  you will miss, and a box you cannot see from the previous corner is a box
+ *  nobody plans a lap around. */
+const SIZE = 1.85;
 /** Seconds a taken box stays gone. Long enough to matter in a pack, short
  *  enough that the racer behind you is not simply denied. */
 const RESPAWN = 4.0;
 /** Pickup radius. Generous — missing a box you drove through is maddening. */
-const PICK_RADIUS = 2.35;
+const PICK_RADIUS = 2.5;
+/** Metres the halo billboard is raised above the box, so its lower falloff
+ *  never reaches the road. */
+const HALO_LIFT = 0.45;
+/** Boxes in a row across the road. Five is the Mario Kart number and it is the
+ *  right one: a road that fits four or five karts abreast needs a box for each
+ *  of them, or taking one becomes a fight instead of a decision. */
+const ROW = 5;
 
 export interface ItemBox {
   pos: THREE.Vector3;
@@ -49,7 +61,7 @@ export interface ItemBox {
 
 export interface BoxField {
   readonly boxes: ItemBox[];
-  rebuild(track: Track): void;
+  rebuild(track: Track, line: RacingLine): void;
   /** Box indices whose centre is within `PICK_RADIUS` of this lap distance. */
   candidates(distance: number): readonly number[];
   take(index: number): void;
@@ -60,6 +72,7 @@ export interface BoxField {
 
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
+const _face = new THREE.Quaternion();
 const _e = new THREE.Euler();
 const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
@@ -76,10 +89,13 @@ export function createBoxField(ctx: GameContext): BoxField {
   let materials: BoxMaterials | null = null;
   let shellGeo: THREE.BufferGeometry | null = null;
   let coreGeo: THREE.BufferGeometry | null = null;
+  let haloGeo: THREE.BufferGeometry | null = null;
+  let haloMat: THREE.MeshBasicMaterial | null = null;
   let blobGeo: THREE.BufferGeometry | null = null;
   let blobMat: THREE.MeshBasicMaterial | null = null;
   let shell: THREE.InstancedMesh | null = null;
   let core: THREE.InstancedMesh | null = null;
+  let halo: THREE.InstancedMesh | null = null;
   let shadow: THREE.InstancedMesh | null = null;
   let bins: number[][] = [];
   let binCount = 0;
@@ -88,24 +104,28 @@ export function createBoxField(ctx: GameContext): BoxField {
   function clearMeshes(): void {
     // The instanced meshes are rebuilt per course; the geometry and materials
     // behind them are not, so only the wrappers are thrown away here.
-    for (const m of [shell, core, shadow]) {
+    for (const m of [shell, core, halo, shadow]) {
       if (!m) continue;
       group.remove(m);
       m.dispose();
     }
-    shell = core = shadow = null;
+    shell = core = halo = shadow = null;
   }
 
   function ensureAssets(): void {
     if (!materials) materials = makeBoxMaterials();
     if (!shellGeo) shellGeo = boxShellGeometry(SIZE);
     if (!coreGeo) coreGeo = boxCoreGeometry(SIZE);
+    if (!haloGeo) haloGeo = boxHaloGeometry(SIZE * 0.82);
+    if (!haloMat) haloMat = boxHaloMaterial();
     if (!blobGeo) {
-      const blob = makeShadowBlob(2.0, 2.0);
-      blobGeo = blob.geometry;
-      blobGeo.rotateX(-Math.PI / 2);
-      blobMat = blob.material as THREE.MeshBasicMaterial;
-      blobMat.opacity = 0.42;
+      // Sized to the box, not to its glow: a blob half again as wide as the
+      // thing casting it reads as a stain rather than as contact. Every kart on
+      // this circuit lays a crisp shadow, and a floating box laying none is the
+      // fastest way to make it look pasted on — ARCHITECTURE §12, contact is
+      // everything.
+      blobGeo = contactShadowGeometry(SIZE * 0.42, 0.30);
+      blobMat = contactShadowMaterial();
     }
   }
 
@@ -117,9 +137,10 @@ export function createBoxField(ctx: GameContext): BoxField {
 
     shell = new THREE.InstancedMesh(shellGeo!, materials!.shell, n);
     core = new THREE.InstancedMesh(coreGeo!, materials!.core, n);
+    halo = new THREE.InstancedMesh(haloGeo!, haloMat!, n);
     shadow = new THREE.InstancedMesh(blobGeo!, blobMat!, n);
 
-    for (const m of [shell, core, shadow]) {
+    for (const m of [shell, core, halo, shadow]) {
       // One mesh spans the whole circuit, so a bounding-sphere cull can only
       // ever be wrong. Skip it rather than pay for it.
       m.frustumCulled = false;
@@ -129,6 +150,9 @@ export function createBoxField(ctx: GameContext): BoxField {
       group.add(m);
     }
     shadow.renderOrder = -1;
+    // The halo sits *behind* the box it belongs to, so the glass and the glyph
+    // are never washed out by their own glow.
+    halo.renderOrder = 1;
     shell.renderOrder = 2;
     core.renderOrder = 3;
   }
@@ -147,8 +171,12 @@ export function createBoxField(ctx: GameContext): BoxField {
     const spline = ctx.track!.spline;
     const s = spline.atDistance(distance);
     // The shadow belongs under the box, not under the centreline — on a banked
-    // corner those are most of a metre apart vertically.
-    const ground = new THREE.Vector3().copy(s.pos).addScaledVector(s.right, lateral);
+    // corner those are most of a metre apart vertically — and it belongs on the
+    // *tarmac*, which stands proud of the spline's own surface by up to 16cm.
+    // See `roadCrown`: a shadow laid on the spline is a shadow inside the road.
+    const ground = new THREE.Vector3().copy(s.pos)
+      .addScaledVector(s.right, lateral)
+      .addScaledVector(s.up, roadCrown(lateral, s.width, ctx.track?.course.vergeWidth ?? 5));
     const pos = ground.clone().addScaledVector(s.up, FLOAT);
     boxes.push({
       pos,
@@ -162,7 +190,7 @@ export function createBoxField(ctx: GameContext): BoxField {
     });
   }
 
-  function rebuild(track: Track): void {
+  function rebuild(track: Track, line: RacingLine): void {
     boxes.length = 0;
     trackLength = track.length;
     const L = track.length;
@@ -200,10 +228,35 @@ export function createBoxField(ctx: GameContext): BoxField {
     for (const d of chosen) {
       const s = spline.atDistance(d);
       const half = s.width * 0.5;
-      // Span the road, holding 2.2m off each edge so the outermost box is
+      // Span the road, holding clear of each edge so the outermost box is
       // still takeable without brushing the barrier.
-      const reach = Math.max(3, half - 2.2);
-      for (let k = -2; k <= 2; k++) addBox(d, (k / 2) * reach);
+      const lim = Math.max(3, half - 2.6);
+      // Five boxes distributed *cyclically* across the road, so the row can be
+      // slid sideways onto the racing line without any of them falling off the
+      // end. The obvious version — five fixed slots at lim/2 spacing, drop
+      // anything that ends up outside — silently produced rows of four all the
+      // way round the circuit, because a row that already spans exactly -lim to
+      // +lim loses a box to any shift at all.
+      const span = lim * 2;
+      const step = span / ROW;
+      // ...and slide the whole row sideways so that one of the five sits
+      // exactly on the racing line. That is the entire design of these rows: a
+      // leader defending their line pays *nothing* to take an item, which is
+      // correct, because what the table gives them for it is a banana. A row
+      // pinned to the centreline instead makes every driver leave the line to
+      // take a box, and the item economy stops being about position at all.
+      const onLine = clamp(line.lateralAt(d), -lim, lim);
+      // Slide the whole row so that one box sits exactly on the racing line.
+      const slot = Math.round((onLine + lim) / step - 0.5);
+      const shift = onLine + lim - (slot + 0.5) * step;
+      for (let k = 0; k < ROW; k++) {
+        // Wrapped into [-lim, lim]: a box pushed off the right-hand end of the
+        // road comes back on at the left, and the row stays five wide and
+        // evenly spaced whatever the line is doing here.
+        let u = (k + 0.5) * step + shift;
+        u -= Math.floor(u / span) * span;
+        addBox(d, u - lim);
+      }
     }
 
     // ── detours ──────────────────────────────────────────────────────────
@@ -289,8 +342,18 @@ export function createBoxField(ctx: GameContext): BoxField {
     },
 
     update(dt: number, time: number): void {
-      if (!shell || !core || !shadow) return;
+      if (!shell || !core || !halo || !shadow) return;
       materials?.tick(time);
+      // The halo billboards about the *vertical only*, and that one word is the
+      // whole fix. A full camera-facing billboard is edge-on to the road when
+      // the camera is above it — which is exactly what an overhead or minimap
+      // shot is — so a soft additive disc three metres across lay flat on the
+      // tarmac under every box and *lightened* the road beneath it. A floating
+      // object with a bright pool under it instead of a shadow reads as a
+      // spotlight, not as contact. Yawing to the camera keeps the glow standing
+      // up behind the cube from every angle a player can reach.
+      const camX = ctx.camera.position.x;
+      const camZ = ctx.camera.position.z;
 
       for (let i = 0; i < boxes.length; i++) {
         const b = boxes[i]!;
@@ -316,7 +379,21 @@ export function createBoxField(ctx: GameContext): BoxField {
         _m.compose(_p, _q, _s);
         core.setMatrixAt(i, _m);
 
-        _p.set(b.pos.x, b.groundY + 0.03, b.pos.z);
+        // The halo breathes on its own beat — slower than the core, so the two
+        // never lock into a single throb.
+        _e.set(0, Math.atan2(camX - b.pos.x, camZ - b.pos.z), 0);
+        _face.setFromEuler(_e);
+        _s.setScalar(scale * (0.92 + Math.sin(time * 2.3 + b.phase * 1.7) * 0.12));
+        // Lifted clear of the road. A glow centred on a box floating a metre
+        // and a half up reaches the tarmac underneath it and lights exactly the
+        // patch the contact shadow lives on — which is how a box ends up with a
+        // bright pool under it instead of a shadow.
+        _p.y += HALO_LIFT;
+        _m.compose(_p, _face, _s);
+        halo.setMatrixAt(i, _m);
+        _p.y -= HALO_LIFT;
+
+        _p.set(b.pos.x, b.groundY + 0.07, b.pos.z);
         _q.identity();
         _s.set(scale * (1 - bob * 0.4), 1, scale * (1 - bob * 0.4));
         _m.compose(_p, _q, _s);
@@ -324,6 +401,7 @@ export function createBoxField(ctx: GameContext): BoxField {
       }
       shell.instanceMatrix.needsUpdate = true;
       core.instanceMatrix.needsUpdate = true;
+      halo.instanceMatrix.needsUpdate = true;
       shadow.instanceMatrix.needsUpdate = true;
     },
 
@@ -332,11 +410,13 @@ export function createBoxField(ctx: GameContext): BoxField {
       materials?.dispose();
       shellGeo?.dispose();
       coreGeo?.dispose();
+      haloGeo?.dispose();
+      haloMat?.dispose();
       blobGeo?.dispose();
       blobMat?.dispose();
       materials = null;
-      shellGeo = coreGeo = blobGeo = null;
-      blobMat = null;
+      shellGeo = coreGeo = haloGeo = blobGeo = null;
+      haloMat = blobMat = null;
       ctx.scene.remove(group);
       boxes.length = 0;
     },
