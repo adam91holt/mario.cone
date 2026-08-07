@@ -171,9 +171,17 @@ Canonical events — add new ones to this list when you introduce them:
 | `kart:land` | `{ racer, impact }` | physics |
 | `kart:offroad` | `{ racer, surface }` | physics |
 | `kart:hit` | `{ racer, by, kind }` | items |
-| `item:get` | `{ racer, item }` | items |
-| `item:use` | `{ racer, item }` | items |
+| `item:box` | `{ racer, pos }` — a box was taken | items |
+| `item:roulette` | `{ racer, phase:'start'\|'settle', item? }` | items |
+| `item:get` | `{ racer, item, count }` | items |
+| `item:use` | `{ racer, item, count, forward }` | items |
+| `item:bounce` | `{ kind, pos, bounces }` — shell off a barrier | items |
+| `item:blast` | `{ pos, ownerId, radius }` — a bob-omb went off | items |
+| `item:strike` | `{ racer, by, item, kind }` — *what* hit you, before the stun | items |
+| `item:effect` | `{ racer, effect, on }` — star/bullet/shrunk/inked/boo | items |
+| `item:steal` | `{ racer, from, item }` | items |
 | `coin:get` | `{ racer, total }` | items |
+| `coin:lose` | `{ racer, count, total }` | items |
 
 ---
 
