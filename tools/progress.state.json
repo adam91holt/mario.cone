@@ -1,27 +1,183 @@
 {
-  "phase": "Wave 1",
-  "phaseNote": "Foundation pieces in build-and-review. Engine, module contracts and the headless review harness are done; the five pieces everything else sits on are now with their owner agents and critics.",
+  "phase": "Wave 2 round 3",
+  "phaseNote": "Items, effects and HUD all failed their critics after two rounds and go back with measured directives. The critics are now finding faults by instrumenting the running game \u2014 sampling CSS opacity over 1200 frames, measuring atlas alpha, measuring spark streak length in metres.",
   "pieces": [
-    { "id": "feel", "name": "Kart feel & drift", "scope": "src/physics", "state": "build", "rounds": 0, "verdict": "", "gap": "" },
-    { "id": "camera", "name": "Camera", "scope": "src/render/camera", "state": "build", "rounds": 0, "verdict": "", "gap": "" },
-    { "id": "track", "name": "Track & course design", "scope": "src/track", "state": "build", "rounds": 0, "verdict": "", "gap": "" },
-    { "id": "look", "name": "Lighting & post", "scope": "src/render", "state": "build", "rounds": 0, "verdict": "", "gap": "" },
-    { "id": "cast", "name": "Vehicle models", "scope": "src/vehicles", "state": "build", "rounds": 0, "verdict": "", "gap": "" },
-    { "id": "fx", "name": "Effects & spectacle", "scope": "src/fx", "state": "queued", "rounds": 0, "verdict": "", "gap": "" },
-    { "id": "items", "name": "Items", "scope": "src/items", "state": "queued", "rounds": 0, "verdict": "", "gap": "" },
-    { "id": "ai", "name": "CPU racers", "scope": "src/ai", "state": "queued", "rounds": 0, "verdict": "", "gap": "" },
-    { "id": "hud", "name": "HUD & minimap", "scope": "src/ui", "state": "queued", "rounds": 0, "verdict": "", "gap": "" },
-    { "id": "world", "name": "World dressing", "scope": "src/world", "state": "queued", "rounds": 0, "verdict": "", "gap": "" },
-    { "id": "audio", "name": "Music & sound", "scope": "src/audio", "state": "queued", "rounds": 0, "verdict": "", "gap": "" },
-    { "id": "flow", "name": "Race flow & results", "scope": "src/race", "state": "queued", "rounds": 0, "verdict": "", "gap": "" },
-    { "id": "menus", "name": "Front-end & menus", "scope": "src/ui/menus", "state": "queued", "rounds": 0, "verdict": "", "gap": "" },
-    { "id": "courses", "name": "Course roster", "scope": "src/track/courses", "state": "queued", "rounds": 0, "verdict": "", "gap": "" },
-    { "id": "perf", "name": "Performance", "scope": "engine-wide", "state": "queued", "rounds": 0, "verdict": "", "gap": "" }
+    {
+      "id": "feel",
+      "name": "Kart feel & drift",
+      "scope": "src/physics",
+      "state": "review",
+      "rounds": 2,
+      "verdict": "Merged. Drift, three mini-turbo tiers, slipstream and tricks landed; top speed doubled to ~60 m/s.",
+      "gap": "Not yet signed off \u2014 wave 1 stalled before its closing verdicts were recorded. Queued for re-judging."
+    },
+    {
+      "id": "camera",
+      "name": "Camera",
+      "scope": "src/render/camera",
+      "state": "review",
+      "rounds": 2,
+      "verdict": "Merged. Trails travel direction rather than chassis yaw, and derives framing from the camera-to-kart vector.",
+      "gap": "Not yet signed off \u2014 wave 1 stalled before its closing verdicts were recorded. Queued for re-judging."
+    },
+    {
+      "id": "track",
+      "name": "Track & course design",
+      "scope": "src/track",
+      "state": "review",
+      "rounds": 2,
+      "verdict": "Merged. Nine named corners; width follows speed \u2014 30m on the start straight, 17m at the hairpin apex.",
+      "gap": "Not yet signed off \u2014 wave 1 stalled before its closing verdicts were recorded. Queued for re-judging."
+    },
+    {
+      "id": "look",
+      "name": "Lighting & post",
+      "scope": "src/render",
+      "state": "review",
+      "rounds": 2,
+      "verdict": "Merged. Fill cut to a fifth of key, so the game finally has a light side and a dark side.",
+      "gap": "Not yet signed off \u2014 wave 1 stalled before its closing verdicts were recorded. Queued for re-judging."
+    },
+    {
+      "id": "cast",
+      "name": "Vehicle models",
+      "scope": "src/vehicles",
+      "state": "review",
+      "rounds": 2,
+      "verdict": "Merged. All seven rebuilt as root/chassis/shell with faces and rigs, ~4 draw calls each.",
+      "gap": "Not yet signed off \u2014 wave 1 stalled before its closing verdicts were recorded. Queued for re-judging."
+    },
+    {
+      "id": "fx",
+      "name": "Effects & spectacle",
+      "scope": "src/fx",
+      "state": "fail",
+      "rounds": 2,
+      "verdict": "5.5/10, blind A/B went to Mario Kart. Drift sparks, boost flames, dust, tyre marks and screen effects all present and firing off the right events.",
+      "gap": "Mini-turbo sparks stretch along world velocity instead of velocity relative to the kart, so each renders as a 2-3m golden bar and a charged drift lays ~40 of them across 7m of track, burying the road edge and the kart itself."
+    },
+    {
+      "id": "items",
+      "name": "Items",
+      "scope": "src/items",
+      "state": "fail",
+      "rounds": 2,
+      "verdict": "7/10, blind A/B went to Mario Kart. Boxes, roulette, the full item set, coins and hit reactions all exist and work. Blind A/B still goes to Mario Kart.",
+      "gap": "The incoming-projectile warning sits over the vanishing point for 52% of the race and never exceeds 0.79 opacity \u2014 too constant to mean anything, too faint to read."
+    },
+    {
+      "id": "ai",
+      "name": "CPU racers",
+      "scope": "src/ai",
+      "state": "queued",
+      "rounds": 0,
+      "verdict": "",
+      "gap": ""
+    },
+    {
+      "id": "hud",
+      "name": "HUD & minimap",
+      "scope": "src/ui",
+      "state": "fail",
+      "rounds": 2,
+      "verdict": "6.5/10, blind A/B went to Mario Kart. Item slot, minimap, lap pips, coin and position plates, banners \u2014 a real instrument set that scales to a phone.",
+      "gap": "Every racer sits at place 1 through the countdown, so the first thing the game tells the player after GO! is a gold \"1st\" followed by four false lost-a-place alarms cascading to 8th."
+    },
+    {
+      "id": "world",
+      "name": "World dressing",
+      "scope": "src/world",
+      "state": "queued",
+      "rounds": 0,
+      "verdict": "",
+      "gap": ""
+    },
+    {
+      "id": "audio",
+      "name": "Music & sound",
+      "scope": "src/audio",
+      "state": "queued",
+      "rounds": 0,
+      "verdict": "",
+      "gap": ""
+    },
+    {
+      "id": "flow",
+      "name": "Race flow & results",
+      "scope": "src/race",
+      "state": "queued",
+      "rounds": 0,
+      "verdict": "",
+      "gap": ""
+    },
+    {
+      "id": "menus",
+      "name": "Front-end & menus",
+      "scope": "src/ui/menus",
+      "state": "queued",
+      "rounds": 0,
+      "verdict": "",
+      "gap": ""
+    },
+    {
+      "id": "courses",
+      "name": "Course roster",
+      "scope": "src/track/courses",
+      "state": "queued",
+      "rounds": 0,
+      "verdict": "",
+      "gap": ""
+    },
+    {
+      "id": "perf",
+      "name": "Performance",
+      "scope": "engine-wide",
+      "state": "queued",
+      "rounds": 0,
+      "verdict": "",
+      "gap": ""
+    }
   ],
   "log": [
-    { "at": "Wave 1", "text": "<b>Five foundation pieces dispatched.</b> Kart feel, camera, track, art direction and the cast each go to an owner agent, then to a critic that plays the real game and compares it blind against Mario Kart 8. Pieces loop until the critic can no longer name a gap." },
-    { "at": "Scaffold", "text": "<b>Capture harness made practical.</b> Shots now fast-forward the simulation without drawing and render only the settling moment. The nine-shot review sheet went from timing out at 290s to 99s — which is what makes repeated review affordable." },
-    { "at": "Scaffold", "text": "<b>Four defects found by looking, not reading.</b> The road mesh was wound backwards and was being discarded entirely by backface culling — karts appeared to float over bare ground. The camera inherited stale state between races, and un-rendered landing impulses accumulated until the camera launched 350m into the air." },
-    { "at": "Scaffold", "text": "<b>Engine, contracts and harness in place.</b> Deterministic 120Hz simulation with interpolated rendering, a TypeScript contract every module compiles against, and <code>window.__GAME</code> so reviewers can drive and photograph the real game rather than trust a description of it." }
+    {
+      "at": "Wave 2",
+      "text": "<b>All three pieces failed and go back.</b> Items 7/10, HUD 6.5/10, effects 5.5/10 \u2014 every blind A/B went to Mario Kart. The critics measured rather than eyeballed: CSS opacity sampled every four fixed steps across 40s, particle-atlas alpha peaks read off the live texture, spark streak length computed in metres against the length of the kart."
+    },
+    {
+      "at": "Recovered",
+      "text": "<b>Wave 2 was dead for 11.5 hours before anyone noticed.</b> The container suspended overnight and silently killed both in-flight agents and the check-in job. Liveness is now proven by transcript timestamp every 12 minutes, because files and processes both outlive the agents that made them."
+    },
+    {
+      "at": "Wave 2",
+      "text": "<b>Items, effects and HUD dispatched.</b> The item system does not exist yet, and without it this is a time trial rather than a kart racer. Effects are equally absent \u2014 a drift currently looks identical to driving straight."
+    },
+    {
+      "at": "Merged",
+      "text": "<b>Wave 1 merged to main.</b> Engine, review harness, physics, camera, track, art direction and the seven-machine cast. Verified: typecheck clean, smoke passes at 8 racers and 51.8 m/s."
+    },
+    {
+      "at": "Stalled",
+      "text": "<b>Wave 1 stalled at 13 of 15 agents.</b> Its work is merged and verified, but two pieces never returned a closing verdict, so no wave 1 piece is marked passed. They go back through a critic rather than being credited on trust."
+    },
+    {
+      "at": "Fixed",
+      "text": "<b>Karts were vanishing from their own chase camera.</b> The engine derived the frame-blend factor from an accumulator the harness bypasses, producing an alpha of -438 \u2014 every interpolation became an extrapolation and drew each kart two hundred metres behind itself. Clamped where the number is handed out."
+    },
+    {
+      "at": "Wave 1",
+      "text": "<b>Five foundation pieces dispatched.</b> Kart feel, camera, track, art direction and the cast each go to an owner agent, then to a critic that plays the real game and compares it blind against Mario Kart 8. Pieces loop until the critic can no longer name a gap."
+    },
+    {
+      "at": "Scaffold",
+      "text": "<b>Capture harness made practical.</b> Shots now fast-forward the simulation without drawing and render only the settling moment. The nine-shot review sheet went from timing out at 290s to 99s \u2014 which is what makes repeated review affordable."
+    },
+    {
+      "at": "Scaffold",
+      "text": "<b>Four defects found by looking, not reading.</b> The road mesh was wound backwards and was being discarded entirely by backface culling \u2014 karts appeared to float over bare ground. The camera inherited stale state between races, and un-rendered landing impulses accumulated until the camera launched 350m into the air."
+    },
+    {
+      "at": "Scaffold",
+      "text": "<b>Engine, contracts and harness in place.</b> Deterministic 120Hz simulation with interpolated rendering, a TypeScript contract every module compiles against, and <code>window.__GAME</code> so reviewers can drive and photograph the real game rather than trust a description of it."
+    }
   ]
 }
