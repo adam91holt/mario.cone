@@ -798,6 +798,14 @@ export function contactShadowMaterial(): THREE.MeshBasicMaterial {
     // material at full opacity it changes nothing about the result.
     premultipliedAlpha: true,
     transparent: true, depthWrite: false, toneMapped: false,
+    // A blob lies within a few centimetres of the surface it is a shadow *on*,
+    // and this road is crowned and banked — so the disc and the tarmac
+    // interpenetrate, and the depth test eats whichever part of the disc lost.
+    // Photographed, that is a shadow reduced to a thin crescent, or to nothing.
+    // Biasing the fragment toward the camera is the standard answer and costs a
+    // state change; the alternative — lifting the disc far enough to clear the
+    // crown — is a shadow visibly floating off the ground.
+    polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -12,
   });
 }
 
@@ -875,7 +883,21 @@ export function buildScorch(): THREE.Object3D {
   return g;
 }
 
-/** The starburst that marks a connection. Recoloured to whatever hit you. */
+/**
+ * The starburst that marks a connection, and the flare a box comes apart in.
+ *
+ * Three parts, on three clocks, and the count is the whole point. A single
+ * additive star photographed frame by frame is a bright shape on the frame it
+ * spawned and nothing two frames later — which is what the box break was: a
+ * flash at 0ms, a smear at 17ms, gone by 50ms. Nobody at sixty frames a second
+ * ever saw it.
+ *
+ * `core` is the flash — brightest, smallest, first to go. `star` is the spikes,
+ * which carry the shape. `ring` is the shockwave, and it is the part that
+ * actually survives: a thin expanding annulus reads at any size, against any
+ * background, for as long as you let it live. The entity animates all three off
+ * one age.
+ */
 export function buildBurst(): THREE.Object3D {
   const g = new THREE.Group();
   const geo = new THREE.ExtrudeGeometry(starShape(1, 0.34, 6), {
@@ -883,9 +905,15 @@ export function buildBurst(): THREE.Object3D {
   });
   geo.center();
   const a = new THREE.Mesh(geo, glowMaterial(0xFFF8F0, 1));
+  a.name = 'star';
   g.add(a);
   const b = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 8), glowMaterial(0xFFF8F0, 0.9));
+  b.name = 'core';
   g.add(b);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.86, 1.0, 30),
+    glowMaterial(0xFFF8F0, 0.9));
+  ring.name = 'ring';
+  g.add(ring);
   g.traverse((o) => { o.userData.noShadow = true; });
   return g;
 }
@@ -1116,8 +1144,14 @@ export function boxGlyphMaterial(): THREE.MeshBasicMaterial {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
   const g = c.getContext('2d')!;
+  // Widest first: a near-black rim so the mark holds against cloud *and* against
+  // tarmac, a hazard keyline for warmth, then a broad white core. It used to be
+  // the other way round — a 16px orange stroke with a 9px white centre — which
+  // made the `?` a mid-tone orange-brown mark on a pale translucent face. Two
+  // mid-tones against each other is the one contrast pairing that dies first at
+  // distance, and at forty metres the glyph was simply not there.
   drawGlyph(g, [
-    [26, 'rgba(28,32,44,0.92)'], [16, 'rgba(255,107,26,1)'], [9, '#FFFDF6'],
+    [30, 'rgba(20,23,32,0.96)'], [22, 'rgba(255,107,26,1)'], [14, '#FFFDF6'],
   ]);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -1145,18 +1179,14 @@ export interface BoxMaterials {
 }
 
 /**
- * The hue a box wears at a given world position and time — the CPU-side twin of
- * `mcHue` in the shell shader.
- *
- * It exists so the halo behind a box can be tinted to the colour the box itself
- * is currently wearing. Without that the glow is one fixed warm white for the
- * whole row, and the rainbow the cubes are painting stops at their own edges —
- * which is exactly the distance at which the glow is the only part still
- * visible.
+ * The hue every box is wearing right now — the CPU-side twin of `mcHue` in the
+ * shell shader, and it takes no position because the shader's seed no longer
+ * does either. One colour, cycling, shared by the whole circuit: see the
+ * `vMcSeed` note in `makeBoxMaterials` for why five different-coloured boxes in
+ * a row is a bug and not a flourish.
  */
-export function boxHue(x: number, z: number, t: number, out: THREE.Color): THREE.Color {
-  const seed = x * 0.041 + z * 0.077;
-  const h = seed - Math.floor(seed) + t * 0.16 + 0.27;
+export function boxHue(t: number, out: THREE.Color): THREE.Color {
+  const h = t * 0.16 + 0.27;
   return out.setRGB(
     0.55 + 0.45 * Math.cos(TAU * h),
     0.55 + 0.45 * Math.cos(TAU * (h + 0.33)),
@@ -1220,12 +1250,18 @@ export function makeBoxMaterials(): BoxMaterials {
         vec4 mcWorld = modelMatrix * mcLocal;
         vMcNormal = normalize( mat3( modelMatrix ) * mcNormal );
         vMcView = normalize( cameraPosition - mcWorld.xyz );
-        // Each box gets its own place in the hue cycle, taken from where it
-        // stands. A row of five across the road is then a rainbow strung over
-        // the tarmac rather than five identical parcels — which is the read
-        // that makes a player pick a *lane* rather than notice a box.
-        vec3 mcSeedPos = ( modelMatrix * vec4( mcOrigin, 1.0 ) ).xyz;
-        vMcSeed = fract( dot( mcSeedPos.xz, vec2( 0.041, 0.077 ) ) );`);
+        // **Every box is the same box.** The seed is a constant, not a function
+        // of where the cube stands, and that is a gameplay decision rather than
+        // an art one. A row of five in five different colours is a *false
+        // affordance*: a player reads five distinct objects and concludes the
+        // colour picks the item, spends a lap testing the theory, and learns
+        // that the game lied to them. Mario Kart makes every box identical
+        // precisely because the unknown is the whole point of the pickup.
+        // The shimmer stays — it comes from view angle and time below, which
+        // vary across a single cube's faces and give it life without ever
+        // making two boxes different from each other.
+        vMcSeed = 0.0;
+        mcOrigin;`);
 
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>

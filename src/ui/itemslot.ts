@@ -390,6 +390,18 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
 
   const unsubs: Array<() => void> = [];
 
+  /**
+   * The HUD unit in CSS pixels, cached.
+   *
+   * The smear is the one number in this widget that has to be in real pixels
+   * rather than in `--u`, and `unitPx()` reads the viewport. Doing that inside
+   * `update` would put a viewport read in among the HUD's style writes on every
+   * frame of every spin, for an answer that only changes when somebody drags a
+   * window edge. Same discipline as the minimap's canvas sizing.
+   */
+  let unit = unitPx();
+  unsubs.push(ctx.bus.on('engine:resize', () => { unit = unitPx(); }));
+
   function showFace(id: ItemId | null, dur: number): void {
     const key = id ?? '';
     const cur = layers[front]!;
@@ -521,7 +533,7 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
         // function of the speed and nothing else, so every frame of the spin
         // looks like a spin and the first frame that does not is the answer.
         // Scaled by the HUD unit so it is the same smear at any resolution.
-        const blur = Math.min(2.4, spinSpeed * 0.17) * (unitPx() / 17);
+        const blur = Math.min(2.4, spinSpeed * 0.17) * (unit / 17);
         strip.set('filter', blur > 0.15 ? `blur(${blur.toFixed(2)}px)` : 'none');
       }
 

@@ -56,6 +56,8 @@ export interface Entity {
   /** Contact radius, or the current radius of a blast/shockwave. */
   radius: number;
   scale: number;
+  /** Size the effect was spawned at, held apart from the animated `scale`. */
+  base: number;
   groundY: number;
   node: THREE.Object3D | null;
   /** Which item drew this, for the strike report. */
@@ -77,6 +79,8 @@ export interface SpawnOptions {
   radius?: number;
   groundY?: number;
   color?: number;
+  /** Size multiplier for the effects that have no radius of their own. */
+  scale?: number;
 }
 
 /** Called when an entity reaches a racer. Return true to consume the entity. */
@@ -137,12 +141,52 @@ export function roadCrown(lateral: number, width: number, verge = 5): number {
   return surfaceHeight(lateral, width, verge);
 }
 
+/**
+ * Which way the key light is coming from, read off the scene's own sun.
+ *
+ * Every blob shadow this module lays has to agree with the shadows the renderer
+ * projects for the karts, or the two kinds of shadow contradict each other in
+ * the same frame — and the frame that makes that obvious is the overhead one, a
+ * kart's shadow raked two metres to the left of it and an item box's pooled
+ * directly underneath. Read rather than duplicated: the lighting module applies
+ * a house azimuth trim and clamps the elevation, and a copy of those constants
+ * here would be wrong the first time either changed.
+ */
+const _sunDir = new THREE.Vector3(-0.53, 0.565, 0.632).normalize();
+const UP = new THREE.Vector3(0, 1, 0);
+
+export function refreshSunDirection(ctx: GameContext): void {
+  let best: THREE.DirectionalLight | null = null;
+  ctx.scene.traverse((o) => {
+    const l = o as THREE.DirectionalLight;
+    if (!l.isDirectionalLight) return;
+    // The key is the one that casts; with shadows off, the brightest wins.
+    if (!best || (l.castShadow && !best.castShadow)
+      || (l.castShadow === best.castShadow && l.intensity > best.intensity)) best = l;
+  });
+  const light = best as THREE.DirectionalLight | null;
+  if (light && light.position.lengthSq() > 0.01) _sunDir.copy(light.position).normalize();
+}
+
+/**
+ * Where the shadow of a point `height` above the road lands, as an offset from
+ * the point directly beneath it — projected into the plane whose normal is
+ * `up`, so it stays on a banked or crowned surface instead of driving through
+ * it. Reuses `out`; nothing here allocates.
+ */
+export function shadowOffset(height: number, up: THREE.Vector3, out: THREE.Vector3):
+THREE.Vector3 {
+  const k = height / Math.max(0.25, _sunDir.y);
+  out.set(-_sunDir.x * k, 0, -_sunDir.z * k);
+  return out.addScaledVector(up, -out.dot(up));
+}
+
 function blank(): Entity {
   return {
     kind: 'banana', active: false, ownerId: -1,
     pos: new THREE.Vector3(), prevPos: new THREE.Vector3(), vel: new THREE.Vector3(),
     life: 0, age: 0, arm: 0, bounces: 0, targetId: -1,
-    dist: 0, lat: 0, yaw: 0, spin: 0, radius: 1.5, scale: 1, groundY: 0,
+    dist: 0, lat: 0, yaw: 0, spin: 0, radius: 1.5, scale: 1, base: 1, groundY: 0,
     node: null, source: 'banana', puff: 0,
   };
 }
@@ -288,6 +332,7 @@ export function createEntityField(ctx: GameContext): EntityField {
     e.spin = 0;
     e.radius = opts.radius ?? 1.55;
     e.scale = 1;
+    e.base = opts.scale ?? 1;
     e.groundY = opts.groundY ?? e.pos.y;
     // Effects that ride their owner remember how high above the kart they were
     // put. `lat` is the red shell's field and no attached effect has any use
@@ -496,8 +541,11 @@ export function createEntityField(ctx: GameContext): EntityField {
           break;
         }
         case 'burst':
-          e.scale = 1 + e.age * 6;
-          e.spin += dt * 7;
+          // Out hard, then keep drifting outward. `outCubic` spends most of the
+          // motion in the first tenth of a second, which is what makes it read
+          // as an impact rather than as a balloon inflating.
+          e.scale = ease.outCubic(clamp01(e.age / 0.13)) * 2.6 + e.age * 1.1;
+          e.spin += dt * 5;
           rideOwner(e);
           break;
         case 'scorch':
@@ -560,7 +608,18 @@ export function createEntityField(ctx: GameContext): EntityField {
     const s = node.getObjectByName('shadow');
     if (!s) return;
     const h = Math.max(0, node.position.y - e.groundY);
-    s.position.y = (0.05 - h) / Math.max(0.01, node.scale.y);
+    const inv = 1 / Math.max(0.01, node.scale.y);
+    // Thrown along the sun, like every other shadow in the frame — and undone
+    // out of the node's own yaw, because the node spins and a shadow that
+    // orbits the thing casting it is worse than no shadow at all.
+    shadowOffset(h, UP, _v);
+    const c = Math.cos(-node.rotation.y);
+    const sn = Math.sin(-node.rotation.y);
+    s.position.set(
+      (_v.x * c + _v.z * sn) * inv,
+      (0.05 - h) * inv,
+      (-_v.x * sn + _v.z * c) * inv,
+    );
     // A shadow spreads and weakens as the thing casting it climbs. Materials
     // are shared across the pool, so this is done with scale rather than alpha.
     s.scale.setScalar(clamp(1 - h * 0.06, 0.5, 1.15) / Math.max(0.01, node.scale.x));
@@ -703,15 +762,32 @@ export function createEntityField(ctx: GameContext): EntityField {
           }
           break;
         }
-        case 'burst':
+        case 'burst': {
           // Billboarded: a flat starburst edge-on is no starburst at all. Kept
           // small — this is a punctuation mark on the hit, not the hit itself,
           // and one that fills the frame reads as a bug.
           node.lookAt(ctx.camera.position);
           node.rotateZ(e.spin);
-          node.scale.setScalar(e.scale * 0.24);
-          setOpacity(node, clamp01(e.life * 3.4) * 0.85);
+          node.scale.setScalar(e.scale * 0.3 * e.base);
+          // Three clocks off one age. The core is a flash and is gone first;
+          // the star carries the shape through the middle of the beat; the ring
+          // keeps expanding and thinning and is the last thing to leave, which
+          // is what stops the whole effect being over in three frames.
+          const fade = clamp01(e.life * 3.4);
+          const core = node.getObjectByName('core');
+          if (core) {
+            setOpacity(core, clamp01(1 - e.age / 0.16) * 0.95);
+            core.scale.setScalar(1 + e.age * 1.4);
+          }
+          const star = node.getObjectByName('star');
+          if (star) setOpacity(star, fade * clamp01(1.35 - e.age / 0.34) * 0.9);
+          const ring = node.getObjectByName('ring');
+          if (ring) {
+            ring.scale.setScalar(0.7 + e.age * 2.6);
+            setOpacity(ring, fade * clamp01(1 - e.age / 0.62) * 0.85);
+          }
           break;
+        }
         default: break;
       }
     }

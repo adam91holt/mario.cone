@@ -53,7 +53,7 @@ const BLIP_RING = 2.0;
  * everyone is and stops lying about *how many*.
  */
 const DECLUTTER_DRIFT = 1.7;
-/** Relaxation passes. Two is enough to separate a grid-start eight. */
+/** Relaxation passes. Three settles a grid-start eight; the clamp does the rest. */
 const DECLUTTER_PASSES = 3;
 /** Field size the scratch arrays are sized for. */
 const MAX_BLIPS = 24;

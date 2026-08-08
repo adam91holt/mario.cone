@@ -40,20 +40,10 @@ import {
 import { bind, CSS_BASE, fromHtml, q } from './theme.ts';
 
 const CSS_HUD = `
-/* Being hit turns every warning strip in the instrument set red at once. The
-   cheapest possible reaction, and the one that reads fastest: the HUD is part
-   of the kart, and the kart just got hit. */
-#hud.hurt .plate::before { background: linear-gradient(90deg, #FF3A22, #FF7A4A 55%, #FF3A22); }
-#hud.hurt .slot { box-shadow:
-    inset 0 0 0 calc(var(--u) * .2) rgba(255,70,40,.95),
-    inset 0 0 0 calc(var(--u) * .34) rgba(20,24,34,.85),
-    inset 0 calc(var(--u) * -.62) calc(var(--u) * 1.1) rgba(0,0,0,.45),
-    0 calc(var(--u) * .34) calc(var(--u) * .9) rgba(0,0,0,.5); }
-
-/* ...and the same trick for the other direction. A boost lights every strip
-   white-hot for a fifth of a second while the whole set surges forward a
-   percent — the instruments are bolted to a kart that has just been kicked, and
-   they should move like it.
+/* A boost lights every warning strip in the instrument set white-hot while the
+   kart is on it, and the whole set swells a percent as it fires — the
+   instruments are bolted to a machine that has just been kicked, and they
+   should move like it.
 
    Deliberately the *strips* and not the plate faces: fx/screen.ts owns the
    amber that closes in from the edges of the frame during a boost, and two
@@ -66,6 +56,22 @@ const CSS_HUD = `
     0 0 0 calc(var(--u) * .12) rgba(9,11,15,.92),
     0 calc(var(--u) * .22) calc(var(--u) * .62) rgba(0,0,0,.5),
     0 0 calc(var(--u) * 1.6) rgba(255,226,150,.5); }
+
+/* ...and the same trick in the other direction. Being hit turns every strip red
+   at once: the cheapest possible reaction, and the one that reads fastest,
+   because the HUD is part of the kart and the kart just got hit.
+
+   **Declared after the boost rules on purpose.** The two states have identical
+   specificity and a player can absolutely be shunted while boosting, so source
+   order is what decides which one the strips wear — and the answer has to be the
+   damage. A boost is good news the player can already feel; a hit is the one
+   they have to react to. */
+#hud.hurt .plate::before { background: linear-gradient(90deg, #FF3A22, #FF7A4A 55%, #FF3A22); }
+#hud.hurt .slot { box-shadow:
+    inset 0 0 0 calc(var(--u) * .2) rgba(255,70,40,.95),
+    inset 0 0 0 calc(var(--u) * .34) rgba(20,24,34,.85),
+    inset 0 calc(var(--u) * -.62) calc(var(--u) * 1.1) rgba(0,0,0,.45),
+    0 calc(var(--u) * .34) calc(var(--u) * .9) rgba(0,0,0,.5); }
 `;
 
 /** Where each cluster flies in from when a race starts. */
@@ -139,6 +145,17 @@ export function createHudSystem(ctx: GameContext): GameSystem {
   let surge = 0;
   let surging = false;
   /**
+   * ...and how much longer the set is allowed to stay hot.
+   *
+   * The glow follows `boost.time` rather than a timer of its own, because a
+   * boost is a *state* — the same reason the damage colour is held for as long
+   * as the player is actually spun out rather than for a fixed moment after the
+   * bang. The cap is what stops a star or a bullet bill leaving every header
+   * strip in the instrument set bleached white for eight seconds: the surge is
+   * the launch, not the ride.
+   */
+  let surgeHold = 0;
+  /**
    * How far the working instruments have retired, 0..1.
    *
    * The race ends and the lap counter, the socket and the map stop being
@@ -175,7 +192,9 @@ export function createHudSystem(ctx: GameContext): GameSystem {
   // Every kind of boost, weighted by how big it is: a mini-turbo release and a
   // bullet bill should not read as the same event.
   unsubs.push(ctx.bus.on<{ racer: Racer; power: number }>('kart:boost', (e) => {
-    if (e.racer.isPlayer) surge = Math.max(surge, clamp01(0.55 + (e.power ?? 0) * 0.45));
+    if (!e.racer.isPlayer) return;
+    surge = Math.max(surge, clamp01(0.55 + (e.power ?? 0) * 0.45));
+    surgeHold = 1;
   }));
 
   return {
@@ -187,6 +206,7 @@ export function createHudSystem(ctx: GameContext): GameSystem {
       hurt = 0;
       clock = 0;
       surge = 0;
+      surgeHold = 0;
       retire = 0;
       if (hurting) { hurting = false; root.classList.remove('hurt'); }
       if (surging) { surging = false; root.classList.remove('surge'); }
@@ -254,13 +274,17 @@ export function createHudSystem(ctx: GameContext): GameSystem {
       }
 
       // ── boost ────────────────────────────────────────────────────────────
-      if (surge > 0) {
-        surge = Math.max(0, surge - dt * 3.4);
-        const on = surge > 0.32;
+      if (surge > 0) surge = Math.max(0, surge - dt * 3.4);
+      if (surgeHold > 0) {
+        surgeHold = Math.max(0, surgeHold - dt);
+        const on = (ctx.player?.boost.time ?? 0) > 0 || surge > 0.3;
         if (on !== surging) {
           surging = on;
           root.classList.toggle('surge', on);
         }
+      } else if (surging) {
+        surging = false;
+        root.classList.remove('surge');
       }
 
       // ── reveal, and its opposite ─────────────────────────────────────────

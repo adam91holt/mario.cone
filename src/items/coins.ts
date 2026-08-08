@@ -13,7 +13,8 @@
 
 import * as THREE from 'three';
 import { clamp01 } from '../core/math.ts';
-import { coinGeometry, coinMaterial } from './models.ts';
+import { coinGeometry, coinMaterial, contactShadowGeometry, contactShadowMaterial } from './models.ts';
+import { roadCrown, shadowOffset } from './entities.ts';
 import type { RacingLine } from '../track/racingline.ts';
 import type { GameContext, Track } from '../types.ts';
 
@@ -55,6 +56,12 @@ export interface FieldCoin {
   distance: number;
   respawn: number;
   phase: number;
+  /** The road surface directly under it, and the road's own up there — a coin
+   *  floating at bonnet height with nothing under it is the same "pasted on"
+   *  read an item box with no shadow has, and there are a hundred of these on a
+   *  lap to every twenty-four of those. */
+  ground: THREE.Vector3;
+  up: THREE.Vector3;
 }
 
 interface LooseCoin {
@@ -88,6 +95,8 @@ const _q = new THREE.Quaternion();
 const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
 const _axis = new THREE.Vector3(0, 1, 0);
+const _off = new THREE.Vector3();
+const _sq = new THREE.Quaternion();
 
 export function createCoinField(ctx: GameContext): CoinField {
   const coins: FieldCoin[] = [];
@@ -107,8 +116,12 @@ export function createCoinField(ctx: GameContext): CoinField {
 
   let geometry: THREE.BufferGeometry | null = null;
   let material: THREE.MeshStandardMaterial | null = null;
+  let blobGeo: THREE.BufferGeometry | null = null;
+  let blobMat: THREE.MeshBasicMaterial | null = null;
   let field: THREE.InstancedMesh | null = null;
   let looseMesh: THREE.InstancedMesh | null = null;
+  let fieldShadow: THREE.InstancedMesh | null = null;
+  let looseShadow: THREE.InstancedMesh | null = null;
   let bins: number[][] = [];
   let binCount = 0;
   let length = 1;
@@ -118,15 +131,19 @@ export function createCoinField(ctx: GameContext): CoinField {
   function ensureAssets(): void {
     if (!geometry) geometry = coinGeometry();
     if (!material) material = coinMaterial();
+    if (!blobGeo) {
+      blobGeo = contactShadowGeometry(0.46, 0.42);
+      blobMat = contactShadowMaterial();
+    }
   }
 
   function clearMeshes(): void {
-    for (const m of [field, looseMesh]) {
+    for (const m of [field, looseMesh, fieldShadow, looseShadow]) {
       if (!m) continue;
       group.remove(m);
       m.dispose();
     }
-    field = looseMesh = null;
+    field = looseMesh = fieldShadow = looseShadow = null;
   }
 
   function rebuild(track: Track, line: RacingLine): void {
@@ -163,15 +180,21 @@ export function createCoinField(ctx: GameContext): CoinField {
         // *path* rather than as a row of studs.
         const weave = Math.sin(index * 0.9) * Math.min(2.6, s.width * 0.12);
         const lat = line.lateralAt(at) + weave;
-        const pos = new THREE.Vector3()
+        // The tarmac stands proud of the spline — see `roadCrown` — so the
+        // ground point has to include the crown or every coin's shadow is drawn
+        // inside the road.
+        const ground = new THREE.Vector3()
           .copy(s.pos)
           .addScaledVector(s.right, lat)
-          .addScaledVector(s.up, FLOAT);
+          .addScaledVector(s.up, roadCrown(lat, s.width, track.course.vergeWidth ?? 5) + 0.03);
+        const pos = ground.clone().addScaledVector(s.up, FLOAT);
         coins.push({
           pos,
           distance: ((at % L) + L) % L,
           respawn: 0,
           phase: index * 0.7,
+          ground,
+          up: s.up.clone().normalize(),
         });
         index++;
       }
@@ -188,12 +211,16 @@ export function createCoinField(ctx: GameContext): CoinField {
     capacity = Math.max(1, coins.length);
     field = new THREE.InstancedMesh(geometry!, material!, capacity);
     looseMesh = new THREE.InstancedMesh(geometry!, material!, LOOSE_MAX);
-    for (const m of [field, looseMesh]) {
+    fieldShadow = new THREE.InstancedMesh(blobGeo!, blobMat!, capacity);
+    looseShadow = new THREE.InstancedMesh(blobGeo!, blobMat!, LOOSE_MAX);
+    for (const m of [field, looseMesh, fieldShadow, looseShadow]) {
       m.frustumCulled = false;
       m.castShadow = false;
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       group.add(m);
     }
+    fieldShadow.renderOrder = -1;
+    looseShadow.renderOrder = -1;
   }
 
   const _empty: number[] = [];
@@ -289,7 +316,7 @@ export function createCoinField(ctx: GameContext): CoinField {
     },
 
     update(time: number, centre: number): void {
-      if (!field || !looseMesh) return;
+      if (!field || !looseMesh || !fieldShadow || !looseShadow) return;
 
       // Only the coins near the driver are drawn, compacted into the front of
       // the instance buffer. A lap of coins is a couple of hundred instances
@@ -304,17 +331,29 @@ export function createCoinField(ctx: GameContext): CoinField {
         else if (gap < -length * 0.5) gap += length;
         if (gap < -DRAW_BEHIND || gap > DRAW_AHEAD) continue;
 
+        const bob = Math.sin(time * 2.2 + c.phase) * 0.09;
         _p.copy(c.pos);
-        _p.y += Math.sin(time * 2.2 + c.phase) * 0.09;
+        _p.y += bob;
         _q.setFromAxisAngle(_axis, time * 2.6 + c.phase);
         // Fade the last quarter second back in rather than blinking it on.
-        _s.setScalar(clamp01((RESPAWN - c.respawn) * 4));
+        const pop = clamp01((RESPAWN - c.respawn) * 4);
+        _s.setScalar(pop);
         _m.compose(_p, _q, _s);
-        field.setMatrixAt(slot++, _m);
+        field.setMatrixAt(slot, _m);
+
+        _p.copy(c.ground).add(shadowOffset(FLOAT + bob, c.up, _off));
+        _sq.setFromUnitVectors(_axis, c.up);
+        _s.setScalar(pop * (1 + bob * 0.5));
+        _m.compose(_p, _sq, _s);
+        fieldShadow.setMatrixAt(slot, _m);
+
+        slot++;
         if (slot >= capacity) break;
       }
       field.count = slot;
       field.instanceMatrix.needsUpdate = true;
+      fieldShadow.count = slot;
+      fieldShadow.instanceMatrix.needsUpdate = true;
 
       for (let i = 0; i < loose.length; i++) {
         const c = loose[i]!;
@@ -324,16 +363,31 @@ export function createCoinField(ctx: GameContext): CoinField {
         _s.setScalar(s);
         _m.compose(_p, _q, _s);
         looseMesh.setMatrixAt(i, _m);
+
+        // A spilled coin's shadow is what says it is *bouncing* rather than
+        // hanging: it shrinks away as the coin arcs up and rushes back to meet
+        // it on the way down.
+        const h = Math.max(0.04, c.pos.y - c.groundY);
+        _p.set(c.pos.x, c.groundY + 0.03, c.pos.z).add(shadowOffset(h, _axis, _off));
+        _sq.identity();
+        _s.setScalar(s * clamp01(1.1 - h * 0.12));
+        _m.compose(_p, _sq, _s);
+        looseShadow.setMatrixAt(i, _m);
       }
       looseMesh.instanceMatrix.needsUpdate = true;
+      looseShadow.instanceMatrix.needsUpdate = true;
     },
 
     dispose(): void {
       clearMeshes();
       geometry?.dispose();
       material?.dispose();
+      blobGeo?.dispose();
+      blobMat?.dispose();
       geometry = null;
       material = null;
+      blobGeo = null;
+      blobMat = null;
       ctx.scene.remove(group);
       coins.length = 0;
     },

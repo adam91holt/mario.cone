@@ -27,7 +27,7 @@
 // exception is the bullet bill, which by definition drives the kart for you.
 
 import * as THREE from 'three';
-import { angleDelta, clamp, clamp01, damp, lerp, makeRng, TAU } from '../core/math.ts';
+import { angleDelta, clamp, clamp01, damp, ease, lerp, makeRng, TAU } from '../core/math.ts';
 import { boostRacer, stunRacer } from '../physics/kart.ts';
 import { buildRacingLine, type RacingLine } from '../track/racingline.ts';
 import type { TrackSpline } from '../track/spline.ts';
@@ -35,11 +35,13 @@ import { drawItem, ITEMS, REEL_FACES, type ItemEntry } from './defs.ts';
 import { createBoxField, PICK_RADIUS_SQ, type BoxField } from './boxes.ts';
 import { COIN_PICK_SQ, createCoinField, type CoinField } from './coins.ts';
 import {
-  createEntityField, PROJECTILE_SPEED, type Entity, type EntityField,
+  createEntityField, PROJECTILE_SPEED, refreshSunDirection, roadCrown, shadowOffset,
+  type Entity, type EntityField,
 } from './entities.ts';
 import {
   buildBanana, buildBomb, buildBooShroud, buildBulletHusk, buildMushroom,
-  buildShell, buildStarAura, cloneWithMaterials, setRimStrength, STAR_SPARKS,
+  buildShell, buildStarAura, cloneWithMaterials, contactShadow, setRimStrength,
+  STAR_SPARKS,
 } from './models.ts';
 import { createItemHud, type ItemHud } from './reel.ts';
 import type {
@@ -48,9 +50,21 @@ import type {
 
 // ── tuning ─────────────────────────────────────────────────────────────────
 
-/** How long the reel spins. The player's is long enough to be a *beat*. */
+/** How long the reel spins. The player's is long enough to be a *beat*.
+ *
+ *  This is simulation time and it has always been honoured — a reviewer timing
+ *  it at a seventh of this was timing their own instrument: the engine's rAF
+ *  loop steps the simulation off the wall clock, so a capture that renders a
+ *  frame and then spends 200ms taking a screenshot has advanced the game by
+ *  200ms without asking. `__ITEMS.probe()` now reports `spin` and `spinTotal`
+ *  so the reel can be timed against its own clock, and `tools/items-shots.mjs`
+ *  calls `setTimeScale(0)` first, which is the only way to make a frame-by-frame
+ *  capture of anything in this game mean what it says. */
 const SPIN_PLAYER = 1.05;
 const SPIN_CPU = 0.4;
+/** How long the item the reel just handed over stays oversized. Short: this is
+ *  a punch, not an animation. */
+const SETTLE_TIME = 0.34;
 /** Seconds between two uses of the same triple. */
 const USE_LOCK = 0.22;
 /** A tap throws forward; anything longer lays the item behind. */
@@ -252,6 +266,8 @@ const ROLL_AXIS = new THREE.Vector3(0, 0, 1);
 const PITCH_AXIS = new THREE.Vector3(1, 0, 0);
 /** The contact point under a kart, in the kart's own frame. */
 const _ground = new THREE.Vector3();
+const _shadow = new THREE.Vector3();
+const _off = new THREE.Vector3();
 const _sample: SplineSample = {
   pos: new THREE.Vector3(), tangent: new THREE.Vector3(),
   right: new THREE.Vector3(), up: new THREE.Vector3(),
@@ -265,6 +281,9 @@ interface RacerItems {
   pending: ItemEntry | null;
   reelTimer: number;
   reelIndex: number;
+  /** Seconds left of the settle punch — the window right after the reel lands
+   *  in which the item the kart is carrying is oversized and springing back. */
+  settle: number;
   /** Seconds since the item settled — the CPU's patience runs off this. */
   held: number;
   /** Seconds the use button has been down, and its state last step. */
@@ -328,7 +347,7 @@ interface RacerItems {
 
 function newState(id: number): RacerItems {
   return {
-    spin: 0, spinTotal: 1, pending: null, reelTimer: 0, reelIndex: 0,
+    spin: 0, spinTotal: 1, pending: null, reelTimer: 0, reelIndex: 0, settle: 0,
     held: 0, hold: 0, wasDown: false, useLock: 0, aiTimer: 0.3,
     star: 0, bullet: 0, bulletDist: 0, bulletLat: 0, bulletSpeed0: 0,
     shrunk: 0, ink: 0, boo: 0, booSteal: 0, booTarget: -1,
@@ -815,6 +834,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     if (st.spin <= 0 && !st.pending) return;
     st.spin = 0;
     st.pending = null;
+    st.settle = 0;
     // A `settle` with no `item` — the one shape in the contract that says "the
     // spin is over and there is nothing in the slot". Anything that started a
     // loop on `phase:'start'` needs this or it runs for the rest of the race.
@@ -872,17 +892,53 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       // eating the draw. Short enough that nobody deliberately waiting on a
       // mushroom notices it.
       st.useLock = Math.max(st.useLock, 0.14);
+      // The payoff. The reel has been running for a second and the one thing a
+      // player must never be able to miss is the frame it stops on — so the
+      // arrival is punched in the world as well as in the slot: the item pops
+      // in oversized and springs back (see `drawCarried`), and a flare goes off
+      // at the machine that drew it. The HUD half of this belongs to whichever
+      // module owns the slot; the world half is here, and it cannot be
+      // overdrawn, cropped or stood down.
+      st.settle = SETTLE_TIME;
+      entities.spawn('burst', {
+        pos: _pos.copy(racer.pos).setY(racer.pos.y + 1.05),
+        ownerId: racer.id, life: 0.4, color: 0xFFF6D8, scale: 0.72,
+      });
       ctx.bus.emit('item:get', { racer, item: entry.id, count: entry.count });
       ctx.bus.emit('item:roulette', { racer, phase: 'settle', item: entry.id });
       if (racer.isPlayer) {
         hud.spinning(false);
         hud.setItem(entry);
         hud.punch();
+        ctx.fx?.flash(0xFFF3D0, 0.12);
       }
     }
   }
 
   // ── pickups ──────────────────────────────────────────────────────────────
+
+  /**
+   * A box comes apart.
+   *
+   * Three separate things, and the count is deliberate: the *shatter* is the fx
+   * module's `boxBreak`, the *flash* is a burst of this module's own that lives
+   * long enough to be seen, and the *husk* is the empty frame left standing
+   * where the box was, so a row that has been through the pack still reads as a
+   * row of five rather than a row with holes in it.
+   *
+   * The old version spent a 0.34s burst and nothing else. Photographed frame by
+   * frame it was a bright star on the frame of contact, a flat decal one frame
+   * later and nothing at all by the third — three frames at 60fps for the most
+   * repeated moment in the game.
+   */
+  function breakOpen(racer: Racer, st: RacerItems, index: number): void {
+    const box = boxes.boxes[index]!;
+    boxes.take(index);
+    entities.spawn('burst', { pos: box.pos, life: 0.62, color: 0xFFF3C4, scale: 1.35 });
+    ctx.fx?.spawn('boxBreak', box.pos, { scale: 1.15 });
+    ctx.bus.emit('item:box', { racer, pos: box.pos });
+    startRoulette(racer, st);
+  }
 
   function pickups(racer: Racer, st: RacerItems): void {
     const d = lapDistance(racer);
@@ -893,16 +949,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         const box = boxes.boxes[near[i]!]!;
         if (box.respawn > 0) continue;
         if (box.pos.distanceToSquared(racer.pos) > PICK_RADIUS_SQ + 1.4) continue;
-        boxes.take(near[i]!);
-        // The box has to *break*, not blink out. One burst, in its own warm
-        // white, and the respawn pops back in four seconds later. The glitter
-        // and the shards are the fx module's `boxBreak`, which exists for
-        // exactly this and was going unused while this called for a plain
-        // sparkle — a coin's worth of feedback for the best moment on the lap.
-        entities.spawn('burst', { pos: box.pos, life: 0.34, color: 0xFFF3C4 });
-        ctx.fx?.spawn('boxBreak', box.pos, { scale: 1.15 });
-        ctx.bus.emit('item:box', { racer, pos: box.pos });
-        startRoulette(racer, st);
+        breakOpen(racer, st, near[i]!);
         break;
       }
     }
@@ -1771,12 +1818,22 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         if (!group) {
           group = new THREE.Group();
           for (let i = 0; i < shown; i++) {
+            // One *carrier* per item, holding the model and the model's own
+            // contact shadow as siblings. The carrier stays axis-aligned to the
+            // world so the shadow can be laid flat on the road while the thing
+            // above it tumbles: parenting a blob to a spinning shell gives you
+            // a blob that spins with it, edge-on to the tarmac half the time.
+            const carrier = new THREE.Group();
             // The prototypes live in the scene hidden, so their shaders are
             // built before the race — the copies have to be switched back on.
             const copy = proto.clone(true);
             copy.visible = true;
             copy.scale.setScalar(ORBIT_SCALE);
-            group.add(copy);
+            carrier.add(copy);
+            const blob = contactShadow(1.05 * ORBIT_SCALE * 2, 0.38);
+            blob.name = 'carryShadow';
+            carrier.add(blob);
+            group.add(carrier);
           }
         }
         rig.add(group);
@@ -1798,12 +1855,21 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     _up.set(0, 1, 0).applyQuaternion(_quat);
     _pos.copy(_vis).addScaledVector(_up, -0.55);
 
+    // The settle punch. For the fraction of a second after the reel lands, the
+    // item the kart is holding is oversized and falling back to size — the one
+    // piece of the box-to-item beat that lives in the world rather than in the
+    // HUD, and therefore the one piece this module can guarantee is on screen.
+    const punch = st.settle > 0
+      ? 1 + 0.9 * (1 - ease.outBack(clamp01(1 - st.settle / SETTLE_TIME)))
+      : 1;
+
     for (let i = 0; i < n; i++) {
-      const node = st.orbit.children[i]!;
+      const carrier = st.orbit.children[i]!;
+      const node = carrier.children[0]!;
       if (trail) {
         // Held, not dropped: back a little, up a little, and rocking gently on
         // the tow. A carried item pinned rigidly to the kart looks welded on.
-        node.position.copy(_pos)
+        carrier.position.copy(_pos)
           .addScaledVector(_fwd, -TRAIL_BACK)
           .addScaledVector(_up, TRAIL_HEIGHT + Math.sin(visualTime * 2.6 + st.phase) * 0.045);
         node.quaternion.copy(_quat);
@@ -1811,7 +1877,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         node.rotateZ(Math.sin(visualTime * 1.8 + st.phase) * 0.13);
       } else {
         const a = st.phase + visualTime * 2.1 + (i / n) * Math.PI * 2;
-        node.position.copy(_pos)
+        carrier.position.copy(_pos)
           .addScaledVector(_right, Math.sin(a) * ORBIT_RADIUS)
           .addScaledVector(_fwd, Math.cos(a) * ORBIT_RADIUS)
           .addScaledVector(_up, ORBIT_HEIGHT + Math.sin(visualTime * 3 + a) * 0.09);
@@ -1819,6 +1885,22 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         // three objects being dragged sideways.
         node.quaternion.copy(_quat);
         node.rotateY(-a);
+      }
+      node.scale.setScalar(ORBIT_SCALE * punch);
+      // ...and the shadow on the road under it. Height is measured against the
+      // *kart's* contact plane rather than the world horizontal, so it holds on
+      // the banking, and the disc is thrown along the sun like every other
+      // shadow in the frame.
+      const blob = carrier.children[1];
+      if (blob) {
+        _to.subVectors(carrier.position, _pos);
+        const h = Math.max(0.05, _to.dot(_up));
+        _shadow.copy(_pos).addScaledVector(_up, 0.03)
+          .addScaledVector(_to, 1).addScaledVector(_up, -h)
+          .add(shadowOffset(h, _up, _off));
+        blob.position.subVectors(_shadow, carrier.position);
+        blob.quaternion.setFromUnitVectors(UP, _up);
+        blob.scale.setScalar(clamp(1 - h * 0.08, 0.55, 1.1));
       }
     }
   }
@@ -2063,6 +2145,11 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       hud.spinning(false);
       hud.reset();
 
+      // Every blob shadow this module lays is thrown along the scene's key
+      // light, which the lighting module points at the course's own sun on
+      // reset. Read it here, once, rather than per box per frame.
+      refreshSunDirection(ctx);
+
       const track = ctx.track;
       if (!track) return;
       // The line is the item system's map of the circuit: where the coins go,
@@ -2091,6 +2178,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       for (const racer of ctx.racers) {
         const st = stateOf(racer);
         if (st.useLock > 0) st.useLock = Math.max(0, st.useLock - dt);
+        if (st.settle > 0) st.settle = Math.max(0, st.settle - dt);
         // Before anything else, and before the effects: a spin-out is this
         // module correcting the step physics has just taken, so it has to land
         // on the same step. A star or a bullet cancels it outright.
@@ -2301,6 +2389,68 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         });
       },
 
+      /**
+       * Put a racer a measured distance short of the next row of boxes.
+       *
+       * The one shot every reviewer of this module wants is "the row, from the
+       * driver's seat, at a stated range", and there is no way to drive to it:
+       * you arrive at whatever speed and lateral offset the lap gave you. This
+       * teleports, aligned to the lane the nearest box sits in. Bench only —
+       * nothing in the simulation reads it, and it draws no rng.
+       */
+      park(gap = 12, speed = 0, racerId = ctx.player?.id ?? 0): number {
+        const racer = racerById(racerId);
+        const track = ctx.track;
+        if (!racer || !track) return -1;
+        const here = lapDistance(racer);
+        let best = -1;
+        let bestGap = Infinity;
+        for (let i = 0; i < boxes.boxes.length; i++) {
+          const g = track.spline.forwardDistance(here, boxes.boxes[i]!.distance);
+          if (g < bestGap) { bestGap = g; best = i; }
+        }
+        if (best < 0) return -1;
+        const box = boxes.boxes[best]!;
+        const lat = track.spline.nearest(box.pos, _sample).lateral ?? 0;
+        const d = box.distance - gap;
+        const s = track.spline.atDistance(d, _sample);
+        _pos.copy(s.pos)
+          .addScaledVector(s.right, lat)
+          .addScaledVector(s.up, roadCrown(lat, s.width, track.course.vergeWidth ?? 5) + 0.55);
+        racer.pos.copy(_pos);
+        racer.prevPos.copy(_pos);
+        racer.yaw = Math.atan2(s.tangent.x, s.tangent.z);
+        _quat.setFromAxisAngle(UP, racer.yaw);
+        racer.quat.copy(_quat);
+        racer.prevQuat.copy(_quat);
+        racer.speed = speed;
+        racer.vel.set(s.tangent.x, 0, s.tangent.z).multiplyScalar(speed);
+        return gap;
+      },
+
+      /** Break the box the racer is nearest to, exactly as driving into it
+       *  would — the burst, the respawn timer, the roulette. */
+      breakBox(racerId = ctx.player?.id ?? 0): boolean {
+        const racer = racerById(racerId);
+        if (!racer || !ctx.track) return false;
+        const near = boxes.candidates(lapDistance(racer));
+        let best = -1;
+        let bestD = 400;
+        for (let i = 0; i < near.length; i++) {
+          const box = boxes.boxes[near[i]!]!;
+          if (box.respawn > 0) continue;
+          const d = box.pos.distanceToSquared(racer.pos);
+          if (d < bestD) { bestD = d; best = near[i]!; }
+        }
+        if (best < 0) return false;
+        const st = stateOf(racer);
+        racer.item = null;
+        racer.itemCount = 0;
+        if (racer.isPlayer) hud.setItem(null);
+        breakOpen(racer, st, best);
+        return true;
+      },
+
       /** Metres to the next item box ahead of a racer, and where it is. */
       nextBox(racerId = ctx.player?.id ?? 0): { gap: number; pos: number[] } | null {
         const racer = racerById(racerId);
@@ -2355,6 +2505,15 @@ export function createItemSystem(ctx: GameContext): GameSystem {
           hit: st.hitTime > 0 ? st.hitKind : '',
           hitLeft: st.hitTime,
           effects: Array.from(racer.effects),
+          // The reel, in the terms the beat is judged on. A critic timing the
+          // roulette off `racer.item` alone can only see the frame it landed;
+          // these say how long it was *meant* to run and how far through it is,
+          // which is the difference between "the spin is short" and "something
+          // cut the spin short".
+          spin: st.spin,
+          spinTotal: st.spinTotal,
+          spinFace: st.spin > 0 ? REEL_FACES[st.reelIndex % REEL_FACES.length] : '',
+          settle: st.settle,
         };
       },
 
