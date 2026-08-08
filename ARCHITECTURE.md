@@ -182,6 +182,7 @@ Canonical events — add new ones to this list when you introduce them:
 | `item:block` | `{ racer, by, item, blocked }` — a carried item ate the hit | items |
 | `item:effect` | `{ racer, effect, on }` — star/bullet/shrunk/inked/boo | items |
 | `item:steal` | `{ racer, from, item }` | items |
+| `item:warn` | `{ racer, on, item, level, bearing }` — something is about to hit the player | items |
 | `coin:get` | `{ racer, total }` | items |
 | `coin:lose` | `{ racer, count, total }` | items |
 
@@ -194,6 +195,15 @@ almost no rotation: a star, a bullet bill, a horn) and `squish` (flattened on
 the spot: lightning). Anything hanging a sound, a particle or a camera move off
 a hit should read `item:strike`, not `kart:hit` — physics emits the latter from
 `stunRacer` and only knows its own three-value vocabulary.
+
+**The incoming warning.** `item:warn` fires on the two *edges* only — once when
+something starts being on course to hit the player and once when it stops — so a
+siren can be started and stopped without polling. It is a **time-to-impact**
+signal, not a proximity one: nothing is reported unless closest approach puts it
+inside a kart's width of the player within the next 1.6s, so it is silent for
+most of a lap and means something every time it is not. `level` is 0..1 and
+reaches 1 on the frame of impact; `bearing` is where the threat is in the
+player's own frame — 0 dead ahead, positive to the right, ±π behind.
 
 The item system integrates the spin-out itself, in `fixedUpdate` at order 50,
 *after* the kart model has stepped: it holds the racer's world-space direction

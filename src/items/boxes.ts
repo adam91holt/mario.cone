@@ -13,8 +13,9 @@
 //   of the two tightest corners. Those cost real time to reach, and the payment
 //   is that everyone behind you is drawing from the same table you are.
 //
-// The boxes themselves are one InstancedMesh each for shell, core and contact
-// shadow — three draw calls for the whole circuit's worth.
+// The boxes themselves are one InstancedMesh each for glass, inner lamp, the
+// `?` plate, the halo and the contact shadow — five draw calls for the whole
+// circuit's worth, whatever the layout turns out to be.
 
 import * as THREE from 'three';
 import { clamp, ease } from '../core/math.ts';
@@ -22,8 +23,9 @@ import { features } from '../track/courses/types.ts';
 import { roadCrown } from './entities.ts';
 import type { RacingLine } from '../track/racingline.ts';
 import {
-  boxCoreGeometry, boxHaloGeometry, boxHaloMaterial, boxShellGeometry,
-  contactShadowGeometry, contactShadowMaterial, makeBoxMaterials, type BoxMaterials,
+  boxCoreGeometry, boxGlyphGeometry, boxHaloGeometry, boxHaloMaterial, boxHue,
+  boxShellGeometry, contactShadowGeometry, contactShadowMaterial, makeBoxMaterials,
+  type BoxMaterials,
 } from './models.ts';
 import type { GameContext, Track } from '../types.ts';
 
@@ -73,9 +75,11 @@ export interface BoxField {
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
 const _face = new THREE.Quaternion();
+const _billboard = new THREE.Quaternion();
 const _e = new THREE.Euler();
 const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
+const _c = new THREE.Color();
 
 /** Bin width for the pickup broadphase, metres. */
 const BIN = 12;
@@ -91,10 +95,12 @@ export function createBoxField(ctx: GameContext): BoxField {
   let coreGeo: THREE.BufferGeometry | null = null;
   let haloGeo: THREE.BufferGeometry | null = null;
   let haloMat: THREE.MeshBasicMaterial | null = null;
+  let glyphGeo: THREE.BufferGeometry | null = null;
   let blobGeo: THREE.BufferGeometry | null = null;
   let blobMat: THREE.MeshBasicMaterial | null = null;
   let shell: THREE.InstancedMesh | null = null;
   let core: THREE.InstancedMesh | null = null;
+  let glyph: THREE.InstancedMesh | null = null;
   let halo: THREE.InstancedMesh | null = null;
   let shadow: THREE.InstancedMesh | null = null;
   let bins: number[][] = [];
@@ -104,19 +110,22 @@ export function createBoxField(ctx: GameContext): BoxField {
   function clearMeshes(): void {
     // The instanced meshes are rebuilt per course; the geometry and materials
     // behind them are not, so only the wrappers are thrown away here.
-    for (const m of [shell, core, halo, shadow]) {
+    for (const m of [shell, core, glyph, halo, shadow]) {
       if (!m) continue;
       group.remove(m);
       m.dispose();
     }
-    shell = core = halo = shadow = null;
+    shell = core = glyph = halo = shadow = null;
   }
 
   function ensureAssets(): void {
     if (!materials) materials = makeBoxMaterials();
     if (!shellGeo) shellGeo = boxShellGeometry(SIZE);
     if (!coreGeo) coreGeo = boxCoreGeometry(SIZE);
-    if (!haloGeo) haloGeo = boxHaloGeometry(SIZE * 0.82);
+    if (!glyphGeo) glyphGeo = boxGlyphGeometry(SIZE * 0.66);
+    // Wider than the cube, and that is the point: at eighty metres the glass is
+    // four pixels and the glow is the only part still on screen.
+    if (!haloGeo) haloGeo = boxHaloGeometry(SIZE * 1.15);
     if (!haloMat) haloMat = boxHaloMaterial();
     if (!blobGeo) {
       // Sized to the box, not to its glow: a blob half again as wide as the
@@ -137,10 +146,11 @@ export function createBoxField(ctx: GameContext): BoxField {
 
     shell = new THREE.InstancedMesh(shellGeo!, materials!.shell, n);
     core = new THREE.InstancedMesh(coreGeo!, materials!.core, n);
+    glyph = new THREE.InstancedMesh(glyphGeo!, materials!.glyph, n);
     halo = new THREE.InstancedMesh(haloGeo!, haloMat!, n);
     shadow = new THREE.InstancedMesh(blobGeo!, blobMat!, n);
 
-    for (const m of [shell, core, halo, shadow]) {
+    for (const m of [shell, core, glyph, halo, shadow]) {
       // One mesh spans the whole circuit, so a bounding-sphere cull can only
       // ever be wrong. Skip it rather than pay for it.
       m.frustumCulled = false;
@@ -155,6 +165,10 @@ export function createBoxField(ctx: GameContext): BoxField {
     halo.renderOrder = 1;
     shell.renderOrder = 2;
     core.renderOrder = 3;
+    // ...and the glyph sits in front of everything, including the near face of
+    // its own cube. The shell writes no depth, so without an explicit order the
+    // `?` would be occluded by the glass it is supposed to be seen through.
+    glyph.renderOrder = 4;
   }
 
   /** Mean |curvature| over a window — how straight the road is around here. */
@@ -342,8 +356,14 @@ export function createBoxField(ctx: GameContext): BoxField {
     },
 
     update(dt: number, time: number): void {
-      if (!shell || !core || !halo || !shadow) return;
+      if (!shell || !core || !glyph || !halo || !shadow) return;
       materials?.tick(time);
+      // The glyph plates are square to the lens, all of them, so one quaternion
+      // serves the whole circuit. Full camera-facing rather than yaw-only: this
+      // plate lives *inside* a cube and never touches the road, so it has none
+      // of the reasons the halo below has to stay upright, and an overhead or
+      // minimap camera has to be able to read it too.
+      _billboard.copy(ctx.camera.quaternion);
       // The halo billboards about the *vertical only*, and that one word is the
       // whole fix. A full camera-facing billboard is edge-on to the road when
       // the camera is above it — which is exactly what an overhead or minimap
@@ -379,6 +399,13 @@ export function createBoxField(ctx: GameContext): BoxField {
         _m.compose(_p, _q, _s);
         core.setMatrixAt(i, _m);
 
+        // The `?`. It nods rather than sitting rigid — a plate pinned square to
+        // the lens with no motion of its own reads as a decal stuck on the
+        // screen instead of an object floating inside the glass.
+        _s.setScalar(scale * (0.94 + Math.sin(time * 3.1 + b.phase) * 0.07));
+        _m.compose(_p, _billboard, _s);
+        glyph.setMatrixAt(i, _m);
+
         // The halo breathes on its own beat — slower than the core, so the two
         // never lock into a single throb.
         _e.set(0, Math.atan2(camX - b.pos.x, camZ - b.pos.z), 0);
@@ -391,6 +418,7 @@ export function createBoxField(ctx: GameContext): BoxField {
         _p.y += HALO_LIFT;
         _m.compose(_p, _face, _s);
         halo.setMatrixAt(i, _m);
+        halo.setColorAt(i, boxHue(b.pos.x, b.pos.z, time, _c));
         _p.y -= HALO_LIFT;
 
         _p.set(b.pos.x, b.groundY + 0.07, b.pos.z);
@@ -401,7 +429,9 @@ export function createBoxField(ctx: GameContext): BoxField {
       }
       shell.instanceMatrix.needsUpdate = true;
       core.instanceMatrix.needsUpdate = true;
+      glyph.instanceMatrix.needsUpdate = true;
       halo.instanceMatrix.needsUpdate = true;
+      if (halo.instanceColor) halo.instanceColor.needsUpdate = true;
       shadow.instanceMatrix.needsUpdate = true;
     },
 
@@ -410,12 +440,13 @@ export function createBoxField(ctx: GameContext): BoxField {
       materials?.dispose();
       shellGeo?.dispose();
       coreGeo?.dispose();
+      glyphGeo?.dispose();
       haloGeo?.dispose();
       haloMat?.dispose();
       blobGeo?.dispose();
       blobMat?.dispose();
       materials = null;
-      shellGeo = coreGeo = haloGeo = blobGeo = null;
+      shellGeo = coreGeo = glyphGeo = haloGeo = blobGeo = null;
       haloMat = blobMat = null;
       ctx.scene.remove(group);
       boxes.length = 0;

@@ -85,8 +85,27 @@ export type HitFn = (entity: Entity, racer: Racer) => boolean;
 export type ExpireFn = (entity: Entity) => void;
 
 const MAX = 44;
-const SHELL_SPEED = 58;
-const RED_SPEED = 56;
+/**
+ * How fast a shell travels, and this is a *gameplay* number, not a visual one.
+ *
+ * A kart on this circuit runs at 55 m/s and tops out over 60. At the 58 and 56
+ * these were, a green shell thrown forward closed on a flat-out rival at three
+ * metres a second and a red shell at one — which is to say neither of them ever
+ * arrived. Instrumented over a minute of racing, nothing aimed at the player
+ * ever got inside a second and a half of hitting them; the two most-drawn
+ * attacking items in the table were, against anybody actually driving well,
+ * decorations. The only shells that ever connected were the ones a victim drove
+ * into from behind.
+ *
+ * At 76 and 74 a shell closes at twenty metres a second, which is the rate that
+ * makes it a *threat you have about a second to answer* — brake, cut, spend the
+ * banana you were saving, blow the horn. That second is the whole game of being
+ * shot at, and it is also exactly the window the incoming warning is built
+ * around. Still under a metre of travel per fixed step against a contact radius
+ * of one and a half, so nothing tunnels.
+ */
+const SHELL_SPEED = 76;
+const RED_SPEED = 74;
 const _v = new THREE.Vector3();
 const _to = new THREE.Vector3();
 const _sample: SplineSample = {
@@ -270,6 +289,13 @@ export function createEntityField(ctx: GameContext): EntityField {
     e.radius = opts.radius ?? 1.55;
     e.scale = 1;
     e.groundY = opts.groundY ?? e.pos.y;
+    // Effects that ride their owner remember how high above the kart they were
+    // put. `lat` is the red shell's field and no attached effect has any use
+    // for it, so it doubles as the ride height rather than growing the record.
+    if (kind === 'ring' || kind === 'burst') {
+      const owner = e.ownerId >= 0 ? racerById(e.ownerId) : null;
+      e.lat = owner ? e.pos.y - owner.pos.y : 0;
+    }
     e.puff = 0;
     e.node = acquire(kind);
     e.node.position.copy(e.pos);
@@ -344,23 +370,34 @@ export function createEntityField(ctx: GameContext): EntityField {
     const spline = track.spline;
 
     let targetLat = e.lat;
-    const target = ctx.racers.find((r) => r.id === e.targetId);
+    const target = racerById(e.targetId);
+    let chase = 1;
     if (target) {
       const ts = spline.nearest(target.pos, _sample);
-      targetLat = ts.lateral ?? 0;
       const gap = spline.forwardDistance(e.dist, ts.distance);
-      // Closing: lean on the throttle a little when it is a long way back, so a
-      // red shell fired from twelfth still means something.
-      const chase = gap > 60 ? 1.18 : gap > 25 ? 1.08 : 1.0;
-      e.dist += RED_SPEED * chase * dt;
       if (gap > L * 0.5) {
-        // The target has gone past us the other way round the lap — it can only
-        // be a shell fired at someone who has since been lapped. Let it die.
-        e.life = Math.min(e.life, 0.4);
+        // The target is *behind* the shell. Two ways that happens: it was fired
+        // at somebody who has since been lapped, or — far more often — the pack
+        // is three abreast and `place` disagrees with raw spline distance by a
+        // couple of metres, so the shell is born a step ahead of the machine it
+        // was aimed at.
+        //
+        // This used to kill the shell outright, on a quarter-second fuse. In a
+        // tight pack that is the single most valuable attacking item in the
+        // table evaporating on the frame it was thrown, with nothing on screen
+        // to say why: the player spends a red shell and simply nothing happens.
+        // It now stops homing and carries on down the road instead, which is
+        // both an item that still does something and the behaviour a player
+        // would expect of a shell whose target has gone.
+        e.targetId = -1;
+      } else {
+        targetLat = ts.lateral ?? 0;
+        // Closing: lean on the throttle a little when it is a long way back, so
+        // a red shell fired from twelfth still means something.
+        chase = gap > 60 ? 1.18 : gap > 25 ? 1.08 : 1.0;
       }
-    } else {
-      e.dist += RED_SPEED * dt;
     }
+    e.dist += RED_SPEED * chase * dt;
     // Ease the lateral rather than snapping: the weave as it lines up is the
     // tell that lets a player know it is theirs and start looking for a wall.
     e.lat = damp(e.lat, targetLat, 0.00004, dt);
@@ -371,6 +408,40 @@ export function createEntityField(ctx: GameContext): EntityField {
     e.yaw = Math.atan2(s.tangent.x, s.tangent.z);
     e.spin += dt * 16;
     e.groundY = e.pos.y - 0.18;
+  }
+
+  /**
+   * Keep an effect glued to the kart it belongs to.
+   *
+   * Two of these entities are not objects in the world at all — they are things
+   * *happening to a racer*: the super horn's shockwave, and the burst that
+   * punctuates a hit. Both were spawned at a world position and left there, and
+   * at sixty metres a second that is a catastrophic difference. The horn's wave
+   * takes 0.42s to reach its full nine metres, by which time the kart that blew
+   * it is twenty-five metres up the road and the entire effect has expanded and
+   * died behind the chase camera — which is why the one item a leader has to
+   * answer a red shell photographed as nothing at all.
+   *
+   * `ownerId` on a ring or a burst therefore means "ride this racer". Every
+   * other kind keeps it as a *credit* — whose bomb, whose banana — and stays
+   * exactly where it was put, because a scorch mark that follows you around the
+   * lap is not a scorch mark.
+   */
+  function rideOwner(e: Entity): void {
+    if (e.ownerId < 0) return;
+    const r = racerById(e.ownerId);
+    // The height the effect was spawned at is preserved relative to the kart —
+    // stashed in `lat` at spawn, which no attached effect otherwise uses — so a
+    // burst thrown at roof height stays at roof height.
+    if (r) e.pos.set(r.pos.x, r.pos.y + e.lat, r.pos.z);
+  }
+
+  /** `Array.find` with a closure allocates, and this runs per attached effect
+   *  per fixed step. */
+  function racerById(id: number): Racer | null {
+    const all = ctx.racers;
+    for (let i = 0; i < all.length; i++) if (all[i]!.id === id) return all[i]!;
+    return null;
   }
 
   function stepBomb(e: Entity, dt: number): void {
@@ -416,6 +487,7 @@ export function createEntityField(ctx: GameContext): EntityField {
           // gone past the lens before the eye had registered it starting, and
           // the only frames that caught it were the ones nobody was looking at.
           e.scale = ease.outCubic(clamp01(e.age / 0.42));
+          rideOwner(e);
           break;
         case 'ghost':
         case 'squid': {
@@ -426,6 +498,7 @@ export function createEntityField(ctx: GameContext): EntityField {
         case 'burst':
           e.scale = 1 + e.age * 6;
           e.spin += dt * 7;
+          rideOwner(e);
           break;
         case 'scorch':
           // A mark on the road. It does nothing but cool.

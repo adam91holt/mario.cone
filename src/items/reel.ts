@@ -86,20 +86,27 @@ const CSS = `
    corner and the alpha where the circle actually ends is still around 0.4 —
    which is why the first version of this photographed as a screenful of hard
    grey discs rather than as ink. Pinning 100% to the edge of the circle is what
-   turns a disc into a splat. */
+   turns a disc into a splat.
+
+   **The splats are opaque and the element is not.** Splats that are themselves
+   half transparent, faded further by the element they sit on, photograph as
+   pale grey bubbles — a dirty lens, not ink. Each one is now near-solid to
+   three quarters of its radius, and the fade in and out is carried entirely by
+   the element's opacity, so at full strength the ink is genuinely black where
+   it lands and genuinely absent where it does not. */
 #item-ink {
   position: fixed; inset: 0; z-index: 12; pointer-events: none;
   opacity: 0;
 }
-/* The pale ring at 88% is not decoration. Ink is near-black, the road is
+/* The pale ring at 90% is not decoration. Ink is near-black, the road is
    near-black, and a splat that lands on tarmac with no rim is a splat the
    player never sees — so the item reads as "the sky got dirty" and costs them
    nothing. A thin lifted edge gives every splat a silhouette on both. */
 #item-ink i {
   position: absolute; display: block;
   background: radial-gradient(circle closest-side at 44% 40%,
-    rgba(9,11,26,1) 0 34%, rgba(14,17,38,.96) 55%,
-    rgba(24,30,62,.66) 76%, rgba(96,112,168,.42) 88%, rgba(20,26,52,0) 100%);
+    rgba(7,8,20,1) 0 62%, rgba(11,13,32,1) 78%,
+    rgba(20,25,54,.9) 87%, rgba(108,124,182,.5) 93%, rgba(16,20,44,0) 100%);
 }
 /* A few flecks thrown clear of the main splats. Ink that is all circles reads
    as a lens problem; ink that has spatter reads as something hitting you. */
@@ -112,28 +119,90 @@ const CSS = `
   opacity: 0; mix-blend-mode: screen;
 }
 
-/* Incoming. A red vignette that closes in from the edges as the thing chasing
-   you gets nearer — read in peripheral vision, which is the only place it can
-   be read, because the player is looking at the corner. */
+/* ── incoming ──────────────────────────────────────────────────────────────
+
+   Two parts, and the split is the whole design.
+
+   The *vignette* is the pressure: a red closing in from the edges, read in
+   peripheral vision, which is the only place it can be read because the player
+   is looking at the corner. It is pushed sideways away from the threat, so the
+   red crowds the edge the thing is arriving from. The element is deliberately
+   oversized — the gradient's outer stop is opaque, so sliding a screen-sized
+   one leaves a bright seam down the far edge.
+
+   The *chevron* is the answer to "where". It rides the perimeter of the frame
+   at the threat's bearing and points outward at it, wearing that item's own
+   colour: red for a red shell, green for a green shell, orange for a bob-omb,
+   gold for a star. A pair of chevrons rather than one arrow, because this
+   circuit's own signage is chevrons and the shape already means "danger, this
+   way" everywhere else in the frame.
+
+   What used to be here was a word — INCOMING — pinned dead centre under the
+   item slot, which is exactly the vanishing point of the road. It said nothing
+   about direction, it could not be read at the opacity it actually reached, and
+   it sat over the one part of the frame the player is steering by. */
 #item-warn {
   position: fixed; inset: 0; z-index: 10; pointer-events: none; opacity: 0;
-  background: radial-gradient(ellipse 78% 68% at 50% 50%,
-    rgba(255,40,20,0) 40%, rgba(255,45,20,.30) 74%, rgba(190,15,5,.72) 100%);
+  --wu: max(9px, min(1.06vw, 1.95vh));
 }
-/* Below the item slot, not behind it. The slot is the one thing on screen the
-   player checks under pressure, and this is the moment they are under it.
+#item-warn .vig {
+  position: absolute; inset: -16%;
+  background: radial-gradient(ellipse 62% 56% at 50% 50%,
+    rgba(255,40,20,0) 38%, rgba(255,48,22,.34) 70%, rgba(176,12,4,.86) 100%);
+}
+/* The chevron. Sized in the HUD's own unit so it holds its share of the frame
+   at any resolution, and given a hard dark rim so it reads on cloud and on
+   tarmac without changing. */
+#item-warn .arrow {
+  position: absolute; left: 50%; top: 50%;
+  width: calc(var(--wu) * 5.2); height: calc(var(--wu) * 5.2);
+  margin: calc(var(--wu) * -2.6);
+  filter: drop-shadow(0 calc(var(--wu) * .16) calc(var(--wu) * .3) rgba(0,0,0,.65));
+}
+#item-warn .arrow svg { width: 100%; height: 100%; display: block; }
+`;
 
-   On its own plate, because half the circuit is framed against a bright sky and
-   glowing text on a cloud is a smudge: the word has to be legible at the moment
-   it first fades up, not only once it is at full strength. */
-#item-warn b {
-  position: absolute; left: 50%; top: 8.9rem; transform: translateX(-50%);
-  display: block; padding: .34rem .8rem .3rem; border-radius: .42rem;
-  font: 900 1.05rem/1 'Trebuchet MS', system-ui, sans-serif;
-  letter-spacing: .22em; color: #FFF1E4; white-space: nowrap;
-  background: linear-gradient(180deg, rgba(150,18,6,.92), rgba(74,8,2,.92));
-  box-shadow: inset 0 0 0 2px rgba(255,120,80,.9), 0 3px 10px rgba(0,0,0,.5);
-  text-shadow: 0 0 9px rgba(255,90,50,.9), 0 2px 0 rgba(0,0,0,.7);
+/* ── what hit you ──────────────────────────────────────────────────────────
+
+   A stamp: the item's own icon, punched onto the screen the instant it lands
+   and gone again inside a beat and a bit.
+
+   The brief for a hit is that it must be *obvious what hit you*, and until this
+   existed nothing on screen ever said. The kart spun, the instruments flashed
+   red, coins came off — all of which is the same picture whether it was a
+   banana, a shell, a bomb or a bolt of lightning. A player who cannot name what
+   got them cannot learn to avoid it, and a hit they cannot learn from reads as
+   the game being arbitrary.
+
+   It sits directly under the item slot, on the line the player is already
+   looking down. That is the one place on this screen a transient message
+   belongs and the one place a *persistent* one must never be — which is why the
+   incoming warning was moved off it. */
+const CSS_HIT = `
+#item-hit {
+  position: fixed; left: 50%; top: calc(max(9px, min(1.06vw, 1.95vh)) * 7.9);
+  z-index: 12; pointer-events: none; opacity: 0;
+  --hu: max(9px, min(1.06vw, 1.95vh));
+  display: flex; align-items: center; gap: calc(var(--hu) * .46);
+  padding: calc(var(--hu) * .28) calc(var(--hu) * .74) calc(var(--hu) * .28) calc(var(--hu) * .34);
+  border-radius: calc(var(--hu) * .6);
+  background: linear-gradient(178deg, rgba(58,64,80,.95), rgba(16,19,26,.96));
+  box-shadow:
+    inset 0 0 0 calc(var(--hu) * .17) var(--hit, #FF6B1A),
+    inset 0 calc(var(--hu) * .1) 0 rgba(255,255,255,.22),
+    0 calc(var(--hu) * .26) calc(var(--hu) * .7) rgba(0,0,0,.55);
+  font-family: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif;
+}
+#item-hit .art { position: relative; width: calc(var(--hu) * 2.3); height: calc(var(--hu) * 2.3); }
+#item-hit .art svg {
+  position: absolute; inset: 0; width: 100%; height: 100%; display: none;
+  filter: drop-shadow(0 calc(var(--hu) * .12) 0 rgba(0,0,0,.5));
+}
+#item-hit .art svg.on { display: block; }
+#item-hit b {
+  font-size: calc(var(--hu) * .95); font-weight: 900; line-height: 1;
+  letter-spacing: .12em; color: #FFF1E4; white-space: nowrap;
+  text-shadow: 0 calc(var(--hu) * .12) 0 rgba(0,0,0,.6);
 }
 `;
 
@@ -212,10 +281,21 @@ export interface ItemHud {
   punch(): void;
   /** Ink on the lens, 0..1. */
   setInk(amount: number): void;
-  /** How close the nearest thing aimed at you is, 0..1. Drives the vignette. */
-  warn(amount: number): void;
+  /**
+   * The nearest thing that is actually going to hit the player.
+   *
+   * `amount` is urgency: 0 for nothing, 1 on the frame of impact. `bearing` is
+   * where it is in the player's own frame — 0 dead ahead, positive to the
+   * right, ±π behind — and `color` is that item's own, so the chevron names the
+   * threat as well as placing it.
+   */
+  warn(amount: number, bearing: number, color: number): void;
+  /** Stamp what just hit the player. */
+  strike(item: ItemId): void;
   /** One-off coloured wash: lightning, a hit, a star. */
   flash(color: number, amount: number): void;
+  /** Wipe every transient back to nothing — a race is starting. */
+  reset(): void;
   update(dt: number): void;
   dispose(): void;
 }
@@ -228,9 +308,16 @@ export function createItemHud(): ItemHud {
   let inkEl: HTMLDivElement | null = null;
   let flashEl: HTMLDivElement | null = null;
   let warnEl: HTMLDivElement | null = null;
+  let vigEl: HTMLDivElement | null = null;
+  let arrowEl: HTMLDivElement | null = null;
+  let chevronEl: SVGPathElement | null = null;
+  let hitEl: HTMLDivElement | null = null;
+  let hitNameEl: HTMLElement | null = null;
   let style: HTMLStyleElement | null = null;
   const faces = new Map<string, SVGElement>();
+  const hitFaces = new Map<string, SVGElement>();
   let shown: string | null = null;
+  let hitShown: string | null = null;
 
   let punchT = 0;
   let spin = 0;
@@ -242,6 +329,9 @@ export function createItemHud(): ItemHud {
   let warnTarget = 0;
   let warnShown = 0;
   let warnPhase = 0;
+  let warnBearing = 0;
+  let warnColor = -1;
+  let hitT = 0;
 
   /**
    * The face is keyed on the *item*, never on the item and its count.
@@ -257,7 +347,7 @@ export function createItemHud(): ItemHud {
     if (root || typeof document === 'undefined') return;
 
     style = document.createElement('style');
-    style.textContent = CSS;
+    style.textContent = CSS + CSS_HIT;
     document.head.appendChild(style);
 
     // Screen effects always exist. The slot stands down if the UI module has
@@ -265,14 +355,19 @@ export function createItemHud(): ItemHud {
     inkEl = document.createElement('div');
     inkEl.id = 'item-ink';
     // x%, y%, size in vmax, and a squash/rotation so no two are the same disc.
-    // Weighted to the corners and the bottom, where the player is not looking
-    // for the apex — the hole left in the middle is deliberate, and it is the
-    // difference between a handicap and a blindfold.
+    //
+    // Anchored *off* the edges, mostly. A splat whose centre is outside the
+    // frame shows only an arc of itself, which is what a thrown liquid actually
+    // leaves and is far harder to read as a circle — and circles were the whole
+    // problem with the first pass of this. The clear channel runs from the
+    // middle of the frame down to the kart: that is where the road vanishes and
+    // where the player steers from, and leaving it open is the difference
+    // between a handicap and a blindfold.
     const SPLATS: Array<[number, number, number, number, number]> = [
-      [-6, -2, 30, 1.15, -18], [20, -10, 24, 0.9, 24], [62, -9, 28, 1.2, 12],
-      [86, 4, 26, 0.95, -30], [-9, 42, 27, 1.1, 40], [79, 48, 30, 1.25, -12],
-      [12, 60, 32, 0.92, 18], [50, 70, 34, 1.3, -8], [36, 22, 17, 1.0, 55],
-      [70, 24, 14, 0.85, -40], [4, 22, 13, 1.1, 10],
+      [-14, -12, 38, 1.15, -18], [16, -22, 30, 0.9, 24], [52, -20, 32, 1.2, 12],
+      [88, -14, 34, 0.95, -30], [-18, 26, 34, 1.1, 40], [84, 22, 33, 1.25, -12],
+      [-12, 68, 32, 0.92, 18], [82, 66, 36, 1.3, -8], [30, 82, 26, 1.0, 55],
+      [62, 86, 24, 0.85, -40], [4, 6, 16, 1.1, 10], [78, 2, 14, 0.95, -22],
     ];
     for (const [x, y, r, squash, rot] of SPLATS) {
       const s = document.createElement('i');
@@ -286,8 +381,8 @@ export function createItemHud(): ItemHud {
     // Spatter. Deterministic positions — this is decoration, but decoration
     // that must not differ between two runs of the same seeded capture.
     const FLECKS: Array<[number, number, number]> = [
-      [30, 8, 4.5], [58, 14, 3.2], [15, 34, 3.8], [72, 38, 4.2], [44, 52, 3],
-      [88, 30, 3.6], [26, 74, 4.4], [64, 62, 3.4], [8, 58, 3],
+      [30, 6, 4.5], [58, 11, 3.2], [15, 30, 3.8], [76, 36, 4.2], [46, 20, 2.6],
+      [90, 44, 3.6], [22, 72, 4.4], [70, 74, 3.4], [6, 50, 3], [40, 68, 2.4],
     ];
     for (const [x, y, r] of FLECKS) {
       const s = document.createElement('i');
@@ -302,8 +397,27 @@ export function createItemHud(): ItemHud {
 
     warnEl = document.createElement('div');
     warnEl.id = 'item-warn';
-    warnEl.innerHTML = '<b>INCOMING</b>';
+    // The chevron pair points along -Y in its own box, so a rotation by the
+    // bearing aims it straight at whatever is arriving.
+    warnEl.innerHTML = `<div class="vig"></div><div class="arrow"><svg viewBox="0 0 64 64">
+      <path d="M32 6 L58 34 L48 42 L32 26 L16 42 L6 34 Z
+               M32 26 L58 54 L48 62 L32 46 L16 62 L6 54 Z"
+        fill="#FF3A20" stroke="#1A1D26" stroke-width="4" stroke-linejoin="round"/>
+      </svg></div>`;
     document.body.appendChild(warnEl);
+    vigEl = warnEl.querySelector('.vig');
+    arrowEl = warnEl.querySelector('.arrow');
+    chevronEl = warnEl.querySelector('path');
+
+    hitEl = document.createElement('div');
+    hitEl.id = 'item-hit';
+    hitEl.innerHTML =
+      `<div class="art">${ICON_IDS.map((id) => iconSvg(id)).join('')}</div><b></b>`;
+    document.body.appendChild(hitEl);
+    hitNameEl = hitEl.querySelector('b');
+    for (const svg of Array.from(hitEl.querySelectorAll<SVGElement>('svg'))) {
+      hitFaces.set(svg.dataset.face ?? '', svg);
+    }
 
     flashEl = document.createElement('div');
     flashEl.id = 'item-flash';
@@ -364,12 +478,50 @@ export function createItemHud(): ItemHud {
 
     setInk(amount: number): void { inkTarget = amount; },
 
-    warn(amount: number): void { warnTarget = amount; },
+    warn(amount: number, bearing: number, color: number): void {
+      warnTarget = amount;
+      if (amount <= 0) return;
+      warnBearing = bearing;
+      if (color !== warnColor) {
+        warnColor = color;
+        chevronEl?.setAttribute('fill', hex(color));
+      }
+    },
+
+    strike(item: ItemId): void {
+      if (!hitEl) return;
+      const def = ITEMS[item];
+      hitT = 1;
+      if (hitShown !== item) {
+        if (hitShown) hitFaces.get(hitShown)?.classList.remove('on');
+        hitShown = item;
+        hitFaces.get(item)?.classList.add('on');
+        if (hitNameEl) hitNameEl.textContent = def.name.toUpperCase();
+        hitEl.style.setProperty('--hit', hex(def.color));
+      }
+    },
 
     flash(color: number, amount: number): void {
       if (!flashEl) return;
       flashEl.style.background = hex(color);
       flashAmount = Math.max(flashAmount, amount);
+    },
+
+    reset(): void {
+      warnTarget = 0;
+      warnShown = 0;
+      warnPhase = 0;
+      inkTarget = 0;
+      inkShown = 0;
+      flashAmount = 0;
+      hitT = 0;
+      spin = 0;
+      punchT = 0;
+      glow = 0;
+      if (warnEl) warnEl.style.opacity = '0';
+      if (inkEl) inkEl.style.opacity = '0';
+      if (flashEl) flashEl.style.opacity = '0';
+      if (hitEl) hitEl.style.opacity = '0';
     },
 
     update(dt: number): void {
@@ -387,12 +539,62 @@ export function createItemHud(): ItemHud {
 
       if (warnEl && (warnTarget > 0 || warnShown > 0)) {
         // Rises fast, releases slowly, and pulses harder the closer it gets —
-        // the pulse rate is the distance readout.
-        warnShown += (warnTarget - warnShown) * Math.min(1, dt * (warnTarget > warnShown ? 16 : 7));
-        if (warnShown < 0.004) warnShown = 0;
-        warnPhase += dt * (5 + warnShown * 16);
-        const pulse = 0.72 + Math.sin(warnPhase) * 0.28;
-        warnEl.style.opacity = String(warnShown * pulse);
+        // the pulse rate is the time-to-impact readout.
+        warnShown += (warnTarget - warnShown) * Math.min(1, dt * (warnTarget > warnShown ? 20 : 6));
+        if (warnShown < 0.004) {
+          // All the way off, on this frame. The floor below means "on at all is
+          // loud", which also means the last frame of a release cannot be
+          // allowed to leave the element sitting at the floor for ever.
+          warnShown = 0;
+          warnPhase = 0;
+          warnEl.style.opacity = '0';
+        } else {
+          warnPhase += dt * (7 + warnShown * 22);
+          const pulse = 0.82 + Math.sin(warnPhase) * 0.18;
+          // **It arrives already loud.** The old curve multiplied a squared
+          // proximity by a pulse that bottomed out at 0.44, so the number this
+          // element actually wore over a race never got past 0.79 and spent
+          // most of its life around a fifth — visible to an instrument, not to
+          // a player. The floor is what fixes that: the moment this is on at
+          // all, something is going to hit you inside a second and a half, and
+          // it says so at better than a third of full strength.
+          warnEl.style.opacity = String((0.36 + 0.64 * warnShown) * pulse);
+
+          // Push the red away from the threat, so the thickest part of the
+          // vignette is the edge it is coming from.
+          const sx = Math.sin(warnBearing);
+          const sy = -Math.cos(warnBearing);
+          if (vigEl) {
+            vigEl.style.transform =
+              `translate(${(-sx * 5.5).toFixed(2)}%, ${(-sy * 5).toFixed(2)}%)`;
+          }
+          if (arrowEl) {
+            // Ride the perimeter of an inset frame rather than a circle: a
+            // threat from dead ahead then parks at the top *below the item
+            // slot*, and one from behind at the bottom between the coin and
+            // position plates, instead of either landing on a readout.
+            const ay = sy < 0 ? 30 : 39;
+            const kx = Math.abs(sx) > 1e-3 ? 41 / Math.abs(sx) : 1e9;
+            const ky = Math.abs(sy) > 1e-3 ? ay / Math.abs(sy) : 1e9;
+            const k = Math.min(kx, ky);
+            const deg = (warnBearing * 180) / Math.PI;
+            const s = 0.72 + 0.42 * warnShown + (pulse - 0.82) * 0.5;
+            arrowEl.style.left = `${(50 + sx * k).toFixed(2)}%`;
+            arrowEl.style.top = `${(50 + sy * k).toFixed(2)}%`;
+            arrowEl.style.transform = `rotate(${deg.toFixed(1)}deg) scale(${s.toFixed(3)})`;
+          }
+        }
+      }
+
+      if (hitEl && hitT > 0) {
+        hitT = Math.max(0, hitT - dt * 0.86);
+        // Punches in over the first sixth of a second, holds, then lifts away.
+        const age = 1 - hitT;
+        const pop = age < 0.14 ? 1.9 - (age / 0.14) * 0.9 : 1 + Math.max(0, 0.16 - age) * 0.5;
+        const fade = hitT > 0.24 ? 1 : hitT / 0.24;
+        hitEl.style.opacity = fade > 0.004 ? fade.toFixed(3) : '0';
+        hitEl.style.transform =
+          `translate(-50%, ${((1 - fade) * -0.9).toFixed(2)}rem) scale(${pop.toFixed(3)})`;
       }
 
       if (!slot) return;
@@ -411,15 +613,23 @@ export function createItemHud(): ItemHud {
       root?.remove();
       inkEl?.remove();
       warnEl?.remove();
+      hitEl?.remove();
       flashEl?.remove();
       style?.remove();
       root = null;
       inkEl = null;
       warnEl = null;
+      vigEl = null;
+      arrowEl = null;
+      chevronEl = null;
+      hitEl = null;
+      hitNameEl = null;
       flashEl = null;
       style = null;
       faces.clear();
+      hitFaces.clear();
       shown = null;
+      hitShown = null;
     },
   };
 }

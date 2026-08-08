@@ -338,6 +338,8 @@ export function createItemSystem(ctx: GameContext): GameSystem {
   ctx.scene.add(rig);
 
   const heldProtos = new Map<string, THREE.Object3D>();
+  /** Spare orbit rigs, keyed `item:count`. See `drawCarried`. */
+  const orbitPool = new Map<string, THREE.Group[]>();
   let auraProto: THREE.Object3D | null = null;
   let huskProto: THREE.Object3D | null = null;
   let shroudProto: THREE.Object3D | null = null;
@@ -473,6 +475,9 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     if (racer.isPlayer) {
       hud.flash(def.color, kind === 'spin' ? 0.3 : 0.45);
       ctx.fx?.shake(kind === 'spin' ? 0.55 : 0.95, 0.4);
+      // Name it. Everything else about a hit — the spin, the red instruments,
+      // the coins on the road — is the same picture whichever item caused it.
+      hud.strike(item);
     }
     return true;
   }
@@ -810,6 +815,12 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       st.held = 0;
       racer.item = entry.id;
       racer.itemCount = entry.count;
+      // A beat before it can be spent. Stopping the reel is a button press, and
+      // a player who taps twice — or holds through the settle — would otherwise
+      // fire the item on the very frame it landed, which reads as the game
+      // eating the draw. Short enough that nobody deliberately waiting on a
+      // mushroom notices it.
+      st.useLock = Math.max(st.useLock, 0.14);
       ctx.bus.emit('item:get', { racer, item: entry.id, count: entry.count });
       ctx.bus.emit('item:roulette', { racer, phase: 'settle', item: entry.id });
       if (racer.isPlayer) {
@@ -919,9 +930,12 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       }
 
       case 'greenShell': {
+        // Backwards is scaled down so a shell laid behind still travels at the
+        // speed it always did — it is a mine you leave in the road for whoever
+        // is chasing you, and it stops being one if it outruns them.
         launchPoint(racer, forward, _pos);
         _pos.y = racer.pos.y - 0.36;
-        _vel.copy(_fwd).multiplyScalar(forward ? PROJECTILE_SPEED.shell : -PROJECTILE_SPEED.shell * 0.6);
+        _vel.copy(_fwd).multiplyScalar(forward ? PROJECTILE_SPEED.shell : -PROJECTILE_SPEED.shell * 0.46);
         entities.spawn('greenShell', {
           ownerId: racer.id, pos: _pos, vel: _vel, life: 9, arm: 0.35,
           radius: 1.6, groundY,
@@ -930,13 +944,23 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       }
 
       case 'redShell': {
-        const target = forward ? racerAt(racer.place - 1) : null;
+        let target = forward ? racerAt(racer.place - 1) : null;
+        // ...and it has to be *ahead on the road*, not merely ahead on the
+        // timing screen. In a pack running three abreast the two disagree by a
+        // couple of metres all the time, and a shell born a step past its own
+        // target is a shell with nothing to chase.
+        if (target) {
+          const L = ctx.track!.length;
+          const td = ctx.track!.spline.nearest(target.pos, _sample).distance;
+          const here = ctx.track!.spline.nearest(racer.pos, _sample).distance;
+          if (ctx.track!.spline.forwardDistance(here + 3, td) > L * 0.5) target = null;
+        }
         if (!target) {
           // Nothing ahead, or laid backwards: it flies as a plain shell, which
           // is exactly what a red shell with nobody to chase should do.
           launchPoint(racer, forward, _pos);
           _pos.y = racer.pos.y - 0.36;
-          _vel.copy(_fwd).multiplyScalar(forward ? PROJECTILE_SPEED.shell : -PROJECTILE_SPEED.shell * 0.6);
+          _vel.copy(_fwd).multiplyScalar(forward ? PROJECTILE_SPEED.shell : -PROJECTILE_SPEED.shell * 0.46);
           entities.spawn('greenShell', {
             ownerId: racer.id, pos: _pos, vel: _vel, life: 8, arm: 0.35, radius: 1.6, groundY,
           });
@@ -1094,6 +1118,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       ctx.bus.emit('item:strike', { racer, by: user, item: 'lightning', kind: 'squish' });
       beginHit(racer, st, 'squish', user, null, ITEMS.lightning.color, 0.8);
       hitFx(racer, 'squish', ITEMS.lightning.color, 0.8);
+      if (racer.isPlayer) hud.strike('lightning');
       ctx.bus.emit('item:effect', { racer, effect: 'shrunk', on: true });
     }
     hud.flash(0xFFFCE0, 0.85);
@@ -1351,53 +1376,158 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     }
   }
 
+  // ── the incoming warning ─────────────────────────────────────────────────
+  //
+  // A red shell arrives from behind, at sixty metres a second, and the chase
+  // camera does not look that way. Without a tell the player's only information
+  // is the bang — and an item you could not have done anything about is an item
+  // that reads as the game being unfair, even when it is not. The warning is
+  // what turns a red shell into a decision: brake, cut, spend the banana you
+  // were saving, blow the horn.
+  //
+  // **It is a time-to-impact test, not a proximity test.** The version this
+  // replaced lit up for anything hostile within forty-two metres that happened
+  // to be getting closer, which on a circuit where the pack runs three abreast
+  // meant: every shell crossing the road two lanes over, every bob-omb thrown
+  // at somebody else, and — because the arming window is a third of a second —
+  // *the player's own green shell*, four metres in front of their own bumper.
+  // Instrumented over a race it was lit better than half the time and never
+  // rose above four fifths of an opacity that itself topped out at 0.79. A
+  // warning that is always on is wallpaper; a warning nobody believes costs
+  // attention to say nothing at all.
+  //
+  // So a threat now has to *actually be going to hit the player*: closest
+  // approach is solved in the horizontal plane against relative velocity, and
+  // only a pass that comes inside a kart's width inside the next second and a
+  // half counts. Everything else is silent. What is left is rare enough that it
+  // can be loud — it ramps to full strength on the frame of impact — and it
+  // carries a bearing, so the player is told which way to look.
+
+  /** Seconds of lead the warning gives. Long enough to act on, short enough
+   *  that it is only ever about a threat that is genuinely arriving. */
+  const WARN_WINDOW = 1.6;
+  /** ...and how near the pass has to be, metres. About a kart and a half. */
+  const WARN_MISS = 3.4;
+
+  /** The current worst threat to the player, written by `warnPlayer`. */
+  let threatLevel = 0;
+  let threatBearing = 0;
+  let threatItem: ItemId = 'greenShell';
+  /** ...and whether the bus has been told about it, so `item:warn` fires on the
+   *  two transitions rather than a hundred and twenty times a second. */
+  let threatOn = false;
+
   /**
-   * The incoming-projectile warning.
+   * Closest approach of a moving thing to the player, as a 0..1 urgency.
    *
-   * A red shell arrives from behind, at sixty metres a second, and the chase
-   * camera does not look that way. Without a tell the player's only information
-   * is the bang — and an item you could not have done anything about is an item
-   * that reads as the game being unfair, even when it is not. The warning is
-   * what turns a red shell into a decision: brake, cut, spend the banana you
-   * were saving, blow the horn.
-   *
-   * Deliberately only a *proximity* signal, and only for things actually aimed
-   * at you: a shell that is going past does not get to cry wolf.
+   * Returns 0 for anything that will miss, is receding, or is further away in
+   * time than the warning window. `dx`/`dv` are read out of the scratch vectors
+   * the caller filled, because this runs over every entity every fixed step.
    */
+  function closingUrgency(dx: THREE.Vector3, dv: THREE.Vector3, miss: number): number {
+    const vv = dv.x * dv.x + dv.z * dv.z;
+    // Not moving relative to us: a banana in the road, a bob-omb that has come
+    // to rest. Both are hazards the player can see, and neither is an ambush.
+    if (vv < 4) return 0;
+    const tti = -(dx.x * dv.x + dx.z * dv.z) / vv;
+    if (tti <= 0 || tti > WARN_WINDOW) return 0;
+    const mx = dx.x + dv.x * tti;
+    const mz = dx.z + dv.z * tti;
+    if (mx * mx + mz * mz > miss * miss) return 0;
+    return 1 - tti / WARN_WINDOW;
+  }
+
+  /** Where a threat is, in the player's own frame: 0 dead ahead, +right, ±π
+   *  behind. The arrow on screen is pointed with this. */
+  function bearingOf(player: Racer, dx: THREE.Vector3): number {
+    const s = Math.sin(player.yaw);
+    const c = Math.cos(player.yaw);
+    return Math.atan2(dx.x * c - dx.z * s, dx.x * s + dx.z * c);
+  }
+
+  function offer(level: number, player: Racer, dx: THREE.Vector3, item: ItemId): void {
+    if (level <= threatLevel) return;
+    threatLevel = level;
+    threatBearing = bearingOf(player, dx);
+    threatItem = item;
+  }
+
+  /**
+   * Publish the warning, and tell the bus about the *transitions* only.
+   *
+   * Audio wants a siren that starts when something is coming and stops when it
+   * is not; the HUD wants a number every frame. Emitting `item:warn` a hundred
+   * and twenty times a second would give the first one a stutter and the second
+   * nothing it does not already have, so the event fires on the two edges and
+   * carries the level it started at. Anything that wants the live value reads
+   * it off the HUD it is already driving.
+   */
+  function publishWarning(): void {
+    // A bob-omb's own colour is near-black, which is the right answer for a
+    // thing lying in the road and the wrong one for a chevron that has to be
+    // seen against tarmac. It wears its fuse-orange accent instead.
+    hud.warn(threatLevel, threatBearing,
+      threatItem === 'bomb' ? ITEMS.bomb.accent : ITEMS[threatItem].color);
+    const on = threatLevel > 0;
+    if (on === threatOn) return;
+    threatOn = on;
+    ctx.bus.emit('item:warn', {
+      racer: ctx.player, on, item: threatItem, level: threatLevel,
+      bearing: threatBearing,
+    });
+  }
+
   function warnPlayer(): void {
     const player = ctx.player;
-    if (!player || player.finished) { hud.warn(0); return; }
-    let worst = 0;
+    threatLevel = 0;
+    if (!player || player.finished || ctx.race.phase !== 'racing') { publishWarning(); return; }
+
     for (const e of entities.list) {
       if (!e.active) continue;
-      // A red shell with the player's name on it always warns — it is coming,
-      // whatever it looks like it is doing round the current corner.
-      let aimed = false;
+
       if (e.kind === 'redShell') {
+        // The one threat that does not need a trajectory test: it is following
+        // you, round corners, and the only question is how long it will take.
         if (e.targetId !== player.id) continue;
-        aimed = true;
-      } else if (e.kind === 'greenShell') {
-        if (e.ownerId === player.id && e.arm > 0) continue;
-      } else if (e.kind === 'bomb') {
-        if (e.ownerId === player.id && e.arm > 0) continue;
-        // A bob-omb lying in the road is a hazard the player can see. Only one
-        // still in flight is an ambush.
-        if (e.vel.lengthSq() < 1) continue;
-      } else continue;
+        const gap = ctx.track!.spline.forwardDistance(e.dist, lapDistance(player));
+        const closing = Math.max(4, PROJECTILE_SPEED.red - player.speed);
+        const tti = gap / closing;
+        if (tti > WARN_WINDOW) continue;
+        _to.subVectors(e.pos, player.pos);
+        offer(clamp01(1 - tti / WARN_WINDOW), player, _to, 'redShell');
+        continue;
+      }
 
-      const d2 = e.pos.distanceToSquared(player.pos);
-      if (d2 > 42 * 42) continue;
-      // Everything else has to be *closing*. Without this the siren goes off
-      // for every shell that has already sailed past, which teaches the player
-      // in about two laps to stop believing it — and a warning nobody believes
-      // is worse than no warning, because it costs screen and attention to say
-      // nothing.
-      if (!aimed && _to.subVectors(e.prevPos, player.prevPos).lengthSq() <= d2) continue;
-
-      const t = clamp01(1 - Math.sqrt(d2) / 42);
-      if (t > worst) worst = t;
+      if (e.kind !== 'greenShell' && e.kind !== 'bomb') continue;
+      // Your own, unless it has been off a barrier — a shell that has bounced
+      // is nobody's shell any more, and being taken out by your own ricochet is
+      // exactly the moment a player deserves to be told.
+      if (e.ownerId === player.id && e.bounces === 0) continue;
+      _to.subVectors(e.pos, player.pos);
+      if (Math.abs(_to.y) > 3) continue;
+      _vel.subVectors(e.vel, player.vel);
+      const level = closingUrgency(_to, _vel, WARN_MISS + e.radius * 0.5);
+      if (level > 0) {
+        offer(level, player, _to, e.kind === 'bomb' ? 'bomb' : 'greenShell');
+      }
     }
-    hud.warn(worst * worst);
+
+    // A star or a bullet bill bearing down on you is as much an incoming item
+    // as a shell is, and it is the one the player can most easily avoid — if
+    // they are told. Held to a shorter window because it is a kart, not a
+    // projectile, and a kart can change its mind.
+    for (const other of ctx.racers) {
+      if (other === player) continue;
+      const star = other.effects.has('star');
+      if (!star && !other.effects.has('bullet')) continue;
+      _to.subVectors(other.pos, player.pos);
+      if (Math.abs(_to.y) > 3) continue;
+      _vel.subVectors(other.vel, player.vel);
+      const level = closingUrgency(_to, _vel, 3.0) * 0.85;
+      if (level > 0) offer(level, player, _to, star ? 'star' : 'bulletBill');
+    }
+
+    publishWarning();
   }
 
   /** A shrunk kart under the wheels of a full-size one. */
@@ -1524,18 +1654,30 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     const key = `${id ?? ''}:${shown}`;
 
     if (key !== st.orbitKey) {
+      // Pooled by (item, count). A player holding the button to trail a banana
+      // toggles this rig on and off every time their thumb moves, and a triple
+      // rebuilds it on every shot fired — so the obvious version allocates a
+      // group and three model clones several times a lap, inside `update`.
+      if (st.orbit) {
+        rig.remove(st.orbit);
+        const bin = orbitPool.get(st.orbitKey);
+        if (bin) bin.push(st.orbit); else orbitPool.set(st.orbitKey, [st.orbit]);
+        st.orbit = null;
+      }
       st.orbitKey = key;
-      if (st.orbit) { rig.remove(st.orbit); st.orbit = null; }
       const proto = shown > 0 && id ? heldPrototype(id) : null;
       if (proto) {
-        const group = new THREE.Group();
-        for (let i = 0; i < shown; i++) {
-          // The prototypes live in the scene hidden, so their shaders are built
-          // before the race — the copies have to be switched back on.
-          const copy = proto.clone(true);
-          copy.visible = true;
-          copy.scale.setScalar(ORBIT_SCALE);
-          group.add(copy);
+        let group = orbitPool.get(key)?.pop() ?? null;
+        if (!group) {
+          group = new THREE.Group();
+          for (let i = 0; i < shown; i++) {
+            // The prototypes live in the scene hidden, so their shaders are
+            // built before the race — the copies have to be switched back on.
+            const copy = proto.clone(true);
+            copy.visible = true;
+            copy.scale.setScalar(ORBIT_SCALE);
+            group.add(copy);
+          }
         }
         rig.add(group);
         st.orbit = group;
@@ -1793,6 +1935,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         dropNode(st.shroud);
       }
       states.clear();
+      orbitPool.clear();
       // A shrunk racer whose state has just been thrown away would otherwise
       // start the next race at half size for ever, and a racer reset mid-spin
       // would carry this module's own `flip` flag into it — the clock that
@@ -1803,8 +1946,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       }
       hud.setItem(null);
       hud.spinning(false);
-      hud.setInk(0);
-      hud.warn(0);
+      hud.reset();
 
       const track = ctx.track;
       if (!track) return;
@@ -1910,6 +2052,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       hud.dispose();
       ctx.scene.remove(rig);
       states.clear();
+      orbitPool.clear();
       heldProtos.clear();
     },
   };
@@ -2080,6 +2223,23 @@ export function createItemSystem(ctx: GameContext): GameSystem {
           hit: st.hitTime > 0 ? st.hitKind : '',
           hitLeft: st.hitTime,
           effects: Array.from(racer.effects),
+        };
+      },
+
+      /**
+       * What the incoming warning currently believes, in its own terms.
+       *
+       * The warning is the one part of this module whose failure mode is
+       * statistical rather than visual: a screenshot cannot tell you that a
+       * vignette was lit for half the race, and that is exactly how the version
+       * this replaced got through two critic rounds. Sampling this over a race
+       * gives the numbers that matter — how often it fires, and how hard.
+       */
+      threat(): Record<string, unknown> {
+        return {
+          level: threatLevel,
+          bearing: threatBearing,
+          item: threatLevel > 0 ? threatItem : null,
         };
       },
 
