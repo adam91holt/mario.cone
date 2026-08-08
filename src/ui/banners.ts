@@ -15,7 +15,7 @@
 
 import { clamp01, ease, formatTime } from '../core/math.ts';
 import type { GameContext, Racer } from '../types.ts';
-import { bind, fromHtml, q } from './theme.ts';
+import { bind, fromHtml, ordinal, q } from './theme.ts';
 
 export const CSS_BANNERS = `
 #hud .stage { position: absolute; inset: 0; overflow: hidden; }
@@ -128,6 +128,14 @@ export const CSS_BANNERS = `
 }
 #hud .alert-bar.t { top: 0; }
 #hud .alert-bar.b { bottom: 0; }
+/* ...and gold when it is a win rather than a warning. Same tape, same snap, one
+   hue apart — the frame is the game shouting, and it should be able to shout
+   good news with the machinery it already has. */
+#hud .alert-bar.win {
+  background: repeating-linear-gradient(115deg,
+    #FFD84D 0 calc(var(--u) * .7), #2A1E04 calc(var(--u) * .7) calc(var(--u) * 1.4));
+  box-shadow: 0 0 calc(var(--u) * 1.4) rgba(255,216,77,.8);
+}
 `;
 
 type Entrance = 'slide' | 'slam';
@@ -233,6 +241,8 @@ export function createBanners(ctx: GameContext): Banners {
       // one?" is the one time in a Grand Prix a number is worth reading.
       show('Final Lap', '', { style: 'hot', hold: 2.6, entrance: 'slam' });
       alertT = 1;
+      barT.cls('win', false);
+      barB.cls('win', false);
     } else {
       show(`Lap ${starting}`, formatTime(split), { hold: 2.0 });
     }
@@ -243,9 +253,24 @@ export function createBanners(ctx: GameContext): Banners {
     show('Rocket Start', '', { style: 'gold', hold: 0.85, entrance: 'slam' });
   }));
 
+  // **The result, not the word "finish".**
+  //
+  // This used to read `FINISH  2:31.418`. The player already knows they have
+  // finished — they have just driven under a chequered gantry with confetti
+  // coming off it — and the one thing they have been working at for three laps,
+  // the number that is the entire outcome of the race, was left to a corner
+  // plate they are no longer looking at. The banner now *is* the result: the
+  // place, at banner size, with the time as the footnote it is.
   unsubs.push(ctx.bus.on<{ racer: Racer; place: number; time: number }>('race:finish', (e) => {
     if (!e.racer.isPlayer) return;
-    show('Finish', formatTime(e.time), { style: 'gold', hold: 3.4, entrance: 'slam' });
+    const place = e.place > 0 ? e.place : (e.racer.place || 1);
+    show(`${place}${ordinal(place)} Place`, formatTime(e.time),
+      { style: place === 1 ? 'gold' : 'plain', hold: 4.2, entrance: 'slam' });
+    if (place === 1) {
+      alertT = 1;
+      barT.cls('win', true);
+      barB.cls('win', true);
+    }
   }));
 
   return {
@@ -262,6 +287,8 @@ export function createBanners(ctx: GameContext): Banners {
       band.set('opacity', '0');
       barT.set('opacity', '0');
       barB.set('opacity', '0');
+      barT.cls('win', false);
+      barB.cls('win', false);
     },
 
     update(dt: number): void {

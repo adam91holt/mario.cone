@@ -30,6 +30,25 @@ const plain = (d: string, fill: string, extra = ''): string =>
 const gloss = (d: string, o = 0.55): string =>
   `<path d="${d}" fill="#FFFFFF" opacity="${o}"/>`;
 
+/**
+ * The instant boost, drawn as the object that is actually in the road: a
+ * compressed-air bottle with two hazard bands, a valve on the crown and a cold
+ * jet at the nozzle. Built once and reused, because the triple is three of it.
+ */
+const CANISTER = `
+  ${plain('M32 6.2 m-4.8 0 a4.8 4.8 0 1 0 9.6 0 a4.8 4.8 0 1 0 -9.6 0', 'none',
+  `stroke="${INK}" stroke-width="6.6"`)}
+  ${plain('M32 6.2 m-4.8 0 a4.8 4.8 0 1 0 9.6 0 a4.8 4.8 0 1 0 -9.6 0', 'none',
+  'stroke="#C7D0DD" stroke-width="3.2"')}
+  ${s('M28.4 9.5h7.2v9h-7.2z', '#AEB8C6')}
+  ${s('M19 30.5a13 12.5 0 0 1 26 0v15.5a6 6 0 0 1-6 6H25a6 6 0 0 1-6-6z', '#FF6B1A')}
+  ${plain('M20.9 30.4h22.2v5.6H20.9z', '#FFC300')}
+  ${plain('M20.9 39.6h22.2v5.6H20.9z', '#FFC300')}
+  ${gloss('M23.4 34c.2-6.4 2.6-10.6 5.6-12.4-4.6 4.6-6 8.4-6 12.4z', 0.55)}
+  ${s('M26.4 51.5h11.2l-2.4 5.4h-6.4z', '#AEB8C6')}
+  ${plain('M29 57.4h6l-3 5.4z', '#BFE6FF', 'opacity=".92"')}
+`;
+
 function shell(body: string, rim: string): string {
   return `
     ${s('M9 37a23 23 0 0 1 46 0z', body)}
@@ -52,20 +71,26 @@ const BODIES: Record<ItemId, string> = {
   `,
   greenShell: shell('#46D63C', '#1F7A1C'),
   redShell: shell('#F03A2E', '#8E1C14'),
-  mushroom: `
-    ${s('M23 37h18v10a9 7.5 0 0 1-18 0z', '#FFF3E2')}
-    ${s('M6 38a26 24 0 0 1 52 0z', '#FF5B4A')}
-    ${plain('M22.5 20.5a7 7 0 1 1 0 .1z', '#FFF3E2')}
-    ${plain('M42 22.5a5 5 0 1 1 0 .1z', '#FFF3E2')}
-    ${gloss('M13 34c1.5-9 8-14.5 15-16-8 4.5-12 10-13 16z', 0.5)}
-    ${plain('M28 42.5a2.6 2.6 0 1 1 0 .1zM36 42.5a2.6 2.6 0 1 1 0 .1z', INK, 'opacity=".8"')}
-  `,
+  // **A compressed-air canister, not a mushroom.** `items/models.ts` re-themed
+  // the instant boost to a hazard-banded gas bottle with a nozzle under it —
+  // every machine in this cast is a roadworks machine, and a red cap with white
+  // spots is somebody else's property besides. The icon was left behind, so the
+  // slot showed one object and the road showed another, which breaks the only
+  // job an item icon has: to be the picture of the thing you are about to
+  // throw. Same bottle, same hazard bands, same cold jet at the nozzle.
+  mushroom: CANISTER,
+  // Three of them, and the two behind are *drawn* rather than implied by the
+  // count badge. A triple is a different item from a single — it is six seconds
+  // of boost instead of two — and the slot should say so before the player has
+  // read a number in the corner of it.
+  // Two behind at the shoulders and one in front and lower — a stack of three
+  // bottles rather than three overlapping ghosts of one. They are drawn at full
+  // strength: every icon here already carries an ink outline, and the outline is
+  // what separates them, so fading the back pair only turns the group muddy.
   tripleMushroom: `
-    ${s('M23 37h18v10a9 7.5 0 0 1-18 0z', '#FFF3E2')}
-    ${s('M6 38a26 24 0 0 1 52 0z', '#FF5B4A')}
-    ${plain('M22.5 20.5a7 7 0 1 1 0 .1z', '#FFF3E2')}
-    ${plain('M42 22.5a5 5 0 1 1 0 .1z', '#FFF3E2')}
-    ${gloss('M13 34c1.5-9 8-14.5 15-16-8 4.5-12 10-13 16z', 0.5)}
+    <g transform="translate(-3.84 8.92) scale(.62)">${CANISTER}</g>
+    <g transform="translate(28.16 8.92) scale(.62)">${CANISTER}</g>
+    <g transform="translate(10.24 14.88) scale(.68)">${CANISTER}</g>
   `,
   star: `
     ${s('M32 4.5 40.6 22l19.4 2.8-14 13.6 3.3 19.3L32 48.6 14.7 57.7 18 38.4 4 24.8 23.4 22z', '#FFD84D')}
@@ -140,8 +165,19 @@ export const COIN_SVG = `<svg viewBox="0 0 64 64" class="coin-ico" aria-hidden="
   ${BODIES.coin}
 </svg>`;
 
-/** A chevron, used for the place-change tell and the banner end caps. */
+/**
+ * The place-change tell.
+ *
+ * **Filled, not stroked.** This used to be a 5-unit open stroke in
+ * `currentColor`, and photographed against wet tarmac at the size it plays at
+ * it was a dim bent line — the single loudest moment in a kart racer announced
+ * by something you could mistake for a lens artefact. A solid chevron with an
+ * ink rim is the same shape with a silhouette: it holds its colour on cloud and
+ * on asphalt, and it survives being seen out of the corner of an eye, which is
+ * the only way it is ever seen.
+ */
 export const CHEVRON_SVG = `<svg viewBox="0 0 24 24" class="chev" aria-hidden="true">
-  <path d="M3 15 12 6l9 9" fill="none" stroke="currentColor" stroke-width="5"
-    stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M12 2.6 23 13.2l-4.4 4.5L12 11.3l-6.6 6.4L1 13.2z"
+    fill="currentColor" stroke="#0E1119" stroke-width="1.9" stroke-linejoin="round"/>
+  <path d="M12 5.4 20 13.2l-1.6 1.6L12 8.6 5.6 14.8 4 13.2z" fill="#FFFFFF" opacity=".3"/>
 </svg>`;

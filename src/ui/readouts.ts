@@ -96,13 +96,13 @@ export const CSS_READOUTS = `
    sign: a gain lifts away from it, a loss falls onto it. */
 #hud .delta {
   position: relative;
-  width: calc(var(--u) * 2.6); height: calc(var(--u) * 2.6);
+  width: calc(var(--u) * 3.4); height: calc(var(--u) * 3.4);
   margin-bottom: calc(var(--u) * .1);
   opacity: 0;
 }
 #hud .delta svg { width: 100%; height: 100%; display: block;
-  filter: drop-shadow(0 calc(var(--u) * .12) 0 rgba(0,0,0,.7))
-          drop-shadow(0 0 calc(var(--u) * .5) rgba(0,0,0,.55)); }
+  filter: drop-shadow(0 calc(var(--u) * .14) 0 rgba(0,0,0,.75))
+          drop-shadow(0 0 calc(var(--u) * .6) rgba(0,0,0,.6)); }
 
 /* ── coins ───────────────────────────────────────────────────────────────── */
 #hud .coin-wrap { position: relative; }

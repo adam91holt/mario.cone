@@ -492,6 +492,36 @@ export function buildBulletHusk(): THREE.Object3D {
     p.scale.z = 0.5;
     g.add(p);
   }
+
+  // Eight blades round the stern, and they are here to break a *circle*.
+  //
+  // Everything the driver can see of this thing is concentric: a collar at the
+  // rim, a shock ring inside that, a white-hot core in the middle. Photographed
+  // from the chase camera — which is the only camera that ever sees it — those
+  // three rings composited into a bullseye. A roundel is not a machine, and it
+  // is certainly not a bullet: it reads as a target painted on the back of the
+  // kart, which is very nearly the opposite of what the item is saying.
+  //
+  // Radial blades cut every one of those rings eight times. The silhouette from
+  // astern becomes a hub with spokes, the alternating hazard colours give it a
+  // direction of rotation the eye can hold, and — because they stand proud of
+  // the stern dome — they catch the key light and give the flat back of the
+  // casing somewhere for a highlight to live.
+  const bladeHot = mat(0xFFC300, { roughness: 0.3, emissiveIntensity: 0.55 });
+  const bladeDark = mat(0x20242E, { roughness: 0.45, metalness: 0.3 });
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * TAU;
+    const r = 0.84;
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.54, 0.13),
+      i % 2 === 0 ? bladeHot : bladeDark);
+    // The casing's axis is +Z and its centre line sits at y = 0.95, so the
+    // radial plane is (x, y - 0.95). Rotating the box by -a about Z points its
+    // long axis straight out along that radius.
+    blade.position.set(Math.sin(a) * r, 0.95 + Math.cos(a) * r, -1.99);
+    blade.rotation.z = -a;
+    g.add(blade);
+  }
+
   mergeStatic(g);
   castShadows(g, true, false);
 
@@ -883,13 +913,22 @@ export function buildStarAura(): THREE.Object3D {
   shell.renderOrder = 6;
   g.add(shell);
 
-  // The pool. Flat on the road, additive, and the widest thing in the rig, so
-  // an invincible kart lights the tarmac up ahead of itself. Feathered rather
-  // than cut: see `radialGlowGeometry`.
-  const poolGeo = radialGlowGeometry(3.0, 28);
+  // The pool. Flat on the road, additive, so an invincible kart lights the
+  // tarmac it is standing on. Feathered rather than cut: see
+  // `radialGlowGeometry`.
+  //
+  // Two metres, not three, and that is a correction rather than a taste. A
+  // ground disc six metres across, six centimetres above the road, sits between
+  // a chase camera and everything the player is steering by: photographed from
+  // behind the kart it filled the whole lower half of the frame with gold and
+  // the road, the kerb and the machine itself went with it. The pool's job is
+  // to say the kart is *on* the road at 250km/h, and it can do that at four
+  // metres across — which is still wider than the widest machine in the cast —
+  // without becoming the floor.
+  const poolGeo = radialGlowGeometry(2.0, 28);
   poolGeo.rotateX(-Math.PI / 2);
   const pool = new THREE.Mesh(poolGeo, new THREE.MeshBasicMaterial({
-    color: 0xFFD84D, vertexColors: true, transparent: true, opacity: 0.55,
+    color: 0xFFD84D, vertexColors: true, transparent: true, opacity: 0.4,
     blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
   }));
   pool.position.y = 0.06;
@@ -931,10 +970,15 @@ export function buildBooShroud(): THREE.Object3D {
   shell.renderOrder = 6;
   g.add(shell);
 
+  // The passenger sits *outboard*. On the axis it read as a white growth on top
+  // of whatever machine was underneath it — photographed over a road cone, the
+  // boo's head and the cone's tip fused into one pale lump and neither shape
+  // survived. Off to one side and level with the roofline it is plainly a
+  // second object, riding along, which is the whole joke.
   const boo = buildBoo();
   boo.name = 'rider';
   boo.scale.setScalar(0.7);
-  boo.position.set(0, 1.5, -0.6);
+  boo.position.set(0.95, 1.55, -0.35);
   g.add(boo);
 
   g.traverse((o) => { o.userData.noShadow = true; });

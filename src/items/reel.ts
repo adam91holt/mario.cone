@@ -9,13 +9,16 @@
 // If the UI module ever grows its own slot it only has to mark it
 // `data-item-slot` and this one stands down, leaving the screen effects behind.
 
-import { ITEMS } from './defs.ts';
+import { ITEMS, REEL_FACES } from './defs.ts';
 import type { ItemEntry } from './defs.ts';
 import type { ItemId } from '../types.ts';
 
 /** Every icon the slot may ever have to show. One per item, not one per
  *  (item, count) — see `key` below for why that distinction matters. */
 const ICON_IDS = Object.keys(ITEMS) as ItemId[];
+
+/** The faces on the drum, in the order they come round. */
+const FACES: readonly ItemId[] = REEL_FACES.map((e) => e.id);
 
 const CSS = `
 #item-hud {
@@ -65,6 +68,61 @@ const CSS = `
   filter: drop-shadow(0 3px 0 rgba(0,0,0,.35));
 }
 #item-hud .icons svg.on { display: block; }
+
+/* ── the reel ──────────────────────────────────────────────────────────────
+
+   A *drum*, not a slideshow.
+
+   What was here before swapped which icon was displayed about a dozen times a
+   second. On a moving screen that is a flicker; in a still frame — and
+   a still frame is how every reviewer sees this game — it is indistinguishable
+   from a settled item. A player watching it could not tell whether they were
+   holding a banana or in the middle of finding out, which is the one thing the
+   roulette exists to say.
+
+   So the faces are stacked into a strip inside a clipped window and the strip
+   *travels*. Three things fall out of that and all three matter: the motion is
+   continuous rather than a cut, so it reads as a wheel; the direction is
+   constant, so the eye knows the thing is running rather than shuffling; and it
+   can be blurred by how far it still has to go, which is what sells the speed
+   at the top of the spin and the arrival at the bottom of it.
+
+   The strip carries one extra cell — a copy of the first face — so the wrap
+   from the last face back to the first is a continuation rather than a jump
+   backwards through the whole drum. */
+#item-hud .reel {
+  position: absolute; inset: 5px; border-radius: .85rem;
+  overflow: hidden; opacity: 0;
+}
+#item-hud .slot.spinning .reel { opacity: 1; }
+/* The settled face, the empty mark and the count all belong to a slot that has
+   finished deciding. While it is deciding, the drum is the only thing in it. */
+#item-hud .slot.spinning .icons,
+#item-hud .slot.spinning .mark { opacity: 0; }
+/* visibility, not opacity: the count badge carries an inline opacity written by
+   show(), and an inline style beats a stylesheet rule every time. */
+#item-hud .slot.spinning .count { visibility: hidden; }
+#item-hud .strip { position: absolute; left: 0; right: 0; top: 0; will-change: transform; }
+#item-hud .strip i {
+  display: grid; place-items: center;
+  /* One cell per window. The slot is 6.2rem and the window is inset 5px on
+     each side, so a cell that is exactly the window's height puts one face
+     dead centre for every whole number of cells travelled. */
+  height: calc(6.2rem - 10px);
+}
+#item-hud .strip i svg {
+  width: 4.1rem; height: 4.1rem; display: block;
+  filter: drop-shadow(0 3px 0 rgba(0,0,0,.4));
+}
+/* The lip of the slot. A drum whose faces reach the rim of the window looks
+   like a list being scrolled; one that darkens as it goes under the edge looks
+   like something turning inside a housing. */
+#item-hud .reel::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(180deg,
+    rgba(9,11,17,.82) 0%, rgba(9,11,17,0) 30%,
+    rgba(9,11,17,0) 70%, rgba(9,11,17,.82) 100%);
+}
 #item-hud .count {
   position: absolute; right: -.35rem; bottom: -.35rem;
   font-size: 1.15rem; font-weight: 900; color: #FFF8F0;
@@ -216,18 +274,32 @@ function iconSvg(id: ItemId): string {
           <path d="M50 12l6-5" stroke="#4B3407" stroke-width="5" stroke-linecap="round"/>`;
       case 'greenShell':
       case 'redShell': {
+        // A *hard hat*, because that is what the thing in the world is — see
+        // `buildShell`. The icon used to wear a shell's three dark spots, which
+        // is a different object from the one that skitters down the road at
+        // seventy metres a second, and a player learns what an item does by
+        // matching the picture in the slot to the picture in the road.
         const c = id === 'greenShell' ? '#46D63C' : '#F03A2E';
         const s = id === 'greenShell' ? '#207E1D' : '#8E1C14';
         return `<path d="M8 38a24 24 0 0 1 48 0z" fill="${c}" stroke="#2A2E38" stroke-width="3.5"/>
-          <circle cx="32" cy="24" r="5.5" fill="${s}"/>
-          <circle cx="17" cy="33" r="4" fill="${s}"/><circle cx="47" cy="33" r="4" fill="${s}"/>
+          <path d="M32 15v23" stroke="${s}" stroke-width="6" stroke-linecap="round"/>
+          <path d="M11 33q21 8 42 0" stroke="${s}" stroke-width="5" fill="none"/>
           <rect x="5" y="36" width="54" height="14" rx="7" fill="#FFF8F0" stroke="#2A2E38" stroke-width="3.5"/>`;
       }
       case 'mushroom':
       case 'tripleMushroom':
-        return `<path d="M22 38h20v9a10 8 0 0 1-20 0z" fill="#FFF3E2" stroke="#2A2E38" stroke-width="3.5" stroke-linejoin="round"/>
-          <path d="M7 38a25 23 0 0 1 50 0z" fill="#FF5B4A" stroke="#2A2E38" stroke-width="3.5" stroke-linejoin="round"/>
-          <circle cx="23" cy="26" r="6" fill="#FFF3E2"/><circle cx="42" cy="24" r="4.5" fill="#FFF3E2"/>`;
+        // A compressed-air canister, not a mushroom. The model in the world was
+        // re-themed to one — every machine in this cast is a roadworks machine,
+        // and a red cap with white spots is somebody else's property besides —
+        // and the icon was left behind, so the slot showed one object and the
+        // kart carried another.
+        return `<rect x="27" y="4" width="10" height="10" rx="2" fill="#B9C2D0" stroke="#2A2E38" stroke-width="3"/>
+          <path d="M19 22a13 9 0 0 1 26 0v22a6 6 0 0 1-6 6H25a6 6 0 0 1-6-6z"
+            fill="#FF6B1A" stroke="#2A2E38" stroke-width="3.5" stroke-linejoin="round"/>
+          <rect x="19" y="24" width="26" height="5.5" fill="#FFC300"/>
+          <rect x="19" y="36" width="26" height="5.5" fill="#FFC300"/>
+          <path d="M26 50h12l-3 6H29z" fill="#B9C2D0" stroke="#2A2E38" stroke-width="3" stroke-linejoin="round"/>
+          <path d="M29 57h6l-3 6z" fill="#BFE6FF"/>`;
       case 'star':
         return `<path d="M32 5l8 18 20 2-15 13 5 20-18-11-18 11 5-20L4 25l20-2z"
           fill="#FFD84D" stroke="#8A6410" stroke-width="3.5" stroke-linejoin="round"/>`;
@@ -274,9 +346,19 @@ export interface ItemHud {
   build(): void;
   /** The settled item, or null when the slot is empty. */
   setItem(entry: ItemEntry | null): void;
-  /** Show a face without settling on it — the reel mid-spin. */
-  showFace(entry: ItemEntry): void;
-  spinning(on: boolean): void;
+  /**
+   * Advance the drum by one face.
+   *
+   * Called from the fixed step, on the item system's own decelerating cadence,
+   * so the *rhythm* of the spin is simulation-timed and deterministic. How the
+   * strip travels between two faces is this module's business and runs on the
+   * render clock — which is what keeps the motion smooth at any framerate
+   * without the sim ever having to know what a frame is.
+   */
+  reelTick(): void;
+  /** `from` is the face the drum starts on — drawn from `ctx.rng`, so a seeded
+   *  race replays with the reel showing the same thing on the same frame. */
+  spinning(on: boolean, from?: number): void;
   /** Punch the slot: the reel has landed. */
   punch(): void;
   /** Ink on the lens, 0..1. */
@@ -305,6 +387,7 @@ export function createItemHud(): ItemHud {
   let slot: HTMLDivElement | null = null;
   let countEl: HTMLDivElement | null = null;
   let glowEl: HTMLDivElement | null = null;
+  let stripEl: HTMLDivElement | null = null;
   let inkEl: HTMLDivElement | null = null;
   let flashEl: HTMLDivElement | null = null;
   let warnEl: HTMLDivElement | null = null;
@@ -322,6 +405,12 @@ export function createItemHud(): ItemHud {
   let punchT = 0;
   let spin = 0;
   let glow = 0;
+  /** Where the drum is, in faces, and where it is going. Both grow forward and
+   *  are folded back by a whole revolution once they pass one, so neither can
+   *  drift into the range where a float stops being able to count in sixteenths. */
+  let reelPos = 0;
+  let reelTarget = 0;
+  let reelBlur = -1;
   let flashAmount = 0;
   let inkTarget = 0;
   let inkShown = 0;
@@ -425,12 +514,18 @@ export function createItemHud(): ItemHud {
 
     if (document.querySelector('[data-item-slot]')) return;
 
+    // The drum: one cell per face, plus a copy of the first so the wrap is a
+    // continuation rather than a jump back through the whole strip.
+    const cells = [...FACES, FACES[0]!]
+      .map((id) => `<i>${iconSvg(id)}</i>`).join('');
+
     root = document.createElement('div');
     root.id = 'item-hud';
     root.innerHTML = `<div class="slot empty">
       <div class="glow"></div>
       <div class="mark">?</div>
       <div class="icons">${ICON_IDS.map((id) => iconSvg(id)).join('')}</div>
+      <div class="reel"><div class="strip">${cells}</div></div>
       <div class="count"></div>
     </div>`;
     document.body.appendChild(root);
@@ -438,7 +533,12 @@ export function createItemHud(): ItemHud {
     slot = root.querySelector('.slot');
     countEl = root.querySelector('.count');
     glowEl = root.querySelector('.glow');
-    for (const svg of Array.from(root.querySelectorAll<SVGElement>('svg'))) {
+    stripEl = root.querySelector('.strip');
+    // The settled-icon layer only. The drum's own copies live inside `.strip`
+    // and must never be caught by the face lookup, or showing an item would
+    // switch on a cell in the middle of the reel as well.
+    const iconLayer = root.querySelector('.icons');
+    for (const svg of Array.from(iconLayer?.querySelectorAll<SVGElement>('svg') ?? [])) {
       faces.set(svg.dataset.face ?? '', svg);
     }
   }
@@ -470,9 +570,19 @@ export function createItemHud(): ItemHud {
       }
     },
 
-    showFace(entry: ItemEntry): void { show(entry); },
+    reelTick(): void { reelTarget += 1; },
 
-    spinning(on: boolean): void { spin = on ? 1 : 0; },
+    spinning(on: boolean, from = 0): void {
+      spin = on ? 1 : 0;
+      slot?.classList.toggle('spinning', on);
+      if (on) {
+        // Square onto a face before the first tick, or the spin opens already
+        // blurred and halfway between two icons.
+        reelPos = ((from % FACES.length) + FACES.length) % FACES.length;
+        reelTarget = reelPos;
+        reelBlur = -1;
+      }
+    },
 
     punch(): void { punchT = 1; glow = 1; },
 
@@ -508,6 +618,11 @@ export function createItemHud(): ItemHud {
     },
 
     reset(): void {
+      reelPos = 0;
+      reelTarget = 0;
+      reelBlur = -1;
+      slot?.classList.remove('spinning');
+      if (stripEl) { stripEl.style.transform = 'translateY(0%)'; stripEl.style.filter = 'none'; }
       warnTarget = 0;
       warnShown = 0;
       warnPhase = 0;
@@ -598,6 +713,37 @@ export function createItemHud(): ItemHud {
       }
 
       if (!slot) return;
+
+      // ── the drum ───────────────────────────────────────────────────────────
+      //
+      // Chased rather than snapped, and the rate of the chase is the whole
+      // animation. The item system calls a new face every 0.05s at the top of
+      // the spin and every 0.15s at the bottom of it; a chase at 16 cannot
+      // close a whole cell inside the shorter of those, so early on the strip
+      // never arrives anywhere and simply *runs*, and by the end it is settling
+      // between calls with a moment to spare. The reel therefore decelerates —
+      // fast blur, then travel with a pause, then a face that lands and holds —
+      // without anything anywhere having to describe a deceleration.
+      if (stripEl && (spin > 0 || reelPos !== reelTarget)) {
+        const n = FACES.length;
+        const gap = reelTarget - reelPos;
+        reelPos += gap * Math.min(1, dt * 16);
+        if (reelTarget - reelPos < 0.004) reelPos = reelTarget;
+        if (reelPos >= n) { reelPos -= n; reelTarget -= n; }
+        const p = ((reelPos % n) + n) % n;
+        stripEl.style.transform = `translateY(${(-p / (n + 1) * 100).toFixed(3)}%)`;
+        // Blurred by how far it still has to travel, not by measured speed —
+        // measured speed is a difference of two floats over a frame time and
+        // flickers whenever a frame runs long. The remaining distance is the
+        // same number the eye is reading anyway: full when a face has just been
+        // called, nothing by the time it settles.
+        const blur = gap > 0.02 ? Math.min(4.2, gap * 3.4) : 0;
+        if (Math.abs(blur - reelBlur) > 0.05) {
+          reelBlur = blur;
+          stripEl.style.filter = blur > 0.06 ? `blur(${blur.toFixed(2)}px)` : 'none';
+        }
+      }
+
       if (punchT > 0) punchT = Math.max(0, punchT - dt * 3.2);
       if (glow > 0) glow = Math.max(0, glow - dt * 2.2);
 
@@ -617,6 +763,7 @@ export function createItemHud(): ItemHud {
       flashEl?.remove();
       style?.remove();
       root = null;
+      stripEl = null;
       inkEl = null;
       warnEl = null;
       vigEl = null;

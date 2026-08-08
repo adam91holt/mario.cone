@@ -96,11 +96,24 @@ export const TIER_COLORS = [0xFFC300, 0x4FC3F7, 0x3CFF6B, 0xE040FB] as const;
  * on a fixed stroke: the difference between "nearly there" and "purple" was a
  * colour swap and nothing else.
  */
+/*
+ * **Measured, and then pulled back in.** The first cut ran the halo out to 3.4×
+ * the arc at 0.92 opacity, and photographed at tier 1 against the sky it was a
+ * fat pale arch hanging off the socket — a weather effect, not a meter. Nothing
+ * in it could be read: the arc's own hue was buried inside its own glow, the
+ * outer edge had no line on it, and the fill level was guesswork.
+ *
+ * The arc is now the loud part and the halo is only the heat coming off it. The
+ * escalation still happens in three channels — hue, weight, halo — but the
+ * widest halo is a little over twice the stroke rather than three and a half
+ * times it, which keeps the whole collar inside the dark bed that gives it an
+ * edge.
+ */
 export const TIER_RING = [
-  { stroke: 0.20, halo: 0.16, haloWidth: 2.1 },
-  { stroke: 0.26, halo: 0.34, haloWidth: 2.4 },
-  { stroke: 0.33, halo: 0.60, haloWidth: 2.9 },
-  { stroke: 0.42, halo: 0.92, haloWidth: 3.4 },
+  { stroke: 0.24, halo: 0.13, haloWidth: 1.70 },
+  { stroke: 0.30, halo: 0.26, haloWidth: 1.85 },
+  { stroke: 0.36, halo: 0.42, haloWidth: 2.05 },
+  { stroke: 0.44, halo: 0.66, haloWidth: 2.30 },
 ] as const;
 
 export const hexCss = (n: number): string =>

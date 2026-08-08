@@ -49,6 +49,23 @@ const CSS_HUD = `
     inset 0 0 0 calc(var(--u) * .34) rgba(20,24,34,.85),
     inset 0 calc(var(--u) * -.62) calc(var(--u) * 1.1) rgba(0,0,0,.45),
     0 calc(var(--u) * .34) calc(var(--u) * .9) rgba(0,0,0,.5); }
+
+/* ...and the same trick for the other direction. A boost lights every strip
+   white-hot for a fifth of a second while the whole set surges forward a
+   percent — the instruments are bolted to a kart that has just been kicked, and
+   they should move like it.
+
+   Deliberately the *strips* and not the plate faces: fx/screen.ts owns the
+   amber that closes in from the edges of the frame during a boost, and two
+   modules both washing the middle of the screen orange is how a HUD stops being
+   readable at the one moment the player most needs to read it. */
+#hud.surge .plate::before { background: linear-gradient(90deg, #FFF3C4, #FFFFFF 50%, #FFF3C4); }
+#hud.surge .plate { box-shadow:
+    inset 0 calc(var(--u) * .1) 0 rgba(255,255,255,.4),
+    inset 0 calc(var(--u) * -.14) 0 rgba(0,0,0,.5),
+    0 0 0 calc(var(--u) * .12) rgba(9,11,15,.92),
+    0 calc(var(--u) * .22) calc(var(--u) * .62) rgba(0,0,0,.5),
+    0 0 calc(var(--u) * 1.6) rgba(255,226,150,.5); }
 `;
 
 /** Where each cluster flies in from when a race starts. */
@@ -84,6 +101,8 @@ export function createHudSystem(ctx: GameContext): GameSystem {
     box: bind(q(root, `.${name}`)),
     dx, dy,
     centred: name === 'tc',
+    /** Stays on screen when the rest of the set retires at the flag. */
+    keep: name === 'br',
   }));
 
   const slot = createItemSlot(ctx);
@@ -116,6 +135,19 @@ export function createHudSystem(ctx: GameContext): GameSystem {
   let hurting = false;
   let clock = 0;
   let reveal = 1;
+  /** Boost response: a white-hot beat across the whole instrument set. */
+  let surge = 0;
+  let surging = false;
+  /**
+   * How far the working instruments have retired, 0..1.
+   *
+   * The race ends and the lap counter, the socket and the map stop being
+   * information — there is no next corner, no next box, and nothing left to do
+   * with either. Leaving them up is the interface still talking after the
+   * conversation is over. They fly back out the way they came in, and the place
+   * indicator stays: that one *is* the result.
+   */
+  let retire = 0;
 
   const unsubs: Array<() => void> = [];
 
@@ -140,6 +172,11 @@ export function createHudSystem(ctx: GameContext): GameSystem {
   unsubs.push(ctx.bus.on<{ racer: Racer; impact: number }>('kart:land', (e) => {
     if (e.racer.isPlayer) hit(clamp01(e.impact * 0.5) * 0.35, false);
   }));
+  // Every kind of boost, weighted by how big it is: a mini-turbo release and a
+  // bullet bill should not read as the same event.
+  unsubs.push(ctx.bus.on<{ racer: Racer; power: number }>('kart:boost', (e) => {
+    if (e.racer.isPlayer) surge = Math.max(surge, clamp01(0.55 + (e.power ?? 0) * 0.45));
+  }));
 
   return {
     name: 'hud',
@@ -149,7 +186,10 @@ export function createHudSystem(ctx: GameContext): GameSystem {
       jolt = 0;
       hurt = 0;
       clock = 0;
+      surge = 0;
+      retire = 0;
       if (hurting) { hurting = false; root.classList.remove('hurt'); }
+      if (surging) { surging = false; root.classList.remove('surge'); }
       layer.set('transform', 'none');
       // The set flies in as the grid forms. Short on purpose — it is a flourish,
       // not a loading screen, and every review capture renders less than a
@@ -181,15 +221,23 @@ export function createHudSystem(ctx: GameContext): GameSystem {
       banners.update(dt);
       for (const p of panels) p.update(dt);
 
-      // ── impact ───────────────────────────────────────────────────────────
-      if (jolt > 0) {
-        jolt = Math.max(0, jolt - dt * 3.1);
+      // ── impact, and its opposite ─────────────────────────────────────────
+      //
+      // One transform for the whole set, composed from both responses: a hit
+      // shakes it and a boost swells it. Written from a single place because two
+      // writers on one `transform` means whichever ran last wins, and a boost
+      // taken while still shaking is exactly when both are happening.
+      if (jolt > 0) jolt = Math.max(0, jolt - dt * 3.1);
+      if (jolt > 0 || surge > 0) {
         const k = jolt * jolt;
         const x = Math.sin(clock * 61) * k * 1.1;
         const y = Math.sin(clock * 47 + 1.3) * k * 0.7;
+        const rot = Math.sin(clock * 53) * k * 0.8;
+        const s = 1 + surge * surge * 0.016;
         layer.set('transform',
-          `translate(${x.toFixed(3)}%, ${y.toFixed(3)}%) rotate(${(Math.sin(clock * 53) * k * 0.8).toFixed(3)}deg)`);
-        if (jolt === 0) layer.set('transform', 'none');
+          `translate(${x.toFixed(3)}%, ${y.toFixed(3)}%) rotate(${rot.toFixed(3)}deg) scale(${s.toFixed(4)})`);
+      } else {
+        layer.set('transform', 'none');
       }
       // A spun-out kart is not a moment, it is a *state*, and the HUD holds the
       // damage colour for as long as the player is actually out of control
@@ -205,7 +253,17 @@ export function createHudSystem(ctx: GameContext): GameSystem {
         }
       }
 
-      // ── reveal ───────────────────────────────────────────────────────────
+      // ── boost ────────────────────────────────────────────────────────────
+      if (surge > 0) {
+        surge = Math.max(0, surge - dt * 3.4);
+        const on = surge > 0.32;
+        if (on !== surging) {
+          surging = on;
+          root.classList.toggle('surge', on);
+        }
+      }
+
+      // ── reveal, and its opposite ─────────────────────────────────────────
       if (reveal < 1) {
         reveal = Math.min(1, reveal + dt / 0.32);
         const e = ease.outQuart(reveal);
@@ -215,6 +273,22 @@ export function createHudSystem(ctx: GameContext): GameSystem {
           const ty = c.dy * back * 60;
           c.box.set('transform', `translate(${tx.toFixed(2)}%, ${ty.toFixed(2)}%)`);
           c.box.set('opacity', Math.min(1, reveal * 2.2).toFixed(3));
+        }
+      } else if (ctx.player?.finished || retire > 0) {
+        // The working instruments leave once the race is decided; the place
+        // indicator holds, because it is the answer. A beat of delay first, so
+        // the crossing itself is not competing with the furniture moving.
+        const want = ctx.player?.finished ? 1 : 0;
+        retire = want > retire
+          ? Math.min(1, retire + dt / 0.9)
+          : Math.max(0, retire - dt / 0.4);
+        const out = ease.inQuad(clamp01((retire - 0.25) / 0.75));
+        for (const c of corners) {
+          if (c.keep) continue;
+          const tx = c.dx * out * 46 + (c.centred ? -50 : 0);
+          const ty = c.dy * out * 62;
+          c.box.set('transform', `translate(${tx.toFixed(2)}%, ${ty.toFixed(2)}%)`);
+          c.box.set('opacity', (1 - out).toFixed(3));
         }
       }
     },

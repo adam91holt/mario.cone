@@ -196,6 +196,23 @@ the spot: lightning). Anything hanging a sound, a particle or a camera move off
 a hit should read `item:strike`, not `kart:hit` — physics emits the latter from
 `stunRacer` and only knows its own three-value vocabulary.
 
+**A cancelled roulette.** `item:roulette` always comes in pairs: a `start` is
+always followed by a `settle`, so anything that begins a loop on the first can
+end it on the second without a timeout of its own. A `settle` that carries **no
+`item`** means the spin was thrown away rather than landed — lightning struck
+the racer mid-draw, the flag fell, or the reviewer's bench put something
+straight into the slot. Treat it as "the reel stopped and there is nothing in
+the slot", never as a draw.
+
+**Invulnerability vs immunity.** `racer.invulnerable` is a *short* timer with a
+visual meaning attached: the vehicle rig blinks any racer carrying it, which is
+correct for the second after a hit and wrong for anything longer. The item
+system therefore keeps its long protections — a star, a bullet bill, a boo — in
+`racer.effects` and only hands the last fraction of a second to
+`invulnerable`, as the tell that it is about to run out. Anything asking "can
+this racer be hurt" must check `effects` for `star`, `bullet` and `boo` as well
+as `invulnerable`, or use the item system's own `strike` path, which does.
+
 **The incoming warning.** `item:warn` fires on the two *edges* only — once when
 something starts being on course to hit the player and once when it stops — so a
 siren can be started and stopped without polling. It is a **time-to-impact**

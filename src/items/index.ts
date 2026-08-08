@@ -67,6 +67,20 @@ const HOLD_LIMIT = 6.0;
 
 const STAR_TIME = 7.0;
 const BULLET_TIME = 6.0;
+/**
+ * How long the bullet takes to reach its cruising speed.
+ *
+ * Not a detail. The bullet drives at 1.34× top speed, and the version this
+ * replaced arrived there on the frame it was fired — a step change of nearly
+ * thirty metres a second. No spring-damped chase camera survives that: the lens
+ * was left standing and by the time it caught up the player had spent the first
+ * second and a half of the best item in the game looking at their own kart from
+ * twenty-five metres astern, small enough that the casing photographed as a
+ * roundel rather than as a machine. Ramping over three quarters of a second
+ * keeps the camera attached, and it is also simply the better read — a bullet
+ * bill should *launch* you, and a launch has a beginning.
+ */
+const BULLET_RAMP = 0.75;
 const SHRUNK_TIME = 7.0;
 const INK_TIME = 6.0;
 const BOO_TIME = 4.5;
@@ -263,6 +277,8 @@ interface RacerItems {
   bullet: number;
   bulletDist: number;
   bulletLat: number;
+  /** Speed the kart was doing when the bullet fired — the bottom of the ramp. */
+  bulletSpeed0: number;
   shrunk: number;
   ink: number;
   boo: number;
@@ -314,7 +330,7 @@ function newState(id: number): RacerItems {
   return {
     spin: 0, spinTotal: 1, pending: null, reelTimer: 0, reelIndex: 0,
     held: 0, hold: 0, wasDown: false, useLock: 0, aiTimer: 0.3,
-    star: 0, bullet: 0, bulletDist: 0, bulletLat: 0,
+    star: 0, bullet: 0, bulletDist: 0, bulletLat: 0, bulletSpeed0: 0,
     shrunk: 0, ink: 0, boo: 0, booSteal: 0, booTarget: -1,
     shown: 0, guarded: false,
     hitTime: 0, hitTotal: 1, hitKind: 'spin', hitDirX: 0, hitDirZ: 1,
@@ -388,8 +404,20 @@ export function createItemSystem(ctx: GameContext): GameSystem {
   const forwardOf = (racer: Racer, out: THREE.Vector3): THREE.Vector3 =>
     out.set(Math.sin(racer.yaw), 0, Math.cos(racer.yaw));
 
+  /**
+   * Can this racer be hurt right now?
+   *
+   * `boo` is in here rather than in `racer.invulnerable`, and that distinction
+   * is not bookkeeping. The vehicle rig blinks any racer whose invulnerability
+   * is up — correct for the second after a hit, and a four-and-a-half-second
+   * strobe if a boo writes it for its whole duration, which is what it used to
+   * do. The player spent the best item on the tail-end table watching their own
+   * kart flicker on and off. Immunity is a *rule*; the blink is a readout of one
+   * particular short-lived form of it, and the two are separated here.
+   */
   const immune = (racer: Racer): boolean =>
-    racer.effects.has('star') || racer.effects.has('bullet') || racer.invulnerable > 0;
+    racer.effects.has('star') || racer.effects.has('bullet')
+    || racer.effects.has('boo') || racer.invulnerable > 0;
 
   /** `Array.find` with a closure allocates, and these run inside the fixed
    *  step on every projectile contact. */
@@ -768,7 +796,30 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     st.reelTimer = 0;
     st.reelIndex = ctx.rng.int(0, REEL_FACES.length - 1);
     ctx.bus.emit('item:roulette', { racer, phase: 'start' });
-    if (racer.isPlayer) hud.spinning(true);
+    // The drum starts on the face the seed picked, so a replay of the same race
+    // shows the same reel on the same frame.
+    if (racer.isPlayer) hud.spinning(true, st.reelIndex);
+  }
+
+  /**
+   * Abandon a spin that is already running.
+   *
+   * Three things can interrupt a roulette — a bolt of lightning, the chequered
+   * flag, and the reviewer's bench putting an item straight into a hand — and
+   * every one of them used to leave the slot in its spinning state with the
+   * draw thrown away. That was survivable while the reel was an icon swap and
+   * is not now: the drum simply stays on screen, turning, for the rest of the
+   * race. Anything that cancels a spin comes through here.
+   */
+  function stopSpin(racer: Racer, st: RacerItems): void {
+    if (st.spin <= 0 && !st.pending) return;
+    st.spin = 0;
+    st.pending = null;
+    // A `settle` with no `item` — the one shape in the contract that says "the
+    // spin is over and there is nothing in the slot". Anything that started a
+    // loop on `phase:'start'` needs this or it runs for the rest of the race.
+    ctx.bus.emit('item:roulette', { racer, phase: 'settle' });
+    if (racer.isPlayer) hud.spinning(false);
   }
 
   function tickRoulette(racer: Racer, st: RacerItems, dt: number): void {
@@ -806,7 +857,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       // stops at a constant rate has no ending.
       const t = 1 - clamp01(st.spin / st.spinTotal);
       st.reelTimer = lerp(0.05, 0.15, t * t);
-      if (racer.isPlayer) hud.showFace(REEL_FACES[st.reelIndex]!);
+      if (racer.isPlayer) hud.reelTick();
     }
     if (st.spin <= 0) {
       const entry = st.pending ?? { id: 'banana' as ItemId, count: 1 };
@@ -1035,6 +1086,10 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     st.bullet = BULLET_TIME;
     st.bulletDist = s.distance;
     st.bulletLat = s.lateral ?? 0;
+    // The bottom of the ramp — see BULLET_RAMP. Floored well under walking pace
+    // so a bullet fired from a standstill or out of a spin still *launches*
+    // rather than crawling for the first half second.
+    st.bulletSpeed0 = Math.max(18, Math.abs(racer.speed));
     racer.effects.add('bullet');
     racer.stunned = 0;
     boostRacer(ctx, racer, 'bullet',
@@ -1055,7 +1110,12 @@ export function createItemSystem(ctx: GameContext): GameSystem {
   function driveBullet(racer: Racer, st: RacerItems, dt: number): void {
     const track = ctx.track;
     if (!track) return;
-    const speed = ctx.config.kart.maxSpeed * classMul() * 1.34;
+    // Ramped, not switched on. Cubic-out: most of the gain lands in the first
+    // third of a second, which still reads as a shove in the back, and the tail
+    // of it is inside what a chase camera can follow.
+    const cruise = ctx.config.kart.maxSpeed * classMul() * 1.34;
+    const ramp = clamp01((BULLET_TIME - st.bullet) / BULLET_RAMP);
+    const speed = lerp(st.bulletSpeed0, cruise, 1 - Math.pow(1 - ramp, 3));
     st.bulletDist += speed * dt;
     const target = line ? line.lateralAt(st.bulletDist) : 0;
     // A quarter-second to find the line, not a tenth. A kart that fires this
@@ -1110,8 +1170,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       // The item in hand is lost too — that is most of what lightning is for.
       racer.item = null;
       racer.itemCount = 0;
-      st.spin = 0;
-      st.pending = null;
+      stopSpin(racer, st);
       if (racer.isPlayer) hud.setItem(null);
       // Squashed on the spot, not spun: a bolt from above has no side to it,
       // and lightning is the one hit in the game nothing makes you immune to.
@@ -1148,7 +1207,8 @@ export function createItemSystem(ctx: GameContext): GameSystem {
   function fireBoo(user: Racer, st: RacerItems): void {
     st.boo = BOO_TIME;
     user.effects.add('boo');
-    user.invulnerable = Math.max(user.invulnerable, BOO_TIME);
+    // No `invulnerable` write: see `immune`. A boo is untouchable because it is
+    // a boo, and the shroud says so far better than a strobing kart does.
 
     // Steal from someone ahead who actually has something worth taking.
     let victim: Racer | null = null;
@@ -1158,7 +1218,13 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       if (!victim || racer.place < victim.place) victim = racer;
     }
     st.booTarget = victim ? victim.id : -1;
-    st.booSteal = victim ? 1.1 : 0;
+    // The attempt is unconditional. It used to be armed only if somebody ahead
+    // happened to be holding something at the instant the button went down,
+    // which meant the best item on the tail-end table regularly did nothing at
+    // all: a second later four machines in front are carrying shells, and the
+    // boo that was sent to fetch one had already been told there was nothing to
+    // take. Who it robs is decided when it *arrives* — see `stealVictim`.
+    st.booSteal = 1.1;
 
     forwardOf(user, _fwd);
     entities.spawn('ghost', {
@@ -1168,6 +1234,31 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       life: BOO_TIME * 0.6, yaw: user.yaw,
     });
     ctx.bus.emit('item:effect', { racer: user, effect: 'boo', on: true });
+  }
+
+  /**
+   * Who the boo actually robs, decided at the moment it arrives.
+   *
+   * Preference order, and it is the order that makes this a comeback item:
+   * whoever it was sent after, then the machine *nearest ahead* that is
+   * carrying something — robbing the leader from eighth is a fantasy, robbing
+   * the kart you are about to overtake is a race — and failing both, anybody at
+   * all. Only a field in which literally nobody is holding an item sends a boo
+   * home empty, which over a lap is close to never.
+   */
+  function stealVictim(user: Racer, preferId: number): Racer | null {
+    const first = racerById(preferId);
+    if (first && first.item && !first.finished) return first;
+
+    let ahead: Racer | null = null;
+    let any: Racer | null = null;
+    for (const r of ctx.racers) {
+      if (r === user || r.finished || !r.item) continue;
+      // Nearest ahead is the *largest* place still in front of the user.
+      if (r.place < user.place && (!ahead || r.place > ahead.place)) ahead = r;
+      if (!any || r.place < any.place) any = r;
+    }
+    return ahead ?? any;
   }
 
   function fireHorn(user: Racer): void {
@@ -1351,11 +1442,14 @@ export function createItemSystem(ctx: GameContext): GameSystem {
 
     if (st.boo > 0) {
       st.boo = Math.max(0, st.boo - dt);
-      racer.invulnerable = Math.max(racer.invulnerable, Math.min(st.boo, 0.2));
+      // The last third of a second is handed to `invulnerable`, which is what
+      // makes the kart blink — the same tell a star ends on, and the only
+      // warning a player gets that they are about to be solid again.
+      if (st.boo < 0.35) racer.invulnerable = Math.max(racer.invulnerable, st.boo);
       if (st.booSteal > 0) {
         st.booSteal = Math.max(0, st.booSteal - dt);
         if (st.booSteal === 0) {
-          const victim = racerById(st.booTarget);
+          const victim = stealVictim(racer, st.booTarget);
           if (victim?.item) {
             const stolen: ItemEntry = { id: victim.item, count: Math.max(1, victim.itemCount) };
             victim.item = null;
@@ -1557,7 +1651,13 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       });
       return true;
     }
-    if (racer.invulnerable > 0 || racer.stunned > 0) return false;
+    // A ghost, a kart already spinning, or one still blinking off its last hit.
+    // The item is *not* consumed — it carries on down the road looking for
+    // someone it can actually hit, which is both the right picture and the
+    // reason boo belongs here rather than in the branch above: a boo must not
+    // pay for the hit with the item it is carrying, and the branch above spends
+    // the shield.
+    if (racer.invulnerable > 0 || racer.stunned > 0 || racer.effects.has('boo')) return false;
 
     if (e.kind === 'bomb') {
       explode(e.pos, e.ownerId, e.groundY);
@@ -1773,24 +1873,34 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       // yellow to white-hot and back — rather than round the whole wheel. A
       // star is allowed to be the loudest thing on the screen; it is not
       // allowed to be the one magenta object in the game.
+      // Gold to white-hot, not orange to yellow. The low end used to sit at
+      // hue 0.030 — which is safety orange, the colour of the machine the
+      // player is driving. An aura the same hue as the kart inside it does not
+      // read as "that kart is invincible", it reads as "that kart has been
+      // replaced by a glowing egg": photographed round a road cone, the stripes
+      // and the face were gone and the silhouette with them. Starting at 0.095
+      // keeps the whole cycle clear of the cone, the digger and the truck, and
+      // still inside the roadworks palette — hazard yellow is 0.128, dead
+      // centre of the range.
       const cyc = 0.5 + 0.5 * Math.sin(visualTime * 4.6);
-      _hue.setHSL(lerp(0.030, 0.135, cyc), 0.96, lerp(0.54, 0.74, cyc));
+      _hue.setHSL(lerp(0.095, 0.148, cyc), lerp(0.98, 0.72, cyc), lerp(0.56, 0.80, cyc));
 
       const shell = st.aura.getObjectByName('shell') as THREE.Mesh | undefined;
       if (shell) {
         const m = shell.material as THREE.ShaderMaterial;
         (m.uniforms.uColor!.value as THREE.Color).copy(_hue);
-        // Held down from 1.5. The machine inside is the thing the player is
-        // steering, and at the old strength the cone's stripes and face were
-        // washed out of the frame for the whole seven seconds — an item that
-        // hides your own kart is an item you cannot drive.
-        m.uniforms.uStrength!.value = fade * (0.95 + Math.sin(visualTime * 16) * 0.22);
+        // Held down from 1.5, and down again from 0.95. The machine inside is
+        // the thing the player is steering, and every notch of strength here is
+        // paid for out of its silhouette — an item that hides your own kart is
+        // an item you cannot drive. The stars orbiting outside the shell are
+        // what say "invincible"; the shell only has to say "lit".
+        m.uniforms.uStrength!.value = fade * (0.80 + Math.sin(visualTime * 16) * 0.20);
       }
       const pool = st.aura.getObjectByName('pool') as THREE.Mesh | undefined;
       if (pool) {
         const m = pool.material as THREE.MeshBasicMaterial;
         m.color.copy(_hue);
-        m.opacity = fade * (0.4 + Math.sin(visualTime * 11) * 0.12);
+        m.opacity = fade * (0.27 + Math.sin(visualTime * 11) * 0.08);
         pool.scale.setScalar(0.9 + Math.sin(visualTime * 7) * 0.1);
       }
       for (let i = 0; i < STAR_SPARKS; i++) {
@@ -1808,7 +1918,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         // Held below white. At 0.86 lightness a saturated hue is a white star
         // with a warm edge, which is how a cycling swarm ends up photographing
         // as flat white cardboard.
-        m.color.setHSL(lerp(0.025, 0.145, c), 0.92, lerp(0.54, 0.74, c));
+        m.color.setHSL(lerp(0.090, 0.150, c), 0.92, lerp(0.58, 0.80, c));
         m.opacity = fade * (0.5 + Math.sin(a * 3) * 0.45);
       }
       // A trail of sparks off the back, at a fixed rate rather than per frame.
@@ -1873,7 +1983,12 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       setRimStrength(st.shroud, fade * (0.7 + Math.sin(visualTime * 5) * 0.25));
       const rider = st.shroud.getObjectByName('rider');
       if (rider) {
-        rider.position.y = 1.5 + Math.sin(visualTime * 3.4) * 0.18;
+        // It drifts as well as bobs. A ghost pinned to one point on the
+        // bodywork is a decal; one that swings out and back is riding with you.
+        rider.position.set(
+          0.95 + Math.sin(visualTime * 1.15) * 0.34,
+          1.55 + Math.sin(visualTime * 3.4) * 0.18,
+          -0.35 + Math.sin(visualTime * 0.87) * 0.22);
         rider.rotation.y = Math.sin(visualTime * 1.9) * 0.5;
         rider.scale.setScalar(0.7 * fade);
       }
@@ -1984,7 +2099,13 @@ export function createItemSystem(ctx: GameContext): GameSystem {
           else driveSpinout(racer, st, dt);
         }
         tickEffects(racer, st, dt);
-        if (!live || racer.finished) { syncCarriage(racer, st); continue; }
+        if (!live || racer.finished) {
+          // The flag has fallen, or this racer is done. A reel still turning
+          // over the results screen is the game forgetting the race is over.
+          stopSpin(racer, st);
+          syncCarriage(racer, st);
+          continue;
+        }
 
         pickups(racer, st);
         tickRoulette(racer, st, dt);
@@ -2050,6 +2171,19 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       boxes.dispose();
       coins.dispose();
       hud.dispose();
+      // Everything this module hung on the scene: the hidden prototypes, any
+      // live orbit, the star aura, the bullet casing, the boo shroud. Geometry
+      // and materials are shared between a prototype and its clones, so a
+      // double dispose is possible here and costs nothing — a missed one leaves
+      // a buffer on the GPU for the lifetime of the page.
+      rig.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.geometry?.dispose();
+        const m = mesh.material as THREE.Material | THREE.Material[] | undefined;
+        if (Array.isArray(m)) for (const x of m) x.dispose();
+        else m?.dispose();
+      });
       ctx.scene.remove(rig);
       states.clear();
       orbitPool.clear();
@@ -2074,8 +2208,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         const racer = racerById(racerId);
         if (!racer) return false;
         const st = stateOf(racer);
-        st.spin = 0;
-        st.pending = null;
+        stopSpin(racer, st);
         st.held = 0;
         st.useLock = 0;
         racer.item = id;
@@ -2116,8 +2249,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         const racer = racerById(racerId);
         if (!racer) return false;
         const st = stateOf(racer);
-        st.spin = 0;
-        st.pending = null;
+        stopSpin(racer, st);
         st.useLock = 0;
         racer.item = id;
         racer.itemCount = 1;
