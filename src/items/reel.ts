@@ -10,6 +10,8 @@
 // `data-item-slot` and this one stands down, leaving the screen effects behind.
 
 import { clamp01 } from '../core/math.ts';
+import { signBox, signCss, type SignBox } from '../ui/letters.ts';
+import { U_CSS } from '../ui/theme.ts';
 import { ITEMS, REEL_FACES } from './defs.ts';
 import type { ItemEntry } from './defs.ts';
 import type { ItemId } from '../types.ts';
@@ -394,6 +396,13 @@ const CSS = `
    belongs and the one place a *persistent* one must never be — which is why the
    incoming warning was moved off it. */
 const CSS_HIT = `
+/* The host for all four screen layers. "display: contents" on purpose: it gives
+   this module one root in the DOM instead of four orphans on the body, and it
+   does so without adding a box — no stacking context, no containing block, so
+   every layer inside still paints exactly where it painted before. The unit is
+   declared here so the drawn nameplate below measures itself the same way every
+   other word in the game does. */
+#item-fx { display: contents; --u: ${U_CSS}; }
 #item-hit {
   position: fixed; left: 50%; top: calc(max(9px, min(1.06vw, 1.95vh)) * 7.9);
   z-index: 12; pointer-events: none; opacity: 0;
@@ -406,7 +415,6 @@ const CSS_HIT = `
     inset 0 0 0 calc(var(--hu) * .17) var(--hit, #FF6B1A),
     inset 0 calc(var(--hu) * .1) 0 rgba(255,255,255,.22),
     0 calc(var(--hu) * .26) calc(var(--hu) * .7) rgba(0,0,0,.55);
-  font-family: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif;
 }
 #item-hit .art { position: relative; width: calc(var(--hu) * 2.3); height: calc(var(--hu) * 2.3); }
 #item-hit .art svg {
@@ -414,11 +422,13 @@ const CSS_HIT = `
   filter: drop-shadow(0 calc(var(--hu) * .12) 0 rgba(0,0,0,.5));
 }
 #item-hit .art svg.on { display: block; }
-#item-hit b {
-  font-size: calc(var(--hu) * .95); font-weight: 900; line-height: 1;
-  letter-spacing: .12em; color: #FFF1E4; white-space: nowrap;
-  text-shadow: 0 calc(var(--hu) * .12) 0 rgba(0,0,0,.6);
-}
+/* **The last font-set word in the race, and it is gone.** This plate printed
+   the item's name in 'Trebuchet MS' 900 — one word, in the operating system's
+   typeface, sitting inside a game where every other word from the flag onwards
+   is drawn geometry. It is cut from the same signage face as the results table
+   and the pause menu now. */
+#item-hit .nm { height: calc(var(--hu) * 1.05); color: #FFF1E4; }
+${signCss('#item-fx')}
 `;
 
 /** Bold, flat, 64px-legible. Silhouette first — these are read at a glance. */
@@ -643,7 +653,8 @@ export function createItemHud(): ItemHud {
   let arrowEl: HTMLDivElement | null = null;
   let chevronEl: SVGPathElement | null = null;
   let hitEl: HTMLDivElement | null = null;
-  let hitNameEl: HTMLElement | null = null;
+  let fxRoot: HTMLDivElement | null = null;
+  let hitName: SignBox | null = null;
   let style: HTMLStyleElement | null = null;
   const faces = new Map<string, SVGElement>();
   const hitFaces = new Map<string, SVGElement>();
@@ -692,6 +703,16 @@ export function createItemHud(): ItemHud {
     style.textContent = CSS + CSS_HIT;
     document.head.appendChild(style);
 
+    // **One root, not four.** These four screen layers were four separate
+    // orphans on `document.body` — left there when this module stood its own
+    // socket down for `ui/itemslot.ts` and kept its screen effects. They are
+    // one layer conceptually and they are one element now; the z-indexes inside
+    // it are unchanged, and the host carries the same stacking position the
+    // loosest of them used to, so nothing about what paints over what moves.
+    fxRoot = document.createElement('div');
+    fxRoot.id = 'item-fx';
+    document.body.appendChild(fxRoot);
+
     // Screen effects always exist. The slot stands down if the UI module has
     // published one of its own.
     inkEl = document.createElement('div');
@@ -702,7 +723,7 @@ export function createItemHud(): ItemHud {
     for (const [x, y, r] of INK_FLECKS) {
       inkEl.appendChild(splat([x, y, r, 1, 0], k++, 'fleck'));
     }
-    document.body.appendChild(inkEl);
+    fxRoot.appendChild(inkEl);
 
     warnEl = document.createElement('div');
     warnEl.id = 'item-warn';
@@ -715,7 +736,7 @@ export function createItemHud(): ItemHud {
         fill="#FF3A20" stroke="#14171F" stroke-width="5" stroke-linejoin="round"/>
       <path class="core" d="${chevrons}"/>
       </svg></div>`;
-    document.body.appendChild(warnEl);
+    fxRoot.appendChild(warnEl);
     vigEl = warnEl.querySelector('.vig');
     arrowEl = warnEl.querySelector('.arrow');
     chevronEl = warnEl.querySelector('path');
@@ -723,16 +744,18 @@ export function createItemHud(): ItemHud {
     hitEl = document.createElement('div');
     hitEl.id = 'item-hit';
     hitEl.innerHTML =
-      `<div class="art">${ICON_IDS.map((id) => iconSvg(id)).join('')}</div><b></b>`;
-    document.body.appendChild(hitEl);
-    hitNameEl = hitEl.querySelector('b');
+      `<div class="art">${ICON_IDS.map((id) => iconSvg(id)).join('')}</div>`
+      + `<div class="nm word"></div>`;
+    fxRoot.appendChild(hitEl);
+    const nmEl = hitEl.querySelector<HTMLElement>('.nm');
+    hitName = nmEl ? signBox(nmEl) : null;
     for (const svg of Array.from(hitEl.querySelectorAll<SVGElement>('svg'))) {
       hitFaces.set(svg.dataset.face ?? '', svg);
     }
 
     flashEl = document.createElement('div');
     flashEl.id = 'item-flash';
-    document.body.appendChild(flashEl);
+    fxRoot.appendChild(flashEl);
 
     if (document.querySelector('[data-item-slot]')) return;
 
@@ -831,7 +854,7 @@ export function createItemHud(): ItemHud {
         if (hitShown) hitFaces.get(hitShown)?.classList.remove('on');
         hitShown = item;
         hitFaces.get(item)?.classList.add('on');
-        if (hitNameEl) hitNameEl.textContent = def.name.toUpperCase();
+        hitName?.set(def.name.toUpperCase());
         hitEl.style.setProperty('--hit', hex(def.color));
       }
     },
@@ -1009,8 +1032,7 @@ export function createItemHud(): ItemHud {
       root?.remove();
       inkEl?.remove();
       warnEl?.remove();
-      hitEl?.remove();
-      flashEl?.remove();
+      fxRoot?.remove();
       style?.remove();
       root = null;
       stripEl = null;
@@ -1020,7 +1042,8 @@ export function createItemHud(): ItemHud {
       arrowEl = null;
       chevronEl = null;
       hitEl = null;
-      hitNameEl = null;
+      fxRoot = null;
+      hitName = null;
       flashEl = null;
       style = null;
       faces.clear();

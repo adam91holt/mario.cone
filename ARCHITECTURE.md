@@ -210,6 +210,38 @@ Canonical events — add new ones to this list when you introduce them:
 | `item:warn` | `{ racer, on, item, level, bearing }` — something is about to hit the player | items |
 | `coin:get` | `{ racer, total }` | items |
 | `coin:lose` | `{ racer, count, total }` | items |
+| `race:phase` | `{ phase }` — a statement of state, safe to repeat | race |
+| `race:grid` | `{ order }` — racer ids, pole first | race |
+| `race:bestlap` | `{ racer, time, lap }` | race |
+| `race:finallap` | `{ racer, lap }` | race |
+| `race:jumpstart` | `{ racer, held }` — early, but not bogged | race |
+| `race:rocketStart` | `{ racer, held, quality, tier, time, power }` | race |
+| `race:burnout` | `{ racer, held, duration }` | race |
+| `race:wrongway` | `{ racer, on }` — **edges only** | race |
+| `race:pause` | `{ on }` | race |
+| `race:handoff` | `{ to }` — the curtain is closing on this layer | race |
+| `race:exit` | `{ from }` | race |
+| `camera:mode` | `{ mode }` — the *player's* control | race / render |
+| `camera:shot` | `{ shot, … }` — see below | race |
+| `kart:onroad` | `{ racer, surface, from }` — tarmac regained | physics |
+| `menu:launch` | `{ courseId, vehicleId, engineClass, hold(s) }` | ui |
+| `ui:menu` | `{ open, screen }` | ui |
+| `ui:menu:open` | `{ from }` — raise the front-end | anyone |
+
+**Shots, not modes.** `camera:mode` is the player's own control — chase, far,
+look-behind — and the race has no business spending it on ceremony. `camera:shot`
+is the channel for the moments the race can compose better than a follow rig
+can, and `render/camera.ts` answers `grid`, `countdown` and `podium`. `finish`
+is still unanswered and the director borrows a mode for it; the borrow is given
+back the moment anything else touches `camera:mode`.
+
+**An event with no listener is a bug, not a feature.** Eleven of the events
+above were emitted every race into a room that had never had anybody in it, and
+three of them were things a player *watched happen in silence*: the wrong-way
+sign the director calls an alarm, the jump-start verdict, and a new best lap. If
+you add an event, either wire something to it in the same pass or delete it —
+an unheard emit costs frame time, costs the next agent's reading time, and makes
+this table lie about what the game is.
 
 **Hit kinds.** `item:strike` and `item:reaction` carry a `kind` from
 `HitKind` (exported by `src/items/index.ts`), and it is the item system's
@@ -349,6 +381,39 @@ window.__GAME = {
 
 `step()` must be pure sim — no `requestAnimationFrame`, no wall-clock. That is what
 makes screenshots reproducible on a software renderer.
+
+---
+
+## 11a. One product, two halves — the rules that hold them together
+
+Everything before the flag is `ui/menus`; everything after it is `race/` plus
+the HUD. They are two codebases with a curtain between them, and every seam a
+coherence pass has ever found lives on that curtain. Five things are now shared
+rather than reimplemented, and they are shared *as code*, not as a convention:
+
+- **Type.** `src/ui/letters.ts` is the game's display face and `src/ui/glyphs.ts`
+  is its numerals. The rule: anything that **names** something is drawn from one
+  of those two; anything that **describes** — a blurb, a class copy line, a unit
+  caption, a keycap legend — is set in Trebuchet. Nothing sits between. The
+  front-end used to imitate the drawn face in stacked text-shadows, and the
+  imitation did not survive a hand-off one second wide.
+- **The curtain.** `curtainCss` / `curtainTransform` / `CURTAIN_IN` /
+  `CURTAIN_OUT` in `src/ui/theme.ts`. The menu's launch board and the race's
+  results hand-off are the same gesture and are now the same object; the hold is
+  the only per-caller argument.
+- **The cursor.** `cursorRing` and `CURSOR_CHEVRON` in `ui/theme.ts`. A gold
+  outline ring with a chevron on its leading edge, on both sides of the flag. A
+  fill was the alternative and it cannot go on a cell that is a picture.
+- **The prompt rail.** `hintKey` and `hintCss` in `ui/theme.ts`. One set of
+  keycaps, and every rail states only keys that do something from where the
+  player is standing.
+- **The circuit diagram.** `MAP` in `ui/theme.ts`, drawn by `courseMap()` on the
+  select cards and by `ui/minimap.ts` in the HUD. The same road, the same
+  chequer on the start.
+
+The colour pipeline is shared too: the menus' 3D set runs `installFilmStock`
+from `render/grade.ts` at `EXPOSURE_TRIM`, which is the same grade and the same
+exposure the race is composited through.
 
 ---
 

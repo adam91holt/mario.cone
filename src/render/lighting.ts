@@ -27,7 +27,7 @@
 
 import * as THREE from 'three';
 import { clamp, clamp01, damp } from '../core/math.ts';
-import { installFilmStock } from './grade.ts';
+import { EXPOSURE_TRIM, installFilmStock } from './grade.ts';
 import { installMaterialStyle } from './materials.ts';
 import { createSky, makeAtmosphereUniforms } from './sky.ts';
 import { createPostStack } from './post.ts';
@@ -36,15 +36,10 @@ import type { ContactShadows } from './contact.ts';
 import type { PostStack } from './post.ts';
 import type { CourseTheme, GameContext, GameSystem, QualitySettings } from '../types.ts';
 
-/**
- * Extra exposure on top of the engine's, so the grade is tuned in one place.
- *
- * Nudged up when the fill came down: cutting the ambient by more than half is
- * what buys the modelling, but taken on its own it also takes a stop out of the
- * whole picture, and this game is high-key. The ratio is the art direction; the
- * absolute level is a knob.
- */
-const EXPOSURE_TRIM = 1.12;
+/* The grade's own exposure trim now lives with the grade — see `EXPOSURE_TRIM`
+ * in `render/grade.ts`. It moved because the menus' 3D set has to light itself
+ * to the same number, and a constant two modules have to agree on is a constant
+ * that belongs to neither of them. */
 
 /** Shadow map extent in metres, per quality tier. Smaller = sharper contact. */
 const SHADOW_EXTENT: Record<QualitySettings['tier'], number> = {

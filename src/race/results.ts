@@ -22,7 +22,7 @@ import { clamp01, ease, formatTime } from '../core/math.ts';
 import { glyphBox, ordinalWord, type GlyphBox } from '../ui/glyphs.ts';
 import { bind, fromHtml, q, rgba, type Bound } from '../ui/theme.ts';
 import { signBox } from './letters.ts';
-import { createHint, createMenu, type Menu, type MenuOption } from './menu.ts';
+import { createHint, createMenu, type Menu, type MenuOption, type Sfx } from './menu.ts';
 import type { CupStanding, ResultRow } from './book.ts';
 
 export const CSS_RESULTS = `
@@ -237,7 +237,7 @@ const SETTLE_PAD = 1.7;
 /** How long a championship total takes to climb to its new value. */
 const COUNT_UP = 0.55;
 
-export function createResults(onPick: (id: string) => void): Results {
+export function createResults(onPick: (id: string) => void, sfx: Sfx): Results {
   const root = fromHtml(`
     <div class="results">
       <div class="scrim"></div>
@@ -295,9 +295,11 @@ export function createResults(onPick: (id: string) => void): Results {
   signBox(q(root, '.laps .lbl'), 'YOUR LAPS');
   const splitRow = q(root, '.laps .splits');
 
-  const menu = createMenu(onPick);
+  const menu = createMenu(onPick, sfx);
   q(root, '.acts').appendChild(menu.root);
-  q(root, '.acts').appendChild(createHint('LEFT RIGHT CHOOSE   ENTER SELECT'));
+  // Esc genuinely works here — the front-end takes it and comes back up — and
+  // the rail never said so.
+  q(root, '.acts').appendChild(createHint([['\u25C0 \u25B6', 'Choose'], ['\u21B5', 'Select'], ['Esc', 'Menu']]));
 
   interface Row {
     box: Bound;
@@ -317,6 +319,11 @@ export function createResults(onPick: (id: string) => void): Results {
   let t = -1;
   let live = false;
   let settleAt = 3;
+  /** How many finishing-order rows have already been announced, and the clock
+   *  for the championship counter's own tick. The whole cascade — eight rows
+   *  slamming in one at a time, points stamping, totals climbing — was silent. */
+  let rowsHeard = 0;
+  let countHeard = 0;
 
   function clear(el: HTMLElement): void {
     while (el.firstChild) el.removeChild(el.firstChild);
@@ -427,6 +434,8 @@ export function createResults(onPick: (id: string) => void): Results {
 
       menu.set(options, 0);
       settleAt = ROW_DELAY + count * ROW_STEP + SETTLE_PAD;
+      rowsHeard = 0;
+      countHeard = 0;
       t = 0;
       live = true;
       box.cls('live', true);
@@ -463,6 +472,12 @@ export function createResults(onPick: (id: string) => void): Results {
       head.set('opacity', clamp01((t - 0.05) / 0.18).toFixed(3));
 
       // ── the order, a line at a time ──────────────────────────────────────
+      // One tick per line as it lands, climbing, so eight rows read as a run
+      // being called rather than as the same click eight times.
+      while (rowsHeard < rows.length && t >= ROW_DELAY + rowsHeard * ROW_STEP) {
+        sfx('ui.tick', 0.5, 0.94 + rowsHeard * 0.055);
+        rowsHeard++;
+      }
       for (let i = 0; i < rows.length; i++) {
         const r = rows[i]!;
         const start = ROW_DELAY + i * ROW_STEP;
@@ -487,6 +502,7 @@ export function createResults(onPick: (id: string) => void): Results {
 
       // ── the championship ─────────────────────────────────────────────────
       const cupStart = ROW_DELAY + count * ROW_STEP + 0.12;
+      let counting = false;
       const cu = clamp01((t - cupStart) / 0.3);
       cupPanel.set('opacity', cu.toFixed(3));
       cupPanel.set('transform', `translateX(${((1 - ease.outQuart(cu)) * 14).toFixed(2)}%)`);
@@ -502,9 +518,16 @@ export function createResults(onPick: (id: string) => void): Results {
         if (cell.to !== cell.from) {
           const k = ease.outQuad(clamp01((t - rowStart - 0.22) / COUNT_UP));
           const want = Math.round(cell.from + (cell.to - cell.from) * k);
-          if (want !== cell.shown) { cell.shown = want; cell.pt.set(String(want)); }
+          if (want !== cell.shown) { cell.shown = want; cell.pt.set(String(want)); counting = true; }
         }
       }
+      // ...and a counter tick under the totals while any of them is still
+      // climbing. Its own cadence rather than one per integer: a row that gains
+      // fifteen points would otherwise fire fifteen shots in half a second.
+      if (counting) {
+        countHeard += dt;
+        if (countHeard >= 0.075) { countHeard = 0; sfx('ui.tick', 0.32, 1.42); }
+      } else countHeard = 0.075;
 
       // ── the footer ───────────────────────────────────────────────────────
       const fu = clamp01((t - cupStart - 0.3) / 0.3);

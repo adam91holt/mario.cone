@@ -153,7 +153,7 @@ const TRIM: Record<string, number> = {
   'coin.lose': 1.48, 'effect.end': 1.40, 'boo.on': 1.55, 'boo.off': 1.22,
   jump: 1.14,
   // texture
-  hop: 0.87, trick: 1.45, scrape: 1.5, 'ui.click': 1.67, 'item.reel': 1.2,
+  hop: 0.87, trick: 1.45, scrape: 1.5, 'ui.click': 1.67, 'ui.tick': 1.67, 'item.reel': 1.2,
 };
 
 /**
@@ -201,7 +201,8 @@ export const SOUND_IDS: readonly string[] = [
   'sig.truck', 'sig.car',
   'jump', 'draft',
   'countdown', 'countdown.set', 'countdown.go', 'lap', 'lap.final', 'finish', 'finish.back',
-  'warn.tick', 'ui.click',
+  'bestlap', 'jumpstart', 'wrongway',
+  'warn.tick', 'ui.click', 'ui.ok', 'ui.tick', 'pause.on', 'pause.off',
 ];
 
 /** Ceiling on shots started in one frame, and on the running total. Neither is
@@ -1105,6 +1106,68 @@ export function createSoundBank(be: AudioBackend, listener: Listener): SoundBank
       case 'ui.click': {
         tone(s, { wave: 'square', f0: 1200, gain: 0.08, attack: 0.001, decay: 0.03 });
         return 0.08;
+      }
+      case 'ui.ok': {
+        // The commit. Same instrument as the cursor, a fifth up and with a body
+        // under it — a menu where moving and choosing sound identical is a menu
+        // that never confirms anything.
+        tone(s, { wave: 'square', f0: 900, f1: 1800, gain: 0.1, attack: 0.001, decay: 0.06 });
+        brass(s, N.D5, 0.16, 0.12, 0.01);
+        return 0.2;
+      }
+      case 'ui.tick': {
+        // The results cascade: one per row landing, one per counter step. Tiny,
+        // dry, and pitched by `level` so eight rows read as a run rather than as
+        // the same click eight times.
+        tone(s, {
+          wave: 'triangle', f0: lerp(680, 1320, lv), gain: 0.055,
+          attack: 0.001, decay: 0.035,
+        });
+        return 0.05;
+      }
+      case 'pause.on': {
+        // Everything stops. A short fall with the room shutting behind it.
+        tone(s, { wave: 'square', f0: 700, f1: 260, gain: 0.1, attack: 0.002, decay: 0.14 });
+        noise(s, {
+          filter: 'lowpass', f0: 2200, f1: 400, q: 0.7, gain: 0.09, attack: 0.004, decay: 0.16,
+        });
+        return 0.22;
+      }
+      case 'pause.off': {
+        tone(s, { wave: 'square', f0: 300, f1: 820, gain: 0.1, attack: 0.002, decay: 0.12 });
+        return 0.18;
+      }
+      case 'bestlap': {
+        // A time, not a state: two bright bells a fourth apart, over in a third
+        // of a second so it never fights the corner the player is in.
+        bell(s, N.A5, 0.16, 0.4, 0);
+        bell(s, N.D6, 0.18, 0.55, 0.09);
+        return 0.5;
+      }
+      case 'jumpstart': {
+        // The engine catching nothing. A flubbed rev that goes nowhere — the
+        // audible half of "you were early, and it bought you nothing".
+        tone(s, {
+          wave: 'sawtooth', f0: 150, f1: 92, gain: 0.16, attack: 0.006, decay: 0.26,
+          filter: 'lowpass', cut0: 900, cut1: 320, q: 1.4, drive: 2,
+        });
+        noise(s, {
+          filter: 'bandpass', f0: 420, f1: 180, q: 1.1, gain: 0.1, attack: 0.01, decay: 0.24,
+        });
+        return 0.34;
+      }
+      case 'wrongway': {
+        // A reversing alarm, because that is what this world's machines carry.
+        // Two beeps per shot and the caller re-arms it on a loop for as long as
+        // the sign is up — see the note beside `WRONGWAY_PERIOD` in audio/index.
+        for (let i = 0; i < 2; i++) {
+          tone(s, {
+            wave: 'square', f0: 1050, gain: 0.13, attack: 0.004,
+            hold: 0.12, decay: 0.05, delay: i * 0.3,
+            filter: 'bandpass', cut0: 1500, q: 2.2,
+          });
+        }
+        return 0.6;
       }
       default:
         return 0;

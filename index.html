@@ -18,24 +18,75 @@
     /* The canvas is the whole viewport; the HUD is a DOM layer above it. */
     touch-action: none;
   }
+
+  /* The loading screen — and it is the *same mark* the title screen raises.
+     It was not: this used to be lowercase "mario.cone" set in Trebuchet MS 900
+     with a yellow full stop, and #boot is only removed at the very end of
+     boot() in main.ts — after the track, the world, seven vehicle rigs and the
+     post stack have all been built — so on a cold load the game introduced
+     itself twice, in two logotypes, several seconds apart, and neither of them
+     was the other.
+
+     The SVG below is the output of wordmark() in src/ui/menus/art.ts, inlined
+     because this frame has to paint before a single module has parsed. It is
+     the one duplicated asset in the project; regenerate it with
+
+       node --experimental-strip-types -e "import('./src/ui/menus/art.ts')
+         .then(m => process.stdout.write(m.wordmark()))"
+  */
   #boot {
     position: fixed; inset: 0; display: grid; place-items: center;
-    color: #FFF8F0; background: #0d1016; z-index: 50;
-    font-size: 1.1rem; letter-spacing: .22em; text-transform: uppercase;
+    background: #0d1016; z-index: 50;
   }
-  #boot .mark {
-    font-size: 2.6rem; font-weight: 900; letter-spacing: -.02em;
-    color: #FF6B1A; text-transform: none; margin-bottom: .6rem;
+  #boot .wrap { width: min(62vw, 620px); text-align: center; }
+  #boot svg.wm { display: block; width: 100%; height: auto; overflow: visible; }
+  /* The two hazard rails that frame every other screen in the product. */
+  #boot .rail {
+    position: fixed; left: 0; right: 0; height: 1.1vh; min-height: 7px;
+    background: repeating-linear-gradient(114deg,
+      #FFC300 0 1.1vw, #14171E 1.1vw 2.2vw);
+    opacity: .92;
   }
-  #boot .mark span { color: #FFC300; }
+  #boot .rail.t { top: 0; }
+  #boot .rail.b { bottom: 0; }
+  /* The loading state sits *under* the mark rather than beside a second one. */
+  #boot .msg {
+    margin-top: 1.6rem;
+    color: rgba(255,248,240,.62); font-size: .82rem; font-weight: 800;
+    letter-spacing: .34em; text-transform: uppercase;
+  }
+  #boot .bar {
+    margin: .9rem auto 0; width: 46%; height: .5rem;
+    border-radius: .25rem; overflow: hidden;
+    background: rgba(255,248,240,.1);
+    box-shadow: inset 0 0 0 1px rgba(9,11,15,.9);
+  }
+  #boot .bar i {
+    display: block; height: 100%; width: 34%;
+    background: linear-gradient(90deg, #FFC300, #FF6B1A);
+    animation: bootslide 1.25s ease-in-out infinite alternate;
+  }
+  /* The one CSS animation in the whole product, and it is deliberate: it lives
+     on the frame *before* the harness exists, so no capture can ever
+     photograph it at an unpredictable point in its timeline. */
+  @keyframes bootslide { from { transform: translateX(-8%); } to { transform: translateX(200%); } }
 </style>
 </head>
 <body>
   <canvas id="game"></canvas>
   <div id="boot">
-    <div style="text-align:center">
-      <div class="mark">mario<span>.</span>cone</div>
-      <div>loading</div>
+    <div class="rail t"></div>
+    <div class="rail b"></div>
+    <div class="wrap">
+      <svg class="wm" viewBox="-22.4 -16 660.9 145.0" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><defs><linearGradient id="mc-wm-bevel" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="100">
+<stop offset="0" stop-color="#FFFFFF" stop-opacity=".62"/>
+<stop offset=".12" stop-color="#FFFFFF" stop-opacity=".3"/>
+<stop offset=".46" stop-color="#FFFFFF" stop-opacity=".2"/>
+<stop offset=".46" stop-color="#000000" stop-opacity=".04"/>
+<stop offset="1" stop-color="#000000" stop-opacity=".34"/>
+</linearGradient></defs><g transform="translate(-6.44 0) skewX(6.5)" fill-rule="evenodd"><g transform="translate(0.0 0)"><g class="wl" data-i="0"><g transform="translate(0 13)" fill="#232B3B" stroke="#232B3B" stroke-width="9.92" stroke-linejoin="round"><path d="M2 99L2 1L21 1L34 48L47 1L66 1L66 99L48 99L48 44L39 74L29 74L20 44L20 99Z"/></g><g fill="none" stroke="#0A0D13" stroke-width="16" stroke-linejoin="round"><path d="M2 99L2 1L21 1L34 48L47 1L66 1L66 99L48 99L48 44L39 74L29 74L20 44L20 99Z"/></g><path d="M2 99L2 1L21 1L34 48L47 1L66 1L66 99L48 99L48 44L39 74L29 74L20 44L20 99Z" fill="#fff8f0"/><path d="M2 99L2 1L21 1L34 48L47 1L66 1L66 99L48 99L48 44L39 74L29 74L20 44L20 99Z" fill="url(#mc-wm-bevel)"/></g></g><g transform="translate(75.0 0)"><g class="wl" data-i="1"><g transform="translate(0 13)" fill="#232B3B" stroke="#232B3B" stroke-width="9.92" stroke-linejoin="round"><path d="M20 1L40 1L59 99L36 99L32 74L28 74L24 99L1 99ZM30 31L34 56L26 56Z"/></g><g fill="none" stroke="#0A0D13" stroke-width="16" stroke-linejoin="round"><path d="M20 1L40 1L59 99L36 99L32 74L28 74L24 99L1 99ZM30 31L34 56L26 56Z"/></g><path d="M20 1L40 1L59 99L36 99L32 74L28 74L24 99L1 99ZM30 31L34 56L26 56Z" fill="#fff8f0"/><path d="M20 1L40 1L59 99L36 99L32 74L28 74L24 99L1 99ZM30 31L34 56L26 56Z" fill="url(#mc-wm-bevel)"/></g></g><g transform="translate(142.0 0)"><g class="wl" data-i="2"><g transform="translate(0 13)" fill="#232B3B" stroke="#232B3B" stroke-width="9.92" stroke-linejoin="round"><path d="M3 1L30 1C46 1 55 11 55 30C55 41 51 49 44 54L58 99L35 99L26 61L25 61L25 99L3 99ZM25 22L25 41L29 41C33 41 35 38 35 32C35 26 33 22 29 22Z"/></g><g fill="none" stroke="#0A0D13" stroke-width="16" stroke-linejoin="round"><path d="M3 1L30 1C46 1 55 11 55 30C55 41 51 49 44 54L58 99L35 99L26 61L25 61L25 99L3 99ZM25 22L25 41L29 41C33 41 35 38 35 32C35 26 33 22 29 22Z"/></g><path d="M3 1L30 1C46 1 55 11 55 30C55 41 51 49 44 54L58 99L35 99L26 61L25 61L25 99L3 99ZM25 22L25 41L29 41C33 41 35 38 35 32C35 26 33 22 29 22Z" fill="#fff8f0"/><path d="M3 1L30 1C46 1 55 11 55 30C55 41 51 49 44 54L58 99L35 99L26 61L25 61L25 99L3 99ZM25 22L25 41L29 41C33 41 35 38 35 32C35 26 33 22 29 22Z" fill="url(#mc-wm-bevel)"/></g></g><g transform="translate(208.0 0)"><g class="wl" data-i="3"><g transform="translate(0 13)" fill="#232B3B" stroke="#232B3B" stroke-width="9.92" stroke-linejoin="round"><path d="M3 1L25 1L25 99L3 99Z"/></g><g fill="none" stroke="#0A0D13" stroke-width="16" stroke-linejoin="round"><path d="M3 1L25 1L25 99L3 99Z"/></g><path d="M3 1L25 1L25 99L3 99Z" fill="#fff8f0"/><path d="M3 1L25 1L25 99L3 99Z" fill="url(#mc-wm-bevel)"/></g></g><g transform="translate(242.0 0)"><g class="wl" data-i="4"><g transform="translate(0 13)" fill="#232B3B" stroke="#232B3B" stroke-width="9.92" stroke-linejoin="round"><path d="M29 1C45 1 57 15 57 50C57 85 45 99 29 99C13 99 1 85 1 50C1 15 13 1 29 1ZM29 24C24 24 21 32 21 50C21 68 24 76 29 76C34 76 37 68 37 50C37 32 34 24 29 24Z"/></g><g fill="none" stroke="#0A0D13" stroke-width="16" stroke-linejoin="round"><path d="M29 1C45 1 57 15 57 50C57 85 45 99 29 99C13 99 1 85 1 50C1 15 13 1 29 1ZM29 24C24 24 21 32 21 50C21 68 24 76 29 76C34 76 37 68 37 50C37 32 34 24 29 24Z"/></g><path d="M29 1C45 1 57 15 57 50C57 85 45 99 29 99C13 99 1 85 1 50C1 15 13 1 29 1ZM29 24C24 24 21 32 21 50C21 68 24 76 29 76C34 76 37 68 37 50C37 32 34 24 29 24Z" fill="#fff8f0"/><path d="M29 1C45 1 57 15 57 50C57 85 45 99 29 99C13 99 1 85 1 50C1 15 13 1 29 1ZM29 24C24 24 21 32 21 50C21 68 24 76 29 76C34 76 37 68 37 50C37 32 34 24 29 24Z" fill="url(#mc-wm-bevel)"/></g></g><g transform="translate(307.0 0)"><g class="wl" data-i="5"><g transform="translate(0 13)" fill="#232B3B" stroke="#232B3B" stroke-width="9.92" stroke-linejoin="round"><path d="M26 24L44 88L46 99L6 99L8 88Z"/></g><g fill="none" stroke="#0A0D13" stroke-width="16" stroke-linejoin="round"><path d="M26 24L44 88L46 99L6 99L8 88Z"/></g><path d="M26 24L44 88L46 99L6 99L8 88Z" fill="#ff6b1a"/><path d="M14 74L38 74L41 86L11 86Z M19 56L33 56L35 66L17 66Z" fill="#fff8f0"/><path d="M26 24L44 88L46 99L6 99L8 88Z" fill="url(#mc-wm-bevel)"/></g></g><g transform="translate(366.0 0)"><g class="wl" data-i="6"><g transform="translate(0 13)" fill="#232B3B" stroke="#232B3B" stroke-width="9.92" stroke-linejoin="round"><path d="M56 29L35 34C33 27 31 23 28 23C23 23 20 30 20 50C20 70 23 77 28 77C31 77 33 73 35 66L56 71C53 89 42 99 28 99C11 99 0 83 0 50C0 17 11 1 28 1C42 1 53 11 56 29Z"/></g><g fill="none" stroke="#0A0D13" stroke-width="16" stroke-linejoin="round"><path d="M56 29L35 34C33 27 31 23 28 23C23 23 20 30 20 50C20 70 23 77 28 77C31 77 33 73 35 66L56 71C53 89 42 99 28 99C11 99 0 83 0 50C0 17 11 1 28 1C42 1 53 11 56 29Z"/></g><path d="M56 29L35 34C33 27 31 23 28 23C23 23 20 30 20 50C20 70 23 77 28 77C31 77 33 73 35 66L56 71C53 89 42 99 28 99C11 99 0 83 0 50C0 17 11 1 28 1C42 1 53 11 56 29Z" fill="#ffc300"/><path d="M56 29L35 34C33 27 31 23 28 23C23 23 20 30 20 50C20 70 23 77 28 77C31 77 33 73 35 66L56 71C53 89 42 99 28 99C11 99 0 83 0 50C0 17 11 1 28 1C42 1 53 11 56 29Z" fill="url(#mc-wm-bevel)"/></g></g><g transform="translate(430.0 0)"><g class="wl" data-i="7"><g transform="translate(0 13)" fill="#232B3B" stroke="#232B3B" stroke-width="9.92" stroke-linejoin="round"><path d="M29 1C45 1 57 15 57 50C57 85 45 99 29 99C13 99 1 85 1 50C1 15 13 1 29 1ZM29 24C24 24 21 32 21 50C21 68 24 76 29 76C34 76 37 68 37 50C37 32 34 24 29 24Z"/></g><g fill="none" stroke="#0A0D13" stroke-width="16" stroke-linejoin="round"><path d="M29 1C45 1 57 15 57 50C57 85 45 99 29 99C13 99 1 85 1 50C1 15 13 1 29 1ZM29 24C24 24 21 32 21 50C21 68 24 76 29 76C34 76 37 68 37 50C37 32 34 24 29 24Z"/></g><path d="M29 1C45 1 57 15 57 50C57 85 45 99 29 99C13 99 1 85 1 50C1 15 13 1 29 1ZM29 24C24 24 21 32 21 50C21 68 24 76 29 76C34 76 37 68 37 50C37 32 34 24 29 24Z" fill="#ffc300"/><path d="M29 1C45 1 57 15 57 50C57 85 45 99 29 99C13 99 1 85 1 50C1 15 13 1 29 1ZM29 24C24 24 21 32 21 50C21 68 24 76 29 76C34 76 37 68 37 50C37 32 34 24 29 24Z" fill="url(#mc-wm-bevel)"/></g></g><g transform="translate(495.0 0)"><g class="wl" data-i="8"><g transform="translate(0 13)" fill="#232B3B" stroke="#232B3B" stroke-width="9.92" stroke-linejoin="round"><path d="M2 1L22 1L38 47L38 1L57 1L57 99L37 99L21 55L21 99L2 99Z"/></g><g fill="none" stroke="#0A0D13" stroke-width="16" stroke-linejoin="round"><path d="M2 1L22 1L38 47L38 1L57 1L57 99L37 99L21 55L21 99L2 99Z"/></g><path d="M2 1L22 1L38 47L38 1L57 1L57 99L37 99L21 55L21 99L2 99Z" fill="#ffc300"/><path d="M2 1L22 1L38 47L38 1L57 1L57 99L37 99L21 55L21 99L2 99Z" fill="url(#mc-wm-bevel)"/></g></g><g transform="translate(560.0 0)"><g class="wl" data-i="9"><g transform="translate(0 13)" fill="#232B3B" stroke="#232B3B" stroke-width="9.92" stroke-linejoin="round"><path d="M4 1L54 1L54 23L27 23L27 39L49 39L49 60L27 60L27 77L55 77L55 99L4 99Z"/></g><g fill="none" stroke="#0A0D13" stroke-width="16" stroke-linejoin="round"><path d="M4 1L54 1L54 23L27 23L27 39L49 39L49 60L27 60L27 77L55 77L55 99L4 99Z"/></g><path d="M4 1L54 1L54 23L27 23L27 39L49 39L49 60L27 60L27 77L55 77L55 99L4 99Z" fill="#ffc300"/><path d="M4 1L54 1L54 23L27 23L27 39L49 39L49 60L27 60L27 77L55 77L55 99L4 99Z" fill="url(#mc-wm-bevel)"/></g></g></g></svg>
+      <div class="bar"><i></i></div>
+      <div class="msg">Loading</div>
     </div>
   </div>
   <script type="module" src="/src/main.ts"></script>

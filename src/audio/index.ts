@@ -110,6 +110,10 @@ interface RacerAudio {
 
 const MAX_PENDING = 48;
 
+/** How often the wrong-way alarm re-arms while the sign is up. A shade over the
+ *  length of one shot, so the beeps run continuously without overlapping. */
+const WRONGWAY_PERIOD = 0.62;
+
 // ── scratch. Nothing in this file may allocate per frame ────────────────────
 const _pos = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
@@ -150,6 +154,9 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
   let threatPan = 0;
   let threat = 0;
   let engineTrim = -1;
+  /** The wrong-way alarm's latch, and its re-arm clock. */
+  let wrongWay = false;
+  let wrongWayT = 0;
 
   // ── impulses ──────────────────────────────────────────────────────────────
 
@@ -248,6 +255,29 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
   on<{ racer: Racer }>('race:burnout', ({ racer }) => {
     cue('burnout', racer.isPlayer ? 1 : 0.5, 1, at(racer));
   });
+  /**
+   * The third start verdict.
+   *
+   * The countdown has three outcomes and two of them had a sound. A player who
+   * came on the throttle a beat early got a full-screen JUMPED / NO ROCKET
+   * START plate over total silence, which reads as the game glitching rather
+   * than as a rule being applied — and it is the *most common* of the three the
+   * first time anybody plays.
+   */
+  on<{ racer: Racer }>('race:jumpstart', ({ racer }) => {
+    if (racer.isPlayer) cue('jumpstart', 0.9);
+  });
+  /**
+   * A new best lap.
+   *
+   * The one number a player is chasing lap to lap, and until now the first
+   * acknowledgement of it arrived on the results sheet, ninety seconds after
+   * the thing happened. Player only, and only once there is a lap to have
+   * beaten — the director already applies that rule to its own banner.
+   */
+  on<{ racer: Racer; lap: number }>('race:bestlap', ({ racer, lap }) => {
+    if (racer.isPlayer && lap >= 2) cue('bestlap', 0.85);
+  });
 
   /**
    * The machine's own voice, on top of the boost it just took.
@@ -325,6 +355,12 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
   on<{ racer: Racer }>('kart:offroad', ({ racer }) => {
     if (racer.isPlayer) cue('offroad', 0.85);
   });
+  // ...and finding it again. Leaving the tarmac had a cue and a dust burst;
+  // coming back had neither, which made the surface change a one-way
+  // announcement. Quiet — this is a relief, not an event.
+  on<{ racer: Racer }>('kart:onroad', ({ racer }) => {
+    if (racer.isPlayer) cue('scrape', 0.32, 0.4);
+  });
   on<{ racer: Racer; force: number }>('kart:wall', ({ racer, force }) => {
     cue('wall', racer.isPlayer ? 1 : 0.6, clamp01(force), at(racer));
   });
@@ -395,6 +431,34 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
   });
   on<{ racer: Racer; count: number }>('coin:lose', ({ racer }) => {
     if (racer.isPlayer) cue('coin.lose');
+  });
+
+  /**
+   * The wrong-way sign, which the director calls an alarm and which had no
+   * alarm: it strobed in silence, because there was no `wrongway` id in the
+   * bank and nothing subscribed to the event.
+   *
+   * It fires on the two *edges* only, so this is a latch rather than a poll:
+   * the shot is two beeps of a reversing alarm and `update` re-arms it every
+   * `WRONGWAY_PERIOD` for as long as the sign is up. Held here rather than
+   * scheduled as one long loop because the sign can go out at any moment and a
+   * loop already scheduled on the audio clock cannot be taken back.
+   */
+  on<{ on: boolean }>('race:wrongway', ({ on: active }) => {
+    wrongWay = active;
+    // Fire on the frame it happens, not a period later.
+    if (active) wrongWayT = WRONGWAY_PERIOD;
+  });
+
+  /**
+   * Pausing, and coming back.
+   *
+   * `race:pause` had zero listeners: the loudest state change in the game — the
+   * whole world stopping — happened in complete silence while the class screen
+   * two menus earlier clicked on every keypress.
+   */
+  on<{ on: boolean }>('race:pause', ({ on: active }) => {
+    cue(active ? 'pause.on' : 'pause.off', 0.85);
   });
 
   // The one channel that is genuinely a *warning*: it fires on the two edges of
@@ -724,6 +788,8 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
       music?.setMode('none', 0.08);
       threat = 0;
       threatActive = false;
+      wrongWay = false;
+      wrongWayT = 0;
       engineTrim = -1;
       camPrimed = false;
     },
@@ -737,6 +803,13 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
 
       const now = be.now();
       const step = dt > 0.5 ? 0.5 : dt;
+
+      // The alarm, re-armed. Before `flush`, so the shot is scheduled in the
+      // same pass as everything else that happened this frame.
+      if (wrongWay) {
+        wrongWayT += step;
+        if (wrongWayT >= WRONGWAY_PERIOD) { wrongWayT = 0; cue('wrongway', 0.8); }
+      }
 
       bank.frame(now, step);
       updateListener(step);

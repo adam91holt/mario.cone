@@ -88,6 +88,7 @@ import { clamp01, damp, ease, lerp } from '../../core/math.ts';
 import { createRacer } from '../../physics/kart.ts';
 import { disposeTree, mergeStatic, part, roundedBox, mat } from '../../vehicles/parts.ts';
 import { getVehicle, listVehicles } from '../../vehicles/registry.ts';
+import { EXPOSURE_TRIM, installFilmStock } from '../../render/grade.ts';
 import type { GameContext, Racer, VehicleDef, VehicleId, VehicleModel } from '../../types.ts';
 
 /** Where the lens is for each screen, and what it is looking at. */
@@ -415,18 +416,33 @@ export function createStage(ctx: GameContext): Stage | null {
     // a front-end with no 3D is worse, but a front-end that throws is fatal.
     return null;
   }
-  renderer.setPixelRatio(1);
+  // **The game's own film stock, not a second one.**
+  //
+  // This used to be stock ACES at 1.16 exposure with no composite behind it,
+  // while the race renders through `installFilmStock` — the studio's own grade
+  // GLSL — plus a bloom pyramid, atmosphere, vignette and dither. Measured on
+  // the same cone at the 90th percentile of lit orange, the machine on the
+  // select screen came out at (222,119,63) against (247,139,80) on the grid: a
+  // player picks a duller, unbloomed machine and is handed a brighter one one
+  // second later. Same grade, same exposure, and the trim is the render
+  // module's own, so the two cannot drift apart again.
+  //
+  // There is no composite here and there will not be: a second HDR buffer and a
+  // bloom pyramid over the top of a race that is already paying for a full
+  // frame is not worth it for a backdrop. The `.grade` layer in `chrome.ts`
+  // supplies the vignette the post stack would have; what mattered was the
+  // *colour*, and that is now identical.
+  renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.16;
+  installFilmStock(renderer, ctx.config.render.exposure * EXPOSURE_TRIM);
   renderer.info.autoReset = true;
 
-  // Shadows follow the game's own quality switch. `PCFShadowMap` rather than
-  // the soft variant on purpose: the reviewers rasterise in software, and the
-  // extra taps buy a softness the contact patch underneath already supplies.
+  // Shadows follow the game's own quality switch, and take the same filter the
+  // engine uses — the front-end was the one surface in the product with hard
+  // shadow edges on it.
   const SHADOWS = ctx.quality.shadows !== false;
   renderer.shadowMap.enabled = SHADOWS;
-  renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   const scene = new THREE.Scene();
   scene.background = gradientSky();

@@ -33,10 +33,11 @@
 import { clamp01, damp, ease, lerp } from '../../core/math.ts';
 import { listVehicles } from '../../vehicles/registry.ts';
 import { listCourses } from '../../track/courses/index.ts';
-import { glyphRun } from '../glyphs.ts';
+import { glyphBox, glyphRun } from '../glyphs.ts';
 import { vehicleMark, wordmark } from './art.ts';
 import {
-  bind, courseMap, courseScene, cupEmblem, fromHtml, hexCss, q, title, unitPx, type Bound,
+  bind, courseMap, courseScene, cupEmblem, fromHtml, hexCss, q, title, titleBox, unitPx,
+  type Bound,
 } from './chrome.ts';
 import type { CourseDef, EngineClass, GameContext, VehicleId } from '../../types.ts';
 
@@ -288,14 +289,13 @@ export function createTitleScreen(): TitleScreen {
       <div class="mark-wrap">
         <div class="board"></div>
         ${wordmark()}
-        <div class="tagline">Roadworks Racing</div>
+        <div class="tagline">${title('Roadworks Racing')}</div>
       </div>
       <div class="start">
         ${title('Press Start')}
         <div class="sub">Enter &nbsp;·&nbsp; Space &nbsp;·&nbsp; (A)</div>
       </div>
-      <div class="cast">Cone &nbsp;·&nbsp; Sedan &nbsp;·&nbsp; Tipper &nbsp;·&nbsp; Digger
-        &nbsp;·&nbsp; Shunter &nbsp;·&nbsp; Plane &nbsp;·&nbsp; Chopper</div>
+      <div class="cast">${listVehicles().map((v) => v.name).join(' &nbsp;·&nbsp; ')}</div>
     </div>`);
 
   const b = bind(root);
@@ -448,7 +448,7 @@ export function createRacerScreen(): RacerScreen {
   const kind = bind(q(root, '.kind'));
   const name = q<HTMLElement>(root, '.who > i');
   const blurb = bind(q(root, '.blurb'));
-  const nameB = bind(name);
+  const nameB = titleBox(name);
   const vs = bind(q(root, '.vs'));
   const rosterEl = q<HTMLElement>(root, '.roster');
 
@@ -778,7 +778,7 @@ export function createCourseScreen(): CourseScreen {
   const briefBox = bind(q(root, '.brief'));
   const briefEm = q<HTMLElement>(root, '.brief .em-wrap');
   const briefCup = bind(q(root, '.brief .cupname'));
-  const briefRound = bind(q(root, '.brief .rnd > i'));
+  const briefRound = titleBox(q(root, '.brief .rnd > i'));
   const briefPips = q<HTMLElement>(root, '.brief .pips');
 
   const tabNodes = Array.from(root.querySelectorAll<HTMLElement>('.cupTab'));
@@ -792,10 +792,10 @@ export function createCourseScreen(): CourseScreen {
     held: bind(q(el, '.held')),
     scene: q<HTMLElement>(el, '.scene'),
     mapbox: q<HTMLElement>(el, '.mapbox'),
-    nm: bind(q(el, '.nm > i')),
-    len: bind(q(el, '.len')),
-    lap: bind(q(el, '.lap')),
-    tot: bind(q(el, '.tot')),
+    nm: titleBox(q(el, '.nm > i')),
+    len: glyphBox(q(el, '.len')),
+    lap: glyphBox(q(el, '.lap')),
+    tot: glyphBox(q(el, '.tot')),
     s: { v: 0, vel: 0 } as Spring,
     held01: 0,
   }));
@@ -932,9 +932,9 @@ export function createCourseScreen(): CourseScreen {
       c.nm.text(course.name);
       const len = Math.round(courseLength(course));
       const laps = course.laps ?? 3;
-      c.len.text(String(len));
-      c.lap.text(String(laps));
-      c.tot.text(((len * laps) / 1000).toFixed(1));
+      c.len.set(String(len));
+      c.lap.set(String(laps));
+      c.tot.set(((len * laps) / 1000).toFixed(1));
     }
     paintBrief();
   }

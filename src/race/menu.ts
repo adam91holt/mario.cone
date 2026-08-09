@@ -22,13 +22,15 @@
 
 import { clamp01, ease } from '../core/math.ts';
 import { signBox } from './letters.ts';
-import { bind, fromHtml, q, type Bound } from '../ui/theme.ts';
+import {
+  bind, cursorRing, CURSOR_CHEVRON, fromHtml, hintCss, hintKey, q, type Bound,
+} from '../ui/theme.ts';
 
 export const CSS_MENU = `
-#race .opts { display: flex; gap: calc(var(--u) * .85); align-items: stretch; }
+#race .opts { display: flex; gap: calc(var(--u) * 1.35); align-items: stretch; }
 #race .opt {
   position: relative; pointer-events: auto; cursor: pointer;
-  display: flex; align-items: center; gap: calc(var(--u) * .5);
+  display: flex; align-items: center;
   padding: calc(var(--u) * .52) calc(var(--u) * 1.15) calc(var(--u) * .58);
   border-radius: calc(var(--u) * .5);
   background: linear-gradient(178deg, rgba(58,65,82,.95) 0%, rgba(28,33,43,.96) 48%, rgba(15,18,25,.96) 100%);
@@ -37,41 +39,79 @@ export const CSS_MENU = `
     inset 0 calc(var(--u) * -.14) 0 rgba(0,0,0,.5),
     0 0 0 calc(var(--u) * .12) rgba(9,11,15,.92),
     0 calc(var(--u) * .22) calc(var(--u) * .6) rgba(0,0,0,.55);
-  overflow: hidden;
 }
 /* The header strip every plate in this game wears, so an option reads as part
-   of the same instrument set as the lap counter. */
+   of the same instrument set as the lap counter. It carries the corner radius
+   itself rather than being clipped by the plate, because the plate has to let
+   the cursor out — see below. */
 #race .opt::before {
   content: ''; position: absolute; left: 0; right: 0; top: 0;
   height: calc(var(--u) * .16);
+  border-radius: calc(var(--u) * .5) calc(var(--u) * .5) 0 0;
   background: linear-gradient(90deg, #FFC300, #FF9A1A 60%, #FFC300); opacity: .9;
 }
-#race .opt .word { height: calc(var(--u) * 1.5); color: #E8ECF4; }
-#race .opt.on { background: linear-gradient(178deg, #FFD84D 0%, #FFA317 55%, #E0760A 100%); }
-#race .opt.on::before { background: linear-gradient(90deg, #FFF6D8, #FFFFFF 50%, #FFF6D8); opacity: 1; }
-/* **The selected label stays light.** Every word in this module is drawn with a
-   near-black keyline welded to its geometry, so dark ink on a gold plate is a
-   dark face inside a dark outline — measured, it turned RESUME into a smudge.
-   A white face against the same keyline is the most legible thing on the
-   screen, gold plate or not. */
+#race .opt .word { height: calc(var(--u) * 1.5); color: #A9B6C8; }
+
+/* ── the cursor ──────────────────────────────────────────────────────────── */
+/* **One selected-state for the whole game.** This used to be a gold-*filled*
+   plate with a white label, while the front-end's cursor ninety seconds earlier
+   was a gold outline *ring* around an unchanged cell. Two games' worth of "this
+   one is selected".
+   The ring wins, and the reason is not taste: half the cells the front-end's
+   cursor sits on are pictures — a machine silhouette, a card carrying a
+   painting of a circuit — and a fill obliterates them, where a ring goes round
+   anything. What the fill had that the ring did not is the chevron, and that
+   came along: it is the same shape, in the same place, on both sides of the
+   flag now. See the cursor note in ui/theme.ts. */
+/* The chosen plate is lit as well as ringed, exactly as a chosen tile is on the
+   roster screen. Stated as a background rather than a "filter: brightness()",
+   because a filter on this element would put the chevron hanging off its left
+   edge inside the filter's own region and there is no reason to find out how
+   each browser sizes that. */
+#race .opt.on {
+  background: linear-gradient(178deg, rgba(82,91,113,.96) 0%, rgba(44,51,66,.96) 48%, rgba(24,29,39,.96) 100%);
+  box-shadow:
+    inset 0 calc(var(--u) * .1) 0 rgba(255,255,255,.3),
+    inset 0 calc(var(--u) * -.14) 0 rgba(0,0,0,.5),
+    0 calc(var(--u) * .22) calc(var(--u) * .6) rgba(0,0,0,.55),
+    ${cursorRing(0.9)};
+}
 #race .opt.on .word { color: #FFF8F0; }
 #race .opt.dim { opacity: .38; }
-
-/* The selected option carries the game's own chevron, pointing at itself. */
-#race .opt .mark {
-  width: calc(var(--u) * .8); height: calc(var(--u) * 1.1);
-  background: #2A1503; opacity: 0;
-  clip-path: polygon(0 0, 62% 50%, 0 100%, 22% 50%);
-  filter: drop-shadow(0 0 calc(var(--u) * .12) rgba(255,244,210,.9));
-}
+/* The chevron. On a real element rather than a pseudo one, because this plate's
+   own ::before is already spent on the hazard strip. */
+#race .opt .mark {${CURSOR_CHEVRON}  opacity: 0; }
 #race .opt.on .mark { opacity: 1; }
 
+/* ── the prompt rail ─────────────────────────────────────────────────────── */
+/* Keycaps, exactly as the front-end prints them. This was a bare 62%-opacity
+   line of drawn words with no keycaps in it — and, on the results screen, with
+   no mention of the Escape key that does in fact work there. */
 #race .hint {
-  display: flex; align-items: center; gap: calc(var(--u) * .55);
-  opacity: .62; margin-top: calc(var(--u) * .55);
+  display: flex; align-items: center; gap: calc(var(--u) * .95);
+  margin-top: calc(var(--u) * .7); opacity: .92;
 }
-#race .hint .word { height: calc(var(--u) * .92); color: #CBD4E4; }
+${hintCss('#race')}
 `;
+
+/**
+ * How a widget in this layer makes a noise.
+ *
+ * **Every menu in the front-end makes a sound; every menu in the race was
+ * silent.** `grep -rn 'audio.play' src/race/` returned nothing at all: the
+ * countdown lights, the course card, the finish letterbox, the ticker, the
+ * results sheet and this row called the mixer exactly twice, both times to set
+ * the music. Moving the cursor on the class screen clicked; moving it across
+ * NEXT RACE / RACE AGAIN / EXIT — on the most animated screen in the game —
+ * did not.
+ *
+ * A function rather than the whole `GameContext`: these widgets have no
+ * business reading simulation state, and the one thing they need from the
+ * outside world is the ability to say *that happened*. `ctx.audio` is null
+ * until the player's first gesture, so the closure is resolved per call rather
+ * than captured.
+ */
+export type Sfx = (id: string, volume?: number, rate?: number) => void;
 
 export interface MenuOption {
   id: string;
@@ -97,7 +137,7 @@ export interface Menu {
   dispose(): void;
 }
 
-export function createMenu(onPick: (id: string) => void): Menu {
+export function createMenu(onPick: (id: string) => void, sfx: Sfx): Menu {
   const root = fromHtml('<div class="opts"></div>');
 
   interface Cell {
@@ -156,7 +196,13 @@ export function createMenu(onPick: (id: string) => void): Menu {
       const step = dir < 0 ? -1 : 1;
       for (let n = 0; n < cells.length; n++) {
         const next = (cursor + step * (n + 1) + cells.length * (n + 2)) % cells.length;
-        if (selectable(next)) { cursor = next; pulse = 1; paint(); return; }
+        if (selectable(next)) {
+          cursor = next; pulse = 1; paint();
+          // The same cue, at the same volume and the same rate, as the cursor
+          // on every screen in the front-end.
+          sfx('ui.click', 0.55, 1.08);
+          return;
+        }
       }
     },
 
@@ -167,6 +213,7 @@ export function createMenu(onPick: (id: string) => void): Menu {
       cursor = i;
       pulse = 1;
       paint();
+      sfx('ui.click', 0.55, 1.08);
     },
 
     current(): string | null {
@@ -180,6 +227,7 @@ export function createMenu(onPick: (id: string) => void): Menu {
     press(): string | null {
       if (!selectable(cursor)) return null;
       punch = 1;
+      sfx('ui.ok', 0.95);
       return cells[cursor]!.option.id;
     },
 
@@ -219,9 +267,16 @@ export function createMenu(onPick: (id: string) => void): Menu {
   return api;
 }
 
-/** The "what do I press" line under a menu. Built from the same drawn face. */
-export function createHint(text: string): HTMLElement {
-  const el = fromHtml('<div class="hint"><div class="word"></div></div>');
-  signBox(q(el, '.word'), text);
+/**
+ * The "what do I press" line under a menu.
+ *
+ * Built from `hintKey` in `ui/theme.ts` — the same builder, the same keycaps
+ * and the same title-case labels the front-end's rail is made of. `keys` is a
+ * list of [cap, label] pairs so a caller states only what actually does
+ * something from where the player is standing.
+ */
+export function createHint(keys: ReadonlyArray<readonly [string, string]>): HTMLElement {
+  const el = fromHtml('<div class="hint"></div>');
+  el.innerHTML = keys.map(([k, label]) => hintKey(k, label)).join('');
   return el;
 }

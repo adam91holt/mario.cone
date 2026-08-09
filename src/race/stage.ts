@@ -25,7 +25,9 @@
 
 import { clamp01, ease } from '../core/math.ts';
 import { glyphBox } from '../ui/glyphs.ts';
-import { bind, fromHtml, q, rgba, type Bound } from '../ui/theme.ts';
+import {
+  bind, curtainCss, curtainTransform, CURTAIN_IN, CURTAIN_OUT, fromHtml, q, rgba, type Bound,
+} from '../ui/theme.ts';
 import { signBox } from './letters.ts';
 
 export const CSS_STAGE = `
@@ -278,21 +280,17 @@ export const CSS_STAGE = `
    sheet. Not decoration: it is the only way three live layers — the in-race
    HUD, the flag's own furniture and an arriving results table — can be swapped
    without a second of all three being legible at once. Nothing gets torn down
-   in front of the player; it gets torn down behind a curtain. */
-#racefin .blade {
-  position: absolute; top: -6%; bottom: -6%; width: 62%;
-  background: linear-gradient(178deg, #12161F 0%, #080B11 60%, #04060A 100%);
-  opacity: 0;
-}
-#racefin .blade.l { left: 0; transform: translateX(-102%) skewX(-7deg); }
-#racefin .blade.r { right: 0; transform: translateX(102%) skewX(-7deg); }
-#racefin .blade::after {
-  content: ''; position: absolute; top: 0; bottom: 0; width: calc(var(--u) * .62);
-  background: repeating-linear-gradient(115deg,
-    #FF6B1A 0 calc(var(--u) * .7), #14171F calc(var(--u) * .7) calc(var(--u) * 1.4));
-}
-#racefin .blade.l::after { right: calc(var(--u) * -.62); }
-#racefin .blade.r::after { left: calc(var(--u) * -.62); }
+   in front of the player; it gets torn down behind a curtain.
+
+   **The same curtain the front-end swings to start a race.** It was not: this
+   one was 62% wide hung at x=0, and the front-end's was 78% hung 10% outside
+   the frame in edge-to-edge orange stripe at roughly twice the duration. Two
+   builds of one gesture, ninety seconds apart. The geometry, the paint and the
+   two travel times now come from "ui/theme.ts" and only the hold below is this
+   caller's own — see the curtain note there, including why 62% at x=0 leaves a
+   wedge of bare screen in one corner at the moment the curtain is shut. */
+${curtainCss('#racefin', '.blade')}
+#racefin .blade { opacity: 0; }
 `;
 
 // ── the course card ────────────────────────────────────────────────────────
@@ -905,10 +903,12 @@ export const FIN_IN = 0.2;
 export const FIN_HOLD = 1.9;
 export const FIN_OUT = 0.45;
 export const FIN_TOTAL = FIN_IN + FIN_HOLD + FIN_OUT;
-/** The hand-off curtain: closed by 0.24s, held, open again by 0.76s. */
-const WIPE_IN = 0.24;
+/** The hand-off curtain. The two travel times are the game's, shared with the
+ *  front-end's launch board; the hold is this caller's, and is only as long as
+ *  it takes to tear three layers down behind a covered frame. */
+const WIPE_IN = CURTAIN_IN;
 const WIPE_HOLD = 0.2;
-const WIPE_OUT = 0.32;
+const WIPE_OUT = CURTAIN_OUT;
 export const WIPE_COVERED = WIPE_IN;
 export const WIPE_TOTAL = WIPE_IN + WIPE_HOLD + WIPE_OUT;
 
@@ -985,8 +985,8 @@ export function createFinishBeat(): FinishBeat {
       clearBeat();
       bladeL.set('opacity', '0');
       bladeR.set('opacity', '0');
-      bladeL.set('transform', 'translateX(-102%) skewX(-7deg)');
-      bladeR.set('transform', 'translateX(102%) skewX(-7deg)');
+      bladeL.set('transform', curtainTransform(0, -1));
+      bladeR.set('transform', curtainTransform(0, 1));
       box.cls('grey', false);
     },
 
@@ -1024,10 +1024,8 @@ export function createFinishBeat(): FinishBeat {
       else v = 1 - ease.inQuad(clamp01((wipeT - WIPE_IN - WIPE_HOLD) / WIPE_OUT));
       bladeL.set('opacity', '1');
       bladeR.set('opacity', '1');
-      // 62%-wide blades meeting in the middle: at v = 1 each has travelled its
-      // own width less the overlap, so the seam is always covered.
-      bladeL.set('transform', `translateX(${((v - 1) * 102).toFixed(2)}%) skewX(-7deg)`);
-      bladeR.set('transform', `translateX(${((1 - v) * 102).toFixed(2)}%) skewX(-7deg)`);
+      bladeL.set('transform', curtainTransform(v, -1));
+      bladeR.set('transform', curtainTransform(v, 1));
     },
   };
 

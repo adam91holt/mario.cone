@@ -13,7 +13,7 @@ import { clamp01, ease } from '../core/math.ts';
 import { glyphBox, ordinalWord } from '../ui/glyphs.ts';
 import { bind, fromHtml, q } from '../ui/theme.ts';
 import { signBox } from './letters.ts';
-import { createHint, createMenu, type Menu, type MenuOption } from './menu.ts';
+import { createHint, createMenu, type Menu, type MenuOption, type Sfx } from './menu.ts';
 
 export const CSS_PAUSE = `
 #race .pause { position: absolute; inset: 0; opacity: 0; display: none; }
@@ -59,7 +59,7 @@ export interface PauseMenu {
   dispose(): void;
 }
 
-export function createPauseMenu(onPick: (id: string) => void): PauseMenu {
+export function createPauseMenu(onPick: (id: string) => void, sfx: Sfx): PauseMenu {
   const root = fromHtml(`
     <div class="pause">
       <div class="scrim"></div>
@@ -84,9 +84,9 @@ export function createPauseMenu(onPick: (id: string) => void): PauseMenu {
   const posNum = glyphBox(q(root, '.posn'));
   const posSuf = glyphBox(q(root, '.poss'));
 
-  const menu = createMenu(onPick);
+  const menu = createMenu(onPick, sfx);
   q(root, '.acts').appendChild(menu.root);
-  q(root, '.acts').appendChild(createHint('LEFT RIGHT CHOOSE   ENTER SELECT'));
+  q(root, '.acts').appendChild(createHint([['\u25C0 \u25B6', 'Choose'], ['\u21B5', 'Select'], ['Esc', 'Resume']]));
 
   let t = -1;
   let live = false;

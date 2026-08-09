@@ -16,7 +16,7 @@
 
 import { getVehicle } from '../vehicles/registry.ts';
 import type { GameContext, Racer, Track } from '../types.ts';
-import { blipColor, fromHtml, hexCss, q, unitPx } from './theme.ts';
+import { blipColor, fromHtml, hexCss, MAP, q, unitPx } from './theme.ts';
 
 /**
  * Plate geometry, in `--u`.
@@ -296,14 +296,24 @@ export function createMinimap(ctx: GameContext): Minimap {
     // them. A map that has to be looked *for* has already failed: this is a
     // glance widget. The road now sits well clear of everything behind it, which
     // also gives the blips a light ground to be dark-rimmed against.
-    sc.strokeStyle = 'rgba(8,10,14,.94)';
+    //
+    // **The same three strokes the circuit cards draw.** They were not: the
+    // course-select card drew a mid-grey road with a white dashed crown and a
+    // yellow dot on the start, and this drew a pale ribbon with a chequer — so
+    // the picture a player chooses a circuit from and the picture they read for
+    // three laps were two different diagrams of the same track. Both now take
+    // their palette from `MAP` in ui/theme.ts, and the start is a chequer on
+    // both. The crown is solid rather than dashed because at this size a dash
+    // is noise, and one road cannot be dashed on one screen and solid on
+    // another.
+    sc.strokeStyle = MAP.ink;
     sc.lineWidth = roadPx + Math.max(2.4 * dpr, 0.2 * unit * dpr);
     sc.stroke(path);
-    sc.strokeStyle = '#98A2B4';
+    sc.strokeStyle = MAP.road;
     sc.lineWidth = roadPx;
     sc.stroke(path);
-    sc.strokeStyle = 'rgba(255,248,240,.34)';
-    sc.lineWidth = Math.max(0.7, roadPx * 0.16);
+    sc.strokeStyle = MAP.crown;
+    sc.lineWidth = Math.max(0.7, roadPx * MAP.crownScale);
     sc.stroke(path);
 
     drawStartLine(track, roadPx);

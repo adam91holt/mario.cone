@@ -251,7 +251,7 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     if (open && paused) togglePause();
   });
 
-  const overlay: RaceOverlay | null = createOverlay(onPick);
+  const overlay: RaceOverlay | null = createOverlay(ctx, onPick);
 
   // ── small helpers ────────────────────────────────────────────────────────
 
@@ -289,14 +289,20 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
    *               behind them shows the whole field. `slot` is the player's
    *               grid index, `total` the field size, `back` the metres of grid
    *               ahead of them.
-   *   `countdown` the three beats. Wanted: back and up over the pole-sitter's
-   *               shoulder. The chase rig's own pull-back is 1.5m against 8m
-   *               rows, so on any grid slot with a machine behind it the lens
-   *               ends up *inside* that machine.
+   *   `countdown` the three beats. Back and up in proportion to the grid
+   *               standing in front of the player, so the machines they have to
+   *               get past are in the frame they spend the count staring at.
    *   `podium`    the results sheet's backdrop. `racerId` is the winner.
+   *   `finish`    the player's own crossing.
    *
-   * Nothing listens yet; an unanswered ask costs one bus dispatch and keeps the
-   * request in the code that needs it rather than in a report nobody re-reads.
+   * **Three of the four are answered now** — `render/camera.ts` subscribes and
+   * composes `grid`, `countdown` and `podium`. They were not, for the whole
+   * life of the project, which is why the opening sweep used to fly through the
+   * item layer reading the grid backwards and why the results sheet's
+   * deliberately transparent centre opened onto empty road.
+   *
+   * `finish` is still unanswered, and the borrow below is what stands in for it
+   * — see the note under it.
    */
   function askCamera(shot: string, extra: Record<string, unknown> = {}): void {
     ctx.bus.emit('camera:shot', { shot, ...extra });
@@ -304,8 +310,9 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
 
   // ── the lens, borrowed ───────────────────────────────────────────────────
   //
-  // `camera:shot` is the right channel and nothing answers it yet, so the flag
-  // would land on the same chase framing the previous three laps were shot on —
+  // `camera:shot` is the right channel and nothing answers the `finish` request
+  // on it yet, so the flag would land on the same chase framing the previous
+  // three laps were shot on —
   // which is the single loudest complaint against this piece. `camera:mode`
   // *is* answered, and it can at least change the lens: `near` pulls two metres
   // in, drops half a metre and shortens the field of view, which against the
@@ -475,7 +482,11 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     }
 
     ctx.race.standings = order.map((r) => r.id);
-    ctx.bus.emit('race:grid', { order: ctx.race.standings.slice() });
+    // No `race:grid` emit. It carried the seated order into a room that never
+    // had anybody in it, and the same order is already on `ctx.race.standings`
+    // for anything in the frame and on `__RACE.probe().grid` for anything
+    // outside it. An unheard emit costs frame time and makes the event table
+    // lie about what the game is.
   }
 
   /** The player's grid index, pole = 0. -1 before the grid is seated. */
@@ -709,9 +720,11 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
             overlay?.note.show('BEST LAP', formatTime(split));
           }
         }
-        if (racer.lap === ctx.race.totalLaps - 1) {
-          ctx.bus.emit('race:finallap', { racer, lap: racer.lap });
-          if (racer.isPlayer) ctx.fx?.flash(0xFF6B1A, 0.3);
+        // The final lap. Stated by `race:lap` and nothing else: `lap` is in that
+        // payload and the mixer already lifts the fanfare off it, so the second
+        // announcement this used to make was one nobody ever subscribed to.
+        if (racer.lap === ctx.race.totalLaps - 1 && racer.isPlayer) {
+          ctx.fx?.flash(0xFF6B1A, 0.3);
         }
       }
       if (racer.lap >= ctx.race.totalLaps && !racer.finished) finishRacer(racer, false);
@@ -965,12 +978,35 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
 
   // ── results ──────────────────────────────────────────────────────────────
 
+  /**
+   * Open a championship over the cup the current circuit belongs to.
+   *
+   * **The circuit the player chose decides which round this is.** It did not,
+   * and the two halves of the game said different things about it inside one
+   * second: the front-end's launch card printed the chosen circuit's index in
+   * the cup ("ROUND 3 OF 4", third of four pips lit) and `begin()` here
+   * unconditionally set round 0, so the course card on the grid a beat later
+   * said 1/4. Worse, `cup.courseId()` is `courseIds[round]`, so NEXT RACE after
+   * a race started on Saltpan sent the player to Jackhammer — skipping Cone
+   * Canyon and queueing Saltpan again later in the same championship.
+   *
+   * A cup is its registry order and nothing else, so entering it on the third
+   * circuit means entering at round three. All three screens that state a round
+   * — the circuit card's brief, the launch card, the grid's course card — now
+   * read the same number off the same list, and `advance()` walks forward
+   * through it in order.
+   *
+   * `rounds` is the list's own length rather than a hardcoded 4, so a fifth
+   * circuit added to a cup lengthens the championship without a line changing.
+   */
   function ensureCup(): void {
     if (cupStarted) return;
     const cupId = ctx.track?.course.cup ?? 'hazard';
     const inCup = coursesInCup(cupId);
     const list = (inCup.length ? inCup : listCourses().slice()).map((c) => c.id);
-    cup.begin(cupId, cupTitle(cupId), list, 4);
+    cup.begin(cupId, cupTitle(cupId), list, list.length);
+    const at = list.indexOf(cfgNow.courseId);
+    if (at > 0) cup.state.round = at;
     cupStarted = true;
   }
 
@@ -1135,8 +1171,8 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     if (id === 'exit') {
       // The front-end owns what happens after a race, and it published a door
       // for exactly this: `ui:menu:open` raises the character-select screen.
-      // `race:exit` goes out alongside it for anyone else who wants to know.
-      ctx.bus.emit('race:exit', { from: 'results' });
+      // (There used to be a `race:exit` alongside it "for anyone else who wants
+      // to know". Nobody ever did.)
       if ((ctx.bus.inspect()['ui:menu:open'] ?? 0) > 0) {
         ctx.bus.emit('ui:menu:open', { from: 'results' });
         return;

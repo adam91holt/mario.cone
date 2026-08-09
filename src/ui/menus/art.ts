@@ -117,6 +117,19 @@ function cell(d: string, fill: string, extra = ''): string {
  * which is why the cone lands in the middle of the word instead of at the end
  * of it.
  */
+/**
+ * ...and it is also the *first* frame of the game.
+ *
+ * The loading screen in `index.html` carries the output of this function
+ * inlined, because that frame has to paint before a single module has parsed —
+ * it used to carry a second, unrelated logotype (lowercase "mario.cone" in
+ * Trebuchet 900) which held for seconds on a cold load and was then replaced by
+ * this one. That inline copy is the one duplicated asset in the project. If any
+ * of the paths above change, regenerate it:
+ *
+ *   node --experimental-strip-types -e "import('./src/ui/menus/art.ts')
+ *     .then(m => process.stdout.write(m.wordmark()))"
+ */
 export function wordmark(): string {
   const runs: Array<{ ch: string; fill: string }> = [];
   for (const ch of 'MARIO') runs.push({ ch, fill: hexCss(C.white) });

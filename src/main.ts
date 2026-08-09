@@ -23,6 +23,7 @@ import { createWorldSystem } from './world/index.ts';
 import { createFxSystem } from './fx/index.ts';
 import { createAudioSystem } from './audio/index.ts';
 import { getVehicle, listVehicles } from './vehicles/registry.ts';
+import { createCoachSystem } from './ui/coach.ts';
 import { createHudSystem } from './ui/hud.ts';
 import { createMenuSystem } from './ui/menus/index.ts';
 import type {
@@ -96,6 +97,7 @@ async function boot(): Promise<void> {
   engine.add(createFxSystem(ctx));
   engine.add(createAudioSystem(ctx));
   engine.add(createHudSystem(ctx));
+  engine.add(createCoachSystem(ctx));
   engine.add(createMenuSystem(ctx));
 
   /** Tear down the previous field and build a fresh one. */
@@ -118,7 +120,22 @@ async function boot(): Promise<void> {
     for (let i = 0; i < cfg.racerCount; i++) {
       const isPlayer = i === 0;
       const def = isPlayer ? getVehicle(cfg.vehicleId) : cpuPool[(i - 1) % cpuPool.length]!;
-      const name = isPlayer ? 'You' : CPU_NAMES[(i - 1) % CPU_NAMES.length]!;
+      // **The player is named after their machine.**
+      //
+      // Seven CPUs are named out of the roadworks vocabulary — Bollard,
+      // Hi-Vis, Tarmac, Skip — and the player was 'You', which made their own
+      // line the one row in the results table in a different naming system:
+      // 5TH SKIP / 6TH YOU / 7TH HI-VIS. Worse, ROAD CONE — a name the player
+      // meets on the roster tile, in the dossier headline, in the breadcrumb
+      // tray and on the launch card — never appeared again once the curtain
+      // closed, so a whole screen of choosing survived the hand-off as a colour
+      // chip and nothing else.
+      //
+      // Nothing is lost by dropping 'You': every readout that has to say "this
+      // is you" already does it in paint. The results row has `.you` (a lit
+      // gold plate), the championship row has it too, the ticker flags it, and
+      // the minimap blip is the player's own livery.
+      const name = isPlayer ? def.name : CPU_NAMES[(i - 1) % CPU_NAMES.length]!;
       const racer = createRacer(i, name, def.id, { ...def.stats }, isPlayer);
 
       if (!isPlayer) {
@@ -219,7 +236,10 @@ async function boot(): Promise<void> {
 
 boot().catch((err) => {
   console.error('[boot] failed', err);
-  const el = document.getElementById('boot');
+  // Write into the loading screen's own message line rather than over the whole
+  // block: the wordmark stays up, and a game that fails to start still looks
+  // like the game that failed to start.
+  const el = document.querySelector('#boot .msg') ?? document.getElementById('boot');
   if (el) el.textContent = `Failed to start: ${String(err)}`;
 });
 

@@ -40,20 +40,52 @@ const D = (
   mode: ItemDef['mode'], aiDelay: number,
 ): ItemDef => ({ id, name, color, accent, mode, aiDelay });
 
+/**
+ * **The names are this game's, not another studio's.**
+ *
+ * The machines are a Road Cone, a Tipper Truck and a Shunter; the drivers are
+ * Bollard, Tarmac, Hi-Vis and Skip; the circuits are Cone Canyon Speedway and
+ * Saltpan Bypass — and the item set was Banana, Green Shell, Red Shell,
+ * Mushroom, Star, Bullet Bill, Blooper, Boo and Bob-omb. The roadworks joke
+ * that carries the entire cast stopped dead at the item box, and these are
+ * *player-facing*: `reel.ts` prints the name on the what-hit-you plate.
+ *
+ * The `ItemId`s are untouched — they are a published contract, every module in
+ * the game switches on them, and renaming them would be churn for no player.
+ * Several of the models were re-themed long before the names caught up
+ * (`models.ts`: the shell is a hard hat, the mushroom is a compressed-air
+ * canister), so for most of the set this is the label finally agreeing with the
+ * object it is under.
+ */
 export const ITEMS: Record<ItemId, ItemDef> = {
-  banana:         D('banana', 'Banana', 0xFFD429, 0xC98A16, 'aim', 1.4),
-  greenShell:     D('greenShell', 'Green Shell', 0x46D63C, 0xF3FFE8, 'aim', 0.9),
-  redShell:       D('redShell', 'Red Shell', 0xF03A2E, 0xFFEDE4, 'aim', 0.8),
-  mushroom:       D('mushroom', 'Mushroom', 0xFF5B4A, 0xFFF3E2, 'instant', 1.2),
-  tripleMushroom: D('tripleMushroom', 'Triple Mushroom', 0xFF5B4A, 0xFFF3E2, 'instant', 1.0),
-  star:           D('star', 'Star', 0xFFD84D, 0xFFF6C8, 'instant', 0.7),
-  bulletBill:     D('bulletBill', 'Bullet Bill', 0x4A5162, 0xFFF8F0, 'instant', 1.1),
-  lightning:      D('lightning', 'Lightning', 0xFFE24A, 0xFFFCE0, 'instant', 1.6),
-  blooper:        D('blooper', 'Blooper', 0xF2F6FF, 0x2C3550, 'instant', 1.3),
-  boo:            D('boo', 'Boo', 0xEFF3FF, 0x2B3149, 'instant', 1.2),
-  bomb:           D('bomb', 'Bob-omb', 0x2E3340, 0xFF6B1A, 'aim', 1.0),
+  // A yellow wedge lying flat on the tarmac that puts you sideways if you find
+  // it with a wheel. It was always a chock; it was only ever called a banana.
+  banana:         D('banana', 'Wheel Chock', 0xFFD429, 0xC98A16, 'aim', 1.4),
+  // The domed thing with the bright brim that skitters down the road — built as
+  // a hard hat since the models were drawn.
+  greenShell:     D('greenShell', 'Hard Hat', 0x46D63C, 0xF3FFE8, 'aim', 0.9),
+  // The same hat, in a colour that means somebody is coming to find you.
+  redShell:       D('redShell', "Foreman's Hat", 0xF03A2E, 0xFFEDE4, 'aim', 0.8),
+  mushroom:       D('mushroom', 'Air Canister', 0xFF5B4A, 0xFFF3E2, 'instant', 1.2),
+  tripleMushroom: D('tripleMushroom', 'Triple Canister', 0xFF5B4A, 0xFFF3E2, 'instant', 1.0),
+  // A gold star, and on a work site a gold star is a safety record nobody can
+  // touch you over. The model did not have to change a millimetre.
+  star:           D('star', 'Safety Award', 0xFFD84D, 0xFFF6C8, 'instant', 0.7),
+  // The kart goes inside a charcoal husk with a hazard collar and is fired down
+  // the road. That is a pile driver, not a bullet.
+  bulletBill:     D('bulletBill', 'Pile Driver', 0x4A5162, 0xFFF8F0, 'instant', 1.1),
+  // Everyone on site shrinks, slows and loses what they were carrying.
+  lightning:      D('lightning', 'Power Cut', 0xFFE24A, 0xFFFCE0, 'instant', 1.6),
+  // The white thing that sprays paint over everybody's windscreen.
+  blooper:        D('blooper', 'Line Marker', 0xF2F6FF, 0x2C3550, 'instant', 1.3),
+  // Translucent, white, floats, and while it is over you nobody can see you.
+  boo:            D('boo', 'Dust Sheet', 0xEFF3FF, 0x2B3149, 'instant', 1.2),
+  bomb:           D('bomb', 'Gas Bottle', 0x2E3340, 0xFF6B1A, 'aim', 1.0),
+  // Stays. The purse is called coins everywhere in this game — on the HUD, in
+  // `coin:get`, in the racer record — and renaming the item and not the purse
+  // would be a fresh version of exactly the problem this table is fixing.
   coin:           D('coin', 'Coin', 0xFFC300, 0xFF9B12, 'instant', 0.2),
-  horn:           D('horn', 'Super Horn', 0xFF6B1A, 0x2E3340, 'instant', 1.1),
+  horn:           D('horn', 'Air Horn', 0xFF6B1A, 0x2E3340, 'instant', 1.1),
 };
 
 /**

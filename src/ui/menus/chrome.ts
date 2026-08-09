@@ -21,19 +21,28 @@
 //   dimension, so the roster, the stat bars and the wordmark hold their share
 //   of the frame from a 1600px review capture down to a phone in landscape.
 //
-// The one place the menus differ from the HUD is type. The HUD sets no text at
-// all — every numeral in it is drawn geometry from `glyphs.ts` — but a
-// character select has to say "Right of way is whatever it decides it is", and
-// a sentence is not a job for hand-authored path data. So headings and copy are
-// set text here, wearing a treatment (ink keyline, extruded under-face, ground
-// shadow, back-slant) built to match the drawn face as closely as text can. The
-// numerals that *can* be drawn — the engine classes, the step counters — go
-// through `glyphRun` so the two faces meet somewhere.
+// **Type is inherited too, and that is new.** This front-end used to set every
+// word it says in `'Trebuchet MS'` wearing a treatment — ink keyline, extruded
+// under-face, back-slant — built to *imitate* the drawn face the race is set
+// in. Photographed back to back the imitation did not survive the hand-off: the
+// launch card and the course card say CONE CANYON SPEEDWAY one second apart,
+// and they were in two different typefaces. So the imitation is gone and the
+// real face is here: `title()` below draws its words with `signRun` from
+// `ui/letters.ts`, the same geometry the results sheet and the pause menu are
+// cut from, and `glyphRun` still draws anything that is purely numerals.
+//
+// The rule, stated once and applied everywhere (see the head of `ui/letters.ts`):
+// anything that **names** something is drawn; anything that **describes** —
+// a blurb, a class copy line, a unit caption, a keycap legend — stays in
+// Trebuchet, because a sentence is not a job for hand-authored path data.
 
-import { U_CSS, hexCss, C } from '../theme.ts';
+import { U_CSS, hexCss, C, curtainCss, cursorChevronCss, cursorRing, hintCss, MAP } from '../theme.ts';
+import { signRun } from '../letters.ts';
+import { signCss } from '../letters.ts';
 import type { CourseDef } from '../../types.ts';
 
 export { bind, fromHtml, q, hexCss, unitPx } from '../theme.ts';
+export { hintKey, curtainTransform } from '../theme.ts';
 export type { Bound } from '../theme.ts';
 
 // ── the stylesheet ─────────────────────────────────────────────────────────
@@ -140,27 +149,19 @@ export const CSS_MENU = `
 
 /* ── the display face ───────────────────────────────────────────────────── */
 
-/* A back-slant, an ink keyline, an extruded under-face and one ground shadow —
-   the same four things the drawn numerals carry in their geometry, assembled
-   out of what text can do. The keyline is a ring of shadows rather than
-   a centred text-stroke, because a stroke painted on the outline eats half its
-   width out of the stem and turns a heavy face into a hairline in a box. */
-#menu .t {
-  display: block; text-transform: uppercase; font-weight: 900;
-  line-height: .96; letter-spacing: .012em; white-space: nowrap;
-}
-#menu .t > i {
-  display: block; font-style: normal; transform: skewX(6.5deg);
-  text-shadow:
-    calc(var(--u) * -.075) 0 0 var(--ink), calc(var(--u) * .075) 0 0 var(--ink),
-    0 calc(var(--u) * -.075) 0 var(--ink), 0 calc(var(--u) * .075) 0 var(--ink),
-    calc(var(--u) * -.055) calc(var(--u) * -.055) 0 var(--ink),
-    calc(var(--u) * .055) calc(var(--u) * -.055) 0 var(--ink),
-    calc(var(--u) * -.055) calc(var(--u) * .055) 0 var(--ink),
-    calc(var(--u) * .055) calc(var(--u) * .055) 0 var(--ink),
-    0 calc(var(--u) * .16) 0 #232B3B,
-    0 calc(var(--u) * .3) calc(var(--u) * .34) rgba(0,0,0,.6);
-}
+/* Drawn, not set. ".t" is now only a *box*: a caller gives it a height (as a
+   font-size, so every existing size in this stylesheet still means what it
+   meant) and the drawn run inside fills it. Nothing here states a typeface for
+   a name any more.
+
+   What used to be here was a skew and nine stacked text-shadows faking a
+   keyline and an extrusion around whatever grotesque the player's operating
+   system happened to supply — a very good imitation of the face the race is
+   actually set in, and an imitation is exactly what a hand-off one second wide
+   cannot hide. */
+#menu .t { display: block; }
+#menu .t > i { display: block; font-style: normal; height: 1em; }
+#menu .t > i:empty { display: none; }
 /* Copy, and everything that is information rather than a title. No slant, no
    keyline — a blurb wearing a title's costume is a blurb nobody reads. */
 #menu .p {
@@ -182,6 +183,8 @@ export const CSS_MENU = `
   filter: drop-shadow(0 calc(var(--u) * .1) calc(var(--u) * .22) rgba(0,0,0,.55));
 }
 #menu .glyphs { display: block; }
+/* ...and the signage face, sized by exactly the same rule the race layer uses. */
+${signCss('#menu')}
 
 /* ── screens ────────────────────────────────────────────────────────────── */
 
@@ -193,9 +196,12 @@ export const CSS_MENU = `
 
 /* The header every screen after the title wears: what you are choosing, and
    how far through choosing you are. */
+/* "align-items: center", not "baseline": a drawn run is a replaced element and
+   its baseline is its own bottom edge, padding included, so a baseline row put
+   the step pips a third of a unit below where the eye wanted them. */
 #menu .head {
   position: absolute; left: var(--ex); top: calc(var(--ey) + var(--u) * .9);
-  display: flex; align-items: baseline; gap: calc(var(--u) * .9);
+  display: flex; align-items: center; gap: calc(var(--u) * 1.3);
 }
 #menu .head .t { font-size: calc(var(--u) * 2.1); }
 #menu .step { display: flex; gap: calc(var(--u) * .3); align-items: center; }
@@ -228,53 +234,22 @@ export const CSS_MENU = `
   display: flex; gap: calc(var(--u) * 1.1); align-items: center;
   padding: calc(var(--u) * .42) calc(var(--u) * 1.1);
 }
-#menu .hint .k { display: flex; align-items: center; gap: calc(var(--u) * .38); }
-/* The keycap. Declared once rather than once per rail, because the call to
-   action on the class screen wears one too — a button that shows the key that
-   presses it never has to be repeated in the prompt rail underneath it. */
-#menu .key {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: calc(var(--u) * 1.5); height: calc(var(--u) * 1.3);
-  padding: 0 calc(var(--u) * .34);
-  border-radius: calc(var(--u) * .28);
-  background: linear-gradient(180deg, #F3F0E8, #C9C6BE);
-  color: #14171E; font-weight: 900; font-size: calc(var(--u) * .74);
-  letter-spacing: .02em;
-  box-shadow: 0 calc(var(--u) * .12) 0 #6E6B65, 0 calc(var(--u) * .2) calc(var(--u) * .3) rgba(0,0,0,.55);
-}
+${hintCss('#menu')}
+/* The call to action on the class screen wears a keycap too — a button that
+   shows the key that presses it never has to be repeated in the rail below. */
 #menu .scr-class .go .key {
   min-width: calc(var(--u) * 2.1); height: calc(var(--u) * 1.9);
   font-size: calc(var(--u) * 1.05); border-radius: calc(var(--u) * .34);
 }
-#menu .hint .lbl {
-  text-transform: uppercase; font-weight: 800; font-size: calc(var(--u) * .68);
-  letter-spacing: .16em; color: rgba(255,248,240,.82);
-}
 
-/* ── the wipe ───────────────────────────────────────────────────────────── */
-/* A hazard board swung across the frame between screens. Two panels closing
-   from the sides and opening again is a cut you can follow; a cross-fade is a
-   cut you cannot. */
+/* ── the curtain ────────────────────────────────────────────────────────── */
+/* The hand-off board, and it is the *same* board the race swings across the
+   frame to reach the results sheet — see the note in ui/theme.ts. It used to be
+   a second one: edge-to-edge orange hazard stripe at roughly twice the race
+   curtain's duration, so the two moments in the game that use this exact
+   gesture looked and timed like two different products. */
 #menu .wipe { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-/* Wider than half the frame, and hung outside it on both edges. The panels are
-   skewed seven degrees, which shifts each corner sideways by about four percent
-   of the frame — so a panel that starts exactly at x=0 leaves a wedge of bare
-   screen in the top-left corner at the one moment the board is supposed to be
-   *shut*. That wedge used to show the menu's own set behind it and was
-   invisible; now that the set goes dark for the hand-off, it shows the race,
-   and a tear in the curtain is the last thing a curtain may have. */
-#menu .wipe s {
-  position: absolute; top: -14%; bottom: -14%; width: 78%;
-  display: block;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,.16), rgba(0,0,0,.22)),
-    repeating-linear-gradient(114deg,
-      ${hexCss(C.orange)} 0 calc(var(--u) * 1.5),
-      #17191F calc(var(--u) * 1.5) calc(var(--u) * 3));
-  box-shadow: 0 0 calc(var(--u) * 2) rgba(0,0,0,.7);
-}
-#menu .wipe s.l { left: -10%; transform: translateX(-124%) skewX(-7deg); }
-#menu .wipe s.r { right: -10%; transform: translateX(124%) skewX(-7deg); }
+${curtainCss('#menu', '.wipe s')}
 
 /* ── the roster ─────────────────────────────────────────────────────────── */
 
@@ -320,18 +295,16 @@ export const CSS_MENU = `
 #menu .rove {
   position: absolute; left: 0; top: 0; pointer-events: none; opacity: 0;
   border-radius: calc(var(--u) * .86);
-  box-shadow:
-    0 0 0 calc(var(--u) * .22) ${hexCss(C.yellow)},
-    0 0 0 calc(var(--u) * .34) rgba(9,11,15,.95),
-    0 0 calc(var(--u) * 1.5) rgba(255,180,40,.62);
+  box-shadow: ${cursorRing(1)};
   z-index: 5;
 }
+/* ...and the chevron the race menu's cursor has always carried, aimed at the
+   cell from its leading edge. It is the half of the race's gold-filled plate
+   worth keeping — see ui/theme.ts. */
+${cursorChevronCss('#menu', '.rove')}
 #menu .rove.cupRing {
   border-radius: calc(var(--u) * .74);
-  box-shadow:
-    0 0 0 calc(var(--u) * .18) ${hexCss(C.yellow)},
-    0 0 0 calc(var(--u) * .28) rgba(9,11,15,.95),
-    0 0 calc(var(--u) * 1.2) rgba(255,180,40,.55);
+  box-shadow: ${cursorRing(0.82)};
 }
 #menu .rove.cardRing, #menu .rove.classRing { border-radius: calc(var(--u) * .82); }
 
@@ -473,11 +446,14 @@ export const CSS_MENU = `
 #menu .mark-wrap .board::after { bottom: 0; border-radius: 0 0 calc(var(--u) * 1) calc(var(--u) * 1); }
 #menu .mark-wrap svg.wm { position: relative; display: block; width: 100%; height: auto; overflow: visible; }
 #menu .tagline {
-  position: relative; text-align: center; margin-top: calc(var(--u) * .6);
-  font-size: calc(var(--u) * .8); font-weight: 800; letter-spacing: .42em;
-  text-transform: uppercase; color: rgba(255,248,240,.8);
-  text-shadow: 0 calc(var(--u) * .08) calc(var(--u) * .2) rgba(0,0,0,.9);
+  position: relative; margin-top: calc(var(--u) * .75);
+  display: flex; justify-content: center;
+  color: rgba(255,248,240,.94);
 }
+#menu .tagline .t { font-size: calc(var(--u) * 1.15); }
+/* A drawn run is a block, so anything this front-end centres has to centre the
+   run rather than the text inside it. */
+#menu .tagline .t > i, #menu .start .t > i { display: flex; justify-content: center; }
 
 #menu .start {
   position: absolute; left: 50%; bottom: calc(var(--eb) + var(--u) * 4.2);
@@ -584,7 +560,10 @@ export const CSS_MENU = `
 #menu .courseCard .row .facts { flex-direction: column; gap: calc(var(--u) * .42); }
 #menu .facts { display: flex; gap: calc(var(--u) * 1.1); }
 #menu .facts div { display: flex; flex-direction: column; gap: calc(var(--u) * .12); }
-#menu .facts .v { font-size: calc(var(--u) * .92); font-weight: 900; }
+/* The values are numerals, so they are drawn from the HUD's own slab face — the
+   same digits the lap counter and the place indicator are cut from. The
+   captions under them are words *about* the numbers and stay set. */
+#menu .facts .v { display: block; height: calc(var(--u) * .92); }
 #menu .facts .k {
   font-size: calc(var(--u) * .56); font-weight: 800; letter-spacing: .18em;
   text-transform: uppercase; color: rgba(255,248,240,.5);
@@ -593,13 +572,42 @@ export const CSS_MENU = `
 
 // ── small builders ─────────────────────────────────────────────────────────
 
-/** A title run in the display face. */
+/**
+ * A name, drawn.
+ *
+ * The `<i>` is kept as the *slot* the run lives in so every caller that
+ * repaints a title — the breadcrumb tray, the dossier headline, the course
+ * cards — still holds a handle on one element and rewrites its contents. What
+ * changed is what goes inside it: geometry, from the same face the race is set
+ * in, rather than whatever the operating system supplies.
+ */
 export const title = (text: string, cls = ''): string =>
-  `<span class="t ${cls}"><i>${text}</i></span>`;
+  `<span class="t ${cls}"><i>${text ? signRun(text) : ''}</i></span>`;
 
-/** The keycap + label pair the prompt rail is made of. */
-export const hintKey = (key: string, label: string): string =>
-  `<span class="k"><span class="key">${key}</span><span class="lbl">${label}</span></span>`;
+/**
+ * A `<i>` slot from `title()`, rewritten only when the words change.
+ *
+ * Deliberately exposes `text()` rather than `set()`, so it is a drop-in for the
+ * `bind()` handles every caller in this front-end already holds — the point of
+ * this change is that the *typeface* moved, not that every screen had to be
+ * rewritten around it.
+ */
+export interface TitleBox {
+  readonly el: HTMLElement;
+  text(value: string): void;
+}
+
+export function titleBox(el: HTMLElement): TitleBox {
+  let shown = '\u0000';
+  return {
+    el,
+    text(value: string): void {
+      if (value === shown) return;
+      shown = value;
+      el.innerHTML = value ? signRun(value) : '';
+    },
+  };
+}
 
 /**
  * A course's shape, drawn straight from its control points.
@@ -608,6 +616,13 @@ export const hintKey = (key: string, label: string): string =>
  * way the esses go — and the only honest source for that is the geometry the
  * track is actually built from. Normalised into a 100x100 box so a long
  * circuit and a short one are both readable at the same card size.
+ *
+ * **The same object the minimap draws.** It was not: this drew a mid-grey road
+ * with a white dashed crown and a yellow dot on the start, and `ui/minimap.ts`
+ * drew a pale ribbon with a chequered one — so the picture a player chooses a
+ * circuit from and the picture they read for three laps were two different
+ * diagrams of the same track. Both now take their palette from `MAP` in
+ * `ui/theme.ts` and both mark the start with the chequer.
  */
 export function courseMap(points: Array<{ x: number; z: number }>, cls = ''): string {
   if (points.length < 3) return '';
@@ -621,28 +636,65 @@ export function courseMap(points: Array<{ x: number; z: number }>, cls = ''): st
   const span = Math.max(maxX - minX, maxZ - minZ) || 1;
   const ox = (span - (maxX - minX)) / 2;
   const oz = (span - (maxZ - minZ)) / 2;
+  const px = (p: { x: number; z: number }): [number, number] => [
+    ((p.x - minX + ox) / span) * 92 + 4,
+    ((p.z - minZ + oz) / span) * 92 + 4,
+  ];
   let d = '';
   // Every third point: the spline is resampled to a metre or two and a card
   // 200px wide cannot show that, but it can show every corner.
   const stride = Math.max(1, Math.round(points.length / 90));
   for (let i = 0; i < points.length; i += stride) {
-    const p = points[i]!;
-    const x = ((p.x - minX + ox) / span) * 92 + 4;
-    const y = ((p.z - minZ + oz) / span) * 92 + 4;
+    const [x, y] = px(points[i]!);
     d += `${i === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
   }
   d += 'Z';
-  const start = points[0]!;
-  const sx = ((start.x - minX + ox) / span) * 92 + 4;
-  const sy = ((start.z - minZ + oz) / span) * 92 + 4;
+
+  const ROAD_W = 6.6;
   return `<svg class="map ${cls}" viewBox="0 0 100 100" aria-hidden="true">`
-    + `<path d="${d}" fill="none" stroke="#0A0D13" stroke-width="9.5" stroke-linejoin="round" stroke-linecap="round"/>`
-    + `<path d="${d}" fill="none" stroke="#55606F" stroke-width="6.6" stroke-linejoin="round" stroke-linecap="round"/>`
-    + `<path d="${d}" fill="none" stroke="${hexCss(C.white)}" stroke-width="1.1" stroke-linejoin="round"`
-    + ` stroke-dasharray="3 4" opacity=".55"/>`
-    + `<circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="4.2" fill="${hexCss(C.yellow)}"`
-    + ` stroke="#0A0D13" stroke-width="1.6"/>`
+    + `<path d="${d}" fill="none" stroke="${MAP.ink}" stroke-width="${(ROAD_W * MAP.inkScale).toFixed(2)}"`
+    + ` stroke-linejoin="round" stroke-linecap="round"/>`
+    + `<path d="${d}" fill="none" stroke="${MAP.road}" stroke-width="${ROAD_W}"`
+    + ` stroke-linejoin="round" stroke-linecap="round"/>`
+    + `<path d="${d}" fill="none" stroke="${MAP.crown}"`
+    + ` stroke-width="${(ROAD_W * MAP.crownScale).toFixed(2)}" stroke-linejoin="round"/>`
+    + startChequer(points, px, ROAD_W)
     + `</svg>`;
+}
+
+/**
+ * The start/finish, laid across the road at the course's first control point.
+ *
+ * Two rows of squares, exactly as `ui/minimap.ts` paints it and exactly as the
+ * track itself is painted at that point. A dot says "something is here"; a
+ * chequer says which something.
+ */
+function startChequer(
+  points: Array<{ x: number; z: number }>,
+  px: (p: { x: number; z: number }) => [number, number],
+  roadW: number,
+): string {
+  const a = points[0]!;
+  const b = points[1 % points.length]!;
+  const [ax, ay] = px(a);
+  const [bx, by] = px(b);
+  // Across the road, not along it: the line is perpendicular to the direction
+  // of travel at the start, which is the tangent turned a quarter.
+  const ang = (Math.atan2(by - ay, bx - ax) * 180) / Math.PI + 90;
+  const half = roadW * 0.62;
+  const cell = half / 2;
+  let cells = '';
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 2; j++) {
+      if ((i + j) % 2) continue;
+      cells += `<rect x="${(-half + i * cell).toFixed(2)}" y="${(-cell + j * cell).toFixed(2)}"`
+        + ` width="${cell.toFixed(2)}" height="${cell.toFixed(2)}" fill="${hexCss(C.white)}"/>`;
+    }
+  }
+  return `<g transform="translate(${ax.toFixed(1)} ${ay.toFixed(1)}) rotate(${ang.toFixed(1)})">`
+    + `<rect x="${(-half - 0.5).toFixed(2)}" y="${(-cell - 0.5).toFixed(2)}"`
+    + ` width="${(half * 2 + 1).toFixed(2)}" height="${(cell * 2 + 1).toFixed(2)}"`
+    + ` fill="rgba(9,11,17,.95)"/>${cells}</g>`;
 }
 
 // ── the picture of a place ─────────────────────────────────────────────────
