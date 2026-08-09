@@ -85,7 +85,8 @@ if (want('reel')) {
     if (m > t) { await call('advance', m - t, 60); t = m; }
     const p = await ev(() => window.__ITEMS.probe());
     await shot(`reel-${String(Math.round(m * 1000)).padStart(4, '0')}ms`);
-    console.log(`     spin=${p.spin.toFixed(3)} settle=${p.settle.toFixed(3)}`);
+    const cls = await page.evaluate(() => document.querySelector('#hud .slot')?.className ?? 'none');
+    console.log(`     spin=${p.spin.toFixed(3)} settle=${p.settle.toFixed(3)} slot="${cls}"`);
   }
 }
 
@@ -131,7 +132,7 @@ if (want('burst')) {
 // ── a shell in flight ──────────────────────────────────────────────────────
 if (want('shell')) {
   console.log('shell');
-  await fresh();
+  await fresh({ racerCount: 2 });
   await call('setCamera', 'chase');
   await call('step', 4);
   await ev(() => window.__ITEMS.fire('greenShell'));
@@ -173,15 +174,17 @@ if (want('screen')) {
   await fresh();
   await call('setCamera', 'chase');
   await call('step', 4);
-  await ev(() => { window.__ITEMS.fire('redShell', 1, true); });
-  await call('advance', 0.6, 30);
-  const th = await ev(() => window.__ITEMS.threat());
-  console.log('     threat', JSON.stringify(th));
-  await shot('warn-red');
+  await ev(() => { window.__ITEMS.incoming(26); });
+  for (let i = 0; i < 8; i++) {
+    await call('advance', 0.16, 30);
+    const th = await ev(() => window.__ITEMS.threat());
+    console.log(`     t=${((i + 1) * 0.16).toFixed(2)} threat ${JSON.stringify(th)}`);
+    if (th.level > 0.3) { await shot(`warn-${Math.round(th.level * 100)}`); break; }
+  }
   await fresh();
   await call('step', 4);
-  await ev(() => { window.__ITEMS.hit(undefined, 'blooper'); });
-  await call('advance', 0.9, 30);
+  await ev(() => { window.__ITEMS.ink(4); });
+  await call('advance', 0.5, 30);
   await shot('ink');
   await call('advance', 1.6, 30);
   await shot('ink-late');

@@ -172,7 +172,8 @@ Canonical events — add new ones to this list when you introduce them:
 | `kart:offroad` | `{ racer, surface }` | physics |
 | `kart:hit` | `{ racer, by, kind }` | items |
 | `item:box` | `{ racer, pos }` — a box was taken | items |
-| `item:roulette` | `{ racer, phase:'start'\|'settle', item? }` | items |
+| `item:roulette` | `{ racer, phase:'start'\|'settle', duration?, item? }` | items |
+| `item:reel` | `{ racer, index, remaining, total }` — one per face of the drum | items |
 | `item:get` | `{ racer, item, count }` | items |
 | `item:use` | `{ racer, item, count, forward }` | items |
 | `item:bounce` | `{ kind, pos, bounces }` — shell off a barrier | items |
@@ -195,6 +196,18 @@ almost no rotation: a star, a bullet bill, a horn) and `squish` (flattened on
 the spot: lightning). Anything hanging a sound, a particle or a camera move off
 a hit should read `item:strike`, not `kart:hit` — physics emits the latter from
 `stunRacer` and only knows its own three-value vocabulary.
+
+**Timing the reel.** `item:roulette` `start` carries `duration` — the seconds
+that spin will actually run — and `item:reel` fires once per face of the drum
+with `remaining` counting down to zero on the settle. A slot drawn by another
+module can therefore decelerate on the item system's own clock instead of
+mirroring `SPIN_PLAYER` as a constant of its own. Note that the reel's length is
+**simulation** time: the engine's rAF loop steps the sim off the wall clock, so
+any tool that renders a frame and then does something slow (a screenshot under
+software GL costs 100-300ms) advances the game underneath itself. Call
+`__GAME.setTimeScale(0)` before timing anything frame by frame, and read
+`__ITEMS.probe().spin` / `.spinTotal` rather than inferring the duration from
+when `racer.item` changed.
 
 **A cancelled roulette.** `item:roulette` always comes in pairs: a `start` is
 always followed by a `settle`, so anything that begins a loop on the first can

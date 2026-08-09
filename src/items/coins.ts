@@ -132,7 +132,7 @@ export function createCoinField(ctx: GameContext): CoinField {
     if (!geometry) geometry = coinGeometry();
     if (!material) material = coinMaterial();
     if (!blobGeo) {
-      blobGeo = contactShadowGeometry(0.46, 0.42);
+      blobGeo = contactShadowGeometry(0.44, 0.30);
       blobMat = contactShadowMaterial();
     }
   }

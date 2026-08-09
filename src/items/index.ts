@@ -402,6 +402,9 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     return null;
   }
 
+  /** Set on reset; cleared on the first frame drawn after it. */
+  let sunDirty = true;
+
   const stateOf = (racer: Racer): RacerItems => {
     let s = states.get(racer.id);
     if (!s) { s = newState(racer.id); states.set(racer.id, s); }
@@ -409,6 +412,21 @@ export function createItemSystem(ctx: GameContext): GameSystem {
   };
 
   const classMul = (): number => ctx.config.race.classes[ctx.race.engineClass].speedMul;
+
+  /**
+   * The legible half of an item's colour pair.
+   *
+   * Every flare this module throws is additive, and additive means a dark
+   * colour contributes nothing: a bob-omb (0x2E3340) or a bullet bill
+   * (0x4A5162) would land with no flash at all. Where the primary is too dark
+   * to carry light, the accent is.
+   */
+  function brightOf(id: ItemId): number {
+    const def = ITEMS[id];
+    const lum = (c: number): number =>
+      ((c >> 16 & 255) * 0.3 + (c >> 8 & 255) * 0.59 + (c & 255) * 0.11) / 255;
+    return lum(def.color) > 0.42 ? def.color : def.accent;
+  }
 
   /** Absolute distance along the spline, straight off race progress — free,
    *  where a `nearest()` per racer per step would not be. */
@@ -814,7 +832,12 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     st.spin = st.spinTotal;
     st.reelTimer = 0;
     st.reelIndex = ctx.rng.int(0, REEL_FACES.length - 1);
-    ctx.bus.emit('item:roulette', { racer, phase: 'start' });
+    // The *duration* travels with the event. Whoever draws the slot has to
+    // decelerate its drum into the answer, and without this it can only mirror
+    // `SPIN_PLAYER` as a constant of its own — two copies of one number in two
+    // modules, which is a desync waiting for the first time either is tuned.
+    ctx.bus.emit('item:roulette',
+      { racer, phase: 'start', duration: st.spinTotal });
     // The drum starts on the face the seed picked, so a replay of the same race
     // shows the same reel on the same frame.
     if (racer.isPlayer) hud.spinning(true, st.reelIndex);
@@ -877,7 +900,14 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       // stops at a constant rate has no ending.
       const t = 1 - clamp01(st.spin / st.spinTotal);
       st.reelTimer = lerp(0.05, 0.15, t * t);
-      if (racer.isPlayer) hud.reelTick();
+      // One event per face, so a slot drawn by another module can turn its drum
+      // on this module's clock instead of guessing at a cadence. `remaining` is
+      // what makes the deceleration free: it goes to zero on the settle.
+      if (racer.isPlayer) {
+        hud.reelTick();
+        ctx.bus.emit('item:reel',
+          { racer, index: st.reelIndex, remaining: st.spin, total: st.spinTotal });
+      }
     }
     if (st.spin <= 0) {
       const entry = st.pending ?? { id: 'banana' as ItemId, count: 1 };
@@ -900,9 +930,13 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       // module owns the slot; the world half is here, and it cannot be
       // overdrawn, cropped or stood down.
       st.settle = SETTLE_TIME;
+      // In the item's own colour, so the flare *names the draw* — the eye has
+      // the answer before it has read the icon. Bright side of the pair: a
+      // bob-omb's own near-black would be an additive flare of nothing.
+      const flare = brightOf(entry.id);
       entities.spawn('burst', {
-        pos: _pos.copy(racer.pos).setY(racer.pos.y + 1.05),
-        ownerId: racer.id, life: 0.4, color: 0xFFF6D8, scale: 0.72,
+        pos: _pos.copy(racer.pos).setY(racer.pos.y + 1.0),
+        ownerId: racer.id, life: 0.5, color: flare, scale: 1.3,
       });
       ctx.bus.emit('item:get', { racer, item: entry.id, count: entry.count });
       ctx.bus.emit('item:roulette', { racer, phase: 'settle', item: entry.id });
@@ -910,7 +944,10 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         hud.spinning(false);
         hud.setItem(entry);
         hud.punch();
-        ctx.fx?.flash(0xFFF3D0, 0.12);
+        // The white wash. Brief — a blink, not a strobe — and drawn by this
+        // module's own overlay rather than by the fx module's, because it is
+        // the one part of the settle that must exist whoever owns the slot.
+        hud.flash(0xFFF3DC, 0.26);
       }
     }
   }
@@ -934,7 +971,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
   function breakOpen(racer: Racer, st: RacerItems, index: number): void {
     const box = boxes.boxes[index]!;
     boxes.take(index);
-    entities.spawn('burst', { pos: box.pos, life: 0.62, color: 0xFFF3C4, scale: 1.35 });
+    entities.spawn('burst', { pos: box.pos, life: 0.55, color: 0xFFE9A8, scale: 1.05 });
     ctx.fx?.spawn('boxBreak', box.pos, { scale: 1.15 });
     ctx.bus.emit('item:box', { racer, pos: box.pos });
     startRoulette(racer, st);
@@ -1753,7 +1790,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     switch (id) {
       case 'banana': proto = buildBanana(); break;
       case 'greenShell': proto = buildShell(0x46D63C, 0x2C9A2A); break;
-      case 'redShell': proto = buildShell(0xF03A2E, 0xB0231A); break;
+      case 'redShell': proto = buildShell(0xF03A2E, 0x7E1610, true); break;
       case 'bomb': proto = buildBomb(); break;
       case 'mushroom':
       case 'tripleMushroom': proto = buildMushroom(); break;
@@ -1830,7 +1867,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
             copy.visible = true;
             copy.scale.setScalar(ORBIT_SCALE);
             carrier.add(copy);
-            const blob = contactShadow(1.05 * ORBIT_SCALE * 2, 0.38);
+            const blob = contactShadow(0.86 * ORBIT_SCALE * 2, 0.22);
             blob.name = 'carryShadow';
             carrier.add(blob);
             group.add(carrier);
@@ -2147,8 +2184,12 @@ export function createItemSystem(ctx: GameContext): GameSystem {
 
       // Every blob shadow this module lays is thrown along the scene's key
       // light, which the lighting module points at the course's own sun on
-      // reset. Read it here, once, rather than per box per frame.
+      // reset. Read it here, once, rather than per box per frame — and again on
+      // the first frame drawn, because system `reset` order is not guaranteed
+      // and reading a sun the lighting module has not aimed yet would leave a
+      // whole circuit's worth of shadows pointing at the last course's.
       refreshSunDirection(ctx);
+      sunDirty = true;
 
       const track = ctx.track;
       if (!track) return;
@@ -2227,6 +2268,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     },
 
     update(dt: number, alpha: number): void {
+      if (sunDirty) { sunDirty = false; refreshSunDirection(ctx); }
       visualTime += dt;
       blend = alpha;
       boxes.update(dt, visualTime);
@@ -2249,7 +2291,11 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         // handicap, it is a blindfold.
         const st = states.get(player.id);
         const t = st ? clamp01(st.ink / INK_TIME) : 0;
-        hud.setInk(t > 0 ? 0.3 + 0.48 * Math.pow(t, 0.7) : 0);
+        // Peaks at 0.97, not 0.78. The splats are drawn near-solid and the
+        // fade is carried entirely by this number, so a ceiling of 0.78 meant
+        // the ink was *never* opaque: photographed, the road was legible
+        // straight through every splat and the item cost its victim nothing.
+        hud.setInk(t > 0 ? 0.45 + 0.52 * Math.pow(t, 0.7) : 0);
       }
       hud.update(dt);
     },
@@ -2344,6 +2390,37 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         use(racer, st, forward);
         return true;
       },
+      /**
+       * Put a homing shell on a racer's tail, from wherever is behind them.
+       *
+       * The incoming warning is the one thing in this module with no
+       * screenshot recipe at all: `fire` shoots *forwards*, so nothing a bench
+       * can do through the ordinary path ever aims at the player. This spawns a
+       * red shell already locked on, a stated distance back.
+       */
+      incoming(gap = 45, racerId = ctx.player?.id ?? 0): boolean {
+        const racer = racerById(racerId);
+        const track = ctx.track;
+        if (!racer || !track) return false;
+        const s = track.spline.nearest(racer.pos, _sample);
+        const from = racerById(racerId === 1 ? 2 : 1) ?? racer;
+        return !!entities.spawn('redShell', {
+          ownerId: from.id, pos: track.spline.pointAt(s.distance - gap, s.lateral ?? 0, 0.5, _pos),
+          life: 13, arm: 0, radius: 1.9,
+          targetId: racer.id, dist: s.distance - gap, lat: s.lateral ?? 0,
+        });
+      },
+
+      /** Ink a racer's screen for `seconds`, so the blooper can be looked at. */
+      ink(seconds = 4, racerId = ctx.player?.id ?? 0): boolean {
+        const racer = racerById(racerId);
+        if (!racer) return false;
+        const st = stateOf(racer);
+        st.ink = seconds;
+        racer.effects.add('inked');
+        return true;
+      },
+
       /** Hit a racer with a named item, for photographing the reaction. */
       hit(racerId = ctx.player?.id ?? 0, item: ItemId = 'greenShell',
         byId = -1): boolean {

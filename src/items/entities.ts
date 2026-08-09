@@ -221,7 +221,7 @@ export function createEntityField(ctx: GameContext): EntityField {
     if (prototypes.size) return;
     prototypes.set('banana', buildBanana());
     prototypes.set('greenShell', buildShell(0x46D63C, 0x2C9A2A));
-    prototypes.set('redShell', buildShell(0xF03A2E, 0xB0231A));
+    prototypes.set('redShell', buildShell(0xF03A2E, 0x7E1610, true));
     prototypes.set('bomb', buildBomb());
     prototypes.set('blast', buildBlast());
     prototypes.set('ring', buildRing(0xFF8A2A));
@@ -544,7 +544,7 @@ export function createEntityField(ctx: GameContext): EntityField {
           // Out hard, then keep drifting outward. `outCubic` spends most of the
           // motion in the first tenth of a second, which is what makes it read
           // as an impact rather than as a balloon inflating.
-          e.scale = ease.outCubic(clamp01(e.age / 0.13)) * 2.6 + e.age * 1.1;
+          e.scale = ease.outCubic(clamp01(e.age / 0.12)) * 2.2 + e.age * 0.7;
           e.spin += dt * 5;
           rideOwner(e);
           break;
@@ -643,7 +643,7 @@ export function createEntityField(ctx: GameContext): EntityField {
     if (!fx) return;
     e.puff -= dt;
     if (e.puff > 0) return;
-    e.puff = 0.055;
+    e.puff = 0.038;
     // Out of shot, and it is not worth a slot in the queue.
     if (node.position.distanceToSquared(ctx.camera.position) > 120 * 120) return;
     const hot = e.kind === 'redShell' ? 0xFF9A72 : 0x9CFF74;
@@ -685,6 +685,22 @@ export function createEntityField(ctx: GameContext): EntityField {
           // the slot, is four pixels of green forty metres down a straight —
           // and forty metres down a straight is where a shell has to be read.
           node.scale.setScalar(1.3);
+          // **The glow holds a minimum size on screen.**
+          //
+          // A shell leaves the kart at 76 m/s and is fifty metres away inside a
+          // second, by which point a 0.75m hat is a handful of pixels — and a
+          // handful of pixels of green on grey tarmac is nothing. Photographed
+          // frame by frame, a thrown shell was a dome at the bumper, a dot at
+          // 100ms and gone by 400ms: you never saw your own shot land, which
+          // takes the whole payoff out of throwing it. Growing the halo with
+          // range keeps a bright bead of the item's own colour on screen all the
+          // way to the impact, without inflating the object itself — the model
+          // stays the right size for the road it is skittering along.
+          const glow = node.getObjectByName('glow');
+          if (glow) {
+            const range = Math.sqrt(node.position.distanceToSquared(ctx.camera.position));
+            glow.scale.setScalar(clamp(0.85 + range * 0.048, 0.85, 3.7));
+          }
           groundShadow(e, node);
           flightTrail(e, node, dt);
           break;
@@ -768,7 +784,7 @@ export function createEntityField(ctx: GameContext): EntityField {
           // and one that fills the frame reads as a bug.
           node.lookAt(ctx.camera.position);
           node.rotateZ(e.spin);
-          node.scale.setScalar(e.scale * 0.3 * e.base);
+          node.scale.setScalar(e.scale * 0.22 * e.base);
           // Three clocks off one age. The core is a flash and is gone first;
           // the star carries the shape through the middle of the beat; the ring
           // keeps expanding and thinning and is the last thing to leave, which
@@ -780,11 +796,11 @@ export function createEntityField(ctx: GameContext): EntityField {
             core.scale.setScalar(1 + e.age * 1.4);
           }
           const star = node.getObjectByName('star');
-          if (star) setOpacity(star, fade * clamp01(1.35 - e.age / 0.34) * 0.9);
+          if (star) setOpacity(star, fade * clamp01(1.2 - e.age / 0.24) * 0.9);
           const ring = node.getObjectByName('ring');
           if (ring) {
-            ring.scale.setScalar(0.7 + e.age * 2.6);
-            setOpacity(ring, fade * clamp01(1 - e.age / 0.62) * 0.85);
+            ring.scale.setScalar(0.8 + e.age * 2.2);
+            setOpacity(ring, fade * clamp01(1 - e.age / 0.48) * 0.6);
           }
           break;
         }

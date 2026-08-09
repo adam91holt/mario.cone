@@ -162,10 +162,41 @@ const CSS = `
    nothing. A thin lifted edge gives every splat a silhouette on both. */
 #item-ink i {
   position: absolute; display: block;
-  background: radial-gradient(circle closest-side at 44% 40%,
-    rgba(7,8,20,1) 0 62%, rgba(11,13,32,1) 78%,
-    rgba(20,25,54,.9) 87%, rgba(108,124,182,.5) 93%, rgba(16,20,44,0) 100%);
+  /* Solid, and *not a circle*. A radial gradient on a square element can only
+     ever make a disc, and twelve discs is weather, not ink — which is exactly
+     how the last pass photographed: raindrops on a windscreen. The silhouette
+     is carried by an irregular border-radius, per splat, and the fill is a
+     near-solid so the thing genuinely blocks the road instead of tinting it. */
+  background:
+    radial-gradient(circle closest-side at 38% 32%,
+      rgba(28,32,66,1) 0 44%, rgba(8,9,22,1) 100%);
+  /* Extreme on purpose. A gentle border-radius is still a circle, and twelve
+     circles is a dirty lens. These are lopsided enough that no two rotations of
+     the same shape read as the same object. */
+  border-radius: 74% 26% 58% 42% / 32% 68% 32% 68%;
 }
+/* A second lobe, offset — the thing that turns one blob into a splat. */
+#item-ink i::before {
+  content: ''; position: absolute; left: -18%; top: 26%;
+  width: 68%; height: 62%;
+  background: rgba(8,9,22,1);
+  border-radius: 62% 38% 44% 56% / 56% 44% 60% 40%;
+}
+/* The drip. One tapered tongue running off the low edge of each splat — the
+   single detail that says "this was thrown at you and it is running down the
+   glass" rather than "this is a shape on your screen". */
+#item-ink i::after {
+  content: ''; position: absolute; left: 34%; top: 72%;
+  width: 30%; height: 62%;
+  background: linear-gradient(rgba(9,10,24,1) 0 46%, rgba(9,10,24,.86) 74%, rgba(9,10,24,0) 100%);
+  border-radius: 42% 58% 50% 50% / 20% 20% 82% 82%;
+}
+#item-ink i:nth-child(3n) { border-radius: 34% 66% 72% 28% / 68% 30% 70% 32%; }
+#item-ink i:nth-child(3n+1) { border-radius: 66% 34% 30% 70% / 28% 72% 26% 74%; }
+#item-ink i:nth-child(3n)::before { left: auto; right: -16%; top: 8%; }
+#item-ink i.fleck::before { display: none; }
+#item-ink i:nth-child(4n)::after { left: 58%; width: 22%; height: 48%; }
+#item-ink i.fleck::after { display: none; }
 /* A few flecks thrown clear of the main splats. Ink that is all circles reads
    as a lens problem; ink that has spatter reads as something hitting you. */
 #item-ink i.fleck {
@@ -205,19 +236,44 @@ const CSS = `
 }
 #item-warn .vig {
   position: absolute; inset: -16%;
-  background: radial-gradient(ellipse 62% 56% at 50% 50%,
-    rgba(255,40,20,0) 38%, rgba(255,48,22,.34) 70%, rgba(176,12,4,.86) 100%);
+  background: radial-gradient(ellipse 64% 58% at 50% 50%,
+    rgba(255,40,20,0) 48%, rgba(255,56,26,.36) 72%, rgba(190,10,2,.94) 100%);
 }
 /* The chevron. Sized in the HUD's own unit so it holds its share of the frame
    at any resolution, and given a hard dark rim so it reads on cloud and on
-   tarmac without changing. */
+   tarmac without changing.
+
+   Two things were wrong with it and both were size-of-signal rather than
+   design. It was 5.2 units — about forty pixels of chevron at 720p — and it
+   was a *dark* red shape laid over dark asphalt, which is the one background
+   this circuit has most of. It is now half again as large, it carries a cream
+   core so the brightest thing in it is lighter than anything it can land on,
+   and it sits on a soft disc of its own colour so there is something to catch
+   in peripheral vision before the eye ever goes looking. */
 #item-warn .arrow {
   position: absolute; left: 50%; top: 50%;
-  width: calc(var(--wu) * 5.2); height: calc(var(--wu) * 5.2);
-  margin: calc(var(--wu) * -2.6);
-  filter: drop-shadow(0 calc(var(--wu) * .16) calc(var(--wu) * .3) rgba(0,0,0,.65));
+  width: calc(var(--wu) * 8.4); height: calc(var(--wu) * 8.4);
+  margin: calc(var(--wu) * -4.2);
+  filter: drop-shadow(0 calc(var(--wu) * .2) calc(var(--wu) * .36) rgba(0,0,0,.7));
 }
-#item-warn .arrow svg { width: 100%; height: 100%; display: block; }
+/* The halo. A flat disc of the item's own colour, masked to a soft falloff —
+   masked rather than gradient-stopped because the colour arrives as a CSS
+   variable and there is no way to write "this colour, transparent" as a second
+   stop without color-mix(), which is one more thing to be wrong about. */
+#item-warn .arrow::before {
+  content: ''; position: absolute; inset: -40%;
+  background: var(--warn, #FF3A20);
+  -webkit-mask-image: radial-gradient(circle, #000 0 16%, rgba(0,0,0,0) 66%);
+  mask-image: radial-gradient(circle, #000 0 16%, rgba(0,0,0,0) 66%);
+  opacity: .8;
+}
+#item-warn .arrow svg { position: relative; width: 100%; height: 100%; display: block; }
+/* A cream keyline inside the dark rim. Two hard edges, one lighter than
+   anything on this circuit and one darker, so the shape survives tarmac, cloud
+   and a red kart equally. */
+#item-warn .arrow .core {
+  fill: none; stroke: #FFF6E8; stroke-width: 2.6; stroke-linejoin: round;
+}
 `;
 
 /* ── what hit you ──────────────────────────────────────────────────────────
@@ -452,11 +508,18 @@ export function createItemHud(): ItemHud {
     // middle of the frame down to the kart: that is where the road vanishes and
     // where the player steers from, and leaving it open is the difference
     // between a handicap and a blindfold.
+    // The last three are the ones that make this an *item*. A blooper that only
+    // ever crowds the edges of the frame costs a driver who is looking at the
+    // vanishing point precisely nothing, which is the note this came back with;
+    // these land in the middle third and have to be driven around. The sight
+    // line kept open runs diagonally from the lower left to the horizon, so
+    // there is always a way to read the road — you just have to work for it.
     const SPLATS: Array<[number, number, number, number, number]> = [
       [-14, -12, 38, 1.15, -18], [16, -22, 30, 0.9, 24], [52, -20, 32, 1.2, 12],
       [88, -14, 34, 0.95, -30], [-18, 26, 34, 1.1, 40], [84, 22, 33, 1.25, -12],
       [-12, 68, 32, 0.92, 18], [82, 66, 36, 1.3, -8], [30, 82, 26, 1.0, 55],
       [62, 86, 24, 0.85, -40], [4, 6, 16, 1.1, 10], [78, 2, 14, 0.95, -22],
+      [40, 14, 22, 1.05, -14], [58, 40, 19, 0.95, 32], [22, 44, 16, 1.1, -48],
     ];
     for (const [x, y, r, squash, rot] of SPLATS) {
       const s = document.createElement('i');
@@ -488,10 +551,12 @@ export function createItemHud(): ItemHud {
     warnEl.id = 'item-warn';
     // The chevron pair points along -Y in its own box, so a rotation by the
     // bearing aims it straight at whatever is arriving.
+    const chevrons = `M32 6 L58 34 L48 42 L32 26 L16 42 L6 34 Z
+               M32 26 L58 54 L48 62 L32 46 L16 62 L6 54 Z`;
     warnEl.innerHTML = `<div class="vig"></div><div class="arrow"><svg viewBox="0 0 64 64">
-      <path d="M32 6 L58 34 L48 42 L32 26 L16 42 L6 34 Z
-               M32 26 L58 54 L48 62 L32 46 L16 62 L6 54 Z"
-        fill="#FF3A20" stroke="#1A1D26" stroke-width="4" stroke-linejoin="round"/>
+      <path d="${chevrons}"
+        fill="#FF3A20" stroke="#14171F" stroke-width="5" stroke-linejoin="round"/>
+      <path class="core" d="${chevrons}"/>
       </svg></div>`;
     document.body.appendChild(warnEl);
     vigEl = warnEl.querySelector('.vig');
@@ -595,6 +660,7 @@ export function createItemHud(): ItemHud {
       if (color !== warnColor) {
         warnColor = color;
         chevronEl?.setAttribute('fill', hex(color));
+        warnEl?.style.setProperty('--warn', hex(color));
       }
     },
 
@@ -673,7 +739,7 @@ export function createItemHud(): ItemHud {
           // a player. The floor is what fixes that: the moment this is on at
           // all, something is going to hit you inside a second and a half, and
           // it says so at better than a third of full strength.
-          warnEl.style.opacity = String((0.36 + 0.64 * warnShown) * pulse);
+          warnEl.style.opacity = String((0.42 + 0.5 * warnShown) * pulse);
 
           // Push the red away from the threat, so the thickest part of the
           // vignette is the edge it is coming from.
@@ -693,7 +759,7 @@ export function createItemHud(): ItemHud {
             const ky = Math.abs(sy) > 1e-3 ? ay / Math.abs(sy) : 1e9;
             const k = Math.min(kx, ky);
             const deg = (warnBearing * 180) / Math.PI;
-            const s = 0.72 + 0.42 * warnShown + (pulse - 0.82) * 0.5;
+            const s = 0.86 + 0.5 * warnShown + (pulse - 0.82) * 0.7;
             arrowEl.style.left = `${(50 + sx * k).toFixed(2)}%`;
             arrowEl.style.top = `${(50 + sy * k).toFixed(2)}%`;
             arrowEl.style.transform = `rotate(${deg.toFixed(1)}deg) scale(${s.toFixed(3)})`;

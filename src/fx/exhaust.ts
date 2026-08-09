@@ -32,7 +32,22 @@ export interface ExhaustPort {
   size: number;
   /** How much it swells over its life. Steam billows; a tailpipe barely does. */
   grow: number;
-  /** Puffs per second at a closed throttle. */
+  /**
+   * Puffs per second at a closed throttle.
+   *
+   * The diesels and the locomotive run at roughly a third of what they used to,
+   * and their puffs live half as long. The old numbers came from thinking about
+   * a plume as a *volume* and forgetting that a plume also has to end: the
+   * train at 58 a second with a 1.2s life held seventy puffs in the air at once,
+   * and because they were emitted at 90 km/h and then braked hard by drag (see
+   * the note on drag in `index.ts`) the machine drove out from under them. What
+   * a photograph caught was a diagonal band of pale spheres hanging six metres
+   * up over the scenery, a locomotive's length behind the locomotive.
+   *
+   * Eleven puffs at 0.6s is a dozen in the air, all of them within a few metres
+   * of the chimney: steam coming out of a funnel rather than a trail of
+   * balloons someone released.
+   */
   idle: number;
   /** ...and the extra at full throttle. */
   drive: number;
@@ -115,7 +130,7 @@ export const EXHAUST: Record<VehicleId, ExhaustPort[]> = {
       // the sky above it and the tarmac below, so it reads against both. That
       // still satisfies the rule this module got wrong last round — nothing
       // airborne may be darker than the ground — with room to spare.
-      size: 0.26, grow: 3.0, idle: 26, drive: 48, speed: 3.8, life: 1.0,
+      size: 0.26, grow: 3.0, idle: 9, drive: 16, speed: 3.8, life: 0.50,
       alpha: 0.28, color: 0x9DA3AE, tail: 0x818794,
     }),
   ],
@@ -123,7 +138,7 @@ export const EXHAUST: Record<VehicleId, ExhaustPort[]> = {
   digger: [
     port({
       x: 0.56, y: 2.06, z: -0.34, dx: 0.02, dy: 1, dz: -0.14,
-      size: 0.24, grow: 3.0, idle: 24, drive: 44, speed: 3.4, life: 0.95,
+      size: 0.24, grow: 3.0, idle: 8, drive: 15, speed: 3.4, life: 0.48,
       alpha: 0.28, color: 0x9BA1AC, tail: 0x7F8591,
     }),
   ],
@@ -134,7 +149,7 @@ export const EXHAUST: Record<VehicleId, ExhaustPort[]> = {
   train: [
     port({
       x: 0, y: 2.84, z: 1.62, dx: 0, dy: 1, dz: -0.12,
-      size: 0.30, grow: 3.2, idle: 34, drive: 58, speed: 5.4, life: 1.2,
+      size: 0.30, grow: 3.2, idle: 11, drive: 19, speed: 5.4, life: 0.60,
       alpha: 0.30, color: 0xFDFEFF, tail: 0xC9D2DE,
     }),
   ],

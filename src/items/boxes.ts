@@ -150,7 +150,7 @@ export function createBoxField(ctx: GameContext): BoxField {
       // this circuit lays a crisp shadow, and a floating box laying none is the
       // fastest way to make it look pasted on — ARCHITECTURE §12, contact is
       // everything.
-      blobGeo = contactShadowGeometry(SIZE * 0.62, 0.26);
+      blobGeo = contactShadowGeometry(SIZE * 0.60, 0.20);
       blobMat = contactShadowMaterial();
     }
     if (!ghostMat) {

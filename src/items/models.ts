@@ -265,7 +265,7 @@ export function buildBanana(): THREE.Object3D {
  *
  * Built about its own centre so it can roll on the axis it travels along.
  */
-export function buildShell(color: number, spot: number): THREE.Object3D {
+export function buildShell(color: number, spot: number, homing = false): THREE.Object3D {
   const g = new THREE.Group();
   const shellMat = plastic(color, 0.28, 0.18);
   const trimMat = plastic(0xFFF8F0, 0.34, 0.12);
@@ -294,6 +294,44 @@ export function buildShell(color: number, spot: number): THREE.Object3D {
   // A hazard band round the base of the crown.
   addMesh(g, new THREE.TorusGeometry(0.375, 0.05, 6, 22), bandMat, [0, 0.24, 0],
     [Math.PI / 2, 0, 0]);
+
+  if (homing) {
+    /**
+     * The **supervisor's** helmet — and this is a silhouette job, not a paint
+     * job.
+     *
+     * Green and red used to be the same mesh in two hues, which is the worst
+     * possible answer for the two most-thrown items in the game: a player
+     * glancing in the mirror at something coming up the inside has to know
+     * *now* whether it will follow them round the corner, and hue alone does
+     * not survive a small mirror, motion blur, or a red kart in front of it.
+     * So the homing one gets three shapes the plain one has not: a peak over
+     * the eyes that points where it is going, ear defenders that widen it, and
+     * a beacon on the crown that breaks the dome. Black shapes, they are two
+     * different objects.
+     */
+    // The peak. Forward-facing, so a shell nose-on is an arrow.
+    const peak = addMesh(g, new THREE.CylinderGeometry(0.30, 0.34, 0.06, 16, 1, false,
+      -0.85, 1.7), shellMat, [0, 0.155, 0.36]);
+    peak.rotation.x = -0.16;
+    peak.scale.set(1, 1, 1.5);
+    // Ear defenders.
+    for (const sx of [-1, 1]) {
+      addMesh(g, new THREE.CylinderGeometry(0.15, 0.15, 0.11, 12), bandMat,
+        [sx * 0.42, 0.19, 0], [0, 0, Math.PI / 2]);
+    }
+    // The beacon: a stalk and a lamp that is a light source in its own right,
+    // so the thing behind you is *lit* rather than merely red.
+    addMesh(g, new THREE.CylinderGeometry(0.055, 0.07, 0.1, 10), trimMat, [0, 0.44, 0]);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.115, 12, 9),
+      new THREE.MeshStandardMaterial({
+        color: 0xFFE9C8, emissive: 0xFF4A20, emissiveIntensity: 2.4,
+        roughness: 0.3, metalness: 0,
+      }));
+    lamp.position.set(0, 0.52, 0);
+    lamp.name = 'beacon';
+    g.add(lamp);
+  }
 
   mergeStatic(g);
   castShadows(g, true, false);
@@ -810,7 +848,7 @@ export function contactShadowMaterial(): THREE.MeshBasicMaterial {
 }
 
 /** A flat contact shadow lying in the XZ plane, ready to parent to an item. */
-export function contactShadow(size: number, darkness = 0.34): THREE.Mesh {
+export function contactShadow(size: number, darkness = 0.26): THREE.Mesh {
   const mesh = new THREE.Mesh(
     contactShadowGeometry(size * 0.5, darkness), contactShadowMaterial());
   mesh.name = 'shadow';
@@ -820,7 +858,10 @@ export function contactShadow(size: number, darkness = 0.34): THREE.Mesh {
 }
 
 export function addProjectileShadow(node: THREE.Object3D, size = 1.15): void {
-  node.add(contactShadow(size, 0.42));
+  // 0.24, not 0.42. Multiply blending scales the road's own brightness, and
+  // this road is asphalt — there is not much brightness there to scale, so a
+  // disc that only takes 58% of it off is a shadow you have to be told about.
+  node.add(contactShadow(size, 0.24));
 }
 
 export function addProjectileGlow(node: THREE.Object3D, color: number, radius = 0.62): void {
