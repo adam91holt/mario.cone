@@ -35,18 +35,18 @@ export interface ExhaustPort {
   /**
    * Puffs per second at a closed throttle.
    *
-   * The diesels and the locomotive run at roughly a third of what they used to,
-   * and their puffs live half as long. The old numbers came from thinking about
-   * a plume as a *volume* and forgetting that a plume also has to end: the
-   * train at 58 a second with a 1.2s life held seventy puffs in the air at once,
-   * and because they were emitted at 90 km/h and then braked hard by drag (see
-   * the note on drag in `index.ts`) the machine drove out from under them. What
-   * a photograph caught was a diagonal band of pale spheres hanging six metres
-   * up over the scenery, a locomotive's length behind the locomotive.
+   * Read together with `size` and `alpha` — the three of them are one decision,
+   * and getting the *ratio* wrong is what produced both of this module's
+   * previous exhaust defects. Too few and too long-lived, and the plume detaches
+   * into a band of pale spheres hanging behind the machine; too few and too big,
+   * and it is a stack of outlined balls over the funnel. Neither is fixed by
+   * changing the quantity, because in both cases the quantity was roughly right
+   * and the *granularity* was wrong.
    *
-   * Eleven puffs at 0.6s is a dozen in the air, all of them within a few metres
-   * of the chimney: steam coming out of a funnel rather than a trail of
-   * balloons someone released.
+   * The rule the table now follows: a plume must have at least twenty pieces in
+   * the air at once, none of them more than about half a metre across at death,
+   * and no single piece opaque enough to be identified as an object. Rate times
+   * life gives the first, `size` times `grow` the second, `alpha` the third.
    */
   idle: number;
   /** ...and the extra at full throttle. */
@@ -140,7 +140,7 @@ export const EXHAUST: Record<VehicleId, ExhaustPort[]> = {
       // still satisfies the rule this module got wrong last round — nothing
       // airborne may be darker than the ground — with room to spare.
       size: 0.13, grow: 3.4, idle: 28, drive: 46, speed: 3.8, life: 0.56,
-      alpha: 0.115, color: 0x9DA3AE, tail: 0x818794,
+      alpha: 0.155, color: 0x9DA3AE, tail: 0x818794,
     }),
   ],
   // Stack on the engine deck at the back of the house, venting up.
@@ -148,7 +148,7 @@ export const EXHAUST: Record<VehicleId, ExhaustPort[]> = {
     port({
       x: 0.56, y: 2.06, z: -0.34, dx: 0.02, dy: 1, dz: -0.14,
       size: 0.12, grow: 3.4, idle: 26, drive: 44, speed: 3.4, life: 0.54,
-      alpha: 0.115, color: 0x9BA1AC, tail: 0x7F8591,
+      alpha: 0.155, color: 0x9BA1AC, tail: 0x7F8591,
     }),
   ],
   // The chimney, at (0, 2.72, 1.62). Steam: white, fat, and it climbs. Kept
@@ -159,7 +159,7 @@ export const EXHAUST: Record<VehicleId, ExhaustPort[]> = {
     port({
       x: 0, y: 2.84, z: 1.62, dx: 0, dy: 1, dz: -0.12,
       size: 0.15, grow: 3.6, idle: 34, drive: 54, speed: 5.0, life: 0.70,
-      alpha: 0.115, color: 0xFDFEFF, tail: 0xC9D2DE,
+      alpha: 0.150, color: 0xFDFEFF, tail: 0xC9D2DE,
     }),
   ],
   // Exhaust stubs either side of the cowl, blowing back along the fuselage.
@@ -167,12 +167,12 @@ export const EXHAUST: Record<VehicleId, ExhaustPort[]> = {
     port({
       x: 0.34, y: 0.86, z: 0.86, dx: 0.2, dy: 0.5, dz: -1,
       size: 0.09, grow: 3.0, idle: 30, drive: 60, speed: 5.0, life: 0.56,
-      alpha: 0.085, color: 0xDCE3EF, tail: 0xB4BDCC, hot: true,
+      alpha: 0.105, color: 0xDCE3EF, tail: 0xB4BDCC, hot: true,
     }),
     port({
       x: -0.34, y: 0.86, z: 0.86, dx: -0.2, dy: 0.5, dz: -1,
       size: 0.09, grow: 3.0, idle: 30, drive: 60, speed: 5.0, life: 0.56,
-      alpha: 0.085, color: 0xDCE3EF, tail: 0xB4BDCC, hot: true,
+      alpha: 0.105, color: 0xDCE3EF, tail: 0xB4BDCC, hot: true,
     }),
   ],
   // Turbine exhaust on the engine deck under the mast, blowing down the boom.
@@ -180,7 +180,7 @@ export const EXHAUST: Record<VehicleId, ExhaustPort[]> = {
     port({
       x: 0.28, y: 1.76, z: -0.72, dx: 0.24, dy: 0.4, dz: -1,
       size: 0.11, grow: 3.2, idle: 32, drive: 62, speed: 6.0, life: 0.62,
-      alpha: 0.085, color: 0xDEE5F1, tail: 0xB6BFCE, hot: true,
+      alpha: 0.105, color: 0xDEE5F1, tail: 0xB6BFCE, hot: true,
     }),
   ],
 };

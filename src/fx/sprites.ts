@@ -58,6 +58,19 @@ attribute vec4 iParams;
 /** The camera's own world velocity, so a streak can be measured against the
  *  frame rather than against the world. */
 uniform vec3 uCamVel;
+/**
+ * The longest half-length, in metres, any velocity stretch may reach.
+ *
+ * Stretch is metres of length per m/s, which means a streak's length is set by
+ * something the emitter does not control: how fast the machine happens to be
+ * going. Tuned against a drift at 60 m/s, a spark thrown clear comes out about
+ * a metre long and reads as a spark; the same particle at 77 m/s comes out
+ * **three point eight metres** long and reads as a white slash drawn across the
+ * road — which is exactly what a capture at full chat came back with. The whole
+ * point of a coefficient is lost if it has no ceiling, and there is no speed at
+ * which a spark should be longer than the kart.
+ */
+uniform float uMaxStretch;
 
 varying vec2 vUv;
 varying vec4 vColor;
@@ -91,7 +104,7 @@ void main() {
       // open. A spark keeping pace with the chase camera stays a point.
       vec3 vv = (modelViewMatrix * vec4(iVel - uCamVel, 0.0)).xyz;
       float vl = length(vv.xy);
-      along = rad + iParams.y * vl;
+      along = rad + min(iParams.y * vl, uMaxStretch);
       if (vl > 1e-4) ax = vv.xy / vl;
     }
     vec2 ay = vec2(-ax.y, ax.x);
@@ -128,6 +141,8 @@ export interface SpriteLayerOptions {
   renderOrder: number;
   /** Off for the rush layer, which is a screen effect and may not be occluded. */
   depthTest?: boolean;
+  /** Ceiling on velocity stretch, metres of half-length. See `uMaxStretch`. */
+  maxStretch?: number;
 }
 
 export interface SpriteLayer {
@@ -186,7 +201,11 @@ export function createSpriteLayer(opts: SpriteLayerOptions): SpriteLayer {
 
   const camVel = new THREE.Vector3();
   const material = new THREE.ShaderMaterial({
-    uniforms: { tAtlas: { value: opts.atlas }, uCamVel: { value: camVel } },
+    uniforms: {
+      tAtlas: { value: opts.atlas },
+      uCamVel: { value: camVel },
+      uMaxStretch: { value: opts.maxStretch ?? 1.05 },
+    },
     vertexShader: VERT,
     fragmentShader: FRAG,
     transparent: true,

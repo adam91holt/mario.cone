@@ -145,8 +145,8 @@ export interface ParticlePool {
  * able to reach the camera and wash the frame warm, and it brightens rather
  * than obscures. This is only ever about things that hide the game.
  */
-const NEAR_NEAR = 1.4;
-const NEAR_FAR = 4.0;
+const NEAR_NEAR = 2.2;
+const NEAR_FAR = 6.0;
 
 /**
  * The angular governor, in radians of apparent diameter.
@@ -166,12 +166,23 @@ const NEAR_FAR = 4.0;
  * pass, and it is the only kind of answer that survives the next set of numbers
  * somebody types into the surface table.
  *
- * Additive particles are exempt, as with the near dissolve: a flame plume is
- * meant to be able to wash the frame warm, and it brightens rather than hides.
+ * Additive particles get the same treatment at roughly twice the size. They are
+ * not exempt, and believing they were is how the alpha layer got fixed and the
+ * frame stayed unreadable: with the dust under control, a measured drift at 77
+ * km/h had **thirty-one** additive quads inside twelve metres covering five
+ * thousand square degrees between them — against a frame worth about four and a
+ * half thousand. A shock ring fourteen metres across and a lock-in flare six
+ * metres across are not "washing the frame warm", they are painting it out. The
+ * looser ceiling is the real difference between the two layers: a flame plume
+ * genuinely may fill the picture with light, so it is allowed to get twice as
+ * big before anything happens to it.
  */
 const ANG_SOFT = 0.26;
 const ANG_HARD = 0.62;
 const ANG_CLAMP = 0.50;
+const ANG_SOFT_ADD = 0.55;
+const ANG_HARD_ADD = 1.20;
+const ANG_CLAMP_ADD = 1.00;
 
 export function createParticlePool(capacity: number): ParticlePool {
   const data = new Float32Array(capacity * STRIDE);
@@ -282,30 +293,34 @@ export function createParticlePool(capacity: number): ParticlePool {
       const code = data[o + S.code];
       const isAdd = code >= ADDITIVE_BIT;
       let size = data[o + S.size0] + (data[o + S.size1] - data[o + S.size0]) * u;
+      const dx = data[o + S.px] - camX;
+      const dy = data[o + S.py] - camY;
+      const dz = data[o + S.pz] - camZ;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      const d = Math.sqrt(d2);
       if (!isAdd) {
-        // Dissolve anything that has wandered into the lens. Squared distance
-        // first, no square root: this runs over every live particle every frame.
-        const dx = data[o + S.px] - camX;
-        const dy = data[o + S.py] - camY;
-        const dz = data[o + S.pz] - camZ;
-        const d2 = dx * dx + dy * dy + dz * dz;
-        const d = Math.sqrt(d2);
+        // Dissolve anything that has wandered into the lens.
         if (d2 < NEAR_FAR * NEAR_FAR) {
           if (d2 <= NEAR_NEAR * NEAR_NEAR) continue;
           const t = (d - NEAR_NEAR) / (NEAR_FAR - NEAR_NEAR);
           a *= t * t;
           if (a < 0.004) continue;
         }
-        // ...and cut down anything that has grown to own the frame, wherever it
-        // happens to be. See the note on the angular governor above.
-        const ang = size / (d > 0.5 ? d : 0.5);
-        if (ang > ANG_SOFT) {
-          if (ang >= ANG_HARD) continue;
-          const t = (ANG_HARD - ang) / (ANG_HARD - ANG_SOFT);
-          a *= t * t;
-          if (a < 0.004) continue;
-          if (ang > ANG_CLAMP) size = d * ANG_CLAMP;
-        }
+      }
+      // ...and cut down anything that has grown to own the frame, wherever it
+      // happens to be. See the note on the angular governor above.
+      const soft = isAdd ? ANG_SOFT_ADD : ANG_SOFT;
+      const ang = size / (d > 0.5 ? d : 0.5);
+      if (ang > soft) {
+        const hard = isAdd ? ANG_HARD_ADD : ANG_HARD;
+        if (ang >= hard) continue;
+        const t = (hard - ang) / (hard - soft);
+        a *= t * t;
+        if (a < 0.004) continue;
+        const cap = isAdd ? ANG_CLAMP_ADD : ANG_CLAMP;
+        if (ang > cap) size = d * cap;
+      }
+      if (!isAdd) {
         // What this sprite is about to cost the frame, in steradian-ish units.
         // Cheap: two multiplies on a number already in a register.
         const cover = size / (d > 1 ? d : 1);
