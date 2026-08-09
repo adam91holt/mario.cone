@@ -18,9 +18,56 @@ import type { ItemId } from '../types.ts';
 const INK = '#141821';
 const W = 3.6;
 
+// ── shading ────────────────────────────────────────────────────────────────
+//
+// **Every solid in this set is lit, not filled.**
+//
+// The icons used to be flat single-colour shapes with one white crescent on
+// top, and photographed in the socket they read as clip art: a green shell was
+// a green pentagon, a banana was a yellow arc. What a kart racer puts in that
+// socket is a *render* — an object with a lit crown and a shaded underside,
+// sitting in a bevelled housing — and the cheapest honest version of that in
+// flat SVG is to make every body fill a vertical ramp from a lighter version of
+// its own colour to a darker one.
+//
+// The ramps are collected as the bodies below are built and emitted once, into
+// a single hidden `<svg>` mounted with the HUD (`ICON_DEFS`). One definition per
+// colour for the whole instrument set, rather than a `<defs>` block inside each
+// of the forty icon copies the slot and the drum between them contain.
+
+const ramps = new Map<string, string>();
+
+const hexOf = (c: string): number => parseInt(c.slice(1), 16);
+const mix = (c: number, t: number, target: number): string => {
+  const ch = (sh: number): number => {
+    const v = (c >> sh) & 255;
+    return Math.round(v + (target - v) * t);
+  };
+  return `#${((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, '0')}`;
+};
+
+/**
+ * A colour, as a paint reference to its own top-lit ramp.
+ *
+ * Anything that is not a plain hex — `none`, or a ramp already — is handed back
+ * untouched, so stroke-only paths and the flat highlights keep their own paint.
+ */
+function lit(fill: string): string {
+  if (fill.length !== 7 || fill[0] !== '#') return fill;
+  const key = fill.slice(1).toUpperCase();
+  if (!ramps.has(key)) {
+    const n = hexOf(fill);
+    ramps.set(key, `<linearGradient id="ig-${key}" x1="0" y1="0" x2="0" y2="1">`
+      + `<stop offset="0" stop-color="${mix(n, 0.34, 255)}"/>`
+      + `<stop offset=".46" stop-color="${fill}"/>`
+      + `<stop offset="1" stop-color="${mix(n, 0.3, 0)}"/></linearGradient>`);
+  }
+  return `url(#ig-${key})`;
+}
+
 /** Outline + fill in one call, so no icon can drift off the shared weight. */
 const s = (d: string, fill: string, extra = ''): string =>
-  `<path d="${d}" fill="${fill}" stroke="${INK}" stroke-width="${W}"
+  `<path d="${d}" fill="${lit(fill)}" stroke="${INK}" stroke-width="${W}"
     stroke-linejoin="round" stroke-linecap="round" ${extra}/>`;
 
 const plain = (d: string, fill: string, extra = ''): string =>
@@ -63,11 +110,29 @@ function shell(body: string, rim: string): string {
 }
 
 const BODIES: Record<ItemId, string> = {
+  // **A banana, not a leaf.**
+  //
+  // The old one was a single tapered arc with a stalk on the end, and at socket
+  // size it read as a chilli or a leaf — because a banana's silhouette is not an
+  // arc, it is a *fat crescent with two blunt ends and a flat belly*, and the
+  // thing that names it instantly is the dark stalk at one end and the dark nib
+  // at the other. This one is built from that: an even-thickness crescent lying
+  // diagonally, a squared-off brown stalk at the top, a nib at the tip, and one
+  // ridge line down the length so it reads as a segmented fruit and not a
+  // painted stripe.
   banana: `
-    ${s('M11 45C11 24 27 9 51 11c-8 6-11 12-14 21-6 18-20 25-26 13z', '#FFD429')}
-    ${plain('M18 44c-3-14 7-27 22-30-11 6-17 17-16 29z', '#FFEE9B', 'opacity=".75"')}
-    ${s('M47 12.5 55 6', 'none', 'stroke-width="5.4"')}
-    ${plain('M47 12.5 55 6', 'none', 'stroke="#6B4A0C" stroke-width="4" stroke-linecap="round"')}
+    ${s('M21 9C17 39 30 57 55 55C60 54.6 61 47 57 44C38 45 32 34 33 11C33 6 22 5 21 9Z', '#FFD429')}
+    ${plain('M30 20C30 41 40 51 55 50C55.6 48.4 55.6 46.6 55 45C41 45.6 35 36 35 19Z',
+    '#FFF3B4', 'opacity=".8"')}
+    ${plain('M26 16C25 38 34 51 52 51', 'none',
+    'stroke="#E0A61A" stroke-width="2.2" fill="none" opacity=".8" stroke-linecap="round"')}
+    ${s('M20 10 17 3', 'none', 'stroke-width="7.6"')}
+    ${plain('M20.5 10 17.5 3.6', 'none',
+    'stroke="#7A5510" stroke-width="4.6" stroke-linecap="round"')}
+    ${plain('M57 51.5a3 3 0 0 1 0 4.5', 'none',
+    `stroke="${INK}" stroke-width="5" stroke-linecap="round"`)}
+    ${plain('M57 52a2.4 2.4 0 0 1 0 3.4', 'none',
+    'stroke="#7A5510" stroke-width="3" stroke-linecap="round"')}
   `,
   greenShell: shell('#46D63C', '#1F7A1C'),
   redShell: shell('#F03A2E', '#8E1C14'),
@@ -157,6 +222,19 @@ const BODIES: Record<ItemId, string> = {
 export function itemIconSvg(id: ItemId): string {
   return `<svg viewBox="0 0 64 64" data-face="${id}" aria-hidden="true">${BODIES[id]}</svg>`;
 }
+
+/**
+ * The shading ramps every icon above refers to, as one hidden `<svg>`.
+ *
+ * Mounted once with the HUD. It has to be in the document *before* any icon is
+ * painted and for as long as any icon is on screen — a `url(#…)` paint server
+ * is resolved against the document, not against the element that names it.
+ * Zero-sized and clipped rather than `display:none`, which is the shape of this
+ * trick that every browser agrees on.
+ */
+export const ICON_DEFS = `<svg class="icon-defs" aria-hidden="true"><defs>${
+  [...ramps.values()].join('')
+}</defs></svg>`;
 
 export const ITEM_IDS = Object.keys(BODIES) as ItemId[];
 

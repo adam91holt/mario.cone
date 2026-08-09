@@ -36,20 +36,23 @@
 
 import { clamp01, ease } from '../core/math.ts';
 import type { GameContext, Racer } from '../types.ts';
+import { glyphBox, ordinalWord, type GlyphBox } from './glyphs.ts';
 import { CHEVRON_SVG, COIN_SVG } from './icons.ts';
 import { createRoller, rollerHtml, type Roller } from './roller.ts';
-import { bind, fromHtml, ordinal, q, rgba, type Bound } from './theme.ts';
+import { bind, fromHtml, q, rgba, type Bound } from './theme.ts';
 
 export const CSS_READOUTS = `
 /* ── lap ─────────────────────────────────────────────────────────────────── */
+/* Every size below is a *height*, not a font-size: these are drawn numerals now
+   (see glyphs.ts) and a glyph run is sized by the box it is given. */
 #hud .lap-plate { padding: calc(var(--u) * .46) calc(var(--u) * .78) calc(var(--u) * .42); }
 #hud .lap-head { display: flex; align-items: center; gap: calc(var(--u) * .95); }
-#hud .lap-num { display: flex; align-items: baseline; gap: calc(var(--u) * .2); }
-#hud .lap-num .num { font-size: calc(var(--u) * 3.5); }
-#hud .lap-num .sep { font-size: calc(var(--u) * 1.75); font-weight: 900; opacity: .45;
-  text-shadow: 0 calc(var(--u) * .1) 0 rgba(0,0,0,.6); }
-#hud .lap-num .tot { font-size: calc(var(--u) * 1.95); font-weight: 900; opacity: .84;
-  text-shadow: 0 calc(var(--u) * .12) 0 rgba(0,0,0,.6); }
+#hud .lap-num { display: flex; align-items: flex-end; gap: calc(var(--u) * .16); }
+#hud .lap-num .num { height: calc(var(--u) * 4.3); color: #FFF8F0; }
+#hud .lap-num .sep { height: calc(var(--u) * 2.5); color: #FFF8F0; opacity: .42;
+  margin-bottom: calc(var(--u) * .12); }
+#hud .lap-num .tot { height: calc(var(--u) * 2.8); color: #FFF8F0; opacity: .88;
+  margin-bottom: calc(var(--u) * .06); }
 #hud .pips { display: flex; gap: calc(var(--u) * .22); margin-left: auto; align-self: center; }
 #hud .pips i {
   display: block; width: calc(var(--u) * .5); height: calc(var(--u) * 1.5);
@@ -64,6 +67,7 @@ export const CSS_READOUTS = `
 #hud .lap-plate.final::before { background: linear-gradient(90deg, #FF6B1A, #FFC300 50%, #FF6B1A); }
 #hud .lap-plate.final .lap-num .num { color: #FFC98A; }
 #hud .lap-plate.final .lap-num .tot { color: #FFB259; }
+#hud .lap-plate.final .lap-num .sep { color: #FFB259; }
 
 /* ── position ────────────────────────────────────────────────────────────── */
 /* The biggest thing on the screen, in a corner of its own. It used to be a
@@ -74,13 +78,10 @@ export const CSS_READOUTS = `
    thing you read. */
 #hud .pos-wrap { position: relative; display: flex; flex-direction: column; align-items: center; }
 #hud .pos-plate { padding: calc(var(--u) * .34) calc(var(--u) * .82) calc(var(--u) * .5) calc(var(--u) * .74); }
-#hud .pos-row { display: flex; align-items: baseline; }
-#hud .pos-row .num { font-size: calc(var(--u) * 7); }
-#hud .pos-row .suf { font-size: calc(var(--u) * 2.55); font-weight: 900; margin-left: calc(var(--u) * .12);
-  text-shadow:
-    .04em .04em 0 rgba(10,13,19,.98), -.04em .04em 0 rgba(10,13,19,.98),
-    .04em -.04em 0 rgba(10,13,19,.98), -.04em -.04em 0 rgba(10,13,19,.98),
-    0 .11em 0 rgba(0,0,0,.6); }
+#hud .pos-row { display: flex; align-items: flex-end; }
+#hud .pos-row .num { height: calc(var(--u) * 8); color: #FFF8F0; }
+#hud .pos-row .suf { height: calc(var(--u) * 2.9); color: #FFF8F0;
+  margin-left: calc(var(--u) * .1); margin-bottom: calc(var(--u) * .18); }
 #hud .pos-plate.p1 .num, #hud .pos-plate.p1 .suf { color: #FFD84D; }
 #hud .pos-plate.p1::before { background: linear-gradient(90deg, #FFD84D, #FFF3B0 50%, #FFD84D); }
 #hud .pos-flash {
@@ -116,17 +117,12 @@ export const CSS_READOUTS = `
   perspective: calc(var(--u) * 24);
 }
 #hud .coin-plate .coin-ico { width: calc(var(--u) * 2.3); height: calc(var(--u) * 2.3); display: block; }
-#hud .coin-plate .c { font-size: calc(var(--u) * 2.5); font-weight: 900; font-variant-numeric: tabular-nums;
-  line-height: .95; color: #FFE08A;
-  text-shadow:
-    .04em .04em 0 rgba(10,13,19,.98), -.04em .04em 0 rgba(10,13,19,.98),
-    .04em -.04em 0 rgba(10,13,19,.98), -.04em -.04em 0 rgba(10,13,19,.98),
-    0 .11em 0 rgba(0,0,0,.6); }
+#hud .coin-plate .c { height: calc(var(--u) * 3); color: #FFE08A; }
 /* Ten coins is the speed cap. The plate goes gold to say "this is done" — a
    number the player has stopped needing to grow. */
 #hud .coin-plate.max::before { background: linear-gradient(90deg, #FFD84D, #FFF6C8 50%, #FFD84D); }
 #hud .coin-plate.max .c { color: #FFF6C8;
-  text-shadow: 0 calc(var(--u) * .11) 0 rgba(0,0,0,.6), 0 0 calc(var(--u) * .7) rgba(255,216,77,.9); }
+  filter: drop-shadow(0 0 calc(var(--u) * .5) rgba(255,216,77,.85)); }
 /* Anchored to the *top* edge of the plate, not the inside of it. The plate lives
    in the bottom-left corner, so a "-3" thrown downward out of it goes straight
    into the frame edge and loses its bottom third — the same mistake the
@@ -136,11 +132,7 @@ export const CSS_READOUTS = `
 #hud .floats { position: absolute; left: calc(var(--u) * 2.4); bottom: 100%; width: 0; height: 0; }
 #hud .floats b {
   position: absolute; left: 0; top: 0; white-space: nowrap;
-  font-size: calc(var(--u) * 1.6); font-weight: 900; opacity: 0;
-  text-shadow:
-    .05em .05em 0 rgba(10,13,19,.95), -.05em .05em 0 rgba(10,13,19,.95),
-    .05em -.05em 0 rgba(10,13,19,.95), -.05em -.05em 0 rgba(10,13,19,.95),
-    0 .12em 0 rgba(0,0,0,.7);
+  height: calc(var(--u) * 2.1); opacity: 0;
 }
 `;
 
@@ -159,7 +151,7 @@ export function createLapPanel(ctx: GameContext): Panel {
       <div class="lap-head">
         <div class="lap-num">
           <span class="num">${rollerHtml('cur')}</span>
-          <span class="sep">/</span><span class="tot">3</span>
+          <span class="sep"></span><span class="tot"></span>
         </div>
         <div class="pips"></div>
       </div>
@@ -168,7 +160,8 @@ export function createLapPanel(ctx: GameContext): Panel {
 
   const plate = bind(root);
   const roller: Roller = createRoller(q(root, '.roll.cur'));
-  const total = bind(q(root, '.tot'));
+  glyphBox(q(root, '.sep'), '/');
+  const total = glyphBox(q(root, '.tot'), '3');
   const pipBox = q(root, '.pips');
 
   let pips: HTMLElement[] = [];
@@ -199,7 +192,7 @@ export function createLapPanel(ctx: GameContext): Panel {
       const race = ctx.race;
       const player = ctx.player;
       buildPips(race.totalLaps);
-      total.text(String(race.totalLaps));
+      total.set(String(race.totalLaps));
 
       // `lap` counts from -1 on the run-up to the line, so the displayed lap is
       // one more than it and never leaves 1..total.
@@ -234,13 +227,37 @@ export function createLapPanel(ctx: GameContext): Panel {
 
 // ── position ───────────────────────────────────────────────────────────────
 
+/**
+ * How long a new place has to survive before the readout commits to it.
+ *
+ * **Measured, and it is the reason this exists.** A render-free 25-second trace
+ * of the sim shows `player.place` holding for runs of 3, 3, 5, 12, 12, 13, 17
+ * and 23 frames — eight of sixteen runs under three tenths of a second, two of
+ * them fifty milliseconds. Those are not places changed, they are two karts
+ * trading a metre of progress at a hairpin. The readout used to spend a full
+ * plate punch, a colour flash and a chevron on every one of them, which is how
+ * the loudest moment in a kart racer gets spent on noise: if 5th flashes past
+ * for three frames, the player learns to stop trusting the corner it happens in.
+ *
+ * A quarter of a second is the shortest hold that survives a swap-back at a
+ * hairpin and the longest that still lands inside the same beat as the overtake
+ * — the pass is still on screen when the number confirms it. It is a *display*
+ * delay and nothing more: the HUD reads state and never writes it, so the race
+ * director's own answer is untouched and a place that genuinely changed is shown
+ * a quarter of a second later, which no one can perceive as late.
+ *
+ * The proper fix is upstream — see the report: `race/` should be settling the
+ * standings itself rather than re-sorting a noisy progress key every step.
+ */
+const PLACE_HOLD = 0.25;
+
 export function createPositionPanel(ctx: GameContext): Panel {
   const root = fromHtml(`
     <div class="pos-wrap">
       <div class="delta">${CHEVRON_SVG}</div>
       <div class="plate pos-plate">
         <div class="pos-row">
-          <span class="num">${rollerHtml('place')}</span><span class="suf">st</span>
+          <span class="num">${rollerHtml('place')}</span><span class="suf"></span>
         </div>
         <div class="pos-flash"></div>
       </div>
@@ -249,11 +266,14 @@ export function createPositionPanel(ctx: GameContext): Panel {
 
   const plate = bind(q(root, '.pos-plate'));
   const flash = bind(q(root, '.pos-flash'));
-  const suffix = bind(q(root, '.suf'));
+  const suffix: GlyphBox = glyphBox(q(root, '.suf'), 'ST');
   const delta = bind(q(root, '.delta'));
   const roller = createRoller(q(root, '.roll.place'));
 
   let shown = -1;
+  /** The candidate the sim is currently reporting, and how long it has held. */
+  let pending = -1;
+  let pendingT = 0;
   let punch = 0;
   let flashT = 0;
   let flashUp = true;
@@ -265,21 +285,38 @@ export function createPositionPanel(ctx: GameContext): Panel {
 
     reset(): void {
       shown = -1;
+      pending = -1;
+      pendingT = 0;
       punch = 0;
       flashT = 0;
       deltaT = 0;
       roller.reset('1');
-      suffix.text('st');
+      suffix.set('ST');
       plate.cls('p1', true);
     },
 
     update(dt: number): void {
-      const place = ctx.player?.place ?? 1;
+      const live = ctx.player?.place ?? 1;
+      // ── hysteresis ───────────────────────────────────────────────────────
+      if (live === shown) {
+        pending = live;
+        pendingT = 0;
+      } else {
+        if (live !== pending) { pending = live; pendingT = 0; }
+        pendingT += dt;
+      }
+      // The first read of a race, and the finish, are committed on the spot:
+      // there is nothing on screen to protect at the start, and the place a
+      // player finished in is never going to be taken back.
+      const settled = shown < 0 || (ctx.player?.finished ?? false)
+        || pendingT >= PLACE_HOLD;
+      const place = settled ? live : shown;
+
       if (place !== shown) {
         const gained = shown >= 0 && place < shown;
         const lost = shown >= 0 && place > shown;
         roller.set(String(place), place < shown ? -1 : 1);
-        suffix.text(ordinal(place));
+        suffix.set(ordinalWord(place));
         plate.cls('p1', place === 1);
         if (gained || lost) {
           punch = 1;
@@ -339,21 +376,21 @@ export function createPositionPanel(ctx: GameContext): Panel {
 
 // ── coins ──────────────────────────────────────────────────────────────────
 
-interface Float { el: Bound; t: number; up: boolean; }
+interface Float { el: Bound; glyphs: GlyphBox; t: number; up: boolean; }
 
 export function createCoinPanel(ctx: GameContext): Panel {
   const root = fromHtml(`
     <div class="coin-wrap">
-      <div class="plate coin-plate">${COIN_SVG}<span class="c">0</span></div>
+      <div class="plate coin-plate">${COIN_SVG}<span class="c"></span></div>
       <div class="floats"><b></b><b></b><b></b><b></b></div>
     </div>
   `);
 
   const plate = bind(q(root, '.coin-plate'));
-  const value = bind(q(root, '.c'));
+  const value = glyphBox(q(root, '.c'), '0');
   const icon = bind(q(root, '.coin-ico'));
   const floats: Float[] = Array.from(root.querySelectorAll<HTMLElement>('.floats b'))
-    .map((el) => ({ el: bind(el), t: 0, up: true }));
+    .map((el) => ({ el: bind(el), glyphs: glyphBox(el), t: 0, up: true }));
   let nextFloat = 0;
 
   let shown = -1;
@@ -367,7 +404,7 @@ export function createCoinPanel(ctx: GameContext): Panel {
     nextFloat++;
     f.t = 1;
     f.up = up;
-    f.el.text(text);
+    f.glyphs.set(text);
     f.el.set('color', color);
   }
 
@@ -396,7 +433,7 @@ export function createCoinPanel(ctx: GameContext): Panel {
       const coins = ctx.player?.coins ?? 0;
       if (coins !== shown) {
         shown = coins;
-        value.text(String(coins));
+        value.set(String(coins));
         // Mirrors COIN_CAP in the item system, which does not export it. If the
         // two ever drift the plate simply stops lighting up — it cannot lie
         // about the count itself.
@@ -407,9 +444,12 @@ export function createCoinPanel(ctx: GameContext): Panel {
       if (shake > 0) shake = Math.max(0, shake - dt * 2.6);
       if (spin > 0) spin = Math.max(0, spin - dt * 1.7);
 
-      const wobble = shake > 0 ? Math.sin(ctx.time.elapsed * 46) * shake * 0.14 : 0;
+      // ...and the same for the coin plate's shake: 1.4% of the plate, which is
+      // a real nudge at any resolution, rather than a fraction of a font-size
+      // this element does not set.
+      const wobble = shake > 0 ? Math.sin(ctx.time.elapsed * 46) * shake * 1.4 : 0;
       plate.set('transform',
-        `translateX(${wobble.toFixed(3)}em) scale(${(1 + punch * punch * 0.16).toFixed(4)})`);
+        `translateX(${wobble.toFixed(3)}%) scale(${(1 + punch * punch * 0.16).toFixed(4)})`);
       // The coin flips on its axis when one is collected: the icon is the part
       // of this readout the eye is on, so the icon is the part that reacts.
       icon.set('transform', spin > 0
@@ -423,9 +463,13 @@ export function createCoinPanel(ctx: GameContext): Panel {
         const e = ease.outQuart(t);
         // A gain leaves upward; a loss falls out of the air onto the plate. Both
         // stay inside the strip above the sign — see `.floats`.
-        const rise = f.up ? e * -2.1 : (e - 1) * 1.75 + 0.3;
+        // Percentages of the float's own box, not `em`. These are drawn glyphs
+        // now and the holder sets no font-size, so an `em` here would resolve
+        // against the document's 16px and quietly halve the travel — the same
+        // trap the position plate's punch fell into.
+        const rise = f.up ? e * -160 : (e - 1) * 133 + 23;
         f.el.set('transform',
-          `translateY(${rise.toFixed(2)}em) scale(${(0.8 + ease.outBack(Math.min(1, t * 2.5)) * 0.35).toFixed(3)})`);
+          `translateY(${rise.toFixed(1)}%) scale(${(0.8 + ease.outBack(Math.min(1, t * 2.5)) * 0.35).toFixed(3)})`);
         f.el.set('opacity', (Math.min(1, f.t * 2.2) * 0.98).toFixed(3));
         if (f.t === 0) f.el.set('opacity', '0');
       }

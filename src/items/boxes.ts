@@ -414,6 +414,12 @@ export function createBoxField(ctx: GameContext): BoxField {
       const camX = ctx.camera.position.x;
       const camZ = ctx.camera.position.z;
 
+      // Husks are compacted into the front of their buffer and the instance
+      // count is set to however many are actually standing — which is usually
+      // none. An InstancedMesh with a count of zero is skipped outright, so the
+      // empty-socket rig costs a draw call only on the laps it has something to
+      // say.
+      let husks = 0;
       for (let i = 0; i < boxes.length; i++) {
         const b = boxes[i]!;
         const gone = b.respawn > 0;
@@ -488,12 +494,10 @@ export function createBoxField(ctx: GameContext): BoxField {
           _p.copy(b.pos);
           _p.y += bob * 0.4;
           _m.compose(_p, _q, _s);
-        } else {
-          _s.setScalar(0);
-          _m.compose(b.pos, _q, _s);
+          ghost.setMatrixAt(husks++, _m);
         }
-        ghost.setMatrixAt(i, _m);
       }
+      ghost.count = husks;
       shell.instanceMatrix.needsUpdate = true;
       core.instanceMatrix.needsUpdate = true;
       glyph.instanceMatrix.needsUpdate = true;

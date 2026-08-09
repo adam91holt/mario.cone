@@ -24,6 +24,7 @@
 import { clamp01, ease } from '../core/math.ts';
 import { ITEMS, REEL_FACES } from '../items/defs.ts';
 import type { GameContext, ItemId, Racer } from '../types.ts';
+import { glyphBox } from './glyphs.ts';
 import { itemIconSvg, ITEM_IDS } from './icons.ts';
 import {
   bind, fromHtml, hexCss, q, rgba, TIER_COLORS, TIER_RING, unitPx, type Bound,
@@ -183,27 +184,37 @@ export const CSS_ITEM = `
   display: grid; place-items: center;
   overflow: hidden;
 }
-/* An empty slot is *waiting*, not disabled: the ring stays lit and a hazard "?"
-   sits in it, so it reads as a socket with nothing in it rather than a control
-   that has been greyed out. */
+/* **An empty socket looks empty.**
+
+   What used to sit here was a hazard "?" — the *same glyph the world paints on
+   an uncollected item box*. So the one question this widget exists to answer,
+   "have I got something or not", was answered with the picture of the thing you
+   get something from: hold nothing and the slot showed a question mark; drive at
+   a box and the box showed a question mark. Two states, one picture.
+
+   Empty is now a state of the housing rather than a symbol in it: the well goes
+   deep and dark, the hazard floor shows through the way the inside of a real
+   socket does, and the ring drops off the boil. Holding something lights the
+   ring and puts an object in the light. Nothing has to be read. */
 #hud .slot.empty {
+  background:
+    linear-gradient(163deg, rgba(70,80,99,.5), rgba(10,13,19,.9)),
+    repeating-linear-gradient(128deg,
+      rgba(255,107,26,.26) 0 calc(var(--u) * .55),
+      rgba(0,0,0,0) calc(var(--u) * .55) calc(var(--u) * 1.1));
   box-shadow:
-    inset 0 0 0 calc(var(--u) * .2) rgba(255,195,0,.6),
-    inset 0 0 0 calc(var(--u) * .34) rgba(20,24,34,.8),
-    inset 0 calc(var(--u) * -.62) calc(var(--u) * 1.1) rgba(0,0,0,.45),
+    inset 0 0 0 calc(var(--u) * .2) rgba(255,195,0,.52),
+    inset 0 0 0 calc(var(--u) * .34) rgba(20,24,34,.85),
+    inset 0 calc(var(--u) * .5) calc(var(--u) * 1.3) rgba(0,0,0,.72),
+    inset 0 calc(var(--u) * -.5) calc(var(--u) * 1.1) rgba(0,0,0,.6),
     0 calc(var(--u) * .34) calc(var(--u) * .9) rgba(0,0,0,.45);
 }
-#hud .slot .mark {
-  position: absolute; font-size: calc(var(--u) * 3.2); font-weight: 900; line-height: 1;
-  color: #FFC300; opacity: 0;
-  text-shadow:
-    calc(var(--u) * .12) calc(var(--u) * .12) 0 rgba(18,21,29,.95),
-    calc(var(--u) * -.12) calc(var(--u) * .12) 0 rgba(18,21,29,.95),
-    calc(var(--u) * .12) calc(var(--u) * -.12) 0 rgba(18,21,29,.95),
-    calc(var(--u) * -.12) calc(var(--u) * -.12) 0 rgba(18,21,29,.95),
-    0 calc(var(--u) * .26) 0 rgba(0,0,0,.5);
-}
-#hud .slot.empty .mark { opacity: .95; }
+/* **Nothing is in it, so nothing is drawn in it.** The first attempt at this put
+   a slab of hazard tape on the floor of the well, and photographed at socket
+   size that slab read as *an object sitting in the slot* — which is the same
+   mistake as the question mark, made in a different material. An empty socket is
+   an empty socket: a deep dark recess with the housing's own hazard texture
+   running down it, and a ring that has gone off the boil. */
 /* A socket that is deciding is *lit*. The ring goes white-hot while the drum
    runs, so the state is carried by the housing as well as by the motion inside
    it — which is what makes a single photograph of it unambiguous. */
@@ -233,7 +244,7 @@ export const CSS_ITEM = `
 #hud .slot.spinning .drum { display: block; }
 /* The settled face, the hazard "?" and the count all belong to a socket that has
    finished deciding. While it is deciding, the drum is the only thing in it. */
-#hud .slot.spinning .reel, #hud .slot.spinning .mark { opacity: 0; }
+#hud .slot.spinning .reel { opacity: 0; }
 #hud .slot .strip { position: absolute; left: 0; right: 0; top: 0; }
 #hud .slot .strip i {
   display: grid; place-items: center;
@@ -274,10 +285,12 @@ export const CSS_ITEM = `
   border-radius: calc(var(--u) * .5);
   background: linear-gradient(180deg, #FF8A2A, #E24E06);
   box-shadow: 0 0 0 calc(var(--u) * .13) rgba(12,14,20,.92), 0 calc(var(--u) * .16) calc(var(--u) * .3) rgba(0,0,0,.5);
-  font-size: calc(var(--u) * 1.05); font-weight: 900; line-height: calc(var(--u) * 1.5);
-  text-align: center; color: #FFF8F0; opacity: 0;
-  text-shadow: 0 calc(var(--u) * .1) 0 rgba(0,0,0,.5);
+  height: calc(var(--u) * 1.5); display: grid; place-items: center;
+  color: #FFF8F0; opacity: 0;
 }
+/* The count is a number too, so it is drawn like every other number in this
+   HUD rather than set in whatever the browser has. */
+#hud .slot-wrap .count .gl { height: calc(var(--u) * .92); }
 `;
 
 export interface ItemSlot {
@@ -307,7 +320,6 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       </svg>
       <div class="slot empty">
         <div class="glow"></div>
-        <div class="mark">?</div>
         <div class="reel">
           <div class="face a">${ITEM_IDS.map(itemIconSvg).join('')}</div>
           <div class="face b">${ITEM_IDS.map(itemIconSvg).join('')}</div>
@@ -325,6 +337,7 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
   const sweep = bind(q(root, '.sweep'));
   const glow = bind(q(root, '.glow'));
   const count = bind(q(root, '.count'));
+  const countText = glyphBox(q(root, '.count'));
   const collarSvg = bind(q<SVGElement>(root, '.collar'));
   const collarBed = bind(q<SVGPathElement>(root, '.collar .bed'));
   const collarHalo = bind(q<SVGPathElement>(root, '.collar .halo'));
@@ -555,7 +568,8 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       if (n !== heldCount) {
         if (heldId && n > 0 && n < heldCount) badgePunch = 1;
         heldCount = n;
-        count.text(n > 1 ? `×${n}` : '');
+        // "X2", drawn — the multiplication cross is the letter X in this face.
+        countText.set(n > 1 ? `X${n}` : '');
       }
 
       if (ejecting > 0) {

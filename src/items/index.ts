@@ -1930,6 +1930,12 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       // shadow in the frame.
       const blob = carrier.children[1];
       if (blob) {
+        // Eight racers with a triple each is twenty-four extra draw calls for
+        // discs a couple of pixels across at the far end of a straight. Contact
+        // matters where the eye can see it; past seventy metres it cannot.
+        blob.visible = carrier.position.distanceToSquared(ctx.camera.position) < 70 * 70;
+      }
+      if (blob && blob.visible) {
         _to.subVectors(carrier.position, _pos);
         const h = Math.max(0.05, _to.dot(_up));
         _shadow.copy(_pos).addScaledVector(_up, 0.03)

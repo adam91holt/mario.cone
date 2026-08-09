@@ -267,8 +267,12 @@ export function buildBanana(): THREE.Object3D {
  */
 export function buildShell(color: number, spot: number, homing = false): THREE.Object3D {
   const g = new THREE.Group();
-  const shellMat = plastic(color, 0.28, 0.18);
-  const trimMat = plastic(0xFFF8F0, 0.34, 0.12);
+  // 0.44, not 0.28. At the tighter roughness the dome carried a specular that
+  // clipped to white over a third of its surface, and a blown highlight is not
+  // a highlight — it is a hole in the model. Painted vinyl, per ARCHITECTURE
+  // §12: a broad soft sheen that describes the curve instead of erasing it.
+  const shellMat = plastic(color, 0.44, 0.16);
+  const trimMat = plastic(0xFFF8F0, 0.46, 0.12);
   const bandMat = plastic(spot, 0.36, 0.1);
 
   // The crown.

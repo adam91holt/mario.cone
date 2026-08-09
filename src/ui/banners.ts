@@ -15,17 +15,21 @@
 
 import { clamp01, ease, formatTime } from '../core/math.ts';
 import type { GameContext, Racer } from '../types.ts';
-import { bind, fromHtml, ordinal, q } from './theme.ts';
+import { glyphBox, ordinalWord } from './glyphs.ts';
+import { bind, fromHtml, q } from './theme.ts';
 
 export const CSS_BANNERS = `
 #hud .stage { position: absolute; inset: 0; overflow: hidden; }
 
 /* ── countdown ───────────────────────────────────────────────────────────── */
-/* Raised from 42%: the numerals are half again as tall as they were, and a box
-   that hangs *below* the midline with a 285px digit in it puts the count on the
-   player's own kart rather than above it. */
+/* **Where the road is.** At 32% the count landed square on the CONE CANYON
+   gantry banner and the start-light board — two busy yellow objects, one of
+   which is itself a signal the player is supposed to be reading. A countdown
+   numeral wants the clear dark tarmac between the gantry and the player's own
+   kart, and on the start grid that band sits just above the midline. Low enough
+   to clear the gantry, high enough that a 250px digit never touches the kart. */
 #hud .cd {
-  position: absolute; left: 0; right: 0; top: 32%;
+  position: absolute; left: 0; right: 0; top: 35%;
   display: grid; place-items: center; opacity: 0;
 }
 #hud .cd .ring {
@@ -39,23 +43,17 @@ export const CSS_BANNERS = `
    the numerals are sized like it: about a fifth of the frame's height at "3"
    and a quarter by "1". Each beat is also a different colour — white, gold,
    hazard orange, then green — because three identical digits appearing in the
-   same place at the same size is a metronome, not a countdown. */
+   same place at the same size is a metronome, not a countdown.
+
+   Drawn glyphs, so all this rule sets is a height, the ink colour the face
+   takes, and the heat coming off it. The outline and the bevel are geometry —
+   see glyphs.ts. */
 #hud .cd .n {
-  font-size: calc(var(--u) * 14); font-weight: 900; line-height: 1;
-  letter-spacing: -.05em; color: #FFF8F0;
-  text-shadow:
-    .035em .035em 0 rgba(14,17,24,.96), -.035em .035em 0 rgba(14,17,24,.96),
-    .035em -.035em 0 rgba(14,17,24,.96), -.035em -.035em 0 rgba(14,17,24,.96),
-    0 .05em 0 rgba(14,17,24,.96),
-    0 .07em 0 rgba(0,0,0,.55),
-    0 0 .22em rgba(255,180,60,.75);
+  height: calc(var(--u) * 14.2); color: #FFF8F0;
+  filter: drop-shadow(0 0 calc(var(--u) * .9) rgba(255,180,60,.75));
 }
-#hud .cd.go .n { color: #8CFF5A; text-shadow:
-    .035em .035em 0 rgba(8,26,10,.96), -.035em .035em 0 rgba(8,26,10,.96),
-    .035em -.035em 0 rgba(8,26,10,.96), -.035em -.035em 0 rgba(8,26,10,.96),
-    0 .05em 0 rgba(8,26,10,.96),
-    0 .07em 0 rgba(0,0,0,.55),
-    0 0 .24em rgba(120,255,90,.8); }
+#hud .cd.go .n { color: #8CFF5A;
+  filter: drop-shadow(0 0 calc(var(--u) * 1.1) rgba(120,255,90,.85)); }
 /* Two, and then one: hotter, heavier, closer. */
 #hud .cd.beat2 .n { color: #FFE9A8; }
 #hud .cd.beat1 .n { color: #FFB13A; }
@@ -69,7 +67,7 @@ export const CSS_BANNERS = `
    "sign on a roadworks trailer" from a single glance, and skew composes with
    the entrance transform without needing a second element. */
 #hud .band .plateau {
-  position: relative; display: flex; align-items: baseline;
+  position: relative; display: flex; align-items: flex-end;
   gap: calc(var(--u) * 1.1);
   padding: calc(var(--u) * .5) calc(var(--u) * 2.6);
   transform: skewX(-9deg);
@@ -95,26 +93,15 @@ export const CSS_BANNERS = `
   background: linear-gradient(100deg, rgba(255,255,255,0), rgba(255,255,255,.3), rgba(255,255,255,0));
   opacity: 0; pointer-events: none; transform: none;
 }
-#hud .band .b-title {
-  font-size: calc(var(--u) * 3.1); font-weight: 900; letter-spacing: .02em;
-  text-transform: uppercase; color: #FFF8F0; white-space: nowrap;
-  text-shadow:
-    .035em .035em 0 rgba(10,13,19,.9), -.035em .035em 0 rgba(10,13,19,.9),
-    .035em -.035em 0 rgba(10,13,19,.9), -.035em -.035em 0 rgba(10,13,19,.9),
-    0 .09em 0 rgba(0,0,0,.6);
-}
-#hud .band .b-sub {
-  font-size: calc(var(--u) * 1.8); font-weight: 900; color: #FFD84D;
-  font-variant-numeric: tabular-nums; white-space: nowrap;
-  text-shadow: 0 calc(var(--u) * .12) 0 rgba(0,0,0,.6);
-}
+#hud .band .b-title { height: calc(var(--u) * 3.2); color: #FFF8F0; }
+#hud .band .b-sub { height: calc(var(--u) * 2); color: #FFD84D; margin-bottom: calc(var(--u) * .12); }
 /* An empty detail must not leave a gap the size of a word behind the title. */
 #hud .band .b-sub:empty { display: none; }
 #hud .band.hot .plateau { background: linear-gradient(180deg, rgba(255,122,26,.97), rgba(150,44,0,.97)); }
 #hud .band.hot .b-title { color: #FFF8F0; }
 #hud .band.hot .b-sub { color: #FFF0C0; }
 #hud .band.gold .plateau { background: linear-gradient(180deg, rgba(255,206,64,.97), rgba(168,104,0,.97)); }
-#hud .band.gold .b-title, #hud .band.gold .b-sub { color: #1A1206; text-shadow: 0 calc(var(--u) * .1) 0 rgba(255,255,255,.35); }
+#hud .band.gold .b-title, #hud .band.gold .b-sub { color: #FFF6D8; }
 
 /* ── the alert frame ─────────────────────────────────────────────────────── */
 /* Hazard tape snapping across the top and bottom of the frame. It is the loudest
@@ -163,13 +150,13 @@ export function createBanners(ctx: GameContext): Banners {
   `);
 
   const cd = bind(q(root, '.cd'));
-  const cdNum = bind(q(root, '.cd .n'));
+  const cdNum = glyphBox(q(root, '.cd .n'));
   const cdRing = bind(q(root, '.cd .ring'));
   const band = bind(q(root, '.band'));
   const plateau = bind(q(root, '.plateau'));
   const sheen = bind(q(root, '.sheen'));
-  const title = bind(q(root, '.b-title'));
-  const sub = bind(q(root, '.b-sub'));
+  const title = glyphBox(q(root, '.b-title'));
+  const sub = glyphBox(q(root, '.b-sub'));
   const barT = bind(q(root, '.alert-bar.t'));
   const barB = bind(q(root, '.alert-bar.b'));
 
@@ -177,6 +164,8 @@ export function createBanners(ctx: GameContext): Banners {
   let cdT = -1;
   let cdLife = 1;
   let isGo = false;
+  /** The beat currently on screen, so the state check knows what it is looking at. */
+  let shownBeat = -1;
   /** Each beat lands bigger than the one before it. GO is the biggest. */
   let cdScale = 1;
 
@@ -195,8 +184,8 @@ export function createBanners(ctx: GameContext): Banners {
   function show(text: string, detail: string, opts: {
     style?: 'plain' | 'hot' | 'gold'; hold?: number; entrance?: Entrance;
   } = {}): void {
-    title.text(text);
-    sub.text(detail);
+    title.set(text);
+    sub.set(detail);
     band.cls('hot', opts.style === 'hot');
     band.cls('gold', opts.style === 'gold');
     entrance = opts.entrance ?? 'slide';
@@ -206,9 +195,22 @@ export function createBanners(ctx: GameContext): Banners {
     bandT = 0;
   }
 
-  unsubs.push(ctx.bus.on<{ n: number }>('race:countdown', ({ n }) => {
+  /**
+   * Show one beat of the count.
+   *
+   * Called from the bus — which is what makes it land on the exact frame the
+   * director changed its mind — and again from `update` as a *state* check, for
+   * the case the bus alone cannot cover: `__GAME.step()` advances the simulation
+   * without ever calling `update`, so a capture can step straight through "3"
+   * and "2" with this widget frozen, and then start drawing halfway through a
+   * beat whose clock began several seconds of game time ago. Reading
+   * `ctx.race.countdown` back means the digit on screen is always the digit the
+   * simulation is on, whatever happened to the frames in between.
+   */
+  function beat(n: number): void {
+    shownBeat = n;
     isGo = n <= 0;
-    cdNum.text(isGo ? 'GO!' : String(n));
+    cdNum.set(isGo ? 'GO!' : String(n));
     cd.cls('go', isGo);
     cd.cls('beat2', n === 2);
     cd.cls('beat1', n === 1);
@@ -217,12 +219,16 @@ export function createBanners(ctx: GameContext): Banners {
     // three times and the player's foot has nothing to time against.
     cdScale = isGo ? 1.16 : n >= 3 ? 0.82 : n === 2 ? 0.94 : 1.08;
     cdT = 0;
-    // GO lives longer than a count: it is the moment, not the metronome. A
-    // numeral holds for its whole second and hands over to the next one — the
-    // director emits these exactly a second apart, so the beat is the clock's,
-    // not this widget's.
-    cdLife = isGo ? 1.28 : 1.0;
-  }));
+    // **A count is replaced, not faded.** GO gets an exit because nothing comes
+    // after it; a numeral does not, because the thing that ends "2" is "1"
+    // arriving on top of it. The life here is longer than the director's own
+    // one-second beat purely as a backstop — if a beat never arrives, the digit
+    // retires on its own rather than hanging over the grid — and the fade only
+    // runs inside its last fifth, which a beat that lands on time never reaches.
+    cdLife = isGo ? 1.28 : 1.5;
+  }
+
+  unsubs.push(ctx.bus.on<{ n: number }>('race:countdown', ({ n }) => beat(n)));
 
   unsubs.push(ctx.bus.on<{ racer: Racer; lap: number }>('race:lap', ({ racer, lap }) => {
     if (!racer.isPlayer) return;
@@ -264,7 +270,7 @@ export function createBanners(ctx: GameContext): Banners {
   unsubs.push(ctx.bus.on<{ racer: Racer; place: number; time: number }>('race:finish', (e) => {
     if (!e.racer.isPlayer) return;
     const place = e.place > 0 ? e.place : (e.racer.place || 1);
-    show(`${place}${ordinal(place)} Place`, formatTime(e.time),
+    show(`${place}${ordinalWord(place)} Place`, formatTime(e.time),
       { style: place === 1 ? 'gold' : 'plain', hold: 4.2, entrance: 'slam' });
     if (place === 1) {
       alertT = 1;
@@ -281,6 +287,7 @@ export function createBanners(ctx: GameContext): Banners {
       bandT = -1;
       alertT = 0;
       cdScale = 1;
+      shownBeat = -1;
       cd.cls('beat2', false);
       cd.cls('beat1', false);
       cd.set('opacity', '0');
@@ -293,6 +300,12 @@ export function createBanners(ctx: GameContext): Banners {
 
     update(dt: number): void {
       // ── countdown ────────────────────────────────────────────────────────
+      // State first: whatever the bus did or did not deliver while this widget
+      // was not being drawn, the digit on screen is the one the race director is
+      // actually counting. See `beat`.
+      if (ctx.race.phase === 'countdown' && ctx.race.countdown !== shownBeat) {
+        beat(ctx.race.countdown);
+      }
       if (cdT >= 0) {
         cdT += dt;
         const t = cdT;
@@ -306,6 +319,9 @@ export function createBanners(ctx: GameContext): Banners {
         // that is already at full speed.
         const stale = !isGo && ctx.race.phase !== 'countdown' && ctx.race.phase !== 'intro';
         const fade = stale ? 1 : clamp01((t - (cdLife - 0.22)) / 0.22);
+        // A numeral photographed at half opacity is a numeral nobody designed.
+        // The fade above is a backstop for a beat that never arrives; the beat
+        // that does arrive replaces its predecessor at full strength.
         const scale = (0.45 + grow * 0.55) * cdScale + fade * 0.45;
         cd.set('opacity', (1 - fade).toFixed(3));
         cd.set('transform', `scale(${scale.toFixed(3)})`);
@@ -325,7 +341,7 @@ export function createBanners(ctx: GameContext): Banners {
       if (bandT >= 0) {
         bandT += dt;
         const total = bandIn + bandHold + bandOut;
-        let x = 0, scale = 1, alpha = 1, rot = 0;
+        let x = 0, y = 0, scale = 1, alpha = 1, rot = 0;
 
         if (bandT < bandIn) {
           const t = bandT / bandIn;
@@ -358,14 +374,27 @@ export function createBanners(ctx: GameContext): Banners {
           sheen.set('opacity', sweep < 0.55 ? '0.9' : '0');
           sheen.set('transform', `translateX(${(-120 + sweep * 1240).toFixed(1)}%) skewX(9deg)`);
         } else {
+          // **It leaves upward, not sideways.**
+          //
+          // The exit used to slide the whole band 70% of the viewport to the
+          // right while fading. The band spans the frame, so what that actually
+          // did was drag a half-transparent orange FINAL LAP sign across the
+          // minimap plate and off the right edge — photographed mid-exit it read
+          // as a layout bug, which is a wretched way to end the best moment in
+          // the HUD. An exit's whole job is to get out of the way: this one
+          // lifts a fraction of its own height, shrinks a little and goes, so it
+          // never crosses another widget and never sits half-clipped by the
+          // frame.
           const t = clamp01((bandT - bandIn - bandHold) / bandOut);
-          x = ease.inQuad(t) * 70;
-          alpha = 1 - ease.inQuad(t);
+          const e = ease.inQuad(t);
+          y = -e * 34;
+          scale = 1 - e * 0.14;
+          alpha = 1 - e;
           sheen.set('opacity', '0');
         }
 
         band.set('opacity', alpha.toFixed(3));
-        band.set('transform', `translateX(${x.toFixed(2)}%)`);
+        band.set('transform', `translate(${x.toFixed(2)}%, ${y.toFixed(2)}%)`);
         plateau.set('transform',
           `skewX(-9deg) scale(${scale.toFixed(3)}) rotate(${rot.toFixed(2)}deg)`);
 

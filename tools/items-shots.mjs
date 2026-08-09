@@ -151,8 +151,12 @@ if (want('shell')) {
   await call('advance', 0.6, 30);
   await shot('orbit-red');
   await ev(() => { window.__ITEMS.give('banana', 1); });
+  // Held, not just owned: a single aim item only comes out of the hand while
+  // the button is down, which is the tell that warns the kart behind.
+  await call('setInput', { accel: 1, item: true });
   await call('advance', 0.6, 30);
   await shot('carry-banana');
+  await call('setInput', { accel: 1, item: false });
 }
 
 // ── coins ──────────────────────────────────────────────────────────────────

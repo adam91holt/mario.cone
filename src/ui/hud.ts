@@ -30,6 +30,8 @@
 
 import { clamp01, ease } from '../core/math.ts';
 import type { GameContext, GameSystem, Racer } from '../types.ts';
+import { CSS_GLYPHS } from './glyphs.ts';
+import { ICON_DEFS } from './icons.ts';
 import { createItemSlot, CSS_ITEM } from './itemslot.ts';
 import { createMinimap, CSS_MAP } from './minimap.ts';
 import { createBanners, CSS_BANNERS } from './banners.ts';
@@ -40,6 +42,9 @@ import {
 import { bind, CSS_BASE, fromHtml, q } from './theme.ts';
 
 const CSS_HUD = `
+/* The icon shading ramps. Present, painted from, and never seen. */
+#hud .icon-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+
 /* A boost lights every warning strip in the instrument set white-hot while the
    kart is on it, and the whole set swells a percent as it fires — the
    instruments are bolted to a machine that has just been kicked, and they
@@ -87,11 +92,13 @@ export function createHudSystem(ctx: GameContext): GameSystem {
   }
 
   const style = document.createElement('style');
-  style.textContent = CSS_BASE + CSS_ITEM + CSS_MAP + CSS_READOUTS + CSS_BANNERS + CSS_HUD;
+  style.textContent = CSS_BASE + CSS_GLYPHS + CSS_ITEM + CSS_MAP
+    + CSS_READOUTS + CSS_BANNERS + CSS_HUD;
   document.head.appendChild(style);
 
   const root = fromHtml(`
     <div id="hud">
+      ${ICON_DEFS}
       <div class="layer">
         <div class="corner tl"></div>
         <div class="corner tc"></div>

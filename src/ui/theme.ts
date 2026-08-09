@@ -203,12 +203,12 @@ export function bind(el: Styled): Bound {
       (el.style as unknown as Record<string, string>)[prop] = value;
     },
     text(value): void {
-      if (last.get(' text') === value) return;
-      last.set(' text', value);
+      if (last.get('#text') === value) return;
+      last.set('#text', value);
       el.textContent = value;
     },
     cls(name, on): void {
-      const k = ` .${name}`;
+      const k = `#.${name}`;
       const v = on ? '1' : '';
       if (last.get(k) === v) return;
       last.set(k, v);
@@ -320,41 +320,30 @@ export const CSS_BASE = `
 }
 #hud .plate > * { position: relative; z-index: 1; }
 
-#hud .label {
-  font-size: calc(var(--u) * .62); font-weight: 800; line-height: 1;
-  letter-spacing: .19em; text-transform: uppercase;
-  color: #FFD75E; text-shadow: 0 calc(var(--u) * .08) 0 rgba(0,0,0,.7);
-}
-/* Every numeral in this HUD wears a hard ink outline and a bottom bevel, not a
-   single drop shadow. The outline is what lets one flat fill sit over a white
-   cloud and over wet tarmac without changing, and the bevel is what stops a
-   900-weight browser glyph from reading as a browser glyph — a kart racer's
-   numbers are *objects*, with a lit face and a dark under-edge, and four offset
-   shadows are the cheapest honest way to say so without a webfont.
+/* The .label rule that used to live here is gone with the last text node in
+   the module. Nothing in this HUD is set in a font any more: every number and
+   every word on screen is drawn geometry from glyphs.ts. The font-family
+   declaration at the top of this stylesheet is left as a floor under anything a
+   future widget might put here in text — it is not, any longer, what any part
+   of the instrument set is *made of*. */
+/* **No numeral in this HUD is text any more.** Every digit, ordinal suffix and
+   banner word is drawn geometry from glyphs.ts — see the note at the top of
+   that file. What used to be here was a font-weight, a letter-spacing and seven
+   stacked text-shadows faking an outline around whatever grotesque the player's
+   operating system happened to supply, which meant the most-looked-at elements
+   on the screen changed shape from machine to machine.
 
-   Offsets are in em rather than in --u on purpose: they belong to the glyph, so
-   the outline stays the same fraction of a stroke on a 60px lap counter and on a
-   140px place indicator. */
-#hud .num {
-  font-weight: 900; line-height: .92; letter-spacing: -.045em;
-  font-variant-numeric: tabular-nums;
-  text-shadow:
-    .035em .035em 0 rgba(10,13,19,.98),
-    -.035em .035em 0 rgba(10,13,19,.98),
-    .035em -.035em 0 rgba(10,13,19,.98),
-    -.035em -.035em 0 rgba(10,13,19,.98),
-    0 .052em 0 rgba(10,13,19,.98),
-    0 .105em 0 rgba(0,0,0,.6),
-    0 .2em .3em rgba(0,0,0,.5);
-}
+   The .num class is now only a *box*: a caller gives it a height in --u and the
+   run inside fills it. Nothing states a font-size for a number any more. */
+#hud .num { display: block; }
 
 /* A number that changes has to be *seen* changing. The outgoing value lifts
-   away and the incoming one drops in over it — no clipping mask, so the heavy
-   drop shadow every numeral carries survives the swap. */
-#hud .roll { position: relative; display: inline-block; }
-#hud .roll > span { display: block; }
+   away and the incoming one drops in over it — no clipping mask, so the keyline
+   and the extruded under-edge every numeral carries survive the swap. */
+#hud .roll { position: relative; display: block; height: 100%; }
+#hud .roll > span { display: block; height: 100%; }
 #hud .roll .r-prev {
-  position: absolute; left: 0; top: 0; right: 0;
+  position: absolute; left: 0; top: 0;
   pointer-events: none;
 }
 `;

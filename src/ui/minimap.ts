@@ -18,9 +18,20 @@ import { getVehicle } from '../vehicles/registry.ts';
 import type { GameContext, Racer, Track } from '../types.ts';
 import { blipColor, fromHtml, hexCss, q, unitPx } from './theme.ts';
 
-/** Plate geometry, in `--u`. Cone Canyon is a landscape loop; so is the box. */
-const MAP_W = 13.2;
-const MAP_H = 9.4;
+/**
+ * Plate geometry, in `--u`.
+ *
+ * **Nearly square, because the circuit is.** Cone Canyon measures about 430m by
+ * 450m, and it was being fitted into a 1.4:1 landscape box — so the height
+ * decided the scale, a third of the plate's width went to empty chevron
+ * texture, and the whole map was drawn smaller than the plate could afford. A
+ * box that matches the course's own proportions buys about 20% more scale for
+ * the same corner of the screen, and every pixel of that goes into the one
+ * measurement this widget lives or dies by: how wide the road is compared to the
+ * dots riding on it.
+ */
+const MAP_W = 12.6;
+const MAP_H = 11.2;
 /** Samples around the loop. 240 is smooth at any size this plate can be. */
 const SAMPLES = 240;
 
@@ -33,8 +44,19 @@ const SAMPLES = 240;
  * at 200km/h. Big enough to carry a hue, with a heavy enough casing that two
  * overlapping blips still show two lobes rather than a blob.
  */
-const BLIP_R = 4.4;
+const BLIP_R = 4.1;
 const BLIP_RING = 2.0;
+/**
+ * The player's marker, as a multiple of everybody else's.
+ *
+ * **The moment the map exists for is the moment it was failing at.** Eight blips
+ * in a scrum at the same radius, one of them white: the player's own marker was
+ * swallowed by the clump exactly when they needed to know where in it they were.
+ * Half again as big, with its own arrowhead and its own casing, it is a
+ * different *object* from the field rather than a different colour of the same
+ * one — which is what survives being seen in peripheral vision.
+ */
+const PLAYER_SCALE = 1.55;
 
 /**
  * How far a blip may be nudged off its true position to get out from behind
@@ -52,7 +74,15 @@ const BLIP_RING = 2.0;
  * this scale is a couple of kart lengths. The map stays honest about *where*
  * everyone is and stops lying about *how many*.
  */
-const DECLUTTER_DRIFT = 1.7;
+/*
+ * **And the clamp is now tighter than the road is wide.** At 1.7 radii a blip
+ * could be shoved seven pixels off a nine-pixel ribbon, so a pack running
+ * nose-to-tail on the racing line was drawn as eight machines scattered over the
+ * grass — the map inventing a fact more damaging than the one it was fixing. One
+ * radius of drift, against a ribbon now drawn wide enough to hold two blips side
+ * by side, means decluttering can never push a kart off its own road.
+ */
+const DECLUTTER_DRIFT = 1.0;
 /** Relaxation passes. Three settles a grid-start eight; the clamp does the rest. */
 const DECLUTTER_PASSES = 3;
 /** Field size the scratch arrays are sized for. */
@@ -211,9 +241,21 @@ export function createMinimap(ctx: GameContext): Minimap {
     for (let i = 1; i < SAMPLES; i++) path.lineTo(mapX(xs[i]!), mapY(zs[i]!));
     path.closePath();
 
-    // A shade wider than true scale. At 200 pixels across, a road drawn to the
-    // metre is a hairline, and a hairline is not a map.
-    const roadPx = Math.max(4.6 * dpr, Math.min(13 * dpr, width * scale * 1.3));
+    // ── how wide the road is drawn ─────────────────────────────────────────
+    //
+    // **Wider than true scale, on purpose, and by a lot.** A 22-metre road at
+    // this plate's scale is about eight pixels; a blip with its casing on is
+    // twelve. Drawn to the metre, every kart on the circuit overhangs the
+    // tarmac it is driving on, and a photograph of the map shows a field that
+    // has collectively gone off into the scenery — which is precisely what the
+    // last review saw.
+    //
+    // So the ribbon is stylised up to roughly twice scale, which is what every
+    // kart racer's map does: the road is drawn wide enough to *hold* the
+    // machines on it, because a minimap's job is to say who is where in the
+    // order, not to survey the circuit. The cap keeps a short course from
+    // turning into a sausage; the floor keeps a long one from becoming thread.
+    const roadPx = Math.max(7 * dpr, Math.min(22 * dpr, width * scale * 1.95));
     sc.lineJoin = 'round';
     sc.lineCap = 'round';
 
@@ -431,7 +473,11 @@ export function createMinimap(ctx: GameContext): Minimap {
 
           const x = drawX[i]!;
           const y = drawY[i]!;
-          const rad = isYou ? r * 1.24 : r;
+          const rad = isYou ? r * PLAYER_SCALE : r;
+          // ...and a heavier casing on the player's marker as well as a bigger
+          // disc, so that when the pack closes up the one blip with a thick
+          // black moat around it is the one the player is.
+          const cas = isYou ? ring * 1.6 : ring;
 
           if (isYou) {
             // **A ring leaving the marker, not a haze under it.**
@@ -469,11 +515,11 @@ export function createMinimap(ctx: GameContext): Minimap {
           // tucked behind it.
           gc.fillStyle = 'rgba(8,10,15,.92)';
           if (isYou) {
-            noseTri(gc, x, y, rad, racer.yaw, ring);
+            noseTri(gc, x, y, rad, racer.yaw, cas);
             gc.fill();
           }
           gc.beginPath();
-          gc.arc(x, y, rad + ring, 0, Math.PI * 2);
+          gc.arc(x, y, rad + cas, 0, Math.PI * 2);
           gc.fill();
 
           gc.beginPath();

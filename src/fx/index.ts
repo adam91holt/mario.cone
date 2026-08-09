@@ -200,8 +200,8 @@ interface SurfaceFx {
  * photographed as soap bubbles on a hillside and as smears on the windscreen.
  */
 const SURFACE_FX: Record<Surface, SurfaceFx> = {
-  road:  { color: 0xEAEEF6, deep: 0xD6DCE8, lift: 0.20, rate: 0,   slip: 50, wake: 26, size: 0.44, wakeSize: 0.20, grow: 2.0, alpha: 0.075, grit: 0.00, sparky: false, mark: 1.00, markTint: 0x272630, smoke: 0.30, smokeRate: 78 },
-  boost: { color: 0xF3E8D6, deep: 0xE2D9C8, lift: 0.22, rate: 0,   slip: 46, wake: 26, size: 0.46, wakeSize: 0.20, grow: 2.0, alpha: 0.080, grit: 0.00, sparky: false, mark: 0.80, markTint: 0x2a2833, smoke: 0.30, smokeRate: 78 },
+  road:  { color: 0xEAEEF6, deep: 0xD6DCE8, lift: 0.20, rate: 0,   slip: 50, wake: 26, size: 0.44, wakeSize: 0.20, grow: 2.0, alpha: 0.075, grit: 0.00, sparky: false, mark: 1.00, markTint: 0x272630, smoke: 0.34, smokeRate: 112 },
+  boost: { color: 0xF3E8D6, deep: 0xE2D9C8, lift: 0.22, rate: 0,   slip: 46, wake: 26, size: 0.46, wakeSize: 0.20, grow: 2.0, alpha: 0.080, grit: 0.00, sparky: false, mark: 0.80, markTint: 0x2a2833, smoke: 0.34, smokeRate: 112 },
   dirt:  { color: 0xF7E6C6, deep: 0xDCBE93, lift: 1.25, rate: 96,  slip: 60, wake: 30, size: 0.86, wakeSize: 0.52, grow: 2.7, alpha: 0.200, grit: 0.42, sparky: false, mark: 0.85, markTint: 0x8a6236, smoke: 0.12, smokeRate: 30 },
   sand:  { color: 0xFDF4E0, deep: 0xEBD9AF, lift: 1.35, rate: 104, slip: 62, wake: 32, size: 0.90, wakeSize: 0.55, grow: 2.8, alpha: 0.210, grit: 0.28, sparky: false, mark: 0.72, markTint: 0x9c8050, smoke: 0.10, smokeRate: 26 },
   grass: { color: 0xE3F0CC, deep: 0xB2CE8C, lift: 0.90, rate: 70,  slip: 48, wake: 22, size: 0.76, wakeSize: 0.46, grow: 2.5, alpha: 0.170, grit: 0.36, sparky: false, mark: 0.62, markTint: 0x5c7a3e, smoke: 0.11, smokeRate: 28 },
@@ -334,6 +334,8 @@ const _camUp = new THREE.Vector3();
 const _shakeQ = new THREE.Quaternion();
 const _shakeE = new THREE.Euler();
 const _tint = new THREE.Color();
+/** Velocity a queued `spawn` inherits from whatever it happened to. */
+const _qv = new THREE.Vector3();
 const _sample: SplineSample = {
   pos: new THREE.Vector3(), tangent: new THREE.Vector3(),
   right: new THREE.Vector3(), up: new THREE.Vector3(),
@@ -541,7 +543,7 @@ export function createFxSystem(ctx: GameContext): GameSystem {
   //   into one body, not so much that the body becomes fog.
   const smokeTyreSpec = makeSpec({
     cell: CELL.puff, mode: MODE.billboard, additive: false,
-    life: 0.6, size0: 0.36, size1: 0.83, alpha: 0.30,
+    life: 0.6, size0: 0.36, size1: 0.83, alpha: 0.34,
     gravity: -0.5, drag: 0.7, fadeIn: 0.07,
   });
   const ringSpec = makeSpec({
@@ -1225,32 +1227,39 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     const deep = surfaceDeep.get(racer.surface)!;
     sparkPort(racer, side, 0.10, _p);
     _p.addScaledVector(racer.vel, -back);
-    smokeTyreSpec.size0 = sfx.size * rng.range(0.78, 1.15) * scale;
-    smokeTyreSpec.px = _p.x + rng.range(-0.16, 0.16);
+    smokeTyreSpec.size0 = sfx.size * rng.range(1.2, 1.7) * scale;
+    smokeTyreSpec.px = _p.x + rng.range(-0.14, 0.14);
     // Lifted by its own radius so the depth test cannot slice the sprite along
     // the road plane and leave it with one perfectly straight edge.
-    smokeTyreSpec.py = _p.y + smokeTyreSpec.size0 * 0.45;
-    smokeTyreSpec.pz = _p.z + rng.range(-0.16, 0.16);
-    // Almost all of the machine's velocity. The difference between 0.93 and the
-    // 0.88 this used to run at is the difference between a ribbon that stays
-    // welded to the wheel for the first third of its life and one whose head
-    // has already fallen two metres behind by the time it is visible.
-    const out = rng.range(0.9, 2.8);
-    smokeTyreSpec.vx = racer.vel.x * 0.93 + _right.x * side * out - _fwd.x * rng.range(0, 1.8);
-    smokeTyreSpec.vy = rng.range(0.4, 1.5);
-    smokeTyreSpec.vz = racer.vel.z * 0.93 + _right.z * side * out - _fwd.z * rng.range(0, 1.8);
+    smokeTyreSpec.py = _p.y + smokeTyreSpec.size0 * 0.42;
+    smokeTyreSpec.pz = _p.z + rng.range(-0.14, 0.14);
+    // Nearly all of the machine's velocity, and very little sideways throw.
+    //
+    // Both numbers are about where the smoke *is* rather than how much of it
+    // there is. At 0.93 with a 2.8 m/s outward kick the ribbon peeled away to
+    // the outside of the slide and left the sparks sitting on clean asphalt —
+    // the two effects were near each other but not on top of each other, which
+    // is the difference between "the tyre is burning" and "there is light at
+    // the wheel and smoke over there". At 0.96 with a metre a second of throw
+    // the head of the ribbon stays inside the spark cone for the first third of
+    // its life and only then falls back and spreads.
+    const out = rng.range(0.35, 1.5);
+    smokeTyreSpec.vx = racer.vel.x * 0.96 + _right.x * side * out - _fwd.x * rng.range(0, 1.4);
+    smokeTyreSpec.vy = rng.range(0.5, 1.7);
+    smokeTyreSpec.vz = racer.vel.z * 0.96 + _right.z * side * out - _fwd.z * rng.range(0, 1.4);
     smokeTyreSpec.life = rng.range(0.5, 0.7);
     smokeTyreSpec.size1 = smokeTyreSpec.size0 * rng.range(2.0, 2.5);
     smokeTyreSpec.rot = rng.next() * TAU;
     smokeTyreSpec.rotVel = rng.range(-1.4, 1.4);
     smokeTyreSpec.alpha = sfx.smoke * alphaK * rng.range(0.8, 1.15);
-    // Pulled a touch off the surface's own pale value. The sparks are drawn
-    // additively on top of this, and additive light over a near-white bed is
-    // white — which is exactly how a tan cloud emitted into the sparks once
-    // bleached the tier colour out of the frame. Deep enough to be a shape
-    // against dark asphalt, not so bright that it eats the hue sitting in it.
-    setHdr(smokeTyreSpec.color0, col, 0.80);
-    setHdr(smokeTyreSpec.color1, deep, 0.74);
+    // Pale, because burnt rubber suspended in air is lit from the whole sky and
+    // reads *lighter* than the asphalt it is over — the rule the rest of this
+    // module already obeys. It is a shade off the surface's own value so that
+    // the additive sparks drawn on top still land as a hue rather than as
+    // white, but only a shade: a ribbon dark enough to protect the sparks is a
+    // ribbon nobody sees, and then there are no tyres in the effect again.
+    setHdr(smokeTyreSpec.color0, col, 1.20);
+    setHdr(smokeTyreSpec.color1, deep, 1.02);
     return pool.emit(smokeTyreSpec);
   }
 
@@ -1794,9 +1803,12 @@ export function createFxSystem(ctx: GameContext): GameSystem {
    */
   function smokeBurst(
     x: number, y: number, z: number, n: number, speed: number, scale: number,
+    vel?: THREE.Vector3,
   ): void {
     smokeSpec.px = x; smokeSpec.py = y + 0.25; smokeSpec.pz = z;
-    smokeSpec.vx = 0; smokeSpec.vy = 0.9; smokeSpec.vz = 0;
+    smokeSpec.vx = (vel?.x ?? 0) * 0.7;
+    smokeSpec.vy = 0.9 + (vel?.y ?? 0) * 0.7;
+    smokeSpec.vz = (vel?.z ?? 0) * 0.7;
     smokeSpec.life = 0.7;
     smokeSpec.size0 = Math.min(0.34 * scale, MAX_PUFF / 2.6);
     smokeSpec.size1 = smokeSpec.size0 * 2.6;
@@ -1811,14 +1823,42 @@ export function createFxSystem(ctx: GameContext): GameSystem {
 
   function sparkBurst(
     x: number, y: number, z: number, n: number, speed: number, color: THREE.Color, k: number,
+    vel?: THREE.Vector3,
   ): void {
     sparkSpec.px = x; sparkSpec.py = y; sparkSpec.pz = z;
-    sparkSpec.vx = 0; sparkSpec.vy = 0.5; sparkSpec.vz = 0;
+    sparkSpec.vx = (vel?.x ?? 0) * 0.6;
+    sparkSpec.vy = 0.5 + (vel?.y ?? 0) * 0.6;
+    sparkSpec.vz = (vel?.z ?? 0) * 0.6;
     sparkSpec.life = 0.42;
     sparkSpec.size0 = 0.22;
     setHdr(sparkSpec.color0, color, k);
     setHdr(sparkSpec.color1, color, 0.3);
     pool.burst(sparkSpec, Math.round(n * density), speed, 0.75, rng);
+  }
+
+  /**
+   * How fast whatever this effect happened *to* is travelling.
+   *
+   * `ctx.fx.spawn(id, pos)` carries a position and nothing else, which is fine
+   * for an item box coming apart — a box is bolted to the road — and wrong for
+   * everything that happens to a racer. A ring of stars born at rest beside a
+   * machine doing 50 m/s is three kart-lengths behind it a fifth of a second
+   * later, and what a screenshot catches is flat yellow cardboard hanging over
+   * the road with nothing under it. Rather than widen the interface and make
+   * every caller remember, the effect asks the world what was at that point:
+   * the nearest racer inside a kart's reach lends its velocity, and if there is
+   * nobody there the effect stays where it was put, which is correct for the
+   * things that genuinely belong to the ground.
+   */
+  function inheritVel(x: number, y: number, z: number): THREE.Vector3 {
+    _qv.set(0, 0, 0);
+    let best = 16; // 4m, squared
+    for (const racer of ctx.racers) {
+      const dx = racer.pos.x - x, dy = racer.pos.y - y, dz = racer.pos.z - z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 < best) { best = d2; _qv.copy(racer.vel); }
+    }
+    return _qv;
   }
 
   // ── spending impulses ─────────────────────────────────────────────────────
@@ -2727,10 +2767,16 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       const hex = qColor[i]!;
       const col = hex >= 0 ? _tint.setHex(hex) : WARM_WHITE;
 
+      // Everything below that happens *to a racer* travels with them — see
+      // `inheritVel`. Effects that belong to the ground (a box breaking, a
+      // blast crater, a dust ring punched into the surface) deliberately do
+      // not, and are the reason this is per-case rather than global.
+      const v = inheritVel(x, y, z);
+
       switch (id) {
         case 'spark':
         case 'sparks':
-          sparkBurst(x, y, z, 16 * scale, 8 * scale, col, 3.0);
+          sparkBurst(x, y, z, 16 * scale, 8 * scale, col, 3.0, v);
           break;
         case 'dust':
           // The ground being disturbed. Whatever the player is standing on, not
@@ -2739,7 +2785,7 @@ export function createFxSystem(ctx: GameContext): GameSystem {
           dustRing(x, y, z, 10 * scale, 4 * scale, ctx.player?.surface ?? 'road', scale);
           break;
         case 'smoke':
-          smokeBurst(x, y, z, 12 * scale, 3.2 * scale, scale);
+          smokeBurst(x, y, z, 12 * scale, 3.2 * scale, scale, v);
           break;
         case 'splash':
           dustRing(x, y, z, 16 * scale, 6 * scale, 'water', scale);
@@ -2755,19 +2801,24 @@ export function createFxSystem(ctx: GameContext): GameSystem {
           break;
         case 'boost':
           ring(x, y, z, 1.2 * scale, 7 * scale, 0.4, col, 2.6, 0.9);
-          sparkBurst(x, y, z, 22 * scale, 12 * scale, col, 3.2);
+          sparkBurst(x, y, z, 22 * scale, 12 * scale, col, 3.2, v);
           break;
         case 'impact':
           ring(x, y, z, 0.7 * scale, 4 * scale, 0.3, col, 2.0, 0.7);
-          sparkBurst(x, y, z, 12 * scale, 7 * scale, col, 2.6);
+          sparkBurst(x, y, z, 12 * scale, 7 * scale, col, 2.6, v);
           break;
         case 'ring':
           ring(x, y, z, 0.8 * scale, 8 * scale, 0.45, col, 2.4, 0.9);
           break;
         case 'stars':
           starSpec.px = x; starSpec.py = y; starSpec.pz = z;
-          starSpec.vx = 0; starSpec.vy = 2; starSpec.vz = 0;
-          starSpec.life = 0.8; starSpec.size0 = 0.5;
+          // Thrown *with* whatever they came off. A ring of stars born at rest
+          // beside a machine still doing fifty metres a second is three kart
+          // lengths behind it before the next frame is drawn, and what a
+          // screenshot catches is flat yellow cardboard lying over the road
+          // with nothing under it.
+          starSpec.vx = v.x * 0.85; starSpec.vy = 2 + v.y * 0.85; starSpec.vz = v.z * 0.85;
+          starSpec.life = 0.7; starSpec.size0 = 0.4; starSpec.size1 = 0.08;
           setHdr(starSpec.color0, col, 3.0);
           setHdr(starSpec.color1, col, 0.4);
           pool.burst(starSpec, Math.round(8 * density * scale), 6, 0.6, rng);
@@ -2802,13 +2853,13 @@ export function createFxSystem(ctx: GameContext): GameSystem {
           break;
         case 'shine':
         case 'sparkle':
-          sparkBurst(x, y, z, 10 * scale, 4 * scale, GOLD, 3.2);
+          sparkBurst(x, y, z, 10 * scale, 4 * scale, GOLD, 3.2, v);
           ring(x, y, z, 0.4 * scale, 2.2 * scale, 0.3, GOLD, 2.0, 0.7);
           break;
         default:
           // An unknown id still has to show something: a silent effect is a bug
           // nobody finds until a reviewer asks why the item does nothing.
-          sparkBurst(x, y, z, 10 * scale, 6 * scale, col, 2.6);
+          sparkBurst(x, y, z, 10 * scale, 6 * scale, col, 2.6, v);
           break;
       }
     }
