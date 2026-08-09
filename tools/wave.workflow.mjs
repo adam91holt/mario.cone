@@ -287,6 +287,39 @@ line or be mistaken for a hazard the player can hit.
 You own a new module: register a system with order 22 (after track, before
 physics) and build from ctx.track once track:built fires.`,
   },
+
+  perf: {
+    name: 'Performance',
+    owns: 'src/core/quality.ts (new), plus render-budget changes anywhere',
+    shots: 'pack,racing,far',
+    brief: `
+Own the frame budget. The world is now 723k triangles across 304 draw calls and
+nobody has ever measured whether it holds 60fps on a machine that is not this
+one. A racer that hitches is not first-party, no matter how it photographs.
+
+Measure first, then cut. Use window.__GAME.stats() and add whatever counters you
+need to it; do not guess at what is expensive.
+
+Build:
+- An honest frame budget. Instrument the fixed-step and the render separately so
+  a sim spike and a draw spike are distinguishable. Report both in stats().
+- LOD on everything with a silhouette: vehicles, crowd, dressing, terrain. The
+  pack shot must keep its detail; the far shot must not pay for detail nobody
+  can resolve.
+- Instancing audit. Anything that appears more than eight times and is not
+  already instanced is a bug. Merge static shells per material the way
+  mergeStatic() already does for vehicles.
+- A quality ladder driven by measured frame time, not by a hardcoded guess:
+  drawDistance, shadow resolution, particle caps, crowd density. It must settle,
+  not oscillate — hysteresis, and never mid-corner.
+- Kill per-frame allocation in the hot path. Scratch vectors, no closures per
+  racer per step, no array churn in fixedUpdate.
+
+Hard constraints: the simulation is deterministic and must stay that way — LOD
+and culling may never touch anything fixedUpdate reads. A quality change must
+not alter a single racer's position. Prove it: run the same seed at two quality
+levels and diff the snapshots.`,
+  },
 };
 
 const VERDICT = {
