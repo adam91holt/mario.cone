@@ -189,6 +189,78 @@ block audio before a user gesture — unlock on first input and never throw if
 audio is unavailable, since the capture harness runs with no audio device.`,
   },
 
+  flow: {
+    name: 'Race flow & results',
+    owns: 'src/race/**',
+    shots: 'countdown,grid,racing',
+    brief: `
+Own everything around the race rather than in it. The director counts laps and
+positions correctly, and that is all it does — the race currently starts without
+ceremony and ends without acknowledgement.
+
+Build:
+- A start sequence worth watching: the grid forming, a camera sweep, the lights,
+  the rocket-start window, and a GO! that lands.
+- Real grid positions. Every racer currently sits at place 1 through the
+  countdown, which the HUD critic caught firing four false lost-a-place alarms
+  in the first two seconds. Assign actual starting places in reset().
+- Finishing: crossing the line should be an event — slow-mo, a camera change, a
+  banner, the CPU field finishing behind you one by one.
+- A results screen: finishing order with times and gaps, points awarded, the
+  cup standings table, and a way to race again.
+- Lap times, best lap, and a final-lap state the whole game reacts to.
+- Pause, and a way out of a race.
+
+You own the race director and the results UI under src/race. Coordinate with ui
+through bus events rather than editing their files.`,
+  },
+
+  menus: {
+    name: 'Front-end & menus',
+    owns: 'src/ui/menus/** (new), and one engine.add line in src/main.ts',
+    shots: 'grid',
+    brief: `
+Own everything before the race. There is no front-end at all: the game boots
+straight into a race on a fixed course with a fixed vehicle.
+
+Build:
+- A title screen with real presence — the game's name, the cast, motion,
+  something happening behind the logo.
+- Character select: all seven machines with their stat bars, blurbs, a rotating
+  preview and a sound. Picking a racer is the first thing a player does and it
+  should feel good.
+- Course select, engine class (50/100/150/200cc), and cup selection.
+- Transitions between every screen that feel authored rather than instant.
+- The whole thing has to be navigable by keyboard and by gamepad, and it must
+  drive the existing startRace() rather than reimplementing it.
+
+Look at how the HUD does its plates and units (src/ui/theme.ts) and stay
+consistent with it — this is the same product.`,
+  },
+
+  courses: {
+    name: 'Course roster',
+    owns: 'src/track/courses/**',
+    shots: 'overhead,racing,far',
+    brief: `
+Own the circuit roster. There is exactly one course. A kart racer needs a cup.
+
+Build three more, each with a distinct theme, silhouette and problem:
+- They must look nothing like each other from the overhead shot.
+- Each needs its own theme block — sky, sun, fog, ground, and the props hooks
+  the world module reads.
+- Each needs a signature: a genuinely memorable corner or set piece.
+- Vary the shape: something tighter and more technical than Cone Canyon,
+  something faster and more open, something with real elevation.
+- Follow the two rules Cone Canyon is held to: width follows speed, and nothing
+  is dead straight for longer than the run to the first corner.
+
+Use the same waypoint authoring path (loopFromWaypoints) so banking is derived
+rather than hand-tuned. Register them in courses/index.ts. Verify each one is
+drivable by running the capture harness against it — a course the AI cannot get
+around is not a course.`,
+  },
+
   world: {
     name: 'World dressing',
     owns: 'src/world/** (new module)',
