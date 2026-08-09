@@ -96,7 +96,15 @@ const BULLET_TIME = 6.0;
  */
 const BULLET_RAMP = 0.75;
 const SHRUNK_TIME = 7.0;
-const INK_TIME = 6.0;
+/**
+ * How long a blooper's ink lasts.
+ *
+ * Five, not six, and the number is smaller than the change: the ink now runs
+ * off the glass over its own lifetime rather than sitting at full strength for
+ * the whole of it, so the *heavy* part of a blooper is the first second and a
+ * half and the rest is a receding nuisance. See the note over `#item-ink`.
+ */
+const INK_TIME = 5.0;
 const BOO_TIME = 4.5;
 const BOMB_FUSE = 2.6;
 const BLAST_RADIUS = 7.4;
@@ -1520,7 +1528,10 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       } else if (racer.ai) {
         // A CPU cannot see the ink, so the ink has to reach the steering: a
         // slow, deterministic wander it has to fight all the way down the road.
-        racer.yaw += Math.sin(ctx.race.time * 4.2 + racer.id * 2.1) * 0.5 * dt;
+        // Scaled by what is left, so a machine's line recovers on the same
+        // curve the player's screen clears on rather than snapping straight.
+        racer.yaw += Math.sin(ctx.race.time * 4.2 + racer.id * 2.1)
+          * 0.5 * clamp01(st.ink / INK_TIME) * dt;
       }
     }
 
@@ -2292,16 +2303,12 @@ export function createItemSystem(ctx: GameContext): GameSystem {
 
       const player = ctx.player;
       if (player) {
-        // Ink lands hard and then drains: full strength for about a second, and
-        // thinning from there. Holding it opaque for six seconds is not a
-        // handicap, it is a blindfold.
+        // The *fraction of the blooper's life still to run*, not an opacity.
+        // How the ink lands, holds, runs off the glass and fades is a picture,
+        // and it belongs to the thing that draws it; all this end owes it is an
+        // honest clock. See `ItemHud.setInk`.
         const st = states.get(player.id);
-        const t = st ? clamp01(st.ink / INK_TIME) : 0;
-        // Peaks at 0.97, not 0.78. The splats are drawn near-solid and the
-        // fade is carried entirely by this number, so a ceiling of 0.78 meant
-        // the ink was *never* opaque: photographed, the road was legible
-        // straight through every splat and the item cost its victim nothing.
-        hud.setInk(t > 0 ? 0.45 + 0.52 * Math.pow(t, 0.7) : 0);
+        hud.setInk(st ? clamp01(st.ink / INK_TIME) : 0);
       }
       hud.update(dt);
     },
@@ -2417,12 +2424,20 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         });
       },
 
-      /** Ink a racer's screen for `seconds`, so the blooper can be looked at. */
-      ink(seconds = 4, racerId = ctx.player?.id ?? 0): boolean {
+      /**
+       * Ink a racer's screen, so the blooper can be looked at.
+       *
+       * Clamped to what a real blooper does. A bench that can stage a state the
+       * game cannot reach produces critiques of things no player will ever see
+       * — and the ink in particular is a *shape over time*, so an instrument
+       * that could pin it at full strength for a minute would be measuring a
+       * frame the item never has.
+       */
+      ink(seconds = INK_TIME, racerId = ctx.player?.id ?? 0): boolean {
         const racer = racerById(racerId);
         if (!racer) return false;
         const st = stateOf(racer);
-        st.ink = seconds;
+        st.ink = clamp(seconds, 0, INK_TIME);
         racer.effects.add('inked');
         return true;
       },

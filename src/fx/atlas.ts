@@ -61,12 +61,56 @@ function hash(n: number): number {
   return s - Math.floor(s);
 }
 
+/**
+ * The spark. A **comet**, not a ball — and that difference is most of what
+ * separates "a spray of sparks" from "a chain of glowing tic-tacs".
+ *
+ * Every particle that samples this cell is drawn in `MODE.velocity`: the quad is
+ * stretched along the direction the particle takes across the frame, and the
+ * texture is stretched with it. A radial gaussian stretched four to one is a
+ * *capsule* — symmetric, soft at both ends, thick in the middle — and a stream
+ * of capsules being towed behind a kart is exactly what the boost, the
+ * mini-turbo and the barrier grind photographed as. No amount of tuning the
+ * colour, the count or the length fixes that, because the shape itself is
+ * wrong: the eye reads a symmetric blob as an *object*, and only an asymmetric
+ * taper as *motion*.
+ *
+ * So the cell is built to be stretched. `+X` is the direction of travel (the
+ * shader's velocity branch aligns the quad's local X with the screen-space
+ * velocity), so the head sits near `u = 0.78` and the tail runs all the way out
+ * to `u = 0`, narrowing as it goes. Stretched, that is a comet with a hot nose
+ * and a fading trail; unstretched — a spark thrown by something standing still —
+ * it is a small bright teardrop, which is still a better spark than a dot.
+ *
+ * Rasterised column by column so the width can taper independently of the
+ * brightness. 128 one-pixel gradients, once, at boot.
+ */
 function drawSpark(c: CanvasRenderingContext2D): void {
   const h = SIZE * 0.5;
-  c.fillStyle = radial(c, h, h, h * 0.94, [
-    [0.00, 1.0], [0.10, 1.0], [0.22, 0.72], [0.40, 0.24], [0.68, 0.05], [1.00, 0.0],
-  ]);
-  c.fillRect(0, 0, SIZE, SIZE);
+  /** Where the nose sits along the cell, 0 = tail, 1 = leading edge. */
+  const NOSE = 0.78;
+  for (let x = 0; x < SIZE; x++) {
+    const u = (x + 0.5) / SIZE;
+    // Brightness: a long power-law rise up the tail, a short round nose.
+    const bright = u <= NOSE
+      ? Math.pow(u / NOSE, 1.7)
+      : Math.pow(Math.max(0, 1 - u) / (1 - NOSE), 0.65);
+    if (bright < 0.004) continue;
+    // Width: a hairline at the tail, full at the nose. The taper is what makes
+    // the streak read as something travelling rather than as a bar of light.
+    const w = h * (0.10 + 0.90 * Math.pow(Math.min(1, u / NOSE), 0.5)) * 0.98;
+    const g = c.createLinearGradient(0, h - w, 0, h + w);
+    // A gaussian-ish cross-section. Solid core, no hard edge at any radius.
+    g.addColorStop(0.00, white(0));
+    g.addColorStop(0.20, white(bright * 0.10));
+    g.addColorStop(0.35, white(bright * 0.44));
+    g.addColorStop(0.50, white(bright));
+    g.addColorStop(0.65, white(bright * 0.44));
+    g.addColorStop(0.80, white(bright * 0.10));
+    g.addColorStop(1.00, white(0));
+    c.fillStyle = g;
+    c.fillRect(x, h - w, 1, w * 2);
+  }
 }
 
 function drawGlow(c: CanvasRenderingContext2D): void {
@@ -115,33 +159,44 @@ function drawGlow(c: CanvasRenderingContext2D): void {
 function drawPuff(c: CanvasRenderingContext2D): void {
   const h = SIZE * 0.5;
   // The body: dense in the middle, gone by the rim, and monotonic in between.
+  //
+  // The falloff runs a long way out on purpose. A soft disc still has an
+  // *edge* — the radius at which its alpha crosses the eye's threshold — and if
+  // that radius is sharp the sprite reads as a circle however low the peak is.
+  // A photograph of the locomotive's chimney came back with four clearly
+  // outlined translucent balls stacked over the funnel for exactly this reason.
+  // Spending the outer 45% of the radius getting from a fifth of peak to zero
+  // puts that threshold crossing somewhere different for every alpha the module
+  // uses, which is what stops a cloud reading as a bag of marbles.
   c.fillStyle = radial(c, h, h, h * 0.99, [
-    [0.00, 0.72], [0.26, 0.66], [0.50, 0.44], [0.72, 0.18], [0.90, 0.04], [1.00, 0.0],
+    [0.00, 0.76], [0.22, 0.68], [0.40, 0.52], [0.56, 0.33], [0.70, 0.18],
+    [0.82, 0.08], [0.92, 0.025], [1.00, 0.0],
   ]);
   c.fillRect(0, 0, SIZE, SIZE);
 
-  // Bite the silhouette apart. Nine soft notches taken out of the outer half,
+  // Bite the silhouette apart. Twelve soft notches taken out of the outer half,
   // so no two puffs in a cloud present the same outline once they are spinning
   // at different angles — a perfect disc repeated forty times reads as forty
-  // discs, however soft each one is.
+  // discs, however soft each one is. Deeper and further in than they were: at
+  // 0.85 they only ever thinned the rim, and the rim was never the problem.
   c.globalCompositeOperation = 'destination-out';
-  for (let i = 0; i < 9; i++) {
+  for (let i = 0; i < 12; i++) {
     const a = hash(i * 3.1 + 0.7) * Math.PI * 2;
-    const d = h * (0.52 + hash(i * 7.3 + 2.1) * 0.42);
-    const r = h * (0.22 + hash(i * 5.9 + 4.4) * 0.26);
+    const d = h * (0.42 + hash(i * 7.3 + 2.1) * 0.52);
+    const r = h * (0.24 + hash(i * 5.9 + 4.4) * 0.30);
     c.fillStyle = radial(c, h + Math.cos(a) * d, h + Math.sin(a) * d, r, [
-      [0.00, 0.85], [0.55, 0.35], [1.00, 0.0],
+      [0.00, 0.98], [0.50, 0.46], [1.00, 0.0],
     ]);
     c.fillRect(0, 0, SIZE, SIZE);
   }
-  // ...and four much shallower ones inside it, so the body has some structure
+  // ...and five much shallower ones inside it, so the body has some structure
   // to catch the light on rather than being a flat gradient.
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 5; i++) {
     const a = hash(i * 11.7 + 5.3) * Math.PI * 2;
     const d = h * (0.10 + hash(i * 4.7 + 1.9) * 0.30);
-    const r = h * (0.16 + hash(i * 9.1 + 3.3) * 0.16);
+    const r = h * (0.16 + hash(i * 9.1 + 3.3) * 0.18);
     c.fillStyle = radial(c, h + Math.cos(a) * d, h + Math.sin(a) * d, r, [
-      [0.00, 0.34], [0.60, 0.12], [1.00, 0.0],
+      [0.00, 0.40], [0.60, 0.14], [1.00, 0.0],
     ]);
     c.fillRect(0, 0, SIZE, SIZE);
   }
@@ -149,7 +204,7 @@ function drawPuff(c: CanvasRenderingContext2D): void {
   // No notch may leave a hard edge at the cell boundary.
   c.globalCompositeOperation = 'destination-in';
   c.fillStyle = radial(c, h, h, h * 0.99, [
-    [0.00, 1.0], [0.70, 1.0], [1.00, 0.0],
+    [0.00, 1.0], [0.86, 1.0], [1.00, 0.0],
   ]);
   c.fillRect(0, 0, SIZE, SIZE);
   c.globalCompositeOperation = 'source-over';

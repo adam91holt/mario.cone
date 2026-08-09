@@ -100,6 +100,20 @@ export interface ParticlePool {
   readonly capacity: number;
   /** 0..1 how full the pool is. Emitters throttle themselves on this. */
   readonly load: number;
+  /**
+   * How much of the frame the *veil* — everything on the alpha layer — actually
+   * covered last time it was filled, as a sum of solid angles weighted by
+   * opacity. 1.0 is roughly one full screen covered once at full opacity.
+   *
+   * The number this module was missing. Every previous pass tuned dust and
+   * smoke by adjusting fifteen separate alphas and rates against a screenshot,
+   * which works for the one frame it was tuned on and for no other: put eight
+   * machines in a hairpin, or drop the frame rate so each emission is fatter,
+   * or drive onto a surface with a different table row, and the same numbers
+   * produce a windscreen nobody has wiped. Measuring the thing that actually
+   * fails means the emitters can be governed against it directly.
+   */
+  readonly veil: number;
   emit(spec: ParticleSpec): boolean;
   /** Emit `n` copies, scattering direction and speed through `rng`. */
   burst(spec: ParticleSpec, n: number, speed: number, spread: number, rng: Rng): void;
@@ -131,13 +145,39 @@ export interface ParticlePool {
  * able to reach the camera and wash the frame warm, and it brightens rather
  * than obscures. This is only ever about things that hide the game.
  */
-const NEAR_NEAR = 1.1;
-const NEAR_FAR = 3.0;
+const NEAR_NEAR = 1.4;
+const NEAR_FAR = 4.0;
+
+/**
+ * The angular governor, in radians of apparent diameter.
+ *
+ * The metric dissolve above is not enough on its own, and the arithmetic says
+ * why: a 2.4m puff sitting 3.1m from the lens — just outside `NEAR_FAR`, so at
+ * *full* opacity — subtends 43°, which on a 90° frame is half the picture. A
+ * measured capture of an ordinary tier-one drift came back with the sky, the
+ * mountains, the road and the HUD behind six of them. Distance is the wrong
+ * variable: what matters is how much of the frame one sprite owns, and that is
+ * `size / distance` whatever combination of the two produced it.
+ *
+ * So an alpha-layer sprite fades out as its apparent diameter grows past
+ * `ANG_SOFT` (15°) and is gone by `ANG_HARD` (36°), and its drawn diameter is
+ * capped at `ANG_CLAMP` on the way. Nothing on the alpha layer can obscure the
+ * game no matter what an emitter asks for — which is a guarantee, not a tuning
+ * pass, and it is the only kind of answer that survives the next set of numbers
+ * somebody types into the surface table.
+ *
+ * Additive particles are exempt, as with the near dissolve: a flame plume is
+ * meant to be able to wash the frame warm, and it brightens rather than hides.
+ */
+const ANG_SOFT = 0.26;
+const ANG_HARD = 0.62;
+const ANG_CLAMP = 0.50;
 
 export function createParticlePool(capacity: number): ParticlePool {
   const data = new Float32Array(capacity * STRIDE);
   let count = 0;
   let camX = 0, camY = 0, camZ = 0;
+  let veil = 0;
 
   function emit(spec: ParticleSpec): boolean {
     if (count >= capacity) return false;
@@ -221,6 +261,7 @@ export function createParticlePool(capacity: number): ParticlePool {
   }
 
   function fill(additive: SpriteLayer, alpha: SpriteLayer): void {
+    veil = 0;
     for (let i = 0; i < count; i++) {
       const o = i * STRIDE;
       const u = data[o + S.age] / data[o + S.life];
@@ -240,25 +281,40 @@ export function createParticlePool(capacity: number): ParticlePool {
 
       const code = data[o + S.code];
       const isAdd = code >= ADDITIVE_BIT;
+      let size = data[o + S.size0] + (data[o + S.size1] - data[o + S.size0]) * u;
       if (!isAdd) {
-        // Dissolve anything that has wandered into the lens. Squared distance,
-        // no square root: this runs over every live particle every frame.
+        // Dissolve anything that has wandered into the lens. Squared distance
+        // first, no square root: this runs over every live particle every frame.
         const dx = data[o + S.px] - camX;
         const dy = data[o + S.py] - camY;
         const dz = data[o + S.pz] - camZ;
         const d2 = dx * dx + dy * dy + dz * dz;
+        const d = Math.sqrt(d2);
         if (d2 < NEAR_FAR * NEAR_FAR) {
           if (d2 <= NEAR_NEAR * NEAR_NEAR) continue;
-          const t = (Math.sqrt(d2) - NEAR_NEAR) / (NEAR_FAR - NEAR_NEAR);
+          const t = (d - NEAR_NEAR) / (NEAR_FAR - NEAR_NEAR);
           a *= t * t;
           if (a < 0.004) continue;
         }
+        // ...and cut down anything that has grown to own the frame, wherever it
+        // happens to be. See the note on the angular governor above.
+        const ang = size / (d > 0.5 ? d : 0.5);
+        if (ang > ANG_SOFT) {
+          if (ang >= ANG_HARD) continue;
+          const t = (ANG_HARD - ang) / (ANG_HARD - ANG_SOFT);
+          a *= t * t;
+          if (a < 0.004) continue;
+          if (ang > ANG_CLAMP) size = d * ANG_CLAMP;
+        }
+        // What this sprite is about to cost the frame, in steradian-ish units.
+        // Cheap: two multiplies on a number already in a register.
+        const cover = size / (d > 1 ? d : 1);
+        veil += cover * cover * a;
       }
 
       const r = data[o + S.r0] + (data[o + S.r1] - data[o + S.r0]) * u;
       const g = data[o + S.g0] + (data[o + S.g1] - data[o + S.g0]) * u;
       const b = data[o + S.b0] + (data[o + S.b1] - data[o + S.b0]) * u;
-      const size = data[o + S.size0] + (data[o + S.size1] - data[o + S.size0]) * u;
 
       const packed = isAdd ? code - ADDITIVE_BIT : code;
       const mode = Math.floor(packed / 8);
@@ -283,11 +339,12 @@ export function createParticlePool(capacity: number): ParticlePool {
     get count() { return count; },
     capacity,
     get load() { return count / capacity; },
+    get veil() { return veil; },
     emit,
     burst,
     update,
     setCamera(x: number, y: number, z: number): void { camX = x; camY = y; camZ = z; },
     fill,
-    clear(): void { count = 0; },
+    clear(): void { count = 0; veil = 0; },
   };
 }
