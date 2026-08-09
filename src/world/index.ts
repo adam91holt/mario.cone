@@ -59,8 +59,8 @@
 // away; on top of that every batch carries its own draw distance scaled by
 // `ctx.quality.drawDistance`. Nothing casts a shadow (see `def` below).
 //
-// Measured on Cone Canyon: about **220-400 draw calls and 650-740k triangles**
-// for the whole game in a settled frame, of which this module is the larger
+// Measured on Cone Canyon: **270-400 draw calls and 640-780k triangles** for
+// the whole game in a settled frame, of which this module is the larger
 // part. Spectators dominate that bill — a bank is fifty people at eighty
 // triangles each and there are fifty banks — so the crowd draw distances are
 // set where a bank stops being *people*, not where it stops being visible.
@@ -203,8 +203,8 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
     // The middle distance — see §5b. Everything here is either large or tall,
     // because forty to a hundred and fifty metres out is five metres below the
     // road and hidden to about four metres by the barrier.
-    def('hardstand', P.hardstandGeo(40, 56), 1500);
-    def('hardstandS', P.hardstandGeo(26, 30), 1200);
+    def('hardstand', P.hardstandGeo(34, 48), 1500);
+    def('hardstandS', P.hardstandGeo(22, 22), 1200);
     def('vanRow', P.vanRowGeo(11), 700);
     def('vanRow2', P.vanRowGeo(29), 700);
     def('vanRow3', P.vanRowGeo(47), 700);
@@ -232,7 +232,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
     def('flagPole', P.flagPoleGeo(8.5), 820);
     def('flagA', P.flagGeo(2.45, 1.55, C.orange, C.white, 0), 780, M.cloth);
     def('flagB', P.flagGeo(2.45, 1.55, C.yellow, C.ink, 1), 780, M.cloth);
-    def('flagC', P.flagGeo(2.45, 1.55, C.cyan, C.navy, 2), 780, M.cloth);
+    def('flagC', P.flagGeo(2.45, 1.55, C.cyan, C.ink, 2), 780, M.cloth);
     def('bunting', P.buntingGeo(16), 540, M.cloth);
 
     def('towerCrane', P.towerCraneGeo(), 3000);
@@ -350,10 +350,13 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
     const HOARDINGS = ['hoarding', 'hoarding2', 'hoarding3'];
     const FLAGS = ['flagA', 'flagB', 'flagC'];
     const SPACING = 12.2;
-    /** Metres of clear road before a corner's entry, and after its exit. */
-    const LEAD = 46, TRAIL = 26;
+    /** Metres of clear road before a corner's entry, and after its exit. At
+     *  forty-five metres a second, thirty-eight metres of open outside is most
+     *  of a second of the approach — enough to read the turn-in against the
+     *  landscape rather than against a board. */
+    const LEAD = 36, TRAIL = 18;
     /** A run shorter than this is not a rhythm, it is litter. */
-    const MIN_RUN = 62;
+    const MIN_RUN = 44;
 
     function hoardingRun(): void {
       if (lapOrder.length < 2) return;
@@ -373,13 +376,17 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
 
         const n = Math.floor(len / SPACING);
         from += (len - (n - 1) * SPACING) * 0.5;
+        // Bookend masts only where there is a run long enough to bookend. On
+        // this circuit the straights between corners are short, and capping a
+        // four-slot run at both ends leaves two boards and no rhythm at all.
+        const capped = n >= 6;
         for (let j = 0; j < n; j++) {
           const d = from + j * SPACING;
           if (inGap(d, side)) continue;
-          // Ends of the run and every fifth slot are a mast, not a board: the
-          // break is what keeps a run from re-becoming a wall, and the ends
-          // stop it terminating in mid-air.
-          if (j === 0 || j === n - 1 || j % 5 === 4) {
+          // The ends of a run and every sixth slot inside a long one are a
+          // mast, not a board: the break is what keeps a run from re-becoming a
+          // wall, and the ends stop it terminating in mid-air.
+          if (capped && (j === 0 || j === n - 1 || (n >= 10 && j % 6 === 5))) {
             const m = at(d, side, 4.2);
             if (!m) continue;
             drop('flagPole', m, 0, 1, d, 1.0);
@@ -862,17 +869,30 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       drop('hardstand', base, base.along, 1, d0, 0);
 
       const rows = ['vanRow', 'vanRow2', 'vanRow3'];
-      for (let i = 0; i < 3; i++) {
-        const s = on(-20 + i * 7.2, r.range(-3, 3));
+      for (let i = 0; i < 4; i++) {
+        const s = on(-19 + i * 6.4, (i % 2 ? 4 : -4) + r.range(-1.5, 1.5));
         if (s) drop(rows[(seed + i) % 3]!, s, s.along, 1, d0, 0);
       }
-      const m1 = on(r.range(10, 14), r.range(0, 4));
+      const m1 = on(r.range(9, 13), r.range(0, 4));
       if (m1) drop('marquee', m1, m1.face, 1, d0, 13);
-      const m2 = on(r.range(22, 26), r.range(-7, -3));
+      const m2 = on(r.range(19, 23), r.range(-7, -3));
       if (m2) drop('marquee2', m2, m2.face + r.range(-0.2, 0.2), 1, d0, 13);
 
-      const tower = on(r.range(-4, 4), -22);
+      const tower = on(r.range(-4, 4), -20);
       if (tower) drop('floodTower', tower, tower.face, 1, d0, 3.6);
+      // Drums and a mast along the front lip, so the platform has an edge.
+      for (let i = 0; i < 7; i++) {
+        const s = on(-18 + i * 6, -22.5);
+        if (!s) continue;
+        drop('drum', s, s.along, 1, d0, 1.0);
+        batcher.placeAt('beacon', s.x, s.y + 1.02, s.z, 0, 1, wrap(d0));
+      }
+      const mast = on(r.range(24, 28), r.range(-16, -10));
+      if (mast) {
+        drop('flagPole', mast, 0, 1, d0, 1.0);
+        batcher.placeAt(FLAGS[seed % 3]!,
+          mast.x, mast.y + 7.0, mast.z, mast.along + Math.PI * 0.5, 1, wrap(d0));
+      }
 
       // Overflow spectators along the lip facing the circuit.
       const lip = on(r.range(-8, 8), -24);
@@ -900,51 +920,70 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
     for (let i = 0; i < 12; i++) {
       const d = frac(i / 12 + 0.04);
       const side = (i % 2 === 0 ? 1 : -1) as -1 | 1;
-      for (let k = 0; k < 3; k++) {
-        const s = at(d, side, 48 + k * 12);
-        if (!s || !free(s.x, s.z, 16)) continue;
-        claim(s.x, s.z, 15);
+      for (let k = 0; k < 5; k++) {
+        const s = at(d + (k % 2 ? -14 : 14) * k, side, 46 + k * 11);
+        if (!s || !free(s.x, s.z, 13)) continue;
+        claim(s.x, s.z, 12);
         drop('floodTower', s, s.face, 1, d, 3.6);
         break;
       }
+    }
+
+    /**
+     * Find room in the band, then book it.
+     *
+     * Everything out here is competing with the corners, the works compounds
+     * and each other for the same ground, and a placement pinned to one exact
+     * lap distance mostly loses that argument and silently never happens — the
+     * first cut of this section asked for fifteen stockpiles and got four.
+     * Nothing in the middle distance has any business being anywhere in
+     * particular, so let it hunt.
+     */
+    function room(
+      d: number, side: -1 | 1, near: number, far: number, r: number,
+    ): { s: Spot; d: number; off: number } | null {
+      for (let k = 0; k < 8; k++) {
+        const dd = d + (k % 2 ? -1 : 1) * Math.ceil(k / 2) * 21;
+        const off = near + ((far - near) * k) / 7;
+        const s = at(dd, side, off);
+        if (s && free(s.x, s.z, r)) { claim(s.x, s.z, r * 0.9); return { s, d: dd, off }; }
+      }
+      return null;
     }
 
     // Benched ground. The mid-distance dirt reads flat because it is flat;
     // stepping it gives the band a horizontal line to lie against and makes the
     // ground between the circuit and the canyon wall look worked rather than
     // untouched.
-    for (let i = 0; i < 30; i++) {
-      const d = (i / 30) * L + rng.range(-20, 20);
+    for (let i = 0; i < 26; i++) {
       const side = (rng.bool() ? 1 : -1) as -1 | 1;
-      const s = at(d, side, rng.range(74, 148));
-      if (!s || !free(s.x, s.z, 30)) continue;
-      claim(s.x, s.z, 28);
-      drop('berm', s, s.along + rng.range(-0.35, 0.35), rng.range(0.85, 1.35), d, 0);
+      const f = room((i / 26) * L + rng.range(-16, 16), side, 76, 146, 22);
+      if (f) {
+        drop('berm', f.s, f.s.along + rng.range(-0.35, 0.35),
+          rng.range(0.85, 1.35), f.d, 0);
+      }
     }
 
     // Aggregate stockpiles — pale grey, so they separate from the brown spoil
     // that shares the band, and tall enough to break the horizon line.
-    for (let i = 0; i < 15; i++) {
-      const d = frac(i / 15 + 0.031);
+    for (let i = 0; i < 14; i++) {
       const side = (rng.bool() ? 1 : -1) as -1 | 1;
-      const s = at(d + rng.range(-18, 18), side, rng.range(58, 132));
-      if (!s || !free(s.x, s.z, 22)) continue;
-      claim(s.x, s.z, 20);
-      drop('stockpile', s, rng.range(0, 6.28), rng.range(0.8, 1.5), d, 0);
+      const f = room(frac(i / 14 + 0.031), side, 60, 128, 16);
+      if (f) drop('stockpile', f.s, rng.range(0, 6.28), rng.range(0.8, 1.5), f.d, 0);
     }
 
-    // A few small hardstands with a van row on them, scattered wider — the
-    // overflow parking that says the event is bigger than the six fields.
-    for (let i = 0; i < 9; i++) {
-      const d = frac(i / 9 + 0.07);
+    // Small hardstands with a van row on them, scattered wider — the overflow
+    // parking that says the event is bigger than the six fields.
+    for (let i = 0; i < 10; i++) {
       const side = (rng.bool() ? 1 : -1) as -1 | 1;
-      const off = rng.range(52, 104);
-      const s = at(d, side, off);
-      if (!s || !free(s.x, s.z, 20)) continue;
-      claim(s.x, s.z, 18);
-      drop('hardstandS', s, s.along, 1, d, 0);
-      const v = at(d + rng.range(-4, 4), side, off + rng.range(-3, 3));
-      if (v) { v.y = s.y; drop(['vanRow', 'vanRow2', 'vanRow3'][i % 3]!, v, v.along, 1, d, 0); }
+      const f = room(frac(i / 10 + 0.07), side, 50, 108, 15);
+      if (!f) continue;
+      drop('hardstandS', f.s, f.s.along, 1, f.d, 0);
+      const v = at(f.d + rng.range(-3, 3), side, f.off + rng.range(-2, 2));
+      if (v) {
+        v.y = f.s.y;
+        drop(['vanRow', 'vanRow2', 'vanRow3'][i % 3]!, v, v.along, 1, f.d, 0);
+      }
     }
 
     // Mid-distance heaps, so the ground between the circuit and the canyon rim

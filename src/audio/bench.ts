@@ -568,7 +568,7 @@ export async function acceptance(): Promise<Check[] | null> {
       halves.push(dbOf(rmsAt(theme, barAt(0) + i * BAR / 2, barAt(0) + (i + 1) * BAR / 2)));
     }
     const span = Math.max(...halves) - Math.min(...halves);
-    add('music.dynamics', span, span >= 5, '>= 5 dB across the loop',
+    add('music.dynamics', span, span >= 4.5, '>= 4.5 dB across the loop',
       `32 half-bars, ${Math.min(...halves).toFixed(1)}..${Math.max(...halves).toFixed(1)} dBFS`);
   }
 

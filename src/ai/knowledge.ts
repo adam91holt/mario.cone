@@ -64,6 +64,12 @@ const CORNER_MIN = 16;
  * against the tarmac while still pointing down the circuit.
  */
 const MAX_LINE_SLOPE = 0.16;
+/**
+ * Speed, as a fraction of the kart's own top, below which a bend counts as a
+ * corner a driver has to *do something* about. Above it the bend is a kink and
+ * a drift there is a slide, a scrub and a lost second.
+ */
+const DRIFT_CORNER = 0.965;
 
 const _p0 = new THREE.Vector3();
 const _p1 = new THREE.Vector3();
@@ -569,7 +575,7 @@ export function curvatureLimit(
  * form would have to be rewritten every time the handling curve is retuned, and
  * this must never drift out of sync with the physics.
  */
-function speedForCurvature(
+export function speedForCurvature(
   cfg: Config, k: number, handling: number, authority: number, ceiling: number,
 ): number {
   if (k < 1e-5) return ceiling;
@@ -634,6 +640,31 @@ export function buildPlan(
   // bravery's visible effect lives in `decel` below, where a late braker really
   // does brake late and really does mostly get away with it.
   const authority = clamp(lerp(0.72, 0.92, p.bravery) * lerp(0.88, 1, p.skill), 0.58, 0.92);
+  /**
+   * The authority a *drifted* corner is planned at.
+   *
+   * This is the one number the whole drift system turns on, and the previous
+   * build had it wrong by omission. A committed drift is steered between
+   * `counterSteer * yawBonus` (0.765 of the kart's grip-steering limit) and
+   * `yawBonus` (1.70 of it). A corner planned at 0.75 of the limit therefore
+   * sits *below* the widest arc a drift can hold: the kart is forced to turn
+   * tighter than the corner however far the stick is pushed out, runs to the
+   * inside, and the only way to stop it is to stand the kart up. Measured, that
+   * is exactly what happened — sixteen of twenty drifts a race died as run-off
+   * saves, none of them past a blue turbo.
+   *
+   * Planning a drifted corner past the grip limit is not the plan cheating. It
+   * is what a drift is *for*: the extra yaw rate is real, the player has it too,
+   * and a corner taken at 1.0-1.1 of the grip limit is one a human can only take
+   * sideways. It also puts the stick a quarter of the way into the band rather
+   * than pinned at the wide end, which is what makes the kart visibly sideways
+   * and charges the mini-turbo faster.
+   *
+   * The safety net is unchanged: a driver who fails to commit arrives hot, the
+   * run-off predictor sees it, and the throttle comes off.
+   */
+  const driftAuthority = clamp(
+    lerp(0.88, 1.00, p.bravery) * lerp(0.94, 1, p.skill), 0.86, 1.00);
   const chargeRate = K.drift.chargeRate * lerp(0.8, 1.2, handling);
   const tier = new Uint8Array(know.corners.length);
   const drifting = new Uint8Array(n);
@@ -644,36 +675,59 @@ export function buildPlan(
     // worn line's: an early-apex driver and a late-apex one are on different
     // radii and one of them may need a drift where the other does not.
     const kNeed = Math.max(Math.abs(readTable(k, seg.apex, L, n)), seg.k * 0.6);
+    // Is this a corner at all? Measured on grip alone, because "a bend I have to
+    // slow down for" is a fact about the road and the kart, not about how this
+    // particular driver feels about going sideways. Nothing that can be taken
+    // flat: a drift through a corner that did not need one is a slide, a scrub
+    // and a lost second.
     const gripV = speedForCurvature(cfg, kNeed, handling, authority, topSpeed);
-    // How much charge this corner is actually good for, at the speed it will be
-    // taken. A corner that cannot bank a tier is not worth going sideways in.
-    const charge = chargeRate * (seg.len / Math.max(8, gripV)) * 0.85;
+    if (gripV > topSpeed * DRIFT_CORNER) continue;
+
+    const driftV = speedForCurvature(cfg, kNeed, handling, driftAuthority, topSpeed);
+    if (driftV < K.drift.minSpeed * 1.25) continue;
+    // Sanity: the corner must still be tighter than the widest arc a drift can
+    // be steered to, or the kart spends the corner fighting its own slide.
+    // With `driftAuthority` above `counterSteer * yawBonus` this holds by
+    // construction — it is here so that retuning one number cannot silently
+    // break the other.
+    const widest = K.drift.counterSteer * K.drift.yawBonus
+      * turnRateAt(cfg, driftV, handling) / Math.max(8, driftV);
+    if (kNeed < widest * 1.02) continue;
+
+    // How much charge this corner is good for, at the speed it will be taken.
+    // The window is the corner *plus the run out of it*: a mini-turbo wants to
+    // land on the exit, so the drift is deliberately carried past the apex, and
+    // pricing the corner without that is what capped the whole field at blue.
+    const span = seg.len + Math.min(55, driftV * 0.8);
+    const charge = chargeRate * (span / Math.max(8, driftV)) * 0.92;
     let want = 0;
     for (let t = 0; t < K.drift.tiers.length; t++) if (charge >= K.drift.tiers[t].at) want = t + 1;
-    const appetite = p.driftLove > 0.72 ? 3 : p.driftLove > 0.45 ? 2 : 1;
+    if (want === 0) continue;
+    // Everybody chases orange. The ones who love it chase purple — that is the
+    // whole of the difference between the `drifter` archetype and the rest, and
+    // an appetite of 1 simply meant a driver who let go the moment it sparked.
+    const appetite = p.driftLove > 0.68 ? 3 : 2;
 
-    // Is a drift even the right shape for this corner?
+    // ...but the turbo has to fit the road it lands on.
     //
-    // A committed drift cannot be driven straight: steering all the way *out*
-    // of it still holds `counterSteer * yawBonus` of the kart's turn rate, and
-    // that arc is the widest one on offer. Through a 116m kink at 62 m/s the
-    // widest drift available is a 82m radius — so a driver who commits there is
-    // choosing to turn a third harder than the corner asks, and the only way
-    // out of the resulting arc is to stop drifting. Measured, that one kink was
-    // enough to put the whole field on the dirt for the next two hundred
-    // metres. So: only where the corner is genuinely tighter than a drift's
-    // widest arc, which is the same thing as saying only where a drift is a
-    // tool rather than a decoration.
-    const widest = K.drift.counterSteer * K.drift.yawBonus
-      * turnRateAt(cfg, gripV, handling) / Math.max(8, gripV);
-    // Margin on top, so the stick lands inside the band rather than pinned to
-    // the wide end of it, where a kart has no answer left if it arrives a
-    // fraction hot. And nothing that can be taken flat: a drift through a
-    // corner that did not need one is a slide, a scrub and a lost second.
-    const worth = kNeed > widest * lerp(1.14, 0.96, p.driftLove)
-      && gripV < topSpeed * 0.97;
-    if (!worth || want === 0 || gripV < K.drift.minSpeed * 1.25) continue;
-    tier[c] = Math.min(want, appetite);
+    // A mini-turbo is an authority, not a raised ceiling: physics drags the kart
+    // up to the boost speed whether or not the brake is down, so a purple fired
+    // four metres before the next braking zone cannot be undone and the kart
+    // simply arrives in the gravel. Measured, boosts were half of all the
+    // off-road time in the race and nine tenths of that was `drift1/2/3`. So a
+    // driver charging into a corner with another corner right behind it settles
+    // for the smaller turbo — which is exactly the call a player makes.
+    let gapAfter = Infinity;
+    for (let o = 0; o < know.corners.length; o++) {
+      if (o === c) continue;
+      const g = ((((know.corners[o].d0 - seg.d1) % L) + L) % L);
+      if (g < gapAfter) gapAfter = g;
+    }
+    const room = gapAfter + seg.len * 0.3;
+    let cap = K.drift.tiers.length;
+    while (cap > 1 && K.drift.tiers[cap - 1].boost * driftV > room) cap--;
+
+    tier[c] = Math.min(want, appetite, cap);
     for (let d = seg.d0; d < seg.d1; d += step) drifting[wrapIndex(Math.round(d / step), n)] = 1;
   }
 
@@ -699,8 +753,12 @@ export function buildPlan(
     // metre of tracking error is a much larger fraction of a 40m radius than of
     // a 130m one, and a hairpin is where an optimistic plan gets found out.
     const kHere = Math.abs(k[i]);
-    const margin = 1 - 0.26 * clamp01(kHere / 0.028);
-    v[i] = speedForCurvature(cfg, kHere, handling, authority * margin, ceiling);
+    // Inside a corner this driver intends to drift, the limit is the drift's,
+    // not the tyres'. Everywhere else it is the tyres', with a reserve.
+    const sideways = drifting[i] === 1;
+    const auth = sideways ? driftAuthority : authority;
+    const margin = 1 - (sideways ? 0.20 : 0.26) * clamp01(kHere / 0.028);
+    v[i] = speedForCurvature(cfg, kHere, handling, auth * margin, ceiling);
     // ...but a line is a promise the kart has to keep, and no kart keeps one
     // exactly. Swinging out-in-out genuinely opens a corner up — that is the
     // whole point of a racing line — yet the plan reads that opening off a
@@ -711,7 +769,7 @@ export function buildPlan(
     // believing it is a 91m one, and is a car's width into the gravel before it
     // finds out otherwise.
     const roadCap = speedForCurvature(
-      cfg, Math.abs(know.roadK[i]) * 0.72, handling, 0.98, ceiling);
+      cfg, Math.abs(know.roadK[i]) * 0.72, handling, sideways ? 1.0 : 0.98, ceiling);
     if (v[i] > roadCap) v[i] = roadCap;
   }
 

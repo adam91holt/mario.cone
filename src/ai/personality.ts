@@ -116,8 +116,8 @@ export const REFERENCE: DriverProfile = {
   // Tidy first, quick second. Every screenshot and every clip in the review
   // pipeline is filmed from this kart, so a tenth of lap time is worth far less
   // here than never being photographed halfway into the gravel.
-  aggression: 0.50, consistency: 0.98, bravery: 0.80, driftLove: 0.80,
-  apexShift: 0, lineGain: 1.00, patience: 0.70, greed: 0.80,
+  aggression: 0.50, consistency: 0.98, bravery: 0.68, driftLove: 0.86,
+  apexShift: 0, lineGain: 1.00, patience: 0.70, greed: 0.70,
 };
 
 /**

@@ -538,10 +538,22 @@ export function hardstandGeo(w = 46, d = 30): THREE.BufferGeometry {
     // slab that goes brighter than the road markings pulls the eye off the
     // circuit from three hundred metres.
     k.box(0, 0.03, 0, w, 0.16, d, C.concrete, { noAo: true, shade: 0.82 });
-    // Wheel-tracked lanes, so it reads as used ground rather than a slab.
-    for (let i = -1; i <= 1; i++) {
-      k.box(0, 0.07, i * d * 0.28, w * 0.94, 0.06, 2.6, C.concreteDark,
-        { noAo: true, shade: 0.88 });
+    // An access lane up the middle and marked-out bays either side of it.
+    // Painted lines cost nothing and they are the whole difference between a
+    // gravel apron and a blank slab — which is exactly what this read as from a
+    // hundred metres with only three rows of cars standing on it. The bays run
+    // along +Z to match `vanRowGeo`, which parks its cars nose-on to the track.
+    k.box(0, 0.07, 0, w * 0.98, 0.06, d * 0.16, C.concreteDark,
+      { noAo: true, shade: 0.86 });
+    for (const sz of [-1, 1] as const) {
+      const z = sz * d * 0.26;
+      const bay = d * 0.28;
+      for (let j = 0; j <= 12; j++) {
+        k.box((-0.5 + j / 12) * w * 0.94, 0.09, z, 0.16, 0.05, bay, C.offWhite,
+          { noAo: true, shade: 0.74 });
+      }
+      k.box(0, 0.09, z + sz * bay * 0.5, w * 0.94, 0.05, 0.18, C.offWhite,
+        { noAo: true, shade: 0.74 });
     }
   }, 0);
 }
@@ -1062,8 +1074,24 @@ export function grandstandGeo(bays = 7): THREE.BufferGeometry {
 export function terraceGeo(): THREE.BufferGeometry {
   return buildProp('terrace', (k) => {
     const W = 13, ROWS = 5;
-    k.box(0, -4.2, -2.4, W + 3, 8.6, 12, C.dirtDark, { noAo: true, shade: 0.72 });
-    k.box(0, 0.06, -2.4, W + 3.4, 0.3, 12.6, C.dirt, { noAo: true, shade: 0.9 });
+    // The block, cut back so its front face lands just behind the front rail.
+    // The first version was twelve metres deep and stood three metres in front
+    // of its own front row, which put a slab of bare dirt between the camera
+    // and every spectator on it — the "brown plinth topped with confetti" read.
+    k.box(0, -4.4, -3.9, W + 3, 9, 10, C.dirtDark, { noAo: true, shade: 0.68 });
+    k.box(0, 0.06, -3.9, W + 3.4, 0.3, 10.4, C.dirt, { noAo: true, shade: 0.9 });
+    // Faced front: capping beam, a band of panels, a plinth course. These stand
+    // at road level on ground that has already fallen away, so this wall is the
+    // first thing anybody sees of the terrace.
+    k.box(0, -0.24, 1.25, W + 3.4, 0.6, 0.34, C.concrete, { noAo: true, shade: 1.0 });
+    for (let i = 0; i < 5; i++) {
+      const panels = [BOARD.clay, BOARD.deep, BOARD.ochre, BOARD.slate, BOARD.bone];
+      k.box((-0.5 + (i + 0.5) / 5) * (W + 3), -1.34, 1.2, ((W + 3) / 5) * 0.95, 1.6,
+        0.3, panels[i]!, { noAo: true, shade: 0.84 });
+    }
+    k.box(0, -2.3, 1.22, W + 3.4, 0.32, 0.34, C.concreteDark, { noAo: true, shade: 0.86 });
+    k.box(0, -4.6, 1.14, W + 3.2, 4.4, 0.26, C.concreteDark, { noAo: true, shade: 0.6 });
+
     for (let r = 0; r < ROWS; r++) {
       const y = 0.5 + r * 0.55, z = -r * 1.05;
       for (let i = 0; i < 5; i++) {
@@ -1078,6 +1106,18 @@ export function terraceGeo(): THREE.BufferGeometry {
     }
     k.box(0, 0.62, 0.72, W, 1.05, 0.06, C.orange, { ao: 0.4, aoHeight: 3, shade: 0.94 });
     k.strut(-W / 2, 1.15, 0.72, W / 2, 1.15, 0.72, 0.06, C.galv, { ao: 0.3, aoHeight: 3 });
+    // A scaffold back wall with a run of pennants, so the terrace has a top
+    // line instead of ending in a fuzzy edge of heads.
+    const backZ = -ROWS * 1.05 - 0.4;
+    for (let i = 0; i <= 4; i++) {
+      const x = -W / 2 + i * 3.25;
+      k.strut(x, 0, backZ, x, 4.6, backZ, 0.07, C.galv, { noAo: true });
+      if (i === 4) continue;
+      k.box(x + 1.62, 4.05, backZ, 3.0, 0.66, 0.05,
+        [BOARD.clay, BOARD.bone, BOARD.slate, BOARD.ochre][i]!, { noAo: true });
+    }
+    k.box(0, 2.5, backZ, W, 1.9, 0.16, C.concreteDark, { noAo: true, shade: 0.82 });
+    k.strut(-W / 2, 4.66, backZ, W / 2, 4.66, backZ, 0.06, C.orange, { noAo: true });
   }, 0.45);
 }
 

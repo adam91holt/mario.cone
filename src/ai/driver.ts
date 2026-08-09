@@ -18,6 +18,25 @@
 //              this driver's personality wants (personality.ts, items.ts).
 //   4. DRIVE   turn that into steer/throttle/brake/drift.
 //
+// Two things in here are worth reading before changing anything, because both
+// were measured to be catastrophically wrong and both are easy to reintroduce.
+//
+// **A drift entry is a decision, not a per-step vote.** Every gate on the entry
+// used to be re-run on all 120 steps a second, including the forty the kart
+// spends in the air after the hop, and the button was released the instant any
+// of them flickered. Physics reads that release as "never mind" and clears the
+// armed direction, so the next step hops again. Measured: eight hundred hops a
+// race per driver, twenty of which became drifts — the field was not failing to
+// drift, it was bouncing down the road, and that is what put a fifth of every
+// race on the dirt. Entries are now *armed* (`driftArm`) and hold the button and
+// the wheel until physics has latched.
+//
+// **A drift is an arc the driver chooses.** The run-off predictor extrapolates
+// the kart's current path curvature; in a drift that curvature is deliberately
+// tight and can be opened at will, so extrapolating it predicts a mistake
+// nobody is going to make. Predicting with the widest arc still available is
+// what lets a charge survive to a real tier.
+//
 // The controller in step 4 is the part worth reading. It is not pure pursuit:
 // aiming at a point thirty metres up the road corrects a line only weakly and
 // lags a corner by a whole reaction time, and the measured result was a field
@@ -52,7 +71,7 @@ import type {
 } from '../types.ts';
 import type { InputState } from '../core/input.ts';
 import {
-  buildPlan, curvatureLimit, knowledgeFor, turnRateAt,
+  buildPlan, curvatureLimit, knowledgeFor, speedForCurvature, turnRateAt,
   type CutSeg, type DriverPlan, type TrackKnowledge,
 } from './knowledge.ts';
 import { dropWorld, getWorld, type World } from './awareness.ts';
@@ -65,6 +84,29 @@ const OFFROAD: ReadonlySet<Surface> = new Set<Surface>(['dirt', 'grass', 'sand',
 
 /** Metres between the two lane samples the heading error is measured over. */
 const LANE_DS = 7;
+/** Half the width of a kart. Every lane margin is measured from its outside edge. */
+const KART_HALF = 1.15;
+/**
+ * Lock held through a drift entry. Physics wants more than a fifth of a turn on
+ * the wheel at the moment the hop lands or it latches nothing; this is that,
+ * plus a margin for the steering smoothing, and no more. Anything larger turns
+ * the kart in before the corner and drops it off the inside — the entry window
+ * now opens twenty metres early, so the difference matters.
+ */
+const COMMIT_LOCK = 0.28;
+/**
+ * The field-cohesion half of the rubber band: metres of gap to the field's
+ * median before it does anything, metres over which it reaches full strength,
+ * and the top-speed multipliers at each end. Deliberately gentler and slower
+ * than the player-relative term — this one is about where a kart ends up a lap
+ * later, never about how it accelerates now.
+ */
+const PACK_DEAD = 70;
+const PACK_SPAN = 300;
+const PACK_AHEAD = 0.975;
+const PACK_BEHIND = 1.05;
+/** Scratch for the field median. Sized for any field a course will ever field. */
+const _prog = new Float64Array(24);
 /** Seconds the run-off predictor looks ahead. About one corner's worth of trouble. */
 const RUNOFF_T = 0.8;
 /**
@@ -124,6 +166,107 @@ const MISTAKE_LATE = 1;
 const MISTAKE_LIFT = 2;
 const MISTAKE_NAMES = ['wide', 'late', 'lift'] as const;
 
+/**
+ * Reasons a committed drift ended. Bench vocabulary; the sim never reads it.
+ *
+ * `exit` and `strain` are the two healthy ones — the mini-turbo cashed in on the
+ * way out, and the road opening up past what a drift can be steered to. A
+ * histogram dominated by anything else is a bug, and the previous build's was
+ * dominated by a run-off save that no longer exists.
+ */
+const WHY_NAMES = ['strain', 'exit', 'end', 'past', 'slow', 'stray', 'hit'] as const;
+const WHY_STRAIN = 0, WHY_EXIT = 1, WHY_END = 2, WHY_PAST = 3;
+const WHY_SLOW = 4, WHY_STRAY = 5, WHY_HIT = 6;
+/** How many drift endings the bench keeps, for a per-corner histogram. */
+const LOG_SIZE = 64;
+
+/**
+ * Bench counters.
+ *
+ * An AI is the one system a screenshot cannot judge, and the two things this
+ * round is measured on — how much of a lap is spent drifting and at what tier,
+ * and how much of it is spent off the road for no reason — are frame counts, not
+ * poses. Accumulating them here costs a handful of adds a step and makes the
+ * review reproducible instead of anecdotal.
+ */
+interface Tally {
+  steps: number;
+  driftSteps: number;
+  /** Steps spent at each tier while drifting, 0..3. */
+  tierSteps: Int32Array;
+  /** Times each tier was newly reached. */
+  tierHit: Int32Array;
+  maxTier: number;
+  drifts: number;
+  /** Tier the drift held when it ended. */
+  endTier: Int32Array;
+  why: Int32Array;
+  offSteps: number;
+  /** Off-road while committed to the signposted gravel cut — the legitimate kind. */
+  offCut: number;
+  /** Off-road more than 3s after any stun, and not on the cut. The bug. */
+  offUnforced: number;
+  /** ...of which: the lane itself was outside the paint (a planning bug)... */
+  offLane: number;
+  /** ...and the lane was fine and the kart simply was not on it. */
+  offTrack: number;
+  /** Metres past the white line, summed over off-road steps. */
+  overSum: number;
+  /** Steps below 12 m/s outside a stun — a kart that is beached, not racing. */
+  crawlSteps: number;
+  /** Off-road while sideways, and off-road on a boost. */
+  offDrift: number;
+  offBoost: number;
+  /** ...split by what the boost was: [mini-turbo, pad, item, other]. */
+  offBoostSrc: Int32Array;
+  /** Off-road on the inside of the bend rather than running wide of it. */
+  offInside: number;
+  stunSteps: number;
+  sinceStun: number;
+  latSum: number;
+  latSq: number;
+  onSpeed: number;
+  onSteps: number;
+  offSpeed: number;
+  offN: number;
+  log: Int32Array;
+  logAt: number;
+}
+
+function makeTally(): Tally {
+  return {
+    steps: 0, driftSteps: 0,
+    tierSteps: new Int32Array(4), tierHit: new Int32Array(4), maxTier: 0,
+    drifts: 0, endTier: new Int32Array(4), why: new Int32Array(WHY_NAMES.length),
+    offSteps: 0, offCut: 0, offUnforced: 0, offLane: 0, offTrack: 0,
+    overSum: 0, crawlSteps: 0, offDrift: 0, offBoost: 0,
+    offBoostSrc: new Int32Array(4), offInside: 0, stunSteps: 0, sinceStun: 99,
+    latSum: 0, latSq: 0, onSpeed: 0, onSteps: 0, offSpeed: 0, offN: 0,
+    // [corner, why, tier] triples.
+    log: new Int32Array(LOG_SIZE * 3), logAt: 0,
+  };
+}
+
+function clearTally(t: Tally): void {
+  t.steps = 0; t.driftSteps = 0; t.maxTier = 0; t.drifts = 0;
+  t.tierSteps.fill(0); t.tierHit.fill(0); t.endTier.fill(0); t.why.fill(0);
+  t.offSteps = 0; t.offCut = 0; t.offUnforced = 0; t.offLane = 0; t.offTrack = 0;
+  t.overSum = 0; t.crawlSteps = 0; t.offDrift = 0; t.offBoost = 0; t.offBoostSrc.fill(0); t.offInside = 0;
+  t.stunSteps = 0; t.sinceStun = 99;
+  t.latSum = 0; t.latSq = 0; t.onSpeed = 0; t.onSteps = 0; t.offSpeed = 0; t.offN = 0;
+  t.log.fill(0); t.logAt = 0;
+}
+
+/** Record why a drift ended, and at what tier, against the corner it was in. */
+function noteEnd(b: Brain, why: number, tier: number, corner: number): void {
+  const t = b.tally;
+  t.why[why]++;
+  t.endTier[clamp(tier, 0, 3)]++;
+  const i = (t.logAt % LOG_SIZE) * 3;
+  t.log[i] = corner; t.log[i + 1] = why; t.log[i + 2] = tier;
+  t.logAt++;
+}
+
 /** Everything a driver remembers between steps. */
 interface Brain {
   profile: DriverProfile;
@@ -150,6 +293,10 @@ interface Brain {
   velHeading: number;
   /** Strength of the current run-off save, 0 when there is nothing to save. */
   save: number;
+  /** Metres of road the kart is predicted to run out of. 0 when it is fine. */
+  runoff: number;
+  /** Which side of the road that is: +1 to the driver's left, -1 to the right. */
+  runoffSide: -1 | 0 | 1;
 
   /** Drift: which corner we committed to, and which way. */
   driftCorner: number;
@@ -157,6 +304,22 @@ interface Brain {
   redriftLock: number;
   /** Seconds of protection a fresh drift gets from the run-off predictor. */
   driftGrace: number;
+  /**
+   * Seconds left of a *committed entry*: the button stays down and the wheel
+   * stays turned until the hop has landed and physics has latched a direction.
+   */
+  driftArm: number;
+  /** Cooldown after an arm that never became a drift. Stops the popcorn hop. */
+  armCool: number;
+  /** Seconds this drift has been held, and the tier it is chasing. */
+  driftTime: number;
+  driftAim: number;
+  /**
+   * Seconds the drift has been asking for less curvature than its widest arc
+   * can give. Sustained, that is the one situation a drift cannot be steered
+   * out of and has to be released.
+   */
+  strain: number;
   /** Why the last drift ended. Bench only — nothing in the sim reads it. */
   driftWhy: string;
 
@@ -197,6 +360,10 @@ interface Brain {
   lastLat: number;
   lastVTarget: number;
   lastErr: number;
+  lastTier: number;
+  /** Plan curvature under the kart last step, for the bench's inside/outside split. */
+  lastK: number;
+  tally: Tally;
 }
 
 const brains = new WeakMap<AiDriver, Brain>();
@@ -219,10 +386,17 @@ export function createAiDriver(ctx: GameContext, skill: number, linePreference: 
     kActual: 0,
     velHeading: 0,
     save: 0,
+    runoff: 0,
+    runoffSide: 0,
     driftCorner: -1,
     driftDir: 0,
     redriftLock: 0,
     driftGrace: 0,
+    driftArm: 0,
+    armCool: 0,
+    driftTime: 0,
+    driftAim: 0,
+    strain: 0,
     driftWhy: '',
     tailTime: 0,
     passTarget: -1,
@@ -247,6 +421,9 @@ export function createAiDriver(ctx: GameContext, skill: number, linePreference: 
     lastLat: 0,
     lastVTarget: 0,
     lastErr: 0,
+    lastTier: 0,
+    lastK: 0,
+    tally: makeTally(),
   };
 
   const driver: AiDriver = {
@@ -275,10 +452,17 @@ function configure(
   b.kActual = 0;
   b.velHeading = 0;
   b.save = 0;
+  b.runoff = 0;
+  b.runoffSide = 0;
   b.driftCorner = -1;
   b.driftDir = 0;
   b.redriftLock = 0;
   b.driftGrace = 0;
+  b.driftArm = 0;
+  b.armCool = 0;
+  b.driftTime = 0;
+  b.driftAim = 0;
+  b.strain = 0;
   b.driftWhy = '';
   b.tailTime = 0;
   b.passTarget = -1;
@@ -296,7 +480,9 @@ function configure(
   b.itemWhy = '';
   b.startClock = 0;
   b.mistakeLeft = 0;
+  b.lastTier = 0;
   b.wanderPhase = b.rng.range(0, 400);
+  clearTally(b.tally);
 
   // Reaction lag as a time constant, converted to the `damp` smoothing this
   // codebase speaks: the fraction of the error still standing after a second.
@@ -351,7 +537,12 @@ const planKeyFor = (ctx: GameContext, trackId: string, racer: Racer): string =>
  * the ones who end up in the gravel.
  */
 function laneLimit(halfAt: number, speed: number, drifting: boolean, bravery: number): number {
-  const m = 2.1 + clamp(speed * 0.030, 0, 1.5) + (drifting ? 1.1 : 0) - lerp(0.0, 0.6, bravery);
+  // Kart half-width, then the paint, then what the kart is going to need to
+  // give back when it does not track the lane exactly. Bravery buys a little of
+  // that margin back and nothing else — the brave ones are supposed to be the
+  // ones who end up in the gravel, not the whole field.
+  const m = KART_HALF + 1.25 + clamp(speed * 0.036, 0, 2.0)
+    + (drifting ? 1.3 : 0) - lerp(0.0, 0.5, bravery);
   return Math.max(1.2, halfAt - m);
 }
 
@@ -410,8 +601,28 @@ function laneAt(
 ): number {
   const spline = ctx.track!.spline;
   const halfAt = plan.know.read(plan.know.half, dq);
-  const lim = laneLimit(halfAt, speed, drifting, b.profile.bravery);
-  let l = clamp(padLane(plan, plan.latAt(dq), dq, b.profile.greed) + b.bend, -lim, lim);
+  // How far past the speed this line was drawn for the kart actually is.
+  //
+  // A racing line's exit *is* the outside of the road — and a mini-turbo fires
+  // exactly there, at a speed the brakes cannot take back: `boost.pull` drags
+  // the kart up to its target whether or not the brake is down. Measured, that
+  // one interaction was five to ten per cent of the entire race spent on the
+  // dirt, almost all of it under a `drift1/2/3` boost. So a kart carrying a
+  // boost through a corner aims further inside the paint, and gives itself the
+  // road to run wide into that the line alone does not leave.
+  const over = clamp01((speed / Math.max(12, plan.vAt(dq)) - 1) / 0.22);
+  const lim = Math.max(1.2,
+    laneLimit(halfAt, speed, drifting, b.profile.bravery) - over * 3.2);
+  let l = padLane(plan, plan.latAt(dq), dq, b.profile.greed) + b.bend;
+  // A drifting kart travels wider than its nose says it will — the tyres are
+  // sliding, that is the whole manoeuvre — so a driver aims one at the inside
+  // of the corner and lets the slide carry it back out to the line. Two things
+  // fall out of that: the kart stops using up the outside verge it was
+  // measurably living on, and it ends up where a drifting kart is supposed to
+  // be photographed, sparking off the apex kerb rather than tidily mid-road.
+  // A pure function of the station, so the two lane reads stay consistent.
+  if (drifting) l -= sign(plan.kAt(dq)) * lerp(0.5, 1.2, b.profile.driftLove);
+  l = clamp(l, -lim, lim);
   // The cut is deliberately off the road, so it wins its own blend rather than
   // being clamped back onto the tarmac it is there to avoid.
   if (cut) l = lerp(l, cut.lat, cutBlend(spline, cut, dq));
@@ -462,8 +673,13 @@ function drive(
   if (racer.stunned > 0) {
     input.accel = 0; input.brake = 0; input.steer = 0;
     input.drift = false; input.item = false;
+    if (b.driftCorner >= 0) {
+      b.driftWhy = WHY_NAMES[WHY_HIT];
+      noteEnd(b, WHY_HIT, racer.drift.tier, b.driftCorner);
+    }
     b.driftCorner = -1; b.driftDir = 0; b.passTime = 0; b.tailTime = 0; b.pressLeft = 0;
-    b.tuck = 0; b.save = 0;
+    b.driftArm = 0; b.strain = 0; b.driftTime = 0;
+    b.tuck = 0; b.save = 0; b.runoff = 0; b.runoffSide = 0;
     return;
   }
 
@@ -537,10 +753,16 @@ function drive(
   b.bend = moveToward(b.bend, clamp(bend, -14, 14), bendRate * dt);
 
   // ── steering ──────────────────────────────────────────────────────────
-  const previewD = clamp(speed * 0.13, 1.5, 9);
+  // How far up the road the lane is read, and with it the feed-forward
+  // curvature. It has to cover everything between the command and the kart's
+  // path actually bending — the reaction lag, the steering smoothing, the tyres
+  // taking a moment — or the kart turns in a reaction time late and the corner
+  // is entered from outside it. A fifth of a second's travel is about that.
+  const previewD = clamp(speed * 0.15, 2, 11);
   const laneHere = laneAt(ctx, b, plan, cut, d + previewD, speed, drifting);
   const laneNext = laneAt(ctx, b, plan, cut, d + previewD + LANE_DS, speed, drifting);
   b.lastLat = laneHere;
+  b.lastK = plan.kAt(d);
 
   _fwd.set(Math.sin(racer.yaw), 0, Math.cos(racer.yaw));
   // Heading of the kart, and of the lane, both relative to the road.
@@ -574,6 +796,9 @@ function drive(
   // the error terms only ever have to mop up a disturbance.
   const Ld = clamp(9 + speed * 0.45, 14, 38) * lerp(0.92, 1.10, p.consistency);
   const kLimit = curvatureLimit(ctx.config, speed, racer.stats.handling, 1);
+  const tr = Math.max(0.2, turnRateAt(ctx.config, speed, racer.stats.handling));
+  /** The widest arc a committed drift can be steered to at this speed. */
+  const widestK = K.drift.counterSteer * K.drift.yawBonus * tr / Math.max(8, speed);
   let kCmd = plan.kAt(d + previewD + LANE_DS * 0.5)
     + (2 / Ld) * psi
     + (2 / (Ld * Ld)) * e;
@@ -593,8 +818,25 @@ function drive(
   const travel = Math.max(6, speed * RUNOFF_T);
   const kRoad = -_here.curvature;
   const latRate = racer.vel.dot(_here.right);
+  // Predict with the path the driver *will* be on, not the one the kart happens
+  // to be on this instant.
+  //
+  // In a committed drift the stick chooses an arc anywhere between `widestK` and
+  // full lock, and a driver who is turning tighter than the corner needs simply
+  // steers out. Extrapolating the current, deliberately-tight arc for eight
+  // tenths of a second therefore predicts a mistake nobody is going to make —
+  // and the measured consequence was catastrophic: the moment `driftGrace` ran
+  // out this fired, and sixteen of every twenty drifts in the race died as a
+  // run-off save, none of them past a blue turbo. So while drifting, the
+  // prediction uses the widest arc still available, which is the honest worst
+  // case the driver cannot steer away from.
+  let kPath = b.kActual;
+  if (drifting && racer.drift.dir !== 0) {
+    const wide = racer.drift.dir * widestK;
+    kPath = racer.drift.dir > 0 ? Math.min(kPath, wide) : Math.max(kPath, wide);
+  }
   const latFuture = lat + latRate * RUNOFF_T
-    - (b.kActual - kRoad) * speed * speed * RUNOFF_T * RUNOFF_T * 0.5;
+    - (kPath - kRoad) * speed * speed * RUNOFF_T * RUNOFF_T * 0.5;
   const halfFuture = plan.know.read(plan.know.half, d + travel);
   // On the gravel cut the edge that matters is the far side of the verge, not
   // the white line — the whole point of being there is to be off the tarmac.
@@ -606,30 +848,50 @@ function drive(
   const safe = Math.max(2, edge - (2.3 + (drifting ? 0.8 : 0) - lerp(0.6, 0, p.bravery)));
 
   b.save = 0;
+  b.runoff = 0;
+  b.runoffSide = 0;
   // Half a metre of dead band. Without it the predictor's own noise keeps a
   // token save switched on for most of the lap, and everything hung off it —
   // the throttle lift, the drift veto — is then permanently half-applied.
   if (Math.abs(latFuture) > safe + 0.5) {
-    const over = Math.abs(latFuture) - safe;
-    // The curvature that closes `over` metres inside the prediction window.
-    // Capped at what the kart owns: a save it cannot make is a save it should
-    // be lifting for instead.
+    // Metres of road the kart is predicted to run out of. *This* is the number
+    // the driver acts on, and it is kept separate from the steering correction
+    // below on purpose: the correction is bounded by what the tyres own, so in
+    // a corner already taken at the limit it is small however bad the overshoot
+    // is — and the previous build hung the throttle lift off its size, with a
+    // threshold of 30% of full lock it could essentially never reach. The
+    // measured result was a field that never once lifted for a corner it was
+    // about to run out of, and spent a fifth of the race on the dirt.
+    b.runoff = Math.abs(latFuture) - safe;
+    b.runoffSide = latFuture < 0 ? -1 : 1;
+    // The curvature that closes the overshoot inside the prediction window,
+    // with the gain rising as the overshoot does — a metre wide is a correction,
+    // four metres wide is an emergency.
     // Positive lateral is to the driver's left and positive curvature turns
     // right, so the correction carries the *same* sign as the overshoot.
-    b.save = sign(latFuture) * clamp((2 * over) / (travel * travel), 0, kLimit * 1.15);
+    const urgency = lerp(1, 2.6, clamp01(b.runoff / 4));
+    b.save = sign(latFuture)
+      * clamp((2 * b.runoff * urgency) / (travel * travel), 0, kLimit * 1.25);
     kCmd += b.save;
   }
   kCmd = clamp(kCmd, -kLimit * 1.6, kLimit * 1.6);
 
-  const tr = Math.max(0.2, turnRateAt(ctx.config, speed, racer.stats.handling));
-  let want = speed > 6
-    ? clamp((kCmd * speed) / tr, -1, 1)
-    : clamp(psi * 1.9 + e * 0.12, -1, 1);
+  // Curvature is the right currency at racing speed and the wrong one at walking
+  // pace: `kCmd * speed / tr` divides by a yaw rate that is three times larger
+  // down there, so a kart crawling out of the sand fourteen metres off the
+  // centreline asks for six hundredths of a turn of lock and simply carries on
+  // along the barrier. Measured, that stranded a kart for a whole race. Below
+  // ~18 m/s the command crosses over to a direct heading-and-offset term, which
+  // is what a driver actually uses to point a stopped kart back down the road.
+  const direct = clamp(psi * 1.9 + e * 0.14, -1, 1);
+  const curve = clamp((kCmd * speed) / tr, -1, 1);
+  let want = lerp(direct, curve, smoothstep(clamp01((speed - 5) / 13)));
 
   // ── drift ─────────────────────────────────────────────────────────────
   b.commitSteer = 0;
-  const driftDir = driftControl(ctx, b, plan, racer, d, speed, want, kCmd, offroad, input, K);
-  if (driftDir !== 0) {
+  const driftDir = driftControl(
+    ctx, b, plan, racer, d, speed, kCmd, widestK, offroad, dt, input, K);
+  if (driftDir !== 0 && racer.drift.active) {
     // While a drift is committed, physics ignores the magnitude of the stick and
     // reads only how far *into* the drift it is pushed — between a hairpin-tight
     // arc and the wide counter-steered one. Solve for the `into` that produces
@@ -637,8 +899,21 @@ function drive(
     const c = K.drift.counterSteer;
     const band = Math.max(0.05, 1 - c);
     const need = (Math.abs(kCmd) * speed) / Math.max(0.2, tr * K.drift.yawBonus);
-    const into = sign(kCmd) === driftDir ? clamp01((need - c) / band) : 0;
+    let into = sign(kCmd) === driftDir ? clamp01((need - c) / band) : 0;
+    // Lean in when there is road to lean into.
+    //
+    // Sitting at the wide end of the band is the cheapest way to hold a corner
+    // and the worst-looking: the chassis only pivots 17°, the sparks barely
+    // show, and the charge accrues a quarter slower for it. So a driver who is
+    // not fighting for the road pushes the stick into the drift — which is both
+    // what a player does and what makes a CPU legible as *drifting* rather than
+    // as understeering with the button held.
+    if (b.runoff === 0 && b.strain <= 0) into = Math.max(into, lerp(0.10, 0.28, p.driftLove));
     want = driftDir * (into * 2 - 1);
+  } else if (driftDir !== 0) {
+    // Armed but not yet sideways: the hop is in the air and physics is waiting
+    // for enough lock to latch a direction. Give it that, unconditionally.
+    want = clamp(want + driftDir * 0.22, -1, 1);
   }
 
   b.steerCmd = damp(b.steerCmd, want, b.reactSmoothing, dt);
@@ -683,13 +958,40 @@ function drive(
   if (traffic.blockStunned && traffic.blockGap < 16) {
     vTarget = Math.min(vTarget, Math.max(12, traffic.blockSpeed + 7));
   }
-  // Running out of road, and not by a little. A driver who is genuinely
-  // fighting the corner does not also carry the entry speed through it — but a
-  // lift that engages the moment the prediction twitches is a driver who never
-  // opens the throttle at all.
-  if (b.save !== 0) {
-    const bite = clamp01((Math.abs(b.save) / Math.max(1e-4, kLimit) - 0.3) / 0.7);
-    if (bite > 0) vTarget = Math.min(vTarget, speed * lerp(1, lerp(0.78, 0.90, p.bravery), bite));
+  // Running out of road, and not by a little. A driver who is genuinely fighting
+  // the corner does not also carry the entry speed through it — but a lift that
+  // engages the moment the prediction twitches is a driver who never opens the
+  // throttle at all, so it is measured in metres of overshoot and needs a real
+  // one before it bites.
+  // ...but only for running *wide*. A drift that is turning tighter than the
+  // corner is predicted to leave the road on the inside, and braking makes that
+  // strictly worse: slower means a bigger yaw rate, means a tighter arc, means
+  // further inside. Measured, that feedback loop put a fifth of the race on the
+  // inside verge on its own.
+  const insideOfDrift = drifting && racer.drift.dir !== 0
+    && b.runoffSide !== racer.drift.dir;
+  if (b.runoff > 0.8 && !insideOfDrift) {
+    const bite = clamp01((b.runoff - 0.8) / 3);
+    vTarget = Math.min(vTarget, speed * lerp(1, lerp(0.76, 0.90, p.bravery), bite));
+  }
+  // A drift has a minimum speed as well as a maximum.
+  //
+  // Its widest available arc is `counterSteer * yawBonus` of the kart's turn
+  // rate, and turn rate climbs as speed falls — so below the speed at which
+  // that arc matches the corner, a committed drift *cannot* be opened out far
+  // enough and the kart is forced to the inside however the stick is held.
+  // Braking below that speed while sideways is therefore never the right answer,
+  // and the plan already sits above it by construction. This is the floor.
+  if (drifting || b.driftArm > 0) {
+    const kHere = Math.abs(plan.kAt(d + previewD));
+    // A quarter above the bare minimum, so the stick lands inside the drift's
+    // band rather than pinned to the wide end of it with nothing left. That
+    // margin is the whole difference between a drift that can be held to an
+    // orange turbo and one that spends the corner grinding toward the inside
+    // kerb while the driver counter-steers at it.
+    const floor = speedForCurvature(ctx.config, kHere, racer.stats.handling,
+      K.drift.counterSteer * K.drift.yawBonus * 1.25, topSpeed);
+    vTarget = Math.max(vTarget, Math.min(floor, plan.vAt(d) * 1.15));
   }
   // Queued behind a kart we cannot pass: back off a fraction and take a run at
   // them next time the road opens, rather than sitting in their gearbox for
@@ -1025,58 +1327,136 @@ function chooseCut(
  * exit* rather than halfway round the corner where it is scrubbed straight back
  * off.
  *
- * The two rules that keep it honest are both about giving up. A committed drift
- * cannot be steered out of — physics only lets the stick choose between a tight
- * arc and a wide one, never the other direction — so a driver who enters one
- * already running wide has thrown the corner away before it starts, and one who
- * holds it while the road runs out is choosing the gravel. Both let go here.
+ * Two things about this were measurably, badly wrong before, and both are
+ * about *giving up too easily*:
  *
- * Returns the drift direction currently committed, or 0.
+ *  - **The entry was a per-step vote, not a decision.** Every gate below was
+ *    re-run on every one of the 120 steps a second, including the forty steps
+ *    the kart spends in the air after the hop — and the drift button was
+ *    released the moment any of them flickered. Physics reads a release as
+ *    "never mind", clears the armed direction, and the next step the gates pass
+ *    again and it hops afresh. Measured: eight hundred hops a race per driver,
+ *    twenty of which became drifts. The field was not failing to drift, it was
+ *    bouncing down the road like popcorn, and that — not the racing line — is
+ *    what put a fifth of every race on the dirt. An entry is now *armed*: once
+ *    the decision is made the button stays down and the wheel stays turned
+ *    until physics has latched a direction or the window has closed.
+ *
+ *  - **The release was hunting a run-off that was not there.** See the
+ *    prediction in `drive()`: a drift is an arc the driver chooses, so
+ *    extrapolating the tightest one is predicting a mistake nobody makes. And
+ *    releasing never helps a kart running *wide* — a committed drift carries
+ *    `yawBonus` times the grip-steering rate, so standing it up is strictly
+ *    less turn. What is left is the one situation a drift genuinely cannot be
+ *    steered out of: the corner asking for *less* curvature than the widest
+ *    available arc, which drives the kart to the inside.
+ *
+ * Returns the drift direction currently committed or armed, or 0.
  */
 function driftControl(
   ctx: GameContext, b: Brain, plan: DriverPlan, racer: Racer, d: number, speed: number,
-  want: number, kCmd: number, offroad: boolean, input: InputState, K: KartConfig,
+  kCmd: number, widestK: number, offroad: boolean, dt: number,
+  input: InputState, K: KartConfig,
 ): -1 | 0 | 1 {
   const spline = ctx.track?.spline;
   if (!spline) { input.drift = false; return 0; }
   const drift = racer.drift;
+  const p = b.profile;
+  b.armCool = Math.max(0, b.armCool - dt);
 
-  // Already sideways with a plan: decide whether to keep holding.
+  // ── holding one ───────────────────────────────────────────────────────
   if (drift.active && b.driftCorner >= 0) {
-    const seg = plan.know.corners[b.driftCorner];
-    const remaining = spline.forwardDistance(d, seg.d1);
-    const timeLeft = remaining / Math.max(10, speed);
-    const rate = K.drift.chargeRate * lerp(0.8, 1.2, racer.stats.handling);
+    b.driftArm = 0;
+    // The grace window is measured from the moment the kart is actually
+    // sideways, not from the moment the driver decided to be. Setting it at the
+    // decision spends two thirds of it on the hop and the flight, and the kart
+    // lands with a tenth of a second of protection — measured, that ended
+    // sixteen of twenty-seven charges before they had banked anything at all.
+    if (b.driftTime === 0) b.driftGrace = Math.max(b.driftGrace, 0.7);
+    b.driftTime += dt;
+    let seg = plan.know.corners[b.driftCorner];
+    // Signed, so it runs negative past the exit instead of wrapping a whole
+    // lap. A mini-turbo wants to land on the way *out*, so a drift is meant to
+    // be carried past the apex and a little way onto the straight.
+    let remaining = spline.signedDistance(d, seg.d1);
+
+    // Chaining. Two bends the same way with a short link between them are one
+    // drift to a player, and taking the second one already sideways is how a
+    // purple turbo actually gets banked. Re-target rather than release.
+    if (remaining < Math.max(6, speed * 0.25)) {
+      const link = plan.cornerIndexAt(d + Math.max(14, speed * 0.55));
+      if (link >= 0 && link !== b.driftCorner
+        && plan.know.corners[link].dir === drift.dir && plan.tier[link] > 0) {
+        b.driftCorner = link;
+        b.driftAim = Math.max(b.driftAim, plan.tier[link]);
+        seg = plan.know.corners[link];
+        remaining = spline.signedDistance(d, seg.d1);
+      }
+    }
+
+    // Pinned at the widest arc the drift can hold and *still* turning tighter
+    // than the road wants. This is the only bail a committed drift has, because
+    // it is the only thing the stick cannot answer: the corner asking for
+    // appreciably less curvature than the widest arc it
+    // can be steered to. The threshold has real slack in it: at plan
+    // speed the ratio is 1.05-1.25, and a driver a fraction slow through a
+    // braking zone must not be thrown out of a drift for it — measured, a
+    // threshold of 0.85 ended twenty-eight of thirty charges before blue.
+    const wrongWay = sign(kCmd) !== 0 && sign(kCmd) !== drift.dir;
+    const tooTight = wrongWay || Math.abs(kCmd) < widestK * 0.60;
+    // Nothing accumulates during the grace window. A drift throws the tail out
+    // on purpose and the first half second of one always looks like a mistake;
+    // letting the clock run through it means the charge is released the instant
+    // the protection expires, which measured as every single drift on the
+    // circuit dying at a blue turbo and none ever reaching orange.
+    b.strain = tooTight && b.driftGrace <= 0
+      ? b.strain + dt
+      : Math.max(0, b.strain - dt * 2.5);
+    // ...and the fast version of the same thing. Over-rotating far enough to be
+    // about to run out of road on the *inside* is not a slow problem: the kart
+    // is already going somewhere the stick cannot bring it back from, and the
+    // only control left is to stand it up.
+    const insideEdge = b.runoff > 2.0 && b.runoffSide !== drift.dir;
+    // How long a driver will sit in an over-rotating drift before giving up on
+    // it. This is the single number that separates the `drifter` from the rest:
+    // a purple needs 1.9s of charge, and only somebody willing to hold a slide
+    // that is not quite working ever gets one.
+    // ...and a driver who has not yet banked what they came for sits in it twice
+    // as long. This is the difference between a field that sparks blue out of
+    // every corner and one that fires orange and purple: a tier-2 charge needs
+    // about a second of drift and a tier-3 nearly two, and an over-rotating
+    // slide that is *nearly* working is exactly the moment a real player holds
+    // on through.
+    const patience = lerp(0.35, 0.75, p.driftLove)
+      * (drift.tier < b.driftAim ? 1.6 : 1);
+    const strained = b.driftGrace <= 0 && (b.strain > patience || insideEdge);
+
+    const rate = K.drift.chargeRate * lerp(0.8, 1.2, racer.stats.handling) * 0.92;
     const next = drift.tier < K.drift.tiers.length ? K.drift.tiers[drift.tier] : null;
-    // Worth holding on for the next tier only if the corner has the room left.
-    const reachable = !!next && drift.charge + rate * timeLeft > next.at + 0.12;
-    // Running out of road in the direction the drift is taking us, hard enough
-    // that the drift is the reason. Straighten up: a mini-turbo delivered into
-    // the gravel is worth nothing.
+    // How much further this driver will hold on past the exit to bank a tier.
+    // Bounded: a counter-steered drift still turns, and a long one down a
+    // straight ends in the barrier.
+    const hangOn = lerp(6, 24, p.driftLove) * clamp01(speed / 45);
+    const timeLeft = (remaining + hangOn) / Math.max(10, speed);
+    const reachable = !!next && drift.charge + rate * timeLeft > next.at + 0.05;
+    const chasing = (drift.tier < b.driftAim && reachable) || (reachable && drift.tier < 3
+      && p.driftLove > 0.68);
+
+    // Where the boost wants to land: on the exit, pointing down the next
+    // straight. A driver who already has what they came for lets go here.
+    const nearExit = remaining <= Math.max(4, speed * 0.17);
+    // Note what is *not* here: a bail for running wide.
     //
-    // The grace window is what makes this usable. Committing a drift throws the
-    // tail out on purpose — that *is* the manoeuvre — and for the first half
-    // second the kart is genuinely travelling sideways, so a predictor reading
-    // that lateral velocity as a trajectory concludes the kart is leaving the
-    // road and cancels every drift on the circuit within two tenths of
-    // committing to it. Measured: ten of twelve drifts a lap, none of them
-    // reaching even a blue turbo. Only a run-off far past the point of saving
-    // gets through the window.
-    const bailAt = curvatureLimit(ctx.config, speed, racer.stats.handling,
-      b.driftGrace > 0 ? 1.05 : 0.6);
-    const bailing = sign(b.save) !== drift.dir && Math.abs(b.save) > bailAt;
-    // Still something to bank, and the exit window: the mini-turbo has to land
-    // on the way *out*. Releasing it the instant the tier is reached fires the
-    // boost at the apex, where it is spent widening the very corner the kart is
-    // in the middle of — the measured version of that mistake was a kart
-    // accelerating out to seven metres past the white line halfway round a
-    // right-hander. So a driver who has what they came for keeps holding until
-    // the road opens.
-    const chasing = drift.tier < plan.tier[b.driftCorner] || (reachable && drift.tier < 3);
-    const nearExit = remaining <= Math.max(7, speed * 0.32);
-    const keep = !bailing
-      && remaining <= seg.len + 30
-      && remaining > 3
+    // Standing the kart up cannot help. A committed drift carries `yawBonus`
+    // times the kart's grip-steering rate — leaning into it is strictly more
+    // turn than releasing it — and the brake works during a drift, so a driver
+    // arriving hot has both answers already. Every version of this file that
+    // released on a run-off save measured the same way: the save fires, the
+    // charge dies at tier 0, and the field never sparks. The only thing a drift
+    // genuinely cannot steer out of is being *too tight*, which is `strained`.
+    const keep = !strained
+      && remaining > -hangOn
+      && remaining < seg.len + 40
       && speed > K.drift.minSpeed * 1.02
       && (chasing || !nearExit);
 
@@ -1084,72 +1464,120 @@ function driftControl(
       input.drift = true;
       return drift.dir === 0 ? b.driftDir : drift.dir;
     }
-    b.driftWhy = bailing ? 'save'
-      : remaining > seg.len + 30 ? 'past'
-        : remaining <= 3 ? 'end'
-          : speed <= K.drift.minSpeed * 1.02 ? 'slow'
-            : 'exit';
+    const why = strained ? WHY_STRAIN
+      : remaining >= seg.len + 40 ? WHY_PAST
+        : remaining <= -hangOn ? WHY_END
+          : speed <= K.drift.minSpeed * 1.02 ? WHY_SLOW
+            : WHY_EXIT;
+    b.driftWhy = WHY_NAMES[why];
+    noteEnd(b, why, drift.tier, b.driftCorner);
     input.drift = false;
     b.driftCorner = -1;
     b.driftDir = 0;
-    b.redriftLock = bailing ? 0.7 : 0.24;
+    b.strain = 0;
+    b.driftTime = 0;
+    // Long enough that the mini-turbo is spent before the next hop, short
+    // enough to take the second half of an esse.
+    b.redriftLock = strained ? 0.55 : 0.28;
     return 0;
   }
 
   if (drift.active) {
     // Sideways without a plan — a hop that latched off a kerb. Let it go.
     b.driftWhy = 'stray';
+    noteEnd(b, WHY_STRAY, drift.tier, -1);
     input.drift = false;
+    b.driftArm = 0;
     return drift.dir;
   }
 
+  // ── an entry already committed to ─────────────────────────────────────
+  // The hop takes a third of a second and the kart is in the air for most of
+  // it. Nothing decided on the ground gets to change its mind up there.
+  if (b.driftArm > 0) {
+    b.driftArm -= dt;
+    if (racer.stunned <= 0 && speed > K.drift.minSpeed && b.driftArm > 0) {
+      input.drift = true;
+      b.commitSteer = b.driftDir * COMMIT_LOCK;
+      return b.driftDir;
+    }
+    b.driftArm = 0;
+    b.driftCorner = -1;
+    b.driftDir = 0;
+    b.armCool = 0.45;
+    input.drift = false;
+    return 0;
+  }
+
+  if (b.driftCorner >= 0) {
+    // Physics dropped it under us — a barrier scrape, a landing, the recovery
+    // steering standing the kart up in the sand.
+    b.driftWhy = WHY_NAMES[WHY_HIT];
+    noteEnd(b, WHY_HIT, drift.tier, b.driftCorner);
+  }
   b.driftCorner = -1;
   b.driftDir = 0;
+  b.driftTime = 0;
+  b.strain = 0;
 
-  if (offroad || b.redriftLock > 0 || speed < K.drift.minSpeed * 1.12) {
+  if (offroad || b.redriftLock > 0 || b.armCool > 0 || speed < K.drift.minSpeed * 1.12) {
     input.drift = false;
     return 0;
   }
   if (b.mistakeLeft > 0 && b.mistakeKind === MISTAKE_LATE) { input.drift = false; return 0; }
   // Already fighting for the road. Adding a slide to that is how a moment
-  // becomes an accident.
-  if (Math.abs(b.save) > curvatureLimit(ctx.config, speed, racer.stats.handling, 0.5)) {
-    input.drift = false;
-    return 0;
-  }
+  // becomes an accident. Measured in metres of predicted overshoot, not in
+  // steering authority — a corner taken at the limit has no authority left to
+  // measure with.
+  if (b.runoff > 1.4) { input.drift = false; return 0; }
 
   // Which corner are we in, or about to be in?
+  //
+  // The window opens in the braking zone. A drift is committed at turn-in and
+  // the hop alone costs a third of a second in the air, so a driver who waits
+  // until the corner is under the wheels has already spent the half of it the
+  // charge lives in. Looking a hop's flight ahead is what turns a blue turbo
+  // into an orange one.
+  const lead = Math.min(lerp(10, 26, p.driftLove), speed * 0.4);
   let idx = plan.cornerIndexAt(d + 2);
-  if (idx < 0) idx = plan.cornerIndexAt(d + lerp(3, 11, b.profile.driftLove));
+  if (idx < 0 || plan.tier[idx] === 0) idx = plan.cornerIndexAt(d + lead);
   if (idx < 0 || plan.tier[idx] === 0) { input.drift = false; return 0; }
 
   const seg = plan.know.corners[idx];
-  // Nothing to gain from committing on the way out of a corner.
-  if (spline.forwardDistance(d, seg.d1) < seg.len * 0.35) { input.drift = false; return 0; }
-
-  // Only commit once the kart is genuinely turning that way — a hop with the
-  // wheel straight latches nothing and costs grip for it.
-  if (sign(want) !== seg.dir || Math.abs(want) < 0.16) { input.drift = false; return 0; }
-  // A drift's widest available arc is still a turn, so committing to one where
-  // the corner asks for almost no curvature is committing to leaving the road.
-  // The threshold is half of that arc rather than all of it: a kart drifting a
-  // little tighter than the corner needs runs to the *inside*, which is a lost
-  // tenth, while one drifting on a straight is a kart in the barrier.
-  const widest = K.drift.counterSteer * K.drift.yawBonus
-    * turnRateAt(ctx.config, speed, racer.stats.handling) / Math.max(8, speed);
-  if (Math.abs(kCmd) < widest * lerp(0.62, 0.34, b.profile.driftLove)) {
-    input.drift = false;
-    return 0;
-  }
+  // Nothing to gain from committing on the way out of one — and a drift that
+  // cannot outlive the hop is a hop. The hop alone eats a third of a second;
+  // add the time a blue turbo needs to charge and that is the shortest corner
+  // worth going sideways in. Without this a driver would commit twelve metres
+  // from the exit and release at tier 0 having spent the corner in the air,
+  // which is a third of the measured releases.
+  // Is there enough corner left to bank anything? The hop alone eats a third of
+  // a second in the air; add the time a blue turbo needs to charge and that is
+  // the shortest stretch worth going sideways in. Measured without it, a third
+  // of all releases were at tier 0 — drifts committed twelve metres from an
+  // exit that were airborne for most of their life.
+  const room = spline.signedDistance(d, seg.d1) + lerp(6, 24, p.driftLove) * clamp01(speed / 45);
+  if (room < Math.max(seg.len * 0.35, speed * 0.72)) { input.drift = false; return 0; }
+  // What the corner asks for, not what the controller is asking for this
+  // instant: `kCmd` carries the run-off save and both error terms, and gating
+  // an entry on it made the decision flicker at 120Hz — which is what turned
+  // every entry into a hop and every lap into popcorn. `plan.tier` has already
+  // decided this corner is worth a drift, at build time, against this driver's
+  // own line; all that is left is to be in the right place for it.
+  const kPlan = plan.kAt(seg.d0 + seg.len * 0.3);
+  if (sign(kPlan) !== seg.dir) { input.drift = false; return 0; }
 
   input.drift = true;
   b.driftCorner = idx;
   b.driftDir = seg.dir;
-  b.driftGrace = 0.55;
-  // Physics wants more than a third of lock during the hop to latch a direction.
-  // At turn-in the demand is usually well past that; this tops up the last
-  // sliver so a shallow entry still commits.
-  if (Math.abs(want) < 0.4) b.commitSteer = seg.dir * 0.42;
+  b.driftAim = Math.max(1, plan.tier[idx]);
+  b.driftGrace = 0.7;
+  // The hop, the flight and the touchdown that commits it. Held open across all
+  // three: physics needs the button down and a third of a lock on the wheel at
+  // the moment the tyres land, and a driver who lets go in the air lands with
+  // nothing.
+  b.driftArm = K.drift.hopTime + 0.28;
+  b.tally.drifts++;
+  b.commitSteer = seg.dir * COMMIT_LOCK;
   return seg.dir;
 }
 
@@ -1198,39 +1626,74 @@ function recover(
     input.brake = 1;
     input.drift = false;
     // Physics flips the steering sign below zero speed, so backing *away* from
-    // whatever we are stuck against needs the wheel the other way.
-    input.steer = clamp(-b.steerCmd, -1, 1);
-    if (speed > 1.5) b.reverseTime = 0;
+    // whatever we are stuck against needs the wheel the other way once the kart
+    // is actually going backwards.
+    input.steer = clamp(speed < 0 ? -b.steerCmd : b.steerCmd, -1, 1);
+    // Give up on the reverse only once there is room to turn in. The old test
+    // was `speed > 1.5`, which is true of every kart that has just decided to
+    // reverse *out of* forward motion — so the manoeuvre cancelled itself on
+    // the step it began and the kart ground along the barrier for the rest of
+    // the race. Measured: one of eight finished a full lap down with 88% of
+    // its race spent under 12 m/s, which is most of what blew the field apart.
+    if (speed < -7) b.reverseTime = 0;
     return;
   }
 
   if (along < -0.15 && speed < 26) {
-    // Turned around. Get the nose back down the road before doing anything else.
+    // Turned around. Nothing else matters until the nose is back down the road:
+    // scrub the speed off first, then swing it round on full lock and power.
     const side = sign(_fwd.x * _here.tangent.z - _fwd.z * _here.tangent.x) || 1;
     input.steer = clamp(-side, -1, 1);
-    input.accel = speed < 4 ? 0 : 0.35;
-    input.brake = speed > 6 ? 0.8 : 0;
     input.drift = false;
+    if (speed > 3.5) { input.accel = 0; input.brake = 1; }
+    else { input.accel = 1; input.brake = 0; }
     b.stuckTime += dt;
-    if (b.stuckTime > 1.4) { b.reverseTime = 0.9; b.stuckTime = 0; }
+    if (b.stuckTime > 2.4) { b.reverseTime = 1.2; b.stuckTime = 0; }
     return;
   }
 
   if (Math.abs(speed) < 3.5) {
     b.stuckTime += dt;
-    if (b.stuckTime > 1.3) { b.reverseTime = 0.85; b.stuckTime = 0; }
-    else { input.accel = 1; input.brake = 0; }
+    if (b.stuckTime > 1.3) { b.reverseTime = 0.9; b.stuckTime = 0; }
+    else { input.accel = 1; input.brake = 0; input.drift = false; }
+  } else if (speed < 12 && OFFROAD.has(racer.surface)) {
+    // Crawling in the dirt with the nose more or less the right way: not stuck
+    // enough for the reverse, far too slow to be racing. Anything that keeps a
+    // kart here is a bug, so the only job is to get out — but a kart that is
+    // slowly gathering speed is getting out, and hauling it into reverse for a
+    // second undoes exactly that.
+    input.accel = 1;
+    input.brake = 0;
+    input.drift = false;
+    if (speed < 6) {
+      b.stuckTime += dt;
+      if (b.stuckTime > 2.6) { b.reverseTime = 1.0; b.stuckTime = 0; }
+    } else b.stuckTime = 0;
   } else {
     b.stuckTime = 0;
   }
 
-  // Well beyond the shoulder: dig straight back toward the road rather than
-  // asking the plan for a corner speed that only exists on tarmac.
-  if (b.cut < 0
-    && Math.abs(lat) > _here.width * 0.5 + (track.course.vergeWidth ?? 5)) {
-    input.accel = Math.max(input.accel, 0.85);
+  // Off the paint and not on the signposted cut. Every frame of this is a bug,
+  // so getting back is the only job: aim across the verge at a real angle
+  // instead of waiting for a curvature command that, on dirt at half speed, is
+  // barely a twitch of the wheel. The angle is shallow deliberately — full lock
+  // in sand ploughs a furrow and scrubs off what speed is left — and it grows
+  // with how far out we are, so a wheel on the kerb barely notices it.
+  const half = _here.width * 0.5;
+  if (b.cut < 0 && Math.abs(lat) > half - KART_HALF) {
+    const out = (Math.abs(lat) - (half - KART_HALF)) / Math.max(3, track.course.vergeWidth ?? 5);
+    // Positive lateral is to the driver's *left* and positive steer turns the
+    // nose right, so coming back from the left verge carries the same sign as
+    // the offset — the same convention `b.save` and the lateral error term use.
+    const home = sign(lat) * clamp01(out) * 0.7;
+    if (Math.abs(home) > Math.abs(input.steer) || sign(home) !== sign(input.steer)) {
+      input.steer = clamp(lerp(input.steer, home, clamp01(out)), -1, 1);
+    }
     input.brake = 0;
-    input.drift = false;
+    if (Math.abs(lat) > half + (track.course.vergeWidth ?? 5) * 0.5) {
+      input.accel = Math.max(input.accel, 0.9);
+      input.drift = false;
+    }
   }
 }
 
@@ -1351,6 +1814,8 @@ export function createAiSystem(ctx: GameContext): GameSystem {
         if (!ai) continue;
         tickHeld(ai, racer, dt);
         ai.update(racer, dt);
+        const b = brains.get(ai);
+        if (b && phase === 'racing') tallyStep(b, racer, world, dt);
       }
       applyRubberBand(dt);
     },
@@ -1360,6 +1825,60 @@ export function createAiSystem(ctx: GameContext): GameSystem {
       dropWorld(ctx);
     },
   };
+
+  /**
+   * One step of bench counters. Nothing in the simulation reads any of this;
+   * it exists so "the field never drifts" and "the field lives in the dirt" are
+   * measurements rather than impressions.
+   */
+  function tallyStep(b: Brain, racer: Racer, w: World, dt: number): void {
+    const t = b.tally;
+    t.steps++;
+    if (racer.stunned > 0) { t.stunSteps++; t.sinceStun = 0; } else t.sinceStun += dt;
+
+    const tier = racer.drift.tier;
+    if (racer.drift.active) {
+      t.driftSteps++;
+      t.tierSteps[tier]++;
+      if (tier > b.lastTier) {
+        for (let k = b.lastTier + 1; k <= tier; k++) t.tierHit[k]++;
+        if (tier > t.maxTier) t.maxTier = tier;
+      }
+    }
+    b.lastTier = racer.drift.active ? tier : 0;
+
+    const off = OFFROAD.has(racer.surface);
+    const i = w.indexOf(racer);
+    if (off) {
+      t.offSteps++;
+      t.offSpeed += racer.speed; t.offN++;
+      if (b.cut >= 0) t.offCut++;
+      else {
+        if (t.sinceStun > 3) t.offUnforced++;
+        if (racer.drift.active) t.offDrift++;
+        // The inside of a bend is at negative lateral when the curvature is
+        // positive: the spline's `right` points to the driver's left.
+        if (i >= 0 && b.lastK !== 0 && sign(w.lat[i]) === -sign(b.lastK)) t.offInside++;
+        if (racer.boost.time > 0) {
+          t.offBoost++;
+          const src = racer.boost.source ?? '';
+          t.offBoostSrc[src.startsWith('drift') ? 0 : src === 'pad' ? 1
+            : src === 'mushroom' || src === 'star' || src === 'bullet' ? 2 : 3]++;
+        }
+        if (i >= 0) {
+          const half = w.half[i];
+          t.overSum += Math.max(0, Math.abs(w.lat[i]) - half);
+          // Whose fault: a lane the driver planned onto the dirt, or a lane on
+          // the tarmac the kart failed to hold.
+          if (Math.abs(b.lastLat) > half - 1) t.offLane++; else t.offTrack++;
+        }
+      }
+    } else {
+      t.onSpeed += racer.speed; t.onSteps++;
+    }
+    if (racer.stunned <= 0 && racer.speed < 12) t.crawlSteps++;
+    if (i >= 0) { t.latSum += w.lat[i]; t.latSq += w.lat[i] * w.lat[i]; }
+  }
 
   /** How long the current item has been in hand — the policy's patience clock. */
   function tickHeld(ai: AiDriver, racer: Racer, dt: number): void {
@@ -1373,7 +1892,7 @@ export function createAiSystem(ctx: GameContext): GameSystem {
   /**
    * Keeps the race close without ever being visible.
    *
-   * Three rules, and the first two are what separate this from the usual
+   * Four rules, and the first two are what separate this from the usual
    * cheating slingshot:
    *
    *  - **A dead zone.** Nothing within `dead` metres of the player is adjusted
@@ -1385,6 +1904,14 @@ export function createAiSystem(ctx: GameContext): GameSystem {
    *    difference in where somebody ends up a lap later.
    *  - **It is off at the start**, so the grid is honest and the field strings
    *    out on merit before anything is done to hold it together.
+   *  - **It holds the field together, not just the player's corner of it.**
+   *    A band measured only against the player does nothing about two CPUs four
+   *    hundred metres apart on the far side of the circuit — measured, the
+   *    field's first-to-last spread reached 827m on a 2177m lap and four of
+   *    eight racers finished a lap down, which is not a race, it is eight time
+   *    trials. So there is a second, gentler term against the field's own
+   *    median, with a dead zone twice as wide. It only ever applies to karts
+   *    the player is nowhere near, so it is invisible by construction.
    */
   function applyRubberBand(dt: number): void {
     const player = ctx.player;
@@ -1393,17 +1920,44 @@ export function createAiSystem(ctx: GameContext): GameSystem {
     const dead = 26;
     const span = Math.max(20, rb.range - dead);
     const live = ctx.race.phase === 'racing' && ctx.race.time > 4 && !player.finished;
+    const mid = packMedian();
 
     for (const racer of ctx.racers) {
       if (!racer.ai || racer.isPlayer) continue;
       let want = 1;
       if (live) {
         const gap = racer.progress - player.progress;
-        const t = smoothstep(clamp01((Math.abs(gap) - dead) / span));
-        want = gap > 0 ? lerp(1, rb.ahead, t) : lerp(1, rb.behind, t);
+        if (Math.abs(gap) > dead) {
+          const t = smoothstep(clamp01((Math.abs(gap) - dead) / span));
+          want = gap > 0 ? lerp(1, rb.ahead, t) : lerp(1, rb.behind, t);
+          const off = racer.progress - mid;
+          const u = smoothstep(clamp01((Math.abs(off) - PACK_DEAD) / PACK_SPAN));
+          want *= off > 0 ? lerp(1, PACK_AHEAD, u) : lerp(1, PACK_BEHIND, u);
+          want = clamp(want, 0.90, 1.13);
+        }
       }
       racer.rubberBand = damp(racer.rubberBand ?? 1, want, 0.05, dt);
     }
+  }
+
+  /**
+   * The middle of the field, in progress metres.
+   *
+   * The median rather than the mean: one kart that has spun into the sand and
+   * lost half a lap should not drag the whole field's reference back with it.
+   * Eight elements, insertion-sorted into a buffer that is allocated once.
+   */
+  function packMedian(): number {
+    const n = ctx.racers.length;
+    if (n === 0 || n > _prog.length) return ctx.player?.progress ?? 0;
+    for (let i = 0; i < n; i++) _prog[i] = ctx.racers[i].progress;
+    for (let i = 1; i < n; i++) {
+      const v = _prog[i];
+      let j = i - 1;
+      while (j >= 0 && _prog[j] > v) { _prog[j + 1] = _prog[j]; j--; }
+      _prog[j + 1] = v;
+    }
+    return n % 2 ? _prog[(n - 1) >> 1] : (_prog[n / 2 - 1] + _prog[n / 2]) * 0.5;
   }
 
   /**
@@ -1456,11 +2010,16 @@ export function createAiSystem(ctx: GameContext): GameSystem {
           off: Math.round(b.lastErr * 10) / 10,
           bend: Math.round(b.bend * 10) / 10,
           save: Math.round(b.save * 10000) / 10000,
+          runoff: Math.round(b.runoff * 100) / 100,
           surface: racer.surface,
           drifting: racer.drift.active,
           driftCorner: b.driftCorner,
           driftWhy: b.driftWhy,
+          driftAim: b.driftAim,
+          driftArm: Math.round(b.driftArm * 100) / 100,
+          strain: Math.round(b.strain * 100) / 100,
           tier: racer.drift.tier,
+          charge: Math.round(racer.drift.charge * 100) / 100,
           tuck: Math.round(b.tuck * 100) / 100,
           passing: b.passTime > 0 ? b.passTarget : -1,
           tailTime: Math.round(b.tailTime * 10) / 10,
@@ -1526,6 +2085,67 @@ export function createAiSystem(ctx: GameContext): GameSystem {
           vBefore: Math.round(plan.vAt(pad.d0)),
           vAfter: Math.round(plan.vAt(pad.d1 + 40)),
         }));
+      },
+
+      /**
+       * The measurement this round is judged on: how much of the race each
+       * driver spent drifting, at what tier, why every charge ended, and how
+       * much time was spent off the road with nothing forcing it.
+       */
+      tally(): Array<Record<string, unknown>> {
+        const pct = (a: number, n: number): number => Math.round((a / Math.max(1, n)) * 1000) / 10;
+        return ctx.racers.filter((r) => r.ai).map((r) => {
+          const b = r.ai ? brains.get(r.ai) : undefined;
+          if (!b) return { name: r.name };
+          const t = b.tally;
+          const why: Record<string, number> = {};
+          for (let i = 0; i < WHY_NAMES.length; i++) if (t.why[i]) why[WHY_NAMES[i]] = t.why[i];
+          const mean = t.latSum / Math.max(1, t.steps);
+          return {
+            name: r.name,
+            style: b.profile.key,
+            place: r.place,
+            lap: r.lap,
+            driftPct: pct(t.driftSteps, t.steps),
+            tierPct: [0, 1, 2, 3].map((i) => pct(t.tierSteps[i], t.driftSteps)),
+            tierHit: Array.from(t.tierHit),
+            maxTier: t.maxTier,
+            drifts: t.drifts,
+            endTier: Array.from(t.endTier),
+            why,
+            offPct: pct(t.offSteps, t.steps),
+            offCutPct: pct(t.offCut, t.steps),
+            offUnforcedPct: pct(t.offUnforced, t.steps),
+            offLanePct: pct(t.offLane, t.steps),
+            offTrackPct: pct(t.offTrack, t.steps),
+            crawlPct: pct(t.crawlSteps, t.steps),
+            offDriftPct: pct(t.offDrift, t.steps),
+            offInsidePct: pct(t.offInside, t.steps),
+            offBoostPct: pct(t.offBoost, t.steps),
+            offBoostSrc: Array.from(t.offBoostSrc).map((x) => pct(x, t.steps)),
+            overMean: Math.round((t.overSum / Math.max(1, t.offSteps)) * 100) / 100,
+            stunPct: pct(t.stunSteps, t.steps),
+            onSpeed: Math.round((t.onSpeed / Math.max(1, t.onSteps)) * 10) / 10,
+            offSpeed: Math.round((t.offSpeed / Math.max(1, t.offN)) * 10) / 10,
+            latMean: Math.round(mean * 100) / 100,
+            latSd: Math.round(Math.sqrt(Math.max(0,
+              t.latSq / Math.max(1, t.steps) - mean * mean)) * 100) / 100,
+          };
+        });
+      },
+
+      /** The last 64 drift endings across the field: which corner, why, what tier. */
+      driftLog(racerId = 1): Array<Record<string, number | string>> {
+        const hit = brainOf(racerId);
+        if (!hit) return [];
+        const t = hit.b.tally;
+        const out: Array<Record<string, number | string>> = [];
+        const n = Math.min(LOG_SIZE, t.logAt);
+        for (let k = 0; k < n; k++) {
+          const i = (((t.logAt - n + k) % LOG_SIZE) + LOG_SIZE) % LOG_SIZE;
+          out.push({ corner: t.log[i * 3], why: WHY_NAMES[t.log[i * 3 + 1]] ?? '?', tier: t.log[i * 3 + 2] });
+        }
+        return out;
       },
 
       /** The item boxes the field has learned by watching each other. */
