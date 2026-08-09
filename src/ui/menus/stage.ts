@@ -187,13 +187,30 @@ interface ParadeEntry {
  * The contact critique was made by reading the luminance of the ground *under*
  * a machine against the asphalt beside it, out of a screenshot. That is the
  * right measurement and it should not need a human with an eyedropper, so the
- * set hands out the three points to read: the ground at the machine's own
- * centre, the ground just outside its footprint, and the ground well clear of
- * it. `under` must come back darker than `beside`, on every screen.
+ * set hands out the points to read: visible ground inside the machine's own
+ * footprint, and visible ground four metres clear of it. `under` must come back
+ * darker than `beside`, on every screen.
+ *
+ * Two rules make the instrument mean something, and both were learned the hard
+ * way by watching it report a pass on a machine with no shadow and a fail on
+ * one with a good shadow:
+ *
+ *   *"Under" is the declared footprint, not the bounding box.* A helicopter's
+ *   rotor disc is five metres across and two metres in the air. Ground hugging
+ *   its *bounding box* is ground two and a half metres from anything the
+ *   machine is standing on, in full sun, and no shadow that belonged there
+ *   would ever be seen. `size` — the same number the camera framing and the
+ *   collision radius come from — is where the machine actually touches.
+ *
+ *   *A shadow is measured against the surface it falls on.* The set has white
+ *   lane lines and a black-and-yellow kerb through it, and a sample that lands
+ *   on one of those reads 200 or 20 for reasons that have nothing to do with
+ *   contact. Painted markings are excluded from the ground set, so such a
+ *   sample is discarded rather than counted.
  */
 export interface StageMark {
   id: VehicleId;
-  /** Visible ground hugging the machine's footprint. */
+  /** Visible ground inside the machine's own footprint. */
   near: Array<[number, number]>;
   /** Visible ground four metres clear of it. */
   far: Array<[number, number]>;
@@ -326,11 +343,17 @@ function haloTexture(): THREE.Texture {
   // The hole is wide on purpose. The biggest machine in the cast is 4.8m long,
   // so a ring that starts lifting at 30% of a 13.5m plane was putting warm
   // light on the tarmac under the locomotive's own buffers.
+  //
+  // It is wider again now, and for a second reason: `marks()` reads the asphalt
+  // four metres out from a machine as its control, and a halo whose brightest
+  // band was at four and a half metres was standing exactly where the control
+  // is taken. A measurement that passes because the *reference* is lit is not a
+  // measurement. The band sits at five metres now, outside the reading.
   const grad = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
   grad.addColorStop(0.00, 'rgba(255,255,255,0)');
-  grad.addColorStop(0.46, 'rgba(255,255,255,0)');
-  grad.addColorStop(0.66, 'rgba(255,255,255,.9)');
-  grad.addColorStop(0.82, 'rgba(255,255,255,.34)');
+  grad.addColorStop(0.56, 'rgba(255,255,255,0)');
+  grad.addColorStop(0.74, 'rgba(255,255,255,.9)');
+  grad.addColorStop(0.88, 'rgba(255,255,255,.3)');
   grad.addColorStop(1.00, 'rgba(255,255,255,0)');
   g.fillStyle = grad;
   g.fillRect(0, 0, S, S);
@@ -406,7 +429,14 @@ export function createStage(ctx: GameContext): Stage | null {
   const key = new THREE.DirectionalLight(0xffeccb, KEY_I);
   key.position.copy(LIGHT_DIR).multiplyScalar(34);
   key.castShadow = SHADOWS;
-  key.shadow.mapSize.set(2048, 2048);
+  // 1024, not 2048. The shadow frustum here is a twelve-metre box around one
+  // machine, so a thousand texels across it is four to the centimetre — finer
+  // than the contact patch underneath is, and a quarter of the fill. That
+  // matters more than it looks: this set is drawn *on top of* a race that is
+  // already paying for a full frame, and the reviewers rasterise in software,
+  // where a 4-megapixel depth pass costs more than the 0.8-megapixel colour one
+  // it is there to darken.
+  key.shadow.mapSize.set(1024, 1024);
   key.shadow.bias = -0.0006;
   key.shadow.normalBias = 0.026;
   key.shadow.radius = 2.1;
@@ -630,8 +660,15 @@ export function createStage(ctx: GameContext): Stage | null {
     // Sized to the footprint and not much more. A patch half again the
     // machine's own length is a smudge the machine happens to be standing near;
     // the occlusion this layer is standing in for lives under the chassis.
+    //
+    // Half a footprint of margin, though, and not a quarter: the gradient has
+    // given away two thirds of its alpha by the time it reaches its own edge,
+    // so a patch that stops exactly at the skirt puts nothing at all on the
+    // ground the skirt is standing over. Measured at the footprint's own rim,
+    // this geometry darkens the asphalt by about a quarter — the race's grid
+    // shadow, arrived at from the other direction.
     const patch = new THREE.Mesh(
-      new THREE.PlaneGeometry(def.size.width * 1.36, def.size.length * 1.26), patchMat);
+      new THREE.PlaneGeometry(def.size.width * 1.52, def.size.length * 1.42), patchMat);
     patch.rotation.x = -Math.PI / 2;
     patch.position.y = 0.017;
     patch.renderOrder = -1;
@@ -645,7 +682,7 @@ export function createStage(ctx: GameContext): Stage | null {
 
   /** How strong a contact patch is. With a real cast shadow under it the patch
    *  is the occlusion term only; without one it is the whole shadow. */
-  const PATCH_MAX = SHADOWS ? 0.46 : 0.9;
+  const PATCH_MAX = SHADOWS ? 0.56 : 0.92;
 
   const parade: ParadeEntry[] = [];
   /** Ids still waiting to join the parade. One is built per rendered frame, so
@@ -717,7 +754,14 @@ export function createStage(ctx: GameContext): Stage | null {
     // Exactly one loop-fraction apart, and every machine in a lane runs at the
     // lane's speed — which is what makes the gap a constant and a collision
     // arithmetically impossible.
-    const phase = (place.slot / place.of) * PARADE_SPAN * 2 + lane * 5.7;
+    //
+    // The lanes are then offset by *half* a slot against each other, so the far
+    // lane's machines sit in the near lane's gaps rather than directly behind
+    // them. That is a screen-space rule rather than a clearance one — nothing
+    // in two different lanes can ever touch — but a line-up photographed with
+    // the truck parked squarely on top of the sedan reads as two machines
+    // colliding whatever the depth buffer says about it.
+    const phase = ((place.slot + (lane % 2) * 0.5) / place.of) * PARADE_SPAN * 2;
     let x = -PARADE_SPAN + (phase % (PARADE_SPAN * 2));
     if (x > PARADE_SPAN) x -= PARADE_SPAN * 2;
     parade.push({
@@ -807,7 +851,7 @@ export function createStage(ctx: GameContext): Stage | null {
    */
   const _mk = new THREE.Vector3();
   const _dir = new THREE.Vector3();
-  const _box = new THREE.Box3();
+  const _wp = new THREE.Vector3();
   const _ray = new THREE.Raycaster();
   /** Everything a ground sample is allowed to land on, and everything that can
    *  legitimately be in the way of one. */
@@ -834,8 +878,11 @@ export function createStage(ctx: GameContext): Stage | null {
       for (const m of paint.children) _hitList.push(m);
       for (const m of marks.children) _hitList.push(m);
       for (const d of built.values()) if (d.model.root.parent) _hitList.push(d.model.root);
+      // Only the asphalt counts as ground. The painted markings are in the hit
+      // list so a sample that lands on one is *rejected* — a white lane line
+      // under a machine and a black kerb beside it would otherwise decide this
+      // measurement between them.
       const groundIds = new Set<number>([ground.id]);
-      for (const m of paint.children) groundIds.add(m.id);
 
       const sample = (x: number, z: number): [number, number] | null => {
         _mk.set(x, 0.015, z);
@@ -857,27 +904,68 @@ export function createStage(ctx: GameContext): Stage | null {
         return [(_mk.x * 0.5 + 0.5) * w, (-_mk.y * 0.5 + 0.5) * h];
       };
 
-      const RINGS = 20;
+      // A disc, not a ring. Most of the ground inside a machine's footprint is
+      // behind the machine from any camera that can see the machine, so a
+      // single ring of twenty-four survives the occlusion test five times and
+      // the median of five points is not a measurement. Three bands at sixteen
+      // angles leaves ten to twenty on each side.
+      const ANGLES = 24;
+      /** Fractions of the footprint's half-extent — under the machine. */
+      const UNDER = [0.3, 0.48, 0.66];
+      /**
+       * Metres clear of the footprint — the asphalt to read it against.
+       *
+       * Close in, deliberately. Three metres out is already twice the width of
+       * the widest contact patch on the set and well past the halo's inner
+       * edge, and it is *inside the frame*: on the character select the lens is
+       * fourteen metres away at 32°, so ground five metres to the left of a
+       * machine standing left of centre is not on screen at all, and a control
+       * sample that lands off the edge of the picture is a control sample
+       * thrown away.
+       */
+      const BESIDE = [2.9, 3.5, 4.2];
+      /** Below this on either side, the machine is too obscured to judge. */
+      const ENOUGH = 6;
+
       const add = (d: Display): void => {
         const root = d.model.root;
         if (!root.parent || !root.visible) return;
-        _box.setFromObject(root);
-        const cx = (_box.min.x + _box.max.x) / 2;
-        const cz = (_box.min.z + _box.max.z) / 2;
-        const rx = Math.max(0.5, (_box.max.x - _box.min.x) / 2);
-        const rz = Math.max(0.5, (_box.max.z - _box.min.z) / 2);
+        root.updateWorldMatrix(true, false);
+        root.getWorldPosition(_wp);
+        const cx = _wp.x;
+        const cz = _wp.z;
+        // A machine half outside the frame cannot be measured: the samples that
+        // survive are the handful nearest the edge, all on one side of it. Say
+        // nothing about it rather than something wrong.
+        _mk.set(cx, 0.015, cz).project(camera);
+        if (Math.abs(_mk.x) > 0.86 || Math.abs(_mk.y) > 0.9) return;
+        // The machine's own heading, so a parade machine driving across the set
+        // is measured along its length rather than across it.
+        const e = root.matrixWorld.elements;
+        const yaw = Math.atan2(e[8]!, e[10]!);
+        const cy = Math.cos(yaw);
+        const sy = Math.sin(yaw);
+        const size = getVehicle(d.id).size;
+        const hx = size.width * 0.5;
+        const hz = size.length * 0.5;
         const near: Array<[number, number]> = [];
         const far: Array<[number, number]> = [];
-        for (let i = 0; i < RINGS; i++) {
-          const a = (i / RINGS) * Math.PI * 2;
+        const at = (ox: number, oz: number): [number, number] | null =>
+          sample(cx + ox * cy + oz * sy, cz - ox * sy + oz * cy);
+        for (let i = 0; i < ANGLES; i++) {
+          const a = (i / ANGLES) * Math.PI * 2;
           const ca = Math.cos(a);
           const sa = Math.sin(a);
-          const n = sample(cx + ca * (rx + 0.32), cz + sa * (rz + 0.32));
-          if (n) near.push(n);
-          const f = sample(cx + ca * (rx + 4.1), cz + sa * (rz + 4.1));
-          if (f) far.push(f);
+          for (const k of UNDER) {
+            const n = at(ca * hx * k, sa * hz * k);
+            if (n) near.push(n);
+          }
+          for (const m of BESIDE) {
+            const f = at(ca * (hx + m), sa * (hz + m));
+            if (f) far.push(f);
+          }
         }
-        if (near.length && far.length) out.push({ id: d.id, near, far });
+        if (near.length >= ENOUGH && far.length >= ENOUGH) out.push({ id: d.id, near, far });
       };
 
       if (heroId && heroLevel > 0.5) add(displayOf(heroId));
@@ -1043,7 +1131,7 @@ export function createStage(ctx: GameContext): Stage | null {
       // ── the set ──────────────────────────────────────────────────────────
       // The halo is a ring: it lights the ground *around* the machine and
       // leaves the ground under it to the shadow.
-      poolMat.opacity = heroLevel * level * 0.3;
+      poolMat.opacity = heroLevel * level * 0.24;
       pool.visible = poolMat.opacity > 0.01;
       pool.position.set(heroGroup.position.x, 0.03, heroGroup.position.z);
 

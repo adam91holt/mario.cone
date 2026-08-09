@@ -293,10 +293,17 @@ export function createTitleScreen(): TitleScreen {
       // overshoot from above. It is nine tenths of a second in total, which is
       // long enough to be a performance and short enough that nobody waiting to
       // press start ever sees it as a delay.
+      //
+      // **The drop is a letter and a half, not two and a half.** It used to be
+      // 150 units — over two cap heights, which at any viewport this game is
+      // played at is *off the top of the screen*: for the first half second of
+      // the first thing anybody ever sees, half the game's name was outside the
+      // frame. Fifty-two units clears the board's own top edge and no more, so
+      // the letters fall onto the sign rather than in from somewhere else.
       for (let i = 0; i < letters.length; i++) {
         const u = clamp01((t - 0.16 - i * 0.055) / 0.42);
         const k = ease.outBack(u);
-        const dy = (1 - k) * -150;
+        const dy = (1 - k) * -52;
         const sc = lerp(1.32, 1, k);
         // Scale about the letter's own middle so it drops in rather than
         // growing out of its top-left corner.

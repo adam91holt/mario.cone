@@ -255,8 +255,15 @@ export const CSS_MENU = `
    from the sides and opening again is a cut you can follow; a cross-fade is a
    cut you cannot. */
 #menu .wipe { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+/* Wider than half the frame, and hung outside it on both edges. The panels are
+   skewed seven degrees, which shifts each corner sideways by about four percent
+   of the frame — so a panel that starts exactly at x=0 leaves a wedge of bare
+   screen in the top-left corner at the one moment the board is supposed to be
+   *shut*. That wedge used to show the menu's own set behind it and was
+   invisible; now that the set goes dark for the hand-off, it shows the race,
+   and a tear in the curtain is the last thing a curtain may have. */
 #menu .wipe s {
-  position: absolute; top: -14%; bottom: -14%; width: 68%;
+  position: absolute; top: -14%; bottom: -14%; width: 78%;
   display: block;
   background:
     linear-gradient(180deg, rgba(255,255,255,.16), rgba(0,0,0,.22)),
@@ -265,8 +272,8 @@ export const CSS_MENU = `
       #17191F calc(var(--u) * 1.5) calc(var(--u) * 3));
   box-shadow: 0 0 calc(var(--u) * 2) rgba(0,0,0,.7);
 }
-#menu .wipe s.l { left: 0; transform: translateX(-124%) skewX(-7deg); }
-#menu .wipe s.r { right: 0; transform: translateX(124%) skewX(-7deg); }
+#menu .wipe s.l { left: -10%; transform: translateX(-124%) skewX(-7deg); }
+#menu .wipe s.r { right: -10%; transform: translateX(124%) skewX(-7deg); }
 
 /* ── the roster ─────────────────────────────────────────────────────────── */
 
@@ -502,6 +509,21 @@ export const CSS_MENU = `
 #menu .start {
   position: absolute; left: 50%; bottom: calc(var(--eb) + var(--u) * 4.2);
   text-align: center;
+}
+/* A scrim under the call to action, and the only place in this front-end where
+   a statement is not made on a plate — a sign under the wordmark would be a
+   second sign competing with the first. At 1600x900 the prompt lands on bare
+   asphalt and needs nothing; at 900x506 the same prompt lands squarely on the
+   black-and-yellow kerb across the set, and the line naming the keys that press
+   it becomes unreadable. This is the vignette from the grade, local to the one
+   place that needs it. */
+#menu .start::before {
+  content: ''; position: absolute; left: 50%; top: 46%;
+  width: calc(var(--u) * 30); height: calc(var(--u) * 9);
+  transform: translate(-50%, -50%);
+  background: radial-gradient(58% 52% at 50% 50%,
+    rgba(6,9,16,.78) 0%, rgba(6,9,16,.5) 46%, rgba(6,9,16,0) 76%);
+  pointer-events: none; z-index: -1;
 }
 #menu .start .t { font-size: calc(var(--u) * 1.9); }
 #menu .start .sub {

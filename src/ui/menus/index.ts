@@ -34,6 +34,7 @@
 import { clamp01, damp, ease, makeRng } from '../../core/math.ts';
 import { getVehicle, listVehicles } from '../../vehicles/registry.ts';
 import { bind, CSS_MENU, fromHtml, hintKey, q, title } from './chrome.ts';
+import { createLaunchCard, CSS_LAUNCH } from './launch.ts';
 import { createStage, type ShotName, type Stage } from './stage.ts';
 import {
   CSS_SCREENS, CUPS,
@@ -134,6 +135,8 @@ export interface MenuProbe {
   cup: string;
   engineClass: EngineClass;
   wipe: number;
+  /** The hand-off, so a reviewer can photograph it without guessing at it. */
+  launch: { active: boolean; built: boolean; t: number; hold: number; outro: number };
 }
 
 export function createMenuSystem(ctx: GameContext): GameSystem {
@@ -142,7 +145,7 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
   if (typeof document === 'undefined') return { name: 'menus', order: 110 };
 
   const style = document.createElement('style');
-  style.textContent = CSS_MENU + CSS_SCREENS;
+  style.textContent = CSS_MENU + CSS_SCREENS + CSS_LAUNCH;
   document.head.appendChild(style);
 
   const root = fromHtml(`
@@ -177,10 +180,21 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
   root.appendChild(q(root, '.tray'));
   root.appendChild(q(root, '.hint'));
   root.appendChild(q(root, '.wipe'));
+  // ...and the launch card above the board, because it is printed on it.
+  const card = createLaunchCard();
+  root.appendChild(card.root);
   document.body.appendChild(root);
 
   const railTop = bind(q(root, '.rail.top i'));
   const railBot = bind(q(root, '.rail.bot i'));
+  /** Everything that is *backdrop* rather than board: the set, the grade and
+   *  the two hazard rails. Taken off together, behind the closed board. */
+  const backdrop = [
+    stage ? bind(stage.canvas) : null,
+    bind(q(root, '.grade')),
+    bind(q(root, '.rail.top')),
+    bind(q(root, '.rail.bot')),
+  ].filter((b): b is ReturnType<typeof bind> => b !== null);
   const trayBox = bind(q(root, '.tray'));
   const hintBox = bind(q(root, '.hint'));
   const wipeL = bind(q(root, '.wipe s.l'));
@@ -204,10 +218,43 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
   let wipeT = -1;
   let wipeSwapped = false;
   let pending: ScreenName | null = null;
+
+  // ── the hand-off ────────────────────────────────────────────────────────
+  //
+  // Four states, and the board is across the frame for the middle two:
+  //
+  //   launching        a race has been asked for; the board is closing, then
+  //                    holding, and the card is on it
+  //   raceBuilt        `reset()` has fired — the race exists behind the board
+  //   outro            the board is swinging away onto it
+  //   (neither)        the front-end is gone
+  //
+  // The board is released only when the race exists *and* the card has had its
+  // beat *and* nobody has asked for longer. Anyone who wants to author the
+  // arrival — a course fly-through, a grid reveal — gets `hold(seconds)` on the
+  // `menu:launch` payload and the board waits for them.
+  //
+  // **The set goes off behind the closed board, not after it opens.** This is
+  // the hard cut the critique named, and it was not the wipe: the board used to
+  // swing away onto *this module's own 3D set* — a dim roadworks road with
+  // nothing on it — hold there for half a second, and only then vanish in a
+  // single frame onto a sunlit canyon. Two reveals, the first of them onto
+  // scenery the player had already finished with. The stage, the grade and the
+  // hazard rails are now switched off on the frame the board covers them, which
+  // costs nothing to look at and means the one reveal there is lands on the
+  // race.
   let launching = false;
-  /** Counts down while the menus hold the frame after a race has been asked
-   *  for, so the hand-off is a board swinging away rather than a cut. */
-  let outro = 0;
+  let raceBuilt = false;
+  let launchT = 0;
+  let holdWanted = 0;
+  /** Counts down while the board swings away. -1 when it is not. */
+  let outro = -1;
+  /** How long the card is guaranteed on screen, board fully closed. */
+  const CARD_HOLD = 1.05;
+  /** ...and how long the board takes to swing off it. */
+  const SWING = 0.55;
+  /** Nothing may hold the frame for ever, listener or not. */
+  const HOLD_CAP = 7;
 
   let clock = 0;
   let railScroll = 0;
@@ -303,17 +350,39 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
   function launch(): void {
     if (launching) return;
     launching = true;
+    raceBuilt = false;
+    launchT = 0;
+    holdWanted = 0;
     sfx('boost', 0.95);
     ctx.audio?.setMusic('auto');
+    // The card the closed board carries, painted before the board is across it
+    // rather than after — a card that appears a frame late is a card that
+    // appears.
+    const list = screens.course.coursesOf(screens.course.cupIndex);
+    const cup = CUPS.find((c) => c.id === choice.cup) ?? CUPS[0]!;
+    card.set({
+      courseId: choice.courseId,
+      vehicleId: choice.vehicleId,
+      engineClass: choice.engineClass,
+      cupName: cup.name,
+      cupColor: cup.color,
+      round: Math.max(0, list.findIndex((c) => c.id === choice.courseId)),
+      rounds: Math.max(1, list.length),
+    });
     // Said out loud a beat before `reset()`, so anything that wants to author
     // the arrival — a course fly-through, a name card, a grid reveal — has the
     // choice in hand while the board is still closing rather than after the
     // race has already been built underneath it. Nothing depends on it being
-    // listened to.
+    // listened to; `hold` is how a listener that does take it asks the board to
+    // stay across the frame until its own arrival is ready to be revealed.
     ctx.bus.emit('menu:launch', {
       courseId: choice.courseId,
       vehicleId: choice.vehicleId,
       engineClass: choice.engineClass,
+      hold: (seconds: number): void => {
+        if (!(seconds > 0)) return;
+        holdWanted = Math.min(HOLD_CAP, Math.max(holdWanted, seconds));
+      },
     });
     wipeT = 0;
     wipeSwapped = false;
@@ -545,7 +614,8 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
     visible = true;
     live = true;
     launching = false;
-    outro = 0;
+    raceBuilt = false;
+    outro = -1;
     wipeT = -1;
     pending = null;
     screen = at;
@@ -573,6 +643,9 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
       root.classList.remove('on');
       stage?.setParade(false);
       stage?.setHero(null);
+      // `update` returns early once this is gone, so anything still on screen
+      // has to be taken off here or it is on screen for ever.
+      card.update(0, 0);
     }
     ctx.bus.emit('ui:menu', { open: false, screen });
   }
@@ -597,11 +670,11 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
         return;
       }
       if (launching) {
-        // Our own race. Hold the frame while the board swings away, so the
-        // player is handed to the pre-race camera rather than dropped into it.
+        // Our own race, and it now exists. The board does *not* open on this —
+        // it opens when `update` decides the card has been read and any hold a
+        // listener asked for has run out.
         live = false;
-        outro = 0.55;
-        launching = false;
+        raceBuilt = true;
         return;
       }
       close(true);
@@ -665,28 +738,60 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
           : 1 - ease.inOutCubic(clamp01((wipeT - 0.34) / 0.46));
         if (!wipeSwapped && wipeT >= 0.34) {
           wipeSwapped = true;
-          if (launching) doLaunch();
-          else swap();
+          if (launching) {
+            doLaunch();
+            // The machine says its own name once more as the card lands on the
+            // board. It is the last thing heard before the engines, and it is
+            // the only sound in the bank that belongs to the machine the player
+            // is about to be handed.
+            sfx(`sig.${choice.vehicleId}`, 0.9);
+          } else swap();
         }
         if (wipeT >= 0.8) { wipeT = -1; cover = 0; }
       }
       // A race takes a moment to build. The board stays across the frame until
-      // it is ready rather than opening onto the menus we are about to leave —
-      // `reset()` is what releases it, into the outro below.
-      if (launching && wipeSwapped) cover = 1;
-      if (outro > 0) {
-        outro = Math.max(0, outro - dt);
-        cover = ease.inOutCubic(clamp01(outro / 0.55));
-        if (outro <= 0) { close(true); return; }
+      // it is ready rather than opening onto the menus we are about to leave,
+      // and then for as long again as the card on it needs to be read.
+      if (launching) {
+        launchT += dt;
+        if (wipeSwapped) cover = 1;
+        const until = 0.34 + CARD_HOLD + holdWanted;
+        // ...and a floor under it: a `hold` whose owner never comes back, or a
+        // race that never finishes building, must not leave a player looking at
+        // a board for ever.
+        if ((raceBuilt && launchT >= until) || launchT > until + 2.5) {
+          launching = false;
+          outro = SWING;
+        }
       }
-      const off = (1 - cover) * 102;
+      if (outro >= 0) {
+        outro -= dt;
+        cover = ease.inOutCubic(clamp01(outro / SWING));
+        if (outro <= 0) { outro = -1; close(true); return; }
+      }
+      // Backdrop off, behind the board, once this front-end is handing over.
+      // See the note at the top of the hand-off block: this is what turns two
+      // reveals into one.
+      const handing = outro >= 0 || (launching && wipeSwapped);
+      for (const el of backdrop) el.set('opacity', handing ? '0' : '1');
+
+      // The card rides the closed board: it arrives as the last of the board
+      // lands and leaves with the first of it moving, so it is never seen
+      // hanging over an open frame.
+      card.update(dt, clamp01((cover - 0.86) / 0.14));
+      // Per cent of the panel's own width, and the panel is 78% of the frame
+      // hung 10% outside it: 108% of 78% is 84% of the frame, which clears a
+      // panel whose far edge sits at 68%.
+      const off = (1 - cover) * 108;
       wipeL.set('transform', `translateX(${(-off).toFixed(2)}%) skewX(-7deg)`);
       wipeR.set('transform', `translateX(${off.toFixed(2)}%) skewX(-7deg)`);
       stage?.setLevel(1 - cover * 0.82);
 
       // ── screens ───────────────────────────────────────────────────────────
       paintHint();
-      const hidden = outro > 0;
+      // Once the board is fully across for a launch, the screens behind it are
+      // done: they must not be there to be revealed when it swings away.
+      const hidden = handing;
       for (const k of Object.keys(show) as ScreenName[]) {
         const want = !hidden && k === screen ? 1 : 0;
         show[k] = damp(show[k], want, 0.00002, dt);
@@ -710,8 +815,16 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
       hintBox.set('transform',
         `translate(-50%, ${((1 - chrome) * 60).toFixed(1)}%)`);
 
-      stage?.update(dt);
-      stage?.render();
+      // ...and a set nobody can see is a set nobody should pay for. The stage
+      // is the single most expensive thing this module draws — a whole second
+      // scene, over the top of a race already paying for a full frame — and
+      // during the hand-off it is behind a closed board at zero opacity while
+      // the engine is building a track. Those are exactly the frames worth
+      // giving back.
+      if (!handing) {
+        stage?.update(dt);
+        stage?.render();
+      }
     },
 
     dispose(): void {
@@ -815,6 +928,13 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
       cup: choice.cup,
       engineClass: choice.engineClass,
       wipe: wipeT < 0 ? 0 : +wipeT.toFixed(3),
+      launch: {
+        active: launching,
+        built: raceBuilt,
+        t: +launchT.toFixed(3),
+        hold: +holdWanted.toFixed(3),
+        outro: +outro.toFixed(3),
+      },
     }),
   };
 
