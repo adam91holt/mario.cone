@@ -21,6 +21,30 @@
 // anyone is a mixer that is wrong.
 
 import { impulseResponse, noiseBuffer } from './dsp.ts';
+import { createDucker } from './duck.ts';
+import type { Ducker } from './duck.ts';
+
+/**
+ * Headroom. The single most important pair of numbers in the mixer.
+ *
+ * A fixed trim on each of the two *sustained* buses, downstream of their
+ * faders, so it is a property of the desk rather than of the volume control.
+ *
+ * The reason it exists is a measurement. With the engines and the music
+ * running at the level a bed wants to be heard at, the whole mix sat at
+ * -15.3dBFS RMS and a bob-omb — the loudest single event in the game — peaked
+ * at -14.2dBFS. Net gain over the bed: 1.3dB, which is less than the
+ * difference between two ordinary frames of engine noise. The explosion was
+ * not too quiet. There was simply nowhere left above the bed for it to go, and
+ * the limiter was flattening what little there was.
+ *
+ * So the bed is parked ~8dB (engines) and ~5dB (music) below where it would
+ * naturally sit, the one-shot bank is pushed the other way, and the gap
+ * between them is the whole dynamic range of the game. A player turns the
+ * whole thing up; they cannot turn the *contrast* up, so it has to be built in.
+ */
+const ENGINE_BED = 0.40;
+const MUSIC_BED = 0.545;
 
 export interface AudioBackend {
   /** The graph's context. `BaseAudioContext` rather than `AudioContext` because
@@ -36,19 +60,14 @@ export interface AudioBackend {
   readonly sfx: GainNode;
   readonly engine: GainNode;
   /**
-   * The engine bed's sidechain, between the engine bus and the master.
+   * The sidechain across both sustained buses.
    *
-   * Eight machines under power are a continuous wall of broadband noise, and a
-   * measured render of the busiest moment in the game — final lap, four engines
-   * close, a bob-omb in the middle of it — showed the explosion arriving as no
-   * change at all in the waveform. It was not too quiet; it had nowhere to go.
-   * So the bed steps back for anything loud and comes straight back, which is
-   * what every racing game you have ever heard does and the reason their
-   * impacts land. Driven fast, from the same loudness signal that ducks the
-   * music, and kept separate from the engine bus's own slow phase trim so the
-   * two cannot fight over one parameter.
+   * Headroom alone is not enough: the bed also has to *move*. Every one-shot
+   * tells this the instant it is scheduled and it opens a hole on the audio
+   * clock, sample-aligned with the transient rather than a frame behind it.
+   * See `duck.ts` — the timing is the entire point of that file.
    */
-  readonly engineDuck: GainNode;
+  readonly duck: Ducker;
   /** Send input. Anything connected here is heard through the canyon. */
   readonly verb: GainNode;
   readonly white: AudioBuffer;
@@ -86,16 +105,21 @@ export function audioAvailable(): boolean {
  * be measuring nothing.
  */
 function buildGraph(ac: BaseAudioContext, live: AudioContext | null): AudioBackend {
-  // One limiter across the whole mix. Eight engines, a music bed and a
-  // bob-omb going off in the middle of the pack will comfortably sum past
-  // full scale, and a game that clips on its best moment sounds broken
-  // exactly when it should sound expensive.
+  // A safety limiter across the whole mix, and *only* a safety limiter.
+  //
+  // It used to sit at -7dB with a ratio of 12, which is not a limiter, it is a
+  // bus compressor — and a measured busy mix confirmed it: peak -0.8dBFS at
+  // -12.8dBFS RMS with the per-second level flat inside 0.8dB straight through
+  // an explosion, a shell hit, a boost and a coin. Every transient in the game
+  // was being spent on making the quiet parts louder. Now it catches genuine
+  // overs and nothing else: nothing below -3dB is touched at all, and above it
+  // the ratio is steep enough to be a brick wall rather than a squeeze.
   const limiter = ac.createDynamicsCompressor();
-  limiter.threshold.value = -7;
-  limiter.knee.value = 8;
-  limiter.ratio.value = 12;
-  limiter.attack.value = 0.004;
-  limiter.release.value = 0.18;
+  limiter.threshold.value = -3;
+  limiter.knee.value = 4;
+  limiter.ratio.value = 20;
+  limiter.attack.value = 0.002;
+  limiter.release.value = 0.1;
   limiter.connect(ac.destination);
 
   const master = ac.createGain();
@@ -105,8 +129,20 @@ function buildGraph(ac: BaseAudioContext, live: AudioContext | null): AudioBacke
   const music = ac.createGain();
   const sfx = ac.createGain();
   const engine = ac.createGain();
+
+  // The two sustained buses, each: fader → sidechain (fast) → siren hold
+  // (slow) → fixed headroom trim → master. The one-shot bus goes straight to
+  // the master and is never ducked by anything, because it is the thing
+  // everything else is getting out of the way of.
+  const musicDuck = ac.createGain();
+  const musicHold = ac.createGain();
+  const musicBed = ac.createGain();
+  musicBed.gain.value = MUSIC_BED;
   const engineDuck = ac.createGain();
-  engineDuck.gain.value = 1;
+  const engineHold = ac.createGain();
+  const engineBed = ac.createGain();
+  engineBed.gain.value = ENGINE_BED;
+
   // A tilt across the engine bed, and the only EQ move in the whole mixer.
   //
   // An engine's authority is its low end; its top octaves are induction hiss,
@@ -119,11 +155,21 @@ function buildGraph(ac: BaseAudioContext, live: AudioContext | null): AudioBacke
   engineTilt.type = 'highshelf';
   engineTilt.frequency.value = 2500;
   engineTilt.gain.value = -4;
-  music.connect(master);
+
+  music.connect(musicDuck);
+  musicDuck.connect(musicHold);
+  musicHold.connect(musicBed);
+  musicBed.connect(master);
+
   sfx.connect(master);
+
   engine.connect(engineTilt);
   engineTilt.connect(engineDuck);
-  engineDuck.connect(master);
+  engineDuck.connect(engineHold);
+  engineHold.connect(engineBed);
+  engineBed.connect(master);
+
+  const duck = createDucker(musicDuck, engineDuck, musicHold, engineHold);
 
   const convolver = ac.createConvolver();
   convolver.normalize = true;
@@ -148,7 +194,7 @@ function buildGraph(ac: BaseAudioContext, live: AudioContext | null): AudioBacke
   let virtual = -1;
 
   return {
-    ac, live, master, music, sfx, engine, engineDuck, verb, white, pink,
+    ac, live, master, music, sfx, engine, duck, verb, white, pink,
     now: () => (virtual >= 0 ? virtual : ac.currentTime),
     setNow(t: number) { virtual = t; },
     wave(amps) {
@@ -170,6 +216,7 @@ function buildGraph(ac: BaseAudioContext, live: AudioContext | null): AudioBacke
     },
     dispose() {
       try {
+        duck.dispose();
         master.disconnect();
         limiter.disconnect();
         void live?.close();

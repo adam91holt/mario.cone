@@ -136,7 +136,13 @@ export function createCues(be: AudioBackend): Cues {
   airGain.gain.value = 0;
   air.connect(airBand);
   airBand.connect(airGain);
-  airGain.connect(be.sfx);
+  // Onto the *engine* bus, not the effects bus. The wind is the sound of the
+  // player's own speed — a sustained bed, not an event — so it belongs with the
+  // machines: it takes their headroom trim, it steps aside for an explosion
+  // with them, and it drops away with them on the results screen. Left on the
+  // effects bus it would be the one part of the bed that never got out of the
+  // way of anything.
+  airGain.connect(be.engine);
 
   chA.start(t0); chB.start(t0); chLfo.start(t0);
   wOsc.start(t0); wLfo.start(t0);
@@ -175,7 +181,10 @@ export function createCues(be: AudioBackend): Cues {
       // readable over the player's own engine and a music bed, and being a
       // near-pure tone in a mix made almost entirely of noise and saturation is
       // what lets it be so at a level that never dominates.
-      set(pChOut, s.chargeOn ? lerp(0.09, 0.26, c) : 0, now);
+      // Trimmed three decibels when the sustained buses were given headroom:
+      // the engines dropped 8dB underneath this and a meter that used to sit
+      // just above them would otherwise have started shouting over them.
+      set(pChOut, s.chargeOn ? lerp(0.065, 0.185, c) : 0, now);
 
       // Threat. Silent almost all the time, and loud on purpose when it is not:
       // this is the one cue that has to beat eight engines, a music bed and
@@ -185,9 +194,9 @@ export function createCues(be: AudioBackend): Cues {
       // It was polite. Measured against a rendered slice of the busiest moment
       // the game can produce, the siren sat 16dB *under* the mix in its own
       // band — inaudible exactly when it matters. It is now six decibels louder
-      // and the engine bed steps back underneath it (see `index.ts`), which is
-      // the other half of the same decision: a warning is a hole in the mix
-      // with a tone in it, not a tone on top of a wall.
+      // and both sustained buses step back underneath it (`duck.ts`'s slow
+      // stage), which is the other half of the same decision: a warning is a
+      // hole in the mix with a tone in it, not a tone on top of a wall.
       const th = clamp01(s.threat);
       set(pWDepth, th > 0.01 ? lerp(0.32, 0.92, th) : 0, now);
       set(pWRate, lerp(3.2, 12, th * th), now);

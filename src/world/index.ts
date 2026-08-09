@@ -31,9 +31,25 @@
 //   outside of every corner, and from a hundred metres out where the barrier no
 //   longer occludes. It also carries the overhead and pulled-back cameras.
 //
+//   **The middle distance** (§5b). Forty to a hundred and fifty metres out is
+//   most of a pulled-back frame's width and it used to be bare dirt. It gets
+//   event fields — pale gravel hardstands with spectator parking, hospitality
+//   marquees and twenty-one-metre light towers — plus benched ground and
+//   aggregate stockpiles. Only *tall* and *pale* survive the barrier's sight
+//   line from the road; the rest is there for the cameras that look down.
+//
 // On top of that, the horizon layer: cranes, silos, a mast, a conveyor and a
 // twenty-two metre traffic cone, one at the end of each straight, so a driver
 // knows where they are on the lap without reading the minimap.
+//
+// ── The chroma budget ───────────────────────────────────────────────────────
+//
+// Full-strength orange and yellow belong to the *race* — karts, item boxes,
+// boost strips. Set dressing that covers a lot of frame is held to roughly 60%
+// chroma with its value capped below kart paint (`mute()` in look.ts), and buys
+// its graphic punch back in value contrast instead. This is not a taste
+// preference: a full-chroma hoarding run at kart height is camouflage, and the
+// previous build lost a row of item boxes into one.
 //
 // ── Cost ────────────────────────────────────────────────────────────────────
 //
@@ -43,12 +59,14 @@
 // away; on top of that every batch carries its own draw distance scaled by
 // `ctx.quality.drawDistance`. Nothing casts a shadow (see `def` below).
 //
-// Measured on Cone Canyon: **3,700 instances across 76 batches**, costing about
-// **48 draw calls and 340k triangles** in a settled chase frame — a thousand
-// traffic cones for eight of those draws. Crowds, flags and steam animate
-// entirely in vertex programs and cost nothing per frame; the six hero set
-// pieces are the only things that touch the CPU, and between them they write
-// about twenty matrices a frame.
+// Measured on Cone Canyon: about **220-400 draw calls and 650-740k triangles**
+// for the whole game in a settled frame, of which this module is the larger
+// part. Spectators dominate that bill — a bank is fifty people at eighty
+// triangles each and there are fifty banks — so the crowd draw distances are
+// set where a bank stops being *people*, not where it stops being visible.
+// Crowds, flags and steam animate entirely in vertex programs and cost nothing
+// per frame; the six hero set pieces are the only things that touch the CPU,
+// and between them they write about twenty matrices a frame.
 //
 // Ownership: this module owns `src/world/**`. It reads the track through
 // `ctx.track` once `track:built` fires and never writes to it.
@@ -182,21 +200,39 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
     def('boulder', P.boulderGeo(), 800);
     def('scrub', P.scrubGeo(), 420);
 
+    // The middle distance — see §5b. Everything here is either large or tall,
+    // because forty to a hundred and fifty metres out is five metres below the
+    // road and hidden to about four metres by the barrier.
+    def('hardstand', P.hardstandGeo(40, 56), 1500);
+    def('hardstandS', P.hardstandGeo(26, 30), 1200);
+    def('vanRow', P.vanRowGeo(11), 700);
+    def('vanRow2', P.vanRowGeo(29), 700);
+    def('vanRow3', P.vanRowGeo(47), 700);
+    def('marquee', P.marqueeGeo(5), 1300);
+    def('marquee2', P.marqueeGeo(23), 1300);
+    def('berm', P.bermGeo(), 1400);
+    def('stockpile', P.stockpileGeo(), 1600);
+    def('floodTower', P.floodTowerGeo(), 2000);
+
     def('grandstand', P.grandstandGeo(8), 1600);
     def('standCrowd', standCrowdGeo(8, 21), 1600, M.crowd);
     def('grandstandS', P.grandstandGeo(5), 1300);
     def('standCrowdS', standCrowdGeo(5, 33), 1300, M.crowd);
     def('terrace', P.terraceGeo(), 900);
-    def('terraceCrowd', terraceCrowdGeo(41), 900, M.crowd);
+    def('terraceCrowd', terraceCrowdGeo(41), 740, M.crowd);
+    // Spectator banks. Fifty-odd of these carry the lap, so they are also the
+    // module's largest triangle bill — the draw distance is set where a bank
+    // stops being people and starts being a coloured smudge, not where it stops
+    // being visible.
     for (let i = 0; i < 3; i++) {
-      def(`crowd${i}`, clusterCrowdGeo(101 + i * 17), 820, M.crowd);
+      def(`crowd${i}`, clusterCrowdGeo(101 + i * 17), 560, M.crowd);
     }
-    def('deckCrowd', deckCrowdGeo(63, 3.4, 2, 0.85), 700, M.crowd);
+    def('deckCrowd', deckCrowdGeo(63, 3.4, 2, 0.85), 620, M.crowd);
 
     def('flagPole', P.flagPoleGeo(8.5), 820);
-    def('flagA', P.flagGeo(2.9, 1.9, C.orange, C.white), 820, M.cloth);
-    def('flagB', P.flagGeo(2.9, 1.9, C.yellow, C.ink), 820, M.cloth);
-    def('flagC', P.flagGeo(2.9, 1.9, C.cyan, C.white), 820, M.cloth);
+    def('flagA', P.flagGeo(2.45, 1.55, C.orange, C.white, 0), 780, M.cloth);
+    def('flagB', P.flagGeo(2.45, 1.55, C.yellow, C.ink, 1), 780, M.cloth);
+    def('flagC', P.flagGeo(2.45, 1.55, C.cyan, C.navy, 2), 780, M.cloth);
     def('bunting', P.buntingGeo(16), 540, M.cloth);
 
     def('towerCrane', P.towerCraneGeo(), 3000);
@@ -262,11 +298,9 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       return ca >= cb ? 1 : -1;
     }
 
-    // Hoardings run the whole lap, but they are four metres tall and they will
-    // happily bury a grandstand. So anything that has earned the frame — a
-    // crowd bank, a works yard, a stand — books an opening in the run, and the
-    // boards are laid last, around them. That cadence (boards, opening, boards)
-    // is also just how a circuit looks.
+    // Anything that has earned the frame — a crowd bank, a works yard, a stand
+    // — books an opening in the hoarding run, and the boards are laid last,
+    // around them.
     const gaps: Array<{ a: number; b: number; side: -1 | 1 }> = [];
     const gap = (a: number, b: number, side: -1 | 1): void => {
       gaps.push({ a: wrap(a), b: wrap(b), side });
@@ -280,28 +314,92 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       }
       return false;
     }
+    const corners = findCorners(spline, L);
+    /** Lap order, for anything that cares about what comes next. */
+    const lapOrder = corners.slice().sort((a, b) => a.from - b.from);
+    corners.sort((a, b) => b.weight - a.weight);
+
+    // ── the boards ─────────────────────────────────────────────────────────
+    //
+    // The first version of this ran a four-metre board every twelve metres down
+    // *both* sides for the whole lap. It was the loudest thing in every frame,
+    // it made every corner look like every straight, and — the part that
+    // actually mattered — the item-box row disappeared into it, because a wall
+    // of trackside colour at kart height is camouflage.
+    //
+    // So the boards are a rhythm now, and the rhythm carries information:
+    //
+    //   **One side per straight.** Never both at the same lap distance. The
+    //   open side hands the frame back to the landscape, which is what stops a
+    //   circuit reading as a corridor.
+    //
+    //   **Never on the outside of a corner.** The side chosen for a straight is
+    //   the *inside* of the corner it runs into, so as a player comes down to a
+    //   bend the boards are on the hand they are turning towards and the
+    //   outside is open crowd and run-off. That is the MK8 Stadium tell: the
+    //   build-up you see ahead is spectators, and the boards stopping is the
+    //   cue that the road is about to.
+    //
+    //   **The approach is clear.** Forty-six metres before a corner's entry the
+    //   run ends, so nothing four metres tall stands two metres behind the
+    //   barrier at the exact moment a player is reading the turn-in.
+    //
+    // What is left is roughly a third of the boards, in runs of six to a dozen
+    // with flag masts at their ends and every fifth slot — which is both
+    // cheaper and, from the road, far more like a race track.
     const HOARDINGS = ['hoarding', 'hoarding2', 'hoarding3'];
+    const FLAGS = ['flagA', 'flagB', 'flagC'];
+    const SPACING = 12.2;
+    /** Metres of clear road before a corner's entry, and after its exit. */
+    const LEAD = 46, TRAIL = 26;
+    /** A run shorter than this is not a rhythm, it is litter. */
+    const MIN_RUN = 62;
+
     function hoardingRun(): void {
-      for (const side of [-1, 1] as const) {
-        let n = 0;
-        for (let d = 0; d < L; d += 12.2) {
+      if (lapOrder.length < 2) return;
+      let variant = 0;
+      for (let i = 0; i < lapOrder.length; i++) {
+        const c = lapOrder[i]!;
+        const last = i === lapOrder.length - 1;
+        const next = lapOrder[last ? 0 : i + 1]!;
+        // The side is the inside of the corner this straight feeds into. When
+        // the two corners bend opposite ways that side is also the outside of
+        // the one just left, so the run starts later to stay off its exit.
+        const side = next.inner;
+        let from = c.to + TRAIL + (side === c.outer ? 24 : 0);
+        const to = (last ? next.from + L : next.from) - LEAD;
+        const len = to - from;
+        if (len < MIN_RUN) continue;
+
+        const n = Math.floor(len / SPACING);
+        from += (len - (n - 1) * SPACING) * 0.5;
+        for (let j = 0; j < n; j++) {
+          const d = from + j * SPACING;
           if (inGap(d, side)) continue;
+          // Ends of the run and every fifth slot are a mast, not a board: the
+          // break is what keeps a run from re-becoming a wall, and the ends
+          // stop it terminating in mid-air.
+          if (j === 0 || j === n - 1 || j % 5 === 4) {
+            const m = at(d, side, 4.2);
+            if (!m) continue;
+            drop('flagPole', m, 0, 1, d, 1.0);
+            batcher.placeAt(FLAGS[(i + j) % 3]!,
+              m.x, m.y + 7.0, m.z, m.along + Math.PI * 0.5, 1, wrap(d));
+            continue;
+          }
           const s = at(d, side, 2.3);
           // A board is printed on one face. `along` points a prop's +Z down the
           // track, which leaves its +X pointing away from the road on one side
           // and at it on the other — so the far side is turned end for end. The
           // run is symmetric along its length, so nothing else changes.
           if (s) {
-            drop(HOARDINGS[n % HOARDINGS.length]!, s,
+            drop(HOARDINGS[variant % HOARDINGS.length]!, s,
               s.along + (side > 0 ? Math.PI : 0), 1, d, 0);
           }
-          n++;
+          variant++;
         }
       }
     }
-
-    const corners = findCorners(spline, L);
-    corners.sort((a, b) => b.weight - a.weight);
 
     // ── 1. the tall rhythm ─────────────────────────────────────────────────
     //
@@ -322,7 +420,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       if (!s) continue;
       drop('flagPole', s, 0, 1, d, 1.0);
       batcher.placeAt(['flagA', 'flagB', 'flagC'][(d / 104 | 0) % 3]!,
-        s.x, s.y + 6.6, s.z, s.along + Math.PI * 0.5, 1, wrap(d));
+        s.x, s.y + 7.0, s.z, s.along + Math.PI * 0.5, 1, wrap(d));
     }
 
     // ── 2. the corners ─────────────────────────────────────────────────────
@@ -346,6 +444,19 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       }
       const app = at(c.from - 30, c.outer, 3.0);
       if (app) drop('sign', app, app.face + c.outer * 0.3, 1, c.from - 30, 1.1);
+
+      // The build-up. The boards stop forty-six metres before a corner's entry,
+      // so this is what fills the approach instead: masts on the outside, which
+      // is the hand the corner is about to open onto. A driver reads "corner"
+      // off the dressing thickening on one side long before the road turns.
+      for (let i = 0; i < 2; i++) {
+        const fd = c.from - 38 + i * 14;
+        const fp = at(fd, c.outer, 6.5);
+        if (!fp) continue;
+        drop('flagPole', fp, 0, 1, fd, 1.0);
+        batcher.placeAt(['flagA', 'flagB', 'flagC'][(ci + i) % 3]!,
+          fp.x, fp.y + 7.0, fp.z, fp.along + Math.PI * 0.5, 1, wrap(fd));
+      }
 
       for (let i = 0; i < 4; i++) {
         const d = c.from + (c.to - c.from) * (0.15 + i * 0.24);
@@ -413,7 +524,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
           if (!fp) continue;
           drop('flagPole', fp, 0, 1, fd, 1.0);
           batcher.placeAt(['flagA', 'flagB', 'flagC'][(ci + i) % 3]!,
-            fp.x, fp.y + 6.6, fp.z, fp.along + Math.PI * 0.5, 1, wrap(fd));
+            fp.x, fp.y + 7.0, fp.z, fp.along + Math.PI * 0.5, 1, wrap(fd));
         }
       }
       // Two more knots either side of it, so the corner is populated along its
@@ -611,7 +722,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
         if (!s) continue;
         drop('flagPole', s, 0, 1, d, 1.0);
         batcher.placeAt(['flagA', 'flagB', 'flagC'][i % 3]!,
-          s.x, s.y + 6.7, s.z, s.along + Math.PI * 0.5, 1, wrap(d));
+          s.x, s.y + 7.0, s.z, s.along + Math.PI * 0.5, 1, wrap(d));
       }
       for (let i = 0; i < 9; i++) {
         const d = start - 140 + i * 22;
@@ -708,6 +819,132 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       if (!s || !free(s.x, s.z, 95)) continue;
       claim(s.x, s.z, 90);
       batcher.placeAt(h.kind, s.x, s.y - 0.6, s.z, rng.range(0, 6.28), 1, d);
+    }
+
+    // ── 5b. the middle distance ────────────────────────────────────────────
+    //
+    // Forty to a hundred and fifty metres beyond the barrier. From the road
+    // that band is most of a pulled-back frame's width, and it used to be bare
+    // tan dirt with a light pole in it: the circuit had a foreground and a
+    // horizon and nothing in between, which is exactly the depth cue that makes
+    // speed read.
+    //
+    // The geometry of the place decides what can go there. The embankment drops
+    // 5.7m inside thirty metres and the barrier hides everything under about
+    // four metres from a chase camera, so at this range only two things are
+    // visible from the road: what is *tall* (marquee ridges at six metres,
+    // stockpiles at nine, light towers at twenty-one) and what is *pale* (a
+    // gravel hardstand against orange dirt reads at three hundred metres). The
+    // low, dense stuff — the car parks, the benched ground — is there for the
+    // pulled-back, overhead and mid-pack cameras, which look straight down into
+    // the band and used to find nothing at all.
+
+    /**
+     * An event field: a graded hardstand carrying spectator parking, a pair of
+     * hospitality marquees and a light tower, with crowd spilling off its front
+     * lip. Placed on the outside of the big corners, which is the one direction
+     * the sight line from the road actually crosses this band.
+     */
+    function eventField(d0: number, side: -1 | 1, off: number, seed: number): void {
+      const r = makeRng(0x4f21 + seed * 613);
+      const base = at(d0, side, off);
+      if (!base || !free(base.x, base.z, 34)) return;
+      claim(base.x, base.z, 32);
+      // Everything on the field shares the hardstand's height; only x/z come
+      // from the track frame, so nothing tilts relative to the platform.
+      const y = base.y;
+      const on = (dz: number, dOff: number): Spot | null => {
+        const s = at(d0 + dz, side, off + dOff);
+        if (!s) return null;
+        s.y = y;
+        return s;
+      };
+      drop('hardstand', base, base.along, 1, d0, 0);
+
+      const rows = ['vanRow', 'vanRow2', 'vanRow3'];
+      for (let i = 0; i < 3; i++) {
+        const s = on(-20 + i * 7.2, r.range(-3, 3));
+        if (s) drop(rows[(seed + i) % 3]!, s, s.along, 1, d0, 0);
+      }
+      const m1 = on(r.range(10, 14), r.range(0, 4));
+      if (m1) drop('marquee', m1, m1.face, 1, d0, 13);
+      const m2 = on(r.range(22, 26), r.range(-7, -3));
+      if (m2) drop('marquee2', m2, m2.face + r.range(-0.2, 0.2), 1, d0, 13);
+
+      const tower = on(r.range(-4, 4), -22);
+      if (tower) drop('floodTower', tower, tower.face, 1, d0, 3.6);
+
+      // Overflow spectators along the lip facing the circuit.
+      const lip = on(r.range(-8, 8), -24);
+      if (lip) drop(`crowd${seed % 3}`, lip, lip.face, 1, d0, 0);
+    }
+
+    for (let i = 0; i < Math.min(5, corners.length); i++) {
+      const c = corners[i]!;
+      let placed = false;
+      for (let k = 0; k < 4 && !placed; k++) {
+        const off = 68 + k * 9;
+        const before = claims.length;
+        eventField(c.mid + (i % 2 ? 16 : -16), c.outer, off, i);
+        placed = claims.length > before;
+      }
+    }
+    // One more across the circuit from the start/finish, so the pit straight
+    // has something at depth to sit in front of.
+    eventField(frac(0.5), roomier(frac(0.5), 90), 74, 5);
+
+    // Light towers around the rest of the lap. Twenty-one metres, which is the
+    // only height that clears the barrier's sight line from this far out — a
+    // ring of them is also the cheapest possible statement that this is a venue
+    // and not a stretch of desert road.
+    for (let i = 0; i < 12; i++) {
+      const d = frac(i / 12 + 0.04);
+      const side = (i % 2 === 0 ? 1 : -1) as -1 | 1;
+      for (let k = 0; k < 3; k++) {
+        const s = at(d, side, 48 + k * 12);
+        if (!s || !free(s.x, s.z, 16)) continue;
+        claim(s.x, s.z, 15);
+        drop('floodTower', s, s.face, 1, d, 3.6);
+        break;
+      }
+    }
+
+    // Benched ground. The mid-distance dirt reads flat because it is flat;
+    // stepping it gives the band a horizontal line to lie against and makes the
+    // ground between the circuit and the canyon wall look worked rather than
+    // untouched.
+    for (let i = 0; i < 30; i++) {
+      const d = (i / 30) * L + rng.range(-20, 20);
+      const side = (rng.bool() ? 1 : -1) as -1 | 1;
+      const s = at(d, side, rng.range(74, 148));
+      if (!s || !free(s.x, s.z, 30)) continue;
+      claim(s.x, s.z, 28);
+      drop('berm', s, s.along + rng.range(-0.35, 0.35), rng.range(0.85, 1.35), d, 0);
+    }
+
+    // Aggregate stockpiles — pale grey, so they separate from the brown spoil
+    // that shares the band, and tall enough to break the horizon line.
+    for (let i = 0; i < 15; i++) {
+      const d = frac(i / 15 + 0.031);
+      const side = (rng.bool() ? 1 : -1) as -1 | 1;
+      const s = at(d + rng.range(-18, 18), side, rng.range(58, 132));
+      if (!s || !free(s.x, s.z, 22)) continue;
+      claim(s.x, s.z, 20);
+      drop('stockpile', s, rng.range(0, 6.28), rng.range(0.8, 1.5), d, 0);
+    }
+
+    // A few small hardstands with a van row on them, scattered wider — the
+    // overflow parking that says the event is bigger than the six fields.
+    for (let i = 0; i < 9; i++) {
+      const d = frac(i / 9 + 0.07);
+      const side = (rng.bool() ? 1 : -1) as -1 | 1;
+      const off = rng.range(52, 104);
+      const s = at(d, side, off);
+      if (!s || !free(s.x, s.z, 20)) continue;
+      claim(s.x, s.z, 18);
+      drop('hardstandS', s, s.along, 1, d, 0);
+      const v = at(d + rng.range(-4, 4), side, off + rng.range(-3, 3));
+      if (v) { v.y = s.y; drop(['vanRow', 'vanRow2', 'vanRow3'][i % 3]!, v, v.along, 1, d, 0); }
     }
 
     // Mid-distance heaps, so the ground between the circuit and the canyon rim

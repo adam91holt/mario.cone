@@ -20,7 +20,8 @@
 
 import * as THREE from 'three';
 import { Kit, buildProp } from './kit.ts';
-import { C } from './look.ts';
+import { BOARD, C, PARKED } from './look.ts';
+import { makeRng } from '../core/math.ts';
 
 // ── the small stuff you pass at arm's length ───────────────────────────────
 
@@ -404,28 +405,36 @@ export function boulderGeo(): THREE.BufferGeometry {
 /**
  * Twelve metres of trackside hoarding.
  *
- * This is the piece that fixes the emptiest part of the frame. The barrier is
- * 1.9m tall and the ground falls away behind it, so from a chase camera the
- * entire near run-off is dead space — but a board standing four metres tall two
- * metres behind the barrier shows a metre and a half of itself *above* the rail
- * all the way round the lap. Deliberately dark with only a band of colour: the
- * red-and-white barrier has to stay the highest-contrast thing at the edge of
- * the road, so this reads as depth behind it rather than as a second edge.
+ * Two things about this piece are the result of being wrong about it once.
+ *
+ * **Colour.** The first version carried the course palette at full strength —
+ * orange, cyan, white — and became the loudest thing in every frame, brighter
+ * and more saturated than the player's own kart. The row of item boxes sat at
+ * the same screen height in the same hue family and simply vanished into it.
+ * So every colour here comes through `mute()` (look.ts): roughly 60% chroma,
+ * value capped below kart paint. What is lost in chroma is bought back in
+ * *value* — a near-black panel beside a bone one still reads hard at two
+ * hundred metres, and it reads as distance rather than as a second racing line.
+ *
+ * **Marks.** The first version's motifs were block glyphs that happened to look
+ * like letters — F, E, ≡ — which the eye tries to read and cannot, so the whole
+ * run scanned as corrupted text. These are deliberately non-alphabetic: a
+ * roundel, a chevron pair, a three-bar speed mark. Shapes, not type.
+ *
+ * The lower two metres live behind the barrier and are never seen, so they stay
+ * dark and only the visible band above the rail carries anything at all.
  */
 export function hoardingGeo(variant = 0): THREE.BufferGeometry {
-  const H = 4.0;
-  /** Board colours, and the mark that goes on each. Saturated and full-bleed:
-   *  a small motif on a dark panel is invisible at 60 m/s, and there is no such
-   *  thing as reading a trackside board — you register its colour or nothing.
-   *  `variant` rotates the sequence, so alternating two kinds along the lap
-   *  stops a straight reading as one repeated tile. */
+  const H = 3.75;
+  /** Panel colour and the mark that goes on it. `variant` rotates the sequence
+   *  so alternating kinds along a run stops it reading as one repeated tile. */
   const all: Array<[number, number]> = [
-    [C.orange, C.white],
-    [C.navy, C.cyan],
-    [C.white, C.orangeDeep],
-    [C.cyan, C.navy],
-    [C.yellow, C.navy],
-    [C.navy, C.orange],
+    [BOARD.clay, BOARD.bone],
+    [BOARD.deep, BOARD.ochre],
+    [BOARD.bone, BOARD.brick],
+    [BOARD.slate, BOARD.bone],
+    [BOARD.ochre, BOARD.deep],
+    [BOARD.moss, BOARD.bone],
   ];
   const boards = [0, 1, 2, 3].map((i) => all[(i + variant * 2) % all.length]!);
   return buildProp('hoarding', (k) => {
@@ -436,30 +445,47 @@ export function hoardingGeo(variant = 0): THREE.BufferGeometry {
         k.strut(0, 0.2, z, -0.55, 2.4, z, 0.06, C.steelDark, { ao: 0.5, aoHeight: 2.6 }, 4);
       }
     }
+    const face = { ao: 0.16, aoHeight: 3.6 };
     for (let i = 0; i < 4; i++) {
       const z = -4.4 + i * 3;
       const [base, mark] = boards[i % boards.length]!;
-      // The lower two metres live behind the barrier and are never seen; they
-      // stay dark so the visible band is the only thing carrying colour.
-      k.box(0, 1.0, z, 0.13, 2.0, 2.96, C.ink, { ao: 0.6, aoHeight: 2.4 });
-      k.box(0, 3.0, z, 0.15, 2.0, 2.96, base!, { ao: 0.16, aoHeight: 3.6 });
-      // One bold mark per board, alternating between a pair of slashes and a
-      // block-and-bar. Two motifs is enough to stop a run of them reading as
-      // wallpaper, and few enough that neither becomes noise.
-      if (i % 2 === 0) {
-        for (let j = 0; j < 2; j++) {
+      k.box(0, 1.02, z, 0.13, 2.05, 2.96, C.ink, { ao: 0.6, aoHeight: 2.4 });
+      k.box(0, 2.9, z, 0.15, 1.72, 2.96, base!, face);
+      switch ((i + variant) % 3) {
+        case 0: {
+          // A roundel with a bar under it. The disc is a flat cylinder turned to
+          // stand in the board's own plane.
           k.push();
-          k.move(-0.09, 3.0, z - 0.55 + j * 1.1).rotX(Math.PI * 0.32);
-          k.box(0, 0, 0, 0.05, 2.6, 0.42, mark!, { ao: 0.16, aoHeight: 3.6 });
+          k.move(-0.085, 2.98, z).rotZ(Math.PI * 0.5);
+          k.cyl(0, 0, 0, 0.56, 0.56, 0.04, 12, mark!, face);
+          k.cyl(0, 0.03, 0, 0.3, 0.3, 0.04, 10, base!, face);
           k.pop();
+          k.box(-0.085, 2.26, z, 0.04, 0.16, 2.1, mark!, face);
+          break;
         }
-      } else {
-        k.box(-0.09, 3.0, z - 0.78, 0.05, 1.35, 1.05, mark!, { ao: 0.16, aoHeight: 3.6 });
-        k.box(-0.09, 3.32, z + 0.42, 0.05, 0.4, 1.5, mark!, { ao: 0.16, aoHeight: 3.6 });
-        k.box(-0.09, 2.72, z + 0.28, 0.05, 0.4, 1.2, mark!, { ao: 0.16, aoHeight: 3.6 });
+        case 1: {
+          // Two chevrons, pointing the way the traffic goes.
+          for (let j = 0; j < 2; j++) {
+            for (const sy of [-1, 1] as const) {
+              k.push();
+              k.move(-0.085, 2.9, z - 0.62 + j * 1.24).rotX(sy * 0.72);
+              k.box(0, 0, 0.42, 0.04, 0.3, 1.5, mark!, face);
+              k.pop();
+            }
+          }
+          break;
+        }
+        default: {
+          // A three-bar speed mark: same width, stepped back, stepped down.
+          for (let j = 0; j < 3; j++) {
+            k.box(-0.085, 3.36 - j * 0.46, z - 0.18 - j * 0.34,
+              0.04, 0.28, 2.2 - j * 0.55, mark!, face);
+          }
+          break;
+        }
       }
     }
-    k.box(0, H + 0.14, 0, 0.24, 0.24, 12, C.orange, { ao: 0.1, aoHeight: 4 });
+    k.box(0, H + 0.15, 0, 0.24, 0.24, 12, BOARD.deep, { ao: 0.1, aoHeight: 4 });
     k.box(0, 1.98, 0, 0.2, 0.16, 12, C.steelDark, { ao: 0.4, aoHeight: 3 });
     k.box(0, 0.16, 0, 0.32, 0.32, 12, C.concreteDark, { ao: 0.6, aoHeight: 1.6 });
   }, 0.5);
@@ -474,6 +500,236 @@ export function scrubGeo(): THREE.BufferGeometry {
     k.sph(0, 0.46, 0, 0.52, 0x6d7a42, 5, { ao: 0.45, aoHeight: 1.0 });
     k.pop();
   }, 0.45);
+}
+
+// ── the middle distance ────────────────────────────────────────────────────
+//
+// Forty to a hundred and fifty metres beyond the barrier. In a pulled-back or
+// overhead frame that band is most of the picture's width, and it used to be
+// bare tan dirt with a couple of light poles in it — the circuit had a
+// foreground and a horizon and nothing between them.
+//
+// Two constraints shape everything here. It has to be *big*: at ninety metres a
+// prop needs to be the size of a house before it is anything at all. And the
+// tall ones have to be genuinely tall, because the embankment puts that whole
+// band five metres below road level and the barrier hides everything under
+// about four metres of it from a chase camera. So the band is built from a few
+// large silhouettes — tents, stockpiles, light towers, benched ground — rather
+// than from a lot of small things nobody would ever see.
+
+/**
+ * A graded gravel hardstand: the pale platform a car park, a marquee row or a
+ * far crowd bank stands on.
+ *
+ * Lower and lighter than a works pad, and that is its real job — the landscape
+ * out here is one flat orange-tan, so a pale rectangle of scalpings does more
+ * for the band than anything standing on it.
+ */
+export function hardstandGeo(w = 46, d = 30): THREE.BufferGeometry {
+  return buildProp('hardstand', (k) => {
+    // A battered skirt so it meets whatever the dirt has done underneath.
+    k.box(0, -3.0, 0, w * 1.16, 6, d * 1.16, C.dirtDark, { noAo: true, shade: 0.7 });
+    for (let i = 0; i < 3; i++) {
+      const t = i / 2;
+      k.box(0, -0.08 - t * 2.6, 0, w * (1 + t * 0.22), 0.12, d * (1 + t * 0.22),
+        i === 0 ? C.concreteDark : C.dirtDark, { noAo: true, shade: 1 - t * 0.26 });
+    }
+    // Pale, but not white: the point is a value step off the orange dirt, and a
+    // slab that goes brighter than the road markings pulls the eye off the
+    // circuit from three hundred metres.
+    k.box(0, 0.03, 0, w, 0.16, d, C.concrete, { noAo: true, shade: 0.82 });
+    // Wheel-tracked lanes, so it reads as used ground rather than a slab.
+    for (let i = -1; i <= 1; i++) {
+      k.box(0, 0.07, i * d * 0.28, w * 0.94, 0.06, 2.6, C.concreteDark,
+        { noAo: true, shade: 0.88 });
+    }
+  }, 0);
+}
+
+/**
+ * A row of six parked spectator vehicles.
+ *
+ * Baked as a row rather than as one car: a car park is a *pattern*, and one
+ * geometry of six gets the pattern for a sixth of the instances. Colours come
+ * from the muted parked palette — a hundred full-chroma cars beside the road is
+ * a hundred things that look like karts.
+ */
+export function vanRowGeo(seed = 3): THREE.BufferGeometry {
+  const rng = makeRng(seed);
+  return buildProp('vanRow', (k) => {
+    for (let i = 0; i < 6; i++) {
+      const x = (i - 2.5) * 3.1 + rng.range(-0.25, 0.25);
+      const tall = rng.bool(0.4);
+      const col = rng.pick(PARKED);
+      const L = rng.range(4.2, 5.0);
+      k.push();
+      k.move(x, 0, rng.range(-0.5, 0.5)).rotY(rng.range(-0.06, 0.06));
+      k.box(0, 0.72, 0, 1.9, 0.78, L, col, { ao: 0.5, aoHeight: 1.6 });
+      if (tall) {
+        k.box(0, 1.52, -0.2, 1.86, 0.86, L * 0.72, col, { ao: 0.32, aoHeight: 2.2 });
+        k.box(0, 1.9, -0.2, 1.7, 0.16, L * 0.7, C.offWhite,
+          { ao: 0.3, aoHeight: 2.4, shade: 0.85 });
+      } else {
+        k.box(0, 1.38, -0.25, 1.66, 0.6, L * 0.46, C.steelDark,
+          { ao: 0.35, aoHeight: 2.2, shade: 0.9 });
+      }
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+        k.box(sx * 0.86, 0.34, sz * L * 0.32, 0.2, 0.6, 0.6, C.ink,
+          { ao: 0.6, aoHeight: 1.2 });
+      }
+      k.pop();
+    }
+  }, 0.5);
+}
+
+/**
+ * A hospitality marquee: fourteen metres of peaked white canvas.
+ *
+ * The one shape in this band that is genuinely readable from the road. It is
+ * six metres to the ridge, which clears the barrier's sight line from a chase
+ * camera out to a hundred metres, and it is near-white against tan dirt, which
+ * is the strongest value contrast available out here without spending chroma.
+ */
+export function marqueeGeo(seed = 1): THREE.BufferGeometry {
+  const rng = makeRng(seed);
+  const W = 13, D = 9, EAVE = 3.1, RIDGE = 5.8;
+  const stripe = rng.pick([BOARD.clay, BOARD.slate, BOARD.deep, BOARD.brick]);
+  return buildProp('marquee', (k) => {
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      k.strut(sx * W * 0.5, 0, sz * D * 0.5, sx * W * 0.5, EAVE, sz * D * 0.5,
+        0.09, C.galv, { ao: 0.45, aoHeight: 2.4 });
+    }
+    k.strut(-W * 0.5, EAVE, -D * 0.5, W * 0.5, EAVE, -D * 0.5, 0.07, C.galv, { noAo: true });
+    k.strut(-W * 0.5, EAVE, D * 0.5, W * 0.5, EAVE, D * 0.5, 0.07, C.galv, { noAo: true });
+    // Two roof slopes meeting on a ridge.
+    const slope = Math.atan2(RIDGE - EAVE, D * 0.5);
+    const len = Math.hypot(RIDGE - EAVE, D * 0.5);
+    for (const sz of [-1, 1] as const) {
+      k.push();
+      k.move(0, (EAVE + RIDGE) * 0.5, sz * D * 0.25).rotX(-sz * slope);
+      k.box(0, 0, 0, W + 0.5, 0.12, len, BOARD.canvas, { noAo: true, shade: sz > 0 ? 1 : 0.86 });
+      k.box(0, -0.1, 0, W + 0.5, 0.06, len * 0.34, stripe,
+        { noAo: true, shade: sz > 0 ? 1 : 0.86 });
+      k.pop();
+    }
+    k.box(0, RIDGE + 0.06, 0, W + 0.6, 0.16, 0.3, BOARD.canvas, { noAo: true });
+    // Scalloped valance under the eaves — the tell that reads as "tent".
+    for (const sz of [-1, 1]) {
+      for (let i = 0; i < 9; i++) {
+        k.box(-W * 0.5 + 0.7 + i * 1.55, EAVE - 0.36, sz * (D * 0.5 + 0.06),
+          1.3, 0.62, 0.06, i % 2 ? stripe : BOARD.canvas, { noAo: true, shade: 0.94 });
+      }
+    }
+    // A pennant on the ridge. Static — at this distance a flap would be one
+    // pixel of motion for a whole extra material.
+    k.strut(W * 0.5 - 0.4, RIDGE, 0, W * 0.5 - 0.4, RIDGE + 2.6, 0, 0.05, C.galv,
+      { noAo: true });
+    k.box(W * 0.5 - 0.4, RIDGE + 2.1, 0.55, 0.05, 0.66, 1.1, BOARD.clay, { noAo: true });
+  }, 0.4);
+}
+
+/**
+ * A quarry bench: forty metres of cut ground, stepped, with a pale crest and a
+ * haul road along its foot.
+ *
+ * The mid-distance dirt reads as flat because it *is* flat. Benching it gives
+ * the band a horizontal line to lie against, which is what makes the ground
+ * between the circuit and the canyon wall look like it has been worked rather
+ * than like a hole in the mesh.
+ */
+export function bermGeo(): THREE.BufferGeometry {
+  const rng = makeRng(0x8ab3);
+  return buildProp('berm', (k) => {
+    const L = 46;
+    for (let i = 0; i < 4; i++) {
+      const t = i / 3;
+      k.box(-i * 2.1, 0.5 + i * 0.95, 0, 11 - i * 2.1, 2.0 + i * 0.1, L - i * 5,
+        i % 2 ? C.dirt : C.dirtDark, { noAo: true, shade: 0.82 + t * 0.2 });
+    }
+    // Crest: scalped rock, the pale line that does most of the work.
+    k.box(-6.3, 4.3, 0, 4.6, 0.5, L - 15, C.concreteDark, { noAo: true, shade: 1.02 });
+    // Rubble down the face and along the toe. Four stacked boxes is a stepped
+    // quarry bench, which is right; four stacked boxes and nothing else is a
+    // stack of boxes, which is what it looked like.
+    for (let i = 0; i < 14; i++) {
+      const step = i % 4;
+      k.push();
+      k.move(-step * 2.1 + rng.range(-1.4, 1.4), 0.4 + step * 0.95,
+        rng.range(-0.44, 0.44) * L).rotY(rng.range(0, 6.28));
+      k.box(0, 0, 0, rng.range(0.9, 2.2), rng.range(0.7, 1.4), rng.range(0.9, 2.0),
+        rng.bool() ? C.dirtDark : C.sand, { noAo: true, shade: rng.range(0.72, 1.0) });
+      k.pop();
+    }
+    // Haul road along the toe.
+    k.box(7.6, 0.12, 0, 6.4, 0.24, L + 4, C.concreteDark, { noAo: true, shade: 0.92 });
+    k.box(10.4, 0.3, 0, 0.7, 0.5, L + 4, C.dirt, { noAo: true, shade: 0.86 });
+  }, 0);
+}
+
+/** A stockpile of aggregate with its feed conveyor — pale grey, so it separates
+ *  from the dirt spoil heaps that share the band. */
+export function stockpileGeo(): THREE.BufferGeometry {
+  return buildProp('stockpile', (k) => {
+    k.cone(0, 0, 0, 8.5, 9.5, 11, C.concrete, { ao: 0.4, aoHeight: 7 });
+    k.push();
+    k.move(2, 0, 2).rotY(0.9);
+    k.cone(0, 0, 0, 5.4, 6.2, 9, C.concreteDark, { ao: 0.4, aoHeight: 6 });
+    k.pop();
+    // The conveyor that made it.
+    k.push();
+    k.move(-6, 0, -7).rotY(0.6).rotZ(0.62);
+    k.box(0, 7.5, 0, 1.5, 15, 1.9, C.steelDark, { ao: 0.35, aoHeight: 8 });
+    k.box(0, 7.5, 0, 1.2, 15.2, 1.4, C.rust, { ao: 0.35, aoHeight: 8 });
+    k.pop();
+    k.strut(-9.5, 0, -11, -9.5, 5.5, -11, 0.3, C.steelDark, { ao: 0.5, aoHeight: 5 });
+  }, 0.4);
+}
+
+/**
+ * A twenty-two metre event lighting tower.
+ *
+ * The mid-distance band is five metres below the road and the barrier hides the
+ * first four metres of everything in it, so the only way to put something *out
+ * there* into a chase frame is to make it tall. A ring of these around the
+ * circuit is also the cheapest possible statement that this is a venue with an
+ * evening session rather than a stretch of desert road.
+ */
+export function floodTowerGeo(): THREE.BufferGeometry {
+  return buildProp('floodTower', (k) => {
+    const H = 21, R0 = 1.5, R1 = 0.55;
+    const leg = (t: number): number => R0 + (R1 - R0) * t;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      k.box(sx * R0, 0.2, sz * R0, 1.1, 0.4, 1.1, C.concreteDark, { ao: 0.6 });
+      k.strut(sx * R0, 0.2, sz * R0, sx * R1, H, sz * R1, 0.14, C.galv,
+        { ao: 0.4, aoHeight: 5 }, 4);
+    }
+    for (let i = 0; i <= 6; i++) {
+      const t = i / 6, y = 0.4 + t * (H - 0.4), r = leg(t);
+      for (const sx of [-1, 1]) {
+        k.strut(sx * r, y, -r, sx * r, y, r, 0.07, C.galv, { ao: 0.35, aoHeight: 6 }, 4);
+      }
+      for (const sz of [-1, 1]) {
+        k.strut(-r, y, sz * r, r, y, sz * r, 0.07, C.galv, { ao: 0.35, aoHeight: 6 }, 4);
+      }
+      if (i === 6) continue;
+      const t2 = (i + 1) / 6, y2 = 0.4 + t2 * (H - 0.4), r2 = leg(t2);
+      const f = i % 2 ? 1 : -1;
+      k.strut(-r, y, f * r, r2, y2, f * r2, 0.055, C.galv, { ao: 0.3, aoHeight: 6 }, 4);
+      k.strut(f * r, y, -r, f * r2, y2, r2, 0.055, C.galv, { ao: 0.3, aoHeight: 6 }, 4);
+    }
+    // Head: a raked frame of eight lamps.
+    k.box(0, H + 0.5, 0, 5.6, 0.22, 1.4, C.steelDark, { noAo: true });
+    k.box(0, H + 1.6, 0, 0.22, 2.2, 0.22, C.galv, { noAo: true });
+    for (let row = 0; row < 2; row++) {
+      for (let i = 0; i < 4; i++) {
+        k.push();
+        k.move(-2.1 + i * 1.4, H + 1.0 + row * 1.15, 0.1).rotX(0.42);
+        k.box(0, 0, 0, 1.2, 0.9, 0.34, C.ink, { noAo: true });
+        k.box(0, 0, 0.22, 1.05, 0.76, 0.06, C.yellowPale, { noAo: true });
+        k.pop();
+      }
+    }
+  }, 0.5);
 }
 
 // ── parked plant ───────────────────────────────────────────────────────────
@@ -771,9 +1027,12 @@ export function grandstandGeo(bays = 7): THREE.BufferGeometry {
       k.strut(x, 0.4, 0.9, x, 0.5 + ROWS * RISE * 0.9, backZ + 1.6, 0.12, C.steelDark,
         { ao: 0.5, aoHeight: 4 });
     }
-    // Front safety rail and its debris fence.
+    // Front safety rail. Two rails and the posts, not a sheet: the front row is
+    // the row every camera is closest to, and a metre of solid steel across it
+    // hides exactly the people worth having.
     k.box(0, 1.05, 1.15, W, 0.14, 0.16, C.orange, { ao: 0.35, aoHeight: 2.4 });
-    k.box(0, 0.62, 1.15, W, 1.0, 0.06, C.steel, { ao: 0.45, aoHeight: 2.4, shade: 0.9 });
+    k.box(0, 0.66, 1.15, W, 0.1, 0.08, C.steel, { ao: 0.45, aoHeight: 2.4, shade: 0.92 });
+    k.box(0, 0.3, 1.15, W, 0.1, 0.08, C.steel, { ao: 0.5, aoHeight: 2.4, shade: 0.92 });
     for (let i = 0; i <= bays * 2; i++) {
       k.strut(-W / 2 + i * 1.7, 0.1, 1.15, -W / 2 + i * 1.7, 1.1, 1.15, 0.05, C.steelDark,
         { ao: 0.4, aoHeight: 2.4 });
@@ -853,21 +1112,88 @@ export function flagPoleGeo(h = 7): THREE.BufferGeometry {
 
 // ── things that flap ───────────────────────────────────────────────────────
 
-/** A flag on a mast. Authored in the XY plane so the ripple travels along x,
- *  with the weight ramping away from the pole. */
+/**
+ * A flag on a mast.
+ *
+ * Authored in the XY plane with the hoist at x=0 so the ripple travels along x
+ * and the weight ramps away from the pole — nothing ever detaches from its mast.
+ *
+ * It carries actual artwork, which sounds like a detail and is not: the first
+ * version was one flat rectangle with a stripe along the bottom, and beside the
+ * grandstand it read as an untextured placeholder rather than as a flag. Three
+ * designs — chevron, bands, roundel — is enough that a line of masts down the
+ * pit straight looks like a set of course flags instead of a set of swatches.
+ *
+ * Only the main field uses the position-driven ripple weight: `aAmp` is
+ * evaluated in each *primitive's* own frame, so a rotated bar would get a
+ * weight that runs along the bar rather than along the flag. Every applied mark
+ * therefore takes a constant weight from where it sits on the flag instead.
+ */
 export function flagGeo(
   w = 2.6, h = 1.7, color: number = C.orange, accent: number = C.white,
+  design = 0,
 ): THREE.BufferGeometry {
+  const PH = 0.31;
   return buildProp('flag', (k) => {
-    const amp = (x: number): number => {
-      const t = (x + 0.5);
-      return t * t;
+    /**
+     * One patch of the flag, in fractions: `u` along the hoist-to-fly axis,
+     * `v` up the height. Every patch derives its own ripple weight from where
+     * it sits, which is the whole trick — a patch that took a constant weight
+     * would ride rigidly through a field that is bending underneath it and poke
+     * straight through the front of the flag.
+     */
+    const quad = (
+      u0: number, u1: number, v0: number, v1: number, col: number, z: number,
+    ): void => {
+      const uc = (u0 + u1) * 0.5;
+      const du = u1 - u0;
+      const amp = (x: number): number => { const t = uc + x * du; return t * t; };
+      const seg = Math.max(1, Math.round(du * 8));
+      k.panel(w * uc, h * (v0 + v1) * 0.5, z, w * du, h * (v1 - v0), col,
+        { noAo: true, amp, phase: PH }, seg, 1);
+      // The reverse. The cloth material is double-sided, so a mark applied only
+      // to the front leaves a plain rectangle on the back — and from half the
+      // camera angles on the circuit the back is the side you see. That was
+      // exactly the "blank cyan trapezoid beside the grandstand".
+      if (z !== 0) {
+        k.panel(w * uc, h * (v0 + v1) * 0.5, -z, w * du, h * (v1 - v0), col,
+          { noAo: true, amp, phase: PH }, seg, 1);
+      }
     };
-    k.push();
-    k.move(w * 0.5, 0, 0).scale(w, h, 1);
-    k.panel(0, 0, 0, 1, 1, color, { noAo: true, amp, phase: 0.31 }, 8, 2);
-    k.panel(0, -0.34, 0.01, 1, 0.22, accent, { noAo: true, amp, phase: 0.31 }, 8, 1);
-    k.pop();
+
+    quad(0, 1, -0.5, 0.5, color, 0);
+    // The hoist band. Dark on every design, so a flag has a hard edge where it
+    // meets the mast instead of fading into the sky.
+    quad(0, 0.1, -0.5, 0.5, C.ink, 0.01);
+
+    switch (design % 3) {
+      case 0: {
+        // A chevron pointing down the fly, stepped rather than rotated.
+        const N = 5;
+        for (let i = 0; i < N; i++) {
+          const v = -0.44 + (i / (N - 1)) * 0.88;
+          const u = 0.28 + (1 - Math.abs(v) / 0.44) * 0.26;
+          quad(u, u + 0.2, v - 0.1, v + 0.1, accent, 0.012);
+          quad(u + 0.3, u + 0.5, v - 0.1, v + 0.1, accent, 0.012);
+        }
+        break;
+      }
+      case 1: {
+        // Bands and a hoist block: the plainest thing that still reads as a
+        // design rather than as a blank swatch.
+        quad(0.12, 1, 0.16, 0.42, accent, 0.012);
+        quad(0.12, 1, -0.42, -0.16, accent, 0.012);
+        quad(0.16, 0.34, -0.22, 0.22, accent, 0.014);
+        break;
+      }
+      default: {
+        // Quartered, with a bar across the fly.
+        quad(0.12, 0.52, 0.02, 0.48, accent, 0.012);
+        quad(0.52, 0.92, -0.48, -0.02, accent, 0.012);
+        quad(0.9, 1, -0.5, 0.5, accent, 0.014);
+        break;
+      }
+    }
   }, 0);
 }
 

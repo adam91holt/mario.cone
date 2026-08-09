@@ -42,8 +42,8 @@ import { createRacerVoice, createDrive } from './engines.ts';
 import { createSoundBank, SOUND_IDS } from './sfx.ts';
 import { createCues } from './cues.ts';
 import { createMusic } from './music.ts';
-import { createListener, createPlacement, place, engineDuckFor } from './nodes.ts';
-import { renderAudio } from './bench.ts';
+import { createListener, createPlacement, place } from './nodes.ts';
+import { renderAudio, acceptance } from './bench.ts';
 import type {
   AudioSystem, GameContext, GameSystem, ItemId, RaceConfig, Racer, Surface, VehicleId,
 } from '../types.ts';
@@ -150,7 +150,6 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
   let threatPan = 0;
   let threat = 0;
   let engineTrim = -1;
-  let engineDuck = 1;
 
   // ── impulses ──────────────────────────────────────────────────────────────
 
@@ -419,6 +418,11 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
     if (player?.effects.has('star')) return 'star';
     const phase = ctx.race.phase;
     if (phase === 'results' || phase === 'finished') return 'victory';
+    // The grid. Seven and a bit seconds of intro and countdown used to be
+    // silence with four beeps in it — the single most anticipatory moment in
+    // the game, and the mix's answer to it was nothing. The vamp runs at the
+    // race tempo and the flag cuts straight to the theme's downbeat.
+    if (phase === 'intro' || phase === 'countdown') return 'grid';
     if (phase !== 'racing') return 'none';
     // Racers start on lap -1 behind the line, so `totalLaps - 1` is the lap
     // that ends at the flag whatever the race length is.
@@ -552,9 +556,9 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
     backend.engine.gain.value = cfgAudio.engine;
     bank = createSoundBank(backend, listener);
     cues = createCues(backend);
-    // Headroom. The bed is measured to sit level with the player's own engine
-    // at this trim, which leaves the limiter room to do its job when a bob-omb
-    // goes off in the middle of the pack.
+    // The music's own trim. The bed's *headroom* is set downstream, by a fixed
+    // shelf on the music bus in `context.ts`; this is only the level the
+    // arrangement was written at.
     music = createMusic(backend, 0.85);
     detachGestures();
   }
@@ -655,6 +659,11 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
        *  The one way to review sound the way every other module is reviewed:
        *  by looking at what it actually produced. See `bench.ts`. */
       render: (spec: RenderSpec) => renderAudio(spec),
+      /** The mix's own acceptance test: renders the shipped graph at the
+       *  shipped gains and asserts that an explosion still lands, that the
+       *  sidechain opens on the transient, that the busy mix has dynamics in
+       *  it and that the theme has a form. See `bench.ts`. */
+      acceptance: () => acceptance(),
       /** Every id the one-shot bank answers to, for a reviewer enumerating them. */
       ids: () => SOUND_IDS.slice(),
       /** Everything a critic might want to assert on, as plain JSON. */
@@ -667,6 +676,7 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
         music: music ? music.mode : 'none',
         override: musicOverride,
         loudness: bank ? +bank.loudness.toFixed(3) : 0,
+        duck: be ? +be.duck.depth.toFixed(3) : 0,
         threat: +threat.toFixed(3),
         threatPan: +threatPan.toFixed(3),
         charge: +cueState.charge.toFixed(3),
@@ -715,7 +725,6 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
       threat = 0;
       threatActive = false;
       engineTrim = -1;
-      engineDuck = 1;
       camPrimed = false;
     },
 
@@ -733,9 +742,10 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
       updateListener(step);
       updateRacers(step, alpha, now);
       updateCues(step, now);
-      // Spend the frame's impulses *before* the music reads how loud the bank
-      // is, so an explosion ducks the bed on the frame it goes off rather than
-      // on the one after it. Sixteen milliseconds late is enough to hear.
+      // Spend the frame's impulses before anything else touches the mix. Each
+      // one opens the sidechain at its own scheduled start time as it goes
+      // (`sfx.ts` → `duck.ts`), so the hole is sample-aligned with the
+      // transient rather than a frame behind it.
       flush();
 
       // The music follows the race unless somebody has taken it over. Reading
@@ -748,23 +758,16 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
         // long and the results theme must not walk over the end of it.
         music.setMode(want, want === 'none' ? 0.5 : want === 'victory' ? 0.9 : 0.35);
       }
-      music.duck(bank.loudness);
       music.update(step, now);
 
-      // The engine bed steps aside for anything loud. Down fast enough that a
-      // bob-omb arrives *into* a hole rather than on top of a wall, back up
-      // slowly enough that the bed does not audibly breathe on every coin.
-      //
-      // An incoming item counts as loud even before it arrives. That is the
-      // point: the siren is only a warning if the player can hear it over their
-      // own machine, and the cheapest decibels in any mix are the ones you take
-      // away from something else.
-      const wantDuck = engineDuckFor(Math.max(bank.loudness, threat * 0.85));
-      if (Math.abs(wantDuck - engineDuck) > 0.004) {
-        const falling = wantDuck < engineDuck;
-        engineDuck = wantDuck;
-        be.engineDuck.gain.setTargetAtTime(wantDuck, now, falling ? 0.012 : 0.13);
-      }
+      // The sidechain's transient stage is driven by the sound bank itself, at
+      // the instant each voice is scheduled — nothing to do here. What is left
+      // is the siren, which is not a transient: an incoming item counts as
+      // loud *before* it arrives, because a warning is only a warning if it can
+      // be heard over the player's own machine, and the cheapest decibels in
+      // any mix are the ones taken away from something else.
+      be.duck.hold(threat * 0.85);
+      be.duck.update(now, step);
 
       // The field steps back for the results music, so the fanfare is not
       // fighting eight machines still driving around behind it. A paused game

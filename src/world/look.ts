@@ -60,6 +60,105 @@ export const C = {
   ] as const,
 } as const;
 
+// ── the chroma budget ──────────────────────────────────────────────────────
+//
+// The palette above is the *course* palette, and it is deliberately loud. But
+// loud is a budget, not a default, and the budget belongs to gameplay: the
+// karts, the item boxes, the boost strips, the drift sparks. Those are the
+// things a player has to pick out of a moving frame in a tenth of a second.
+//
+// Set dressing that covers a lot of frame — a run of advertising boards, a car
+// park, a row of tents — has to be *quieter than the race in front of it* or it
+// camouflages the race. A previous build ran full-chroma orange/cyan/white
+// hoardings the whole way round the lap and the item boxes disappeared into
+// them: same screen height, same hue family, higher saturation behind.
+//
+// So anything in that category goes through `mute()` first. Chroma is scaled
+// and value is capped below a kart's paint, which leaves the boards reading as
+// *depth* — dusty, sun-bleached, sitting back in the landscape — while the
+// karts keep the top of the range to themselves. The graphic punch that is lost
+// in chroma is bought back in value contrast: a near-black board next to a bone
+// one still reads hard from two hundred metres.
+
+const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+function hsvHex(h: number, s: number, v: number): number {
+  const i = Math.floor(h * 6);
+  const f = h * 6 - i;
+  const p = v * (1 - s);
+  const q = v * (1 - f * s);
+  const t = v * (1 - (1 - f) * s);
+  let r = v, g = t, b = p;
+  switch (((i % 6) + 6) % 6) {
+    case 0: r = v; g = t; b = p; break;
+    case 1: r = q; g = v; b = p; break;
+    case 2: r = p; g = v; b = t; break;
+    case 3: r = p; g = q; b = v; break;
+    case 4: r = t; g = p; b = v; break;
+    default: r = v; g = p; b = q; break;
+  }
+  return (Math.round(clamp01(r) * 255) << 16)
+    | (Math.round(clamp01(g) * 255) << 8)
+    | Math.round(clamp01(b) * 255);
+}
+
+/**
+ * Pull a course colour back into the background.
+ *
+ * `chroma` scales saturation; `maxV` caps value. Both in HSV rather than HSL
+ * because value is what actually competes with a kart across a frame — a
+ * half-saturated colour at full brightness is still the loudest thing on
+ * screen.
+ */
+export function mute(hex: number, chroma = 0.55, maxV = 0.62): number {
+  const r = ((hex >> 16) & 255) / 255;
+  const g = ((hex >> 8) & 255) / 255;
+  const b = (hex & 255) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  let h = 0;
+  if (d > 1e-6) {
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+    else if (max === g) h = ((b - r) / d + 2) / 6;
+    else h = ((r - g) / d + 4) / 6;
+  }
+  const s = max <= 1e-6 ? 0 : d / max;
+  return hsvHex(h, clamp01(s * chroma), Math.min(max, maxV));
+}
+
+/**
+ * Trackside advertising, and everything else that covers frame without being
+ * part of the race. The course palette at roughly 60% chroma, value capped
+ * below kart paint. Named for what they *look* like rather than what they came
+ * from, because at this saturation orange is terracotta and cyan is slate.
+ */
+export const BOARD = {
+  clay: mute(C.orange, 0.52, 0.60),
+  ochre: mute(C.yellow, 0.50, 0.62),
+  slate: mute(C.cyan, 0.42, 0.58),
+  deep: mute(C.navy, 0.60, 0.33),
+  bone: mute(C.white, 0.30, 0.62),
+  moss: mute(C.green, 0.40, 0.50),
+  brick: mute(C.rust, 0.55, 0.50),
+  /** Canvas: hospitality marquees, tarpaulins, tent valances. */
+  canvas: 0xd9d2c4,
+  canvasShade: 0xb3aa9a,
+} as const;
+
+/** Parked spectator vehicles. Varied, so a car park reads as one, but held to
+ *  the same budget — a hundred cars at full chroma is a hundred false karts. */
+export const PARKED = [
+  mute(0xdfe3e6, 0.5, 0.72),
+  mute(C.red, 0.62, 0.52),
+  mute(C.navy, 0.7, 0.40),
+  mute(C.green, 0.5, 0.48),
+  mute(0x9aa3ad, 0.6, 0.60),
+  mute(C.yellow, 0.55, 0.58),
+  mute(C.tarp, 0.6, 0.46),
+  mute(0x6b5644, 0.6, 0.44),
+] as const;
+
 /** Shared clock for every vertex-animated material in the module. */
 export interface WorldClock { value: number }
 
@@ -191,7 +290,14 @@ export function createMaterials(clock: WorldClock): WorldMaterials {
   // pinches it out again on a loop. `aAmp` is the puff's size, `aPhase` its
   // place in the cycle — bake six of them into one geometry and a vent is a
   // continuous plume for the price of six spheres.
-  const puff = new THREE.MeshLambertMaterial({ vertexColors: true });
+  // Translucent, because opaque white spheres stacked in a column read as a
+  // snowman rather than as steam — which is exactly what the first version
+  // looked like from the pulled-back camera. Depth writes are off so the puffs
+  // never cut holes in each other; three draws them after the opaque pass, and
+  // there is only ever one plume in frame, so no sorting problem survives.
+  const puff = new THREE.MeshLambertMaterial({
+    vertexColors: true, transparent: true, opacity: 0.55, depthWrite: false,
+  });
   puff.name = 'worldPuff';
   vertexProgram(puff, clock, 'mc-world-puff',
     'attribute float aAmp;\nattribute float aPhase;',

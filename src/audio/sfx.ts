@@ -108,16 +108,23 @@ export interface SoundBank {
  * So the levels live here, in one table, set against a target curve rather than
  * per sound:
  *
- *   -5 dB   the four things allowed to own the mix: an explosion, a smash,
+ *   +1 dB   the four things allowed to own the mix: an explosion, a smash,
  *           the flag, the finish.
- *   -7 dB   your own big moment — a mini-turbo, a rocket start, a bullet, and
+ *   -3 dB   your own big moment — a mini-turbo, a rocket start, a bullet, and
  *           each machine's signature shout.
- *   -9 dB   speed you were given: a pad, a boost, the final lap.
- *   -10 dB  contact. Walls and landings happen every corner of every lap and
+ *   -5.5 dB speed you were given: a pad, a boost, the final lap.
+ *   -7.5 dB contact. Walls and landings happen every corner of every lap and
  *           are the single easiest way to make a racing game exhausting.
- *   -12 dB  firing an item, and being handed one.
- *   -14 dB  small rewards and state changes.
+ *   -10.5dB firing an item, and being handed one.
+ *   -13 dB  small rewards and state changes.
  *   -18 dB  texture: a hop, a trick, the first bite of a drift.
+ *
+ * The curve was re-cut once the bed was given headroom (`context.ts`), and the
+ * *spread* is the change that matters, not the level. It used to run from -5dB
+ * down to -18dB; it now runs from +1dB down to -18dB, and its top sits 8dB
+ * above a bed that has itself moved 8dB down. A bob-omb is therefore ~14dB
+ * more prominent than it was, which is the difference between hearing a hole
+ * in the mix and hearing an explosion.
  *
  * The numbers are ratios measured against that curve by `bench.ts`, not taste.
  * Re-measure with `__AUDIO.render` after changing any sound above; a sound that
@@ -125,26 +132,26 @@ export interface SoundBank {
  */
 const TRIM: Record<string, number> = {
   // own the mix
-  blast: 0.47, 'item.use.lightning': 0.37, 'hit.flip': 0.46,
-  'countdown.go': 0.73, finish: 0.78, 'finish.back': 0.9,
+  blast: 0.82, 'item.use.lightning': 0.55, 'hit.flip': 0.72,
+  'countdown.go': 1.15, finish: 1.24, 'finish.back': 1.43,
   // your own big moment
-  'item.use.horn': 0.41, 'item.use.bullet': 0.59, rocket: 0.60, 'drift.release': 0.60,
-  'sig.truck': 0.61, 'sig.plane': 0.88, 'sig.train': 0.94, 'sig.digger': 1.09,
-  'sig.car': 1.82, 'sig.helicopter': 1.97, 'sig.cone': 1.04,
+  'item.use.horn': 0.66, 'item.use.bullet': 0.94, rocket: 0.96, 'drift.release': 0.96,
+  'sig.truck': 0.98, 'sig.plane': 1.41, 'sig.train': 1.50, 'sig.digger': 1.74,
+  'sig.car': 2.91, 'sig.helicopter': 3.15, 'sig.cone': 1.66,
   // speed you were given
-  boost: 0.51, pad: 0.51, burnout: 0.55, 'lap.final': 1.04, 'hit.squish': 0.51,
+  boost: 0.77, pad: 0.77, burnout: 0.83, 'lap.final': 1.56, 'hit.squish': 0.77,
   // contact
-  wall: 0.35, land: 0.39, splat: 0.55, 'hit.bump': 0.57, 'hit.spin': 0.93,
-  lap: 0.76, countdown: 0.88, 'countdown.set': 0.83, offroad: 0.82,
+  wall: 0.47, land: 0.52, splat: 0.74, 'hit.bump': 0.76, 'hit.spin': 1.25,
+  lap: 1.02, countdown: 1.18, 'countdown.set': 1.11, offroad: 1.10,
   // items
-  'item.use.red': 0.68, 'item.use.shell': 1.76, 'item.use.bomb': 1.85,
-  'item.use.mushroom': 1.24, 'item.use.banana': 1.18, 'item.use.boo': 1.29,
-  'item.use.blooper': 0.66, 'item.use.star': 1.01, 'item.use.coin': 0.84,
-  'item.box': 0.80, 'item.get': 0.88, coin: 0.93, bump: 0.68,
+  'item.use.red': 0.81, 'item.use.shell': 2.09, 'item.use.bomb': 2.20,
+  'item.use.mushroom': 1.48, 'item.use.banana': 1.40, 'item.use.boo': 1.54,
+  'item.use.blooper': 0.79, 'item.use.star': 1.20, 'item.use.coin': 1.00,
+  'item.box': 0.95, 'item.get': 1.05, coin: 1.11, bump: 0.81,
   // small rewards and state changes
-  bounce: 0.87, draft: 0.89, 'drift.tier': 0.95, grow: 1.07, shrink: 1.34,
-  'coin.lose': 1.32, 'effect.end': 1.25, 'boo.on': 1.38, 'boo.off': 1.09,
-  jump: 1.02,
+  bounce: 0.97, draft: 1.00, 'drift.tier': 1.06, grow: 1.20, shrink: 1.50,
+  'coin.lose': 1.48, 'effect.end': 1.40, 'boo.on': 1.55, 'boo.off': 1.22,
+  jump: 1.14,
   // texture
   hop: 0.87, trick: 1.45, scrape: 1.5, 'ui.click': 1.67, 'item.reel': 1.2,
 };
@@ -759,7 +766,16 @@ export function createSoundBank(be: AudioBackend, listener: Listener): SoundBank
       case 'blast': {
         // A bob-omb. Sub, body, and a crackling tail — and it is the one sound
         // in the game allowed to own the whole mix for a quarter of a second.
-        tone(s, { wave: 'sine', f0: 150, f1: 26, glide: 0.5, gain: 1.0, attack: 0.002, decay: 0.6 });
+        // The sub arrives a beat behind the crack, and swells rather than
+        // snapping. Stacked on the same instant the two summed into one very
+        // tall sample and the mix bought a 3dB peak it got nothing for; offset
+        // by twelve milliseconds the *energy* is unchanged, the peak drops
+        // into the clear — and it is also what an explosion at any distance
+        // actually does, which is why it reads as bigger rather than louder.
+        tone(s, {
+          wave: 'sine', f0: 150, f1: 26, glide: 0.5, gain: 1.05,
+          attack: 0.012, decay: 0.6, delay: 0.012,
+        });
         noise(s, {
           filter: 'lowpass', f0: 6500, f1: 180, q: 0.9, gain: 0.85, attack: 0.002, decay: 0.7,
           pink: true,
@@ -1201,6 +1217,11 @@ export function createSoundBank(be: AudioBackend, listener: Listener): SoundBank
       // because that is how far away and how relevant the event was.
       const weight = build(id, shot) * clamp01(volume) * heard;
       if (weight > loud) loud = weight;
+      // Open the hole at the *same instant* the voice starts, not on the next
+      // frame off an accumulated scalar. This one line is the difference
+      // between an explosion landing in a gap and an explosion being followed
+      // by one.
+      be.duck.hit(weight, shot.t);
     },
 
     frame(now, dt) {
