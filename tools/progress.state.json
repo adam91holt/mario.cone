@@ -1,6 +1,6 @@
 {
-  "phase": "Wave 5 — theme wiring, race flow, menus",
-  "phaseNote": "Wave 4 was killed mid-flight by a container suspend. All three pieces had already been judged and failed with measured gaps, so those verdicts are carried forward rather than rediscovered. Courses waits on theme wiring.",
+  "phase": "Coherence pass — playing the whole game and closing the seams",
+  "phaseNote": "Wave 5 finished: themewire 6.5, flow 7.5, menus 7.0, all sent back, all with measured directives. Three of them point outside their own module — missing shadows, a finish nobody reacts to, events published with data no listener reads — so the next pass is the whole-game one, which owns everything.",
   "pieces": [
     {
       "id": "feel",
@@ -106,36 +106,36 @@
       "name": "Race flow & results",
       "scope": "src/race",
       "state": "fail",
-      "rounds": 1,
-      "verdict": "6.0/10, blind pick Mario Kart. Grid, lights, flag, wrap and results state machine all landed; the start mechanic is backwards.",
-      "gap": "The rocket start is inverted. Pressing accelerate ON the green — a 0.1s reaction window — gives 1.38s of boost and 119.3m in two seconds; holding through the final beat, which is Mario Kart's actual rocket window, gives nothing and 41.5m."
+      "rounds": 2,
+      "verdict": "7.5/10 after two rounds, the highest this project has recorded. Grid, lights, flag, wrap and results state machine; the rocket-start window measured and corrected to a single beat ending on the green.",
+      "gap": "Nothing in the game ever celebrates. The finish camera executes a real 2.4s, 60-degree victory orbit onto a machine doing exactly what it did on lap one, and the results sheet then paints the world out at 97% opacity so you never see it anyway."
     },
     {
       "id": "menus",
       "name": "Front-end & menus",
       "scope": "src/ui/menus",
       "state": "fail",
-      "rounds": 1,
-      "verdict": "6.5/10, blind pick Mario Kart. Title, class, roster and circuit screens exist and are drawn geometry throughout.",
-      "gap": "The menu stage casts no contact shadow: ground luminance under the digger reads 96.9 against 42.4 for the asphalt beside it — a pool of light where there should be a shadow. The same machine on the grid a quarter-second later is correctly darker than its surroundings."
+      "rounds": 2,
+      "verdict": "7.0/10 after two rounds. Title, class, roster and circuit screens, all drawn geometry, with shadows, spring selection and a working course card.",
+      "gap": "The screen where you pick your machine is monochrome. All eight roster cells render as the same dark grey chip with a white pictogram, because the machine colour is a radial wash anchored below the cell and unselected cells are knocked to saturate(.55) on top of that."
     },
     {
       "id": "courses",
       "name": "Course roster",
       "scope": "src/track/courses",
-      "state": "fail",
+      "state": "queued",
       "rounds": 1,
-      "verdict": "5.0/10, blind pick Mario Kart. Three new circuits authored — Jackhammer Quarry, Saltpan Bypass, Switchback Summit — with distinct layouts.",
-      "gap": "All four render as the same brown desert bypass. The cause is not the layouts: theme.ground is read once as a hemisphere-light colour and never paints terrain, and all thirteen theme.props keys have zero reads anywhere in src. The roster is blocked until the renderer consumes what a course declares."
+      "verdict": "Held back deliberately: the roster could not look like four places until the renderer consumed what a course declares. That wiring now exists.",
+      "gap": "Unblocked, not yet re-run."
     },
     {
       "id": "themewire",
       "name": "Theme wiring",
       "scope": "src/render, src/world",
-      "state": "build",
-      "rounds": 1,
-      "verdict": "Added mid-wave to unblock the course roster.",
-      "gap": "A course can declare its ground colour and thirteen prop sets and the renderer reads almost none of it. Saltpan Bypass declares near-white salt and photographs within 12 points of an alpine massif."
+      "state": "fail",
+      "rounds": 2,
+      "verdict": "6.5/10 after two rounds, blind pick Mario Kart. Four real ground surfaces with their own colour ramps and procedural detail maps, a theme resolver that throws by name on an unknown key, and prop sets placed in the band the chase camera looks at.",
+      "gap": "Not one piece of static world geometry casts a shadow. Barriers, masts, pines, grandstands, containers, silos and boulders all meet the ground at a hard edge, so every course reads as a well-painted backdrop with stickers standing on it."
     },
     {
       "id": "perf",
@@ -150,13 +150,17 @@
       "id": "coherence",
       "name": "Whole-game coherence",
       "scope": "everything",
-      "state": "queued",
-      "rounds": 0,
-      "verdict": "",
-      "gap": "Never run. Every piece so far was judged alone; nobody has yet played the game end to end and asked whether it feels like one work."
+      "state": "build",
+      "rounds": 1,
+      "verdict": "Running now — the first whole-game pass this project has had.",
+      "gap": "Shadows have now failed three separate pieces: the menu stage, the world geometry, and the contact under every machine. No single module owns lighting, which is exactly why no piece critic could ever close it."
     }
   ],
   "log": [
+    {
+      "when": "2026-08-09 21:32 UTC",
+      "text": "Wave 5 landed. Smoke passes at 62.6 m/s and 747k triangles. The review sheet confirms the critics: nothing in the frame casts a shadow, so the coherence pass goes next rather than more piece work."
+    },
     {
       "when": "2026-08-09 13:21 UTC",
       "text": "All three wave-4 pieces failed round 1 with measured gaps. Courses turned out to be blocked by the renderer ignoring what a course declares, so a theme-wiring piece was added ahead of it."
