@@ -794,9 +794,17 @@ export function courseScene(course: CourseDef): string {
 
   // The road: a wedge from the bottom of the frame to a point on the horizon,
   // with its own edge paint down both sides and a dashed centre line.
+  //
+  // Narrow at the near end on purpose. The first cut of this ran from six units
+  // at the horizon to a hundred and fourteen at the bottom of the frame, which
+  // in a band only thirty units deep is not a road in perspective — it is a
+  // black triangle, and on the salt pan, where the ground is nearly white, it
+  // read as a mountain standing in front of the camera.
   const vx = W * 0.54;
+  const nearL = vx - 32;
+  const nearR = vx + 36;
   const roadPoly = `${(vx - 3).toFixed(1)},${HZ + 3} ${(vx + 3).toFixed(1)},${HZ + 3}`
-    + ` ${(W * 0.5 + 62).toFixed(0)},${H} ${(W * 0.5 - 52).toFixed(0)},${H}`;
+    + ` ${nearR.toFixed(0)},${H} ${nearL.toFixed(0)},${H}`;
 
   let dressing = '';
   if (props.alpine) {
@@ -857,13 +865,17 @@ export function courseScene(course: CourseDef): string {
     + `<path d="${far}" fill="${farInk}"/>`
     + `<path d="${near}" fill="${nearInk}"/>`
     + `<rect y="${HZ + 3}" width="${W}" height="${H - HZ - 3}" fill="url(#${id}-gnd)"/>`
+    // A haze band on the join, so the land meets the sky rather than butting
+    // against it. It is the course's own fog colour, which is why the salt pan
+    // reads as glare and the summit reads as cold air.
+    + `<rect y="${HZ - 2}" width="${W}" height="7" fill="${hexCss(haze)}" opacity=".5"/>`
     + `<polygon points="${roadPoly}" fill="${base}"/>`
-    + `<path d="M${(vx - 3).toFixed(1)} ${HZ + 3}L${(W * 0.5 - 52).toFixed(0)} ${H}"`
-    + ` stroke="${edge}" stroke-width="2" fill="none"/>`
-    + `<path d="M${(vx + 3).toFixed(1)} ${HZ + 3}L${(W * 0.5 + 62).toFixed(0)} ${H}"`
-    + ` stroke="${edge}" stroke-width="2" fill="none"/>`
-    + `<path d="M${vx.toFixed(1)} ${HZ + 4}L${(W * 0.5 + 5).toFixed(0)} ${H}"`
-    + ` stroke="${line}" stroke-width="1.6" stroke-dasharray="3 5" fill="none" opacity=".8"/>`
+    + `<path d="M${(vx - 3).toFixed(1)} ${HZ + 3}L${nearL.toFixed(0)} ${H}"`
+    + ` stroke="${edge}" stroke-width="1.8" fill="none"/>`
+    + `<path d="M${(vx + 3).toFixed(1)} ${HZ + 3}L${nearR.toFixed(0)} ${H}"`
+    + ` stroke="${edge}" stroke-width="1.8" fill="none"/>`
+    + `<path d="M${vx.toFixed(1)} ${HZ + 4}L${(vx + 2).toFixed(0)} ${H}"`
+    + ` stroke="${line}" stroke-width="1.7" stroke-dasharray="3.5 5" fill="none" opacity=".85"/>`
     + dressing
     + `</svg>`;
 }

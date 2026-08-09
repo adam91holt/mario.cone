@@ -550,27 +550,22 @@ export function createStage(ctx: GameContext): Stage | null {
       part(marks, new THREE.CylinderGeometry(0.24, 0.28, 0.16, 12), CREAM, [cx, 0.45, cz]);
       part(marks, roundedBox(0.74, 0.08, 0.74, 0.03), DARK, [cx, 0.04, cz]);
     }
-    // A gantry over the road behind the mark, with a banner on it. The race has
-    // these; a front-end whose set is a road and two lamp posts, in front of a
-    // game with gantries, bunting and grandstands in it, is a front-end that
-    // looks cheaper than the thing it is selling.
-    {
-      const STEEL = mat(0x9aa4b2, { roughness: 0.45 });
-      const Z = -17.5;
-      for (const side of [-1, 1]) {
-        part(dressing, new THREE.CylinderGeometry(0.26, 0.34, 7.4, 8), STEEL,
-          [side * 13.5, 3.7, Z]);
-        part(dressing, roundedBox(1.5, 0.3, 1.5, 0.1), DARK, [side * 13.5, 0.15, Z]);
-      }
-      part(dressing, roundedBox(28, 0.42, 0.7, 0.16), STEEL, [0, 7.4, Z]);
-      part(dressing, roundedBox(28, 0.42, 0.7, 0.16), STEEL, [0, 6.1, Z]);
-      for (let i = -8; i <= 8; i++) {
-        part(dressing, roundedBox(0.22, 1.4, 0.5, 0.08), STEEL, [i * 1.65, 6.75, Z]);
-      }
-      part(dressing, roundedBox(13, 1.9, 0.24, 0.12), mat(0xff6b1a, { roughness: 0.55 }),
-        [0, 8.6, Z - 0.2]);
-      part(dressing, roundedBox(13.4, 0.26, 0.3, 0.1), mat(0xffc300, { roughness: 0.5 }),
-        [0, 9.6, Z - 0.24]);
+    // A second run of hazard boards along the barrier line, a metre in front of
+    // the first and half a metre lower — the works read as *deep* rather than
+    // as one fence line, and the near row catches the key where the far one is
+    // in its own shadow.
+    //
+    // There was a gantry here, and it came out. It was the right object — the
+    // race has them — but on two of this set's three shots the cards are laid
+    // across the top of the frame, so the whole truss sat behind them and the
+    // only part of it a player ever saw was an orange banner cropped by the top
+    // edge. A structure that is only ever visible as an unexplained slab is
+    // worse than no structure.
+    for (let i = -14; i <= 14; i++) {
+      const x = i * 3.3 + 1.65;
+      part(dressing, roundedBox(2.6, 0.72, 0.3, 0.12), i % 2 ? ORANGE : CREAM,
+        [x, 0.38, -26.5]);
+      part(dressing, roundedBox(2.8, 0.12, 0.4, 0.05), DARK, [x, 0.79, -26.5]);
     }
 
     // Bunting between the floodlight masts. Two runs, sagging, so the top of

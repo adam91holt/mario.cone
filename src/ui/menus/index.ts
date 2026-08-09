@@ -588,33 +588,68 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
     chooseVehicle(i, false);
     sfx('ui.click', 0.45, 1.08);
   };
+  // A tap on something that is not already chosen *chooses* it; a tap on the
+  // thing already under the cursor confirms. With a mouse the hover above has
+  // already moved the cursor, so one click still does both — but a finger on a
+  // touchscreen has no hover, and a single tap that both picks a machine and
+  // commits to it is a front-end that can be walked through by accident.
   screens.racer.onPick = (i): void => {
     if (!live || screen !== 'racer') return;
-    screens.racer.setIndex(i);
+    if (i !== screens.racer.index) {
+      screens.racer.setIndex(i);
+      chooseVehicle(i, false);
+      sfx('ui.click', 0.55, 1.08);
+      return;
+    }
     nav('menu.ok');
   };
   screens.course.onHover = (row, i): void => {
     if (!live || screen !== 'course') return;
-    screens.course.setRow(row);
-    if (row === 0) screens.course.setCup(i);
-    else screens.course.setCourse(i);
+    const c = screens.course;
+    if (c.row === row && (row === 0 ? c.cupIndex : c.courseIndex) === i) return;
+    c.setRow(row);
+    if (row === 0) c.setCup(i);
+    else c.setCourse(i);
+    // ...and the choice follows the cursor, exactly as it does under the arrow
+    // keys. It did not, which meant a player who picked a circuit with the
+    // mouse and pressed Enter started the one the keyboard had last been on.
+    choice.cup = CUPS[c.cupIndex]!.id;
+    choice.courseId = c.coursesOf(c.cupIndex)[c.courseIndex]?.id ?? choice.courseId;
+    paintTray();
+    sfx('ui.click', 0.45, 1.08);
   };
   screens.course.onPick = (row, i): void => {
     if (!live || screen !== 'course') return;
-    screens.course.setRow(row);
-    if (row === 0) screens.course.setCup(i);
-    else screens.course.setCourse(i);
+    const c = screens.course;
+    const already = c.row === row && (row === 0 ? c.cupIndex : c.courseIndex) === i;
+    c.setRow(row);
+    if (row === 0) c.setCup(i);
+    else c.setCourse(i);
+    if (!already) {
+      choice.cup = CUPS[c.cupIndex]!.id;
+      choice.courseId = c.coursesOf(c.cupIndex)[c.courseIndex]?.id ?? choice.courseId;
+      paintTray();
+      sfx('ui.click', 0.55, 1.08);
+      return;
+    }
     nav('menu.ok');
   };
   screens.class.onHover = (i): void => {
-    if (!live || screen !== 'class') return;
+    if (!live || screen !== 'class' || i === screens.class.index) return;
     screens.class.setIndex(i);
-    choice.engineClass = screens.class.classes[i]!;
+    choice.engineClass = screens.class.classes[screens.class.index]!;
     paintTray();
+    sfx('ui.click', 0.45, 1.08);
   };
   screens.class.onPick = (i): void => {
     if (!live || screen !== 'class') return;
-    screens.class.setIndex(i);
+    if (i !== screens.class.index) {
+      screens.class.setIndex(i);
+      choice.engineClass = screens.class.classes[screens.class.index]!;
+      paintTray();
+      sfx('ui.click', 0.55, 1.08);
+      return;
+    }
     nav('menu.ok');
   };
   // Anywhere on the title screen: the whole frame is the start button.

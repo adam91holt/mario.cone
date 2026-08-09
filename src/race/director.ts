@@ -37,6 +37,7 @@ import { ordinalWord } from '../ui/glyphs.ts';
 import { blipColor } from '../ui/theme.ts';
 import { createCup, createRaceBook, type ResultRow } from './book.ts';
 import { createOverlay, type RaceOverlay } from './overlay.ts';
+import { FIN_HOLD, FIN_IN, FIN_TOTAL, WIPE_COVERED, WIPE_TOTAL } from './stage.ts';
 import { formatGap } from './results.ts';
 import type { MenuOption } from './menu.ts';
 import type {
@@ -61,21 +62,22 @@ const SLOW_FALL = 0.15;
 const SLOW_HOLD = 0.55;
 const SLOW_RISE = 0.6;
 const SLOW_DEPTH = 0.35;
-/** How long the hand-off curtain is given to close before the sheet is built
- *  behind it. Simulation seconds — the curtain itself animates on the render
- *  clock, and it is fully closed by 0.24s, so the two never race. */
-const HANDOFF = 0.32;
 /** Metres of hysteresis on a position change.
  *
  *  Sorting eight racers on a raw distance means two machines running side by
  *  side trade places on millimetres: measured, `racer.place` changed 35 times in
  *  one race, nine of those dwelling under 0.2s and the shortest for 8ms. Nothing
- *  reading that number can tell a pass from noise. A third of a kart length of
- *  margin is what a pass *is* — you are ahead when you are visibly ahead — and
- *  because the bias is applied to the racer's current place it is a true
- *  hysteresis rather than a delay: the order still changes on the frame the pass
- *  completes, it just cannot change back for free. */
-const PLACE_MARGIN = 0.6;
+ *  reading that number can tell a pass from noise.
+ *
+ *  A kart length is what a pass *is* — you are ahead when you are visibly ahead,
+ *  and which of two machines running thirty centimetres apart is "fifth" is a
+ *  question with no honest answer, so the readout should pick one and hold it.
+ *  Because the bias is applied to the racer's *current* place this is true
+ *  hysteresis rather than a delay: the order changes on the frame the pass
+ *  completes, it just cannot change back for free. Measured against a bunched
+ *  eight-car pack, where the progress differences that were flipping sat between
+ *  0.8m and 1.5m. */
+const PLACE_MARGIN = 1.8;
 /** Facing-backwards thresholds: how long a mistake has to last before the sign
  *  comes up, and how quickly it leaves once it is over. A spin-out points the
  *  wrong way for a moment every time and is not a navigation error. */
@@ -175,8 +177,16 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
   /** The finish slow-motion clock. Real seconds — it is a *visual* effect that
    *  happens to be spent in the simulation's currency. */
   let slowT = -1;
-  /** Seconds into the hand-off curtain. Negative when it is not running. */
-  let handoffT = -1;
+  /** Seconds into the hand-off curtain. Negative when it is not running. Race
+   *  seconds, so it survives a pause and lands on the same frame every capture;
+   *  it keeps running past the point the sheet is built, because the curtain has
+   *  to open again on the other side of it. */
+  let wipeT = -1;
+  /** ...and the same clock for the beat after the player's own crossing. */
+  let beatT = -1;
+  /** True once the curtain has been closed for this hand-off, so the sheet is
+   *  built exactly once. */
+  let handedOff = false;
   /** The player's own finishing place, and whether it was worth celebrating.
    *  Zero until they take the flag. */
   let finishPlace = 0;
@@ -572,8 +582,15 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     // default, and the player's own start stops meaning anything.
     const pRocket = 0.05 + skill * 0.3;
     const pBog = 0.03 + (1 - skill) * 0.06;
-    // Inside the beat, and better drivers sit closer to the flag within it.
-    if (r < pRocket) return BEAT * (0.12 + (r / pRocket) * 0.8 * (1.05 - skill * 0.4));
+    if (r < pRocket) {
+      // Inside the beat, and — now that where in it matters — a better driver
+      // sits closer to the flag and varies less. This used to be the other way
+      // round, which was harmless while the window paid a flat reward and is not
+      // any more: it would have handed the sharpest starts to the worst drivers.
+      const centre = 0.42 + skill * 0.5;
+      const spread = 0.55 - skill * 0.35;
+      return BEAT * Math.min(1, Math.max(0.1, centre + (r / pRocket - 0.5) * spread));
+    }
     if (r > 1 - pBog) return BOG_HOLD + 0.4;
     return BEAT * 1.5;
   }
@@ -657,7 +674,7 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
 
   // ── laps and places ──────────────────────────────────────────────────────
 
-  function updateProgress(racer: Racer): void {
+  function updateProgress(racer: Racer, dt: number): void {
     const track = ctx.track;
     if (!track) return;
     const L = track.length;
@@ -666,15 +683,17 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     const prev = racer.progress - racer.lap * L;
     // A jump of more than half the lap can only be the line wrapping, which is
     // unambiguous at kart speeds.
-    const delta = d - prev;
+    let delta = d - prev;
 
     if (delta > L * 0.5) {
       // Reversed back over the line. The lap goes with it — you are behind the
       // line again — but never past the grid's own -1, or `progress` walks off
       // into a lap that never existed.
       if (racer.lap > -1) racer.lap--;
+      delta -= L;
     } else if (delta < -L * 0.5) {
       racer.lap++;
+      delta += L;
       // Racers start at lap -1 on the run-up to the line, so lap 0 is the first
       // crossing and does not score a lap time. A lap is only *scored* the first
       // time it is reached: see `lapPeak`.
@@ -697,7 +716,26 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
       }
       if (racer.lap >= ctx.race.totalLaps && !racer.finished) finishRacer(racer, false);
     }
-    racer.progress = racer.lap * L + d;
+
+    // **Rate-limited, because `nearest()` is a search and searches snap.**
+    //
+    // `progress` is the sorting key for the entire field, and it is derived from
+    // the closest point on the spline to a kart — which is not a continuous
+    // function of position. Measured over ninety seconds of an eight-car race it
+    // moved by more than four times the distance the kart could have travelled
+    // seventy-nine times, once by 31.6 metres in a single 8ms step: a lateral
+    // hop between two stations of the spline, not a kart teleporting. Every one
+    // of those is a position readout jumping several places and coming straight
+    // back.
+    //
+    // So the step is bounded by what the machine could actually have covered,
+    // with a floor so a stationary kart being shoved still has room. It is a
+    // limiter and not a clamp — the moment the search settles, the next steps
+    // close the gap at four times racing speed, so nothing is permanently lost.
+    const limit = Math.max(Math.abs(racer.speed), 12) * dt * 4 + 1.5;
+    if (delta > limit) delta = limit;
+    else if (delta < -limit) delta = -limit;
+    racer.progress += delta;
   }
 
   /**
@@ -752,7 +790,14 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     const place = ctx.race.finishedCount;
     if (place === 1) winnerTime = racer.finishTime;
     book.finish(racer, place, racer.finishTime, estimated);
-    ctx.bus.emit('race:finish', { racer, place, time: racer.finishTime });
+    // `podium` is redundant with `place` and is published anyway: every consumer
+    // of this event has to answer the same question — is this a result worth
+    // celebrating — and one of them was still firing a full confetti burst and a
+    // gold starburst on a fifth-of-eight because reading `place` was one more
+    // step than reading `racer`.
+    ctx.bus.emit('race:finish', {
+      racer, place, time: racer.finishTime, podium: place >= 1 && place <= 3,
+    });
 
     if (racer.isPlayer) beginFlag(place);
     // Everyone who comes home after the player is read out by name. Before it,
@@ -834,10 +879,11 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
       slowBase = ctx.time.scale;
       slowWrote = -1;
       ctx.fx?.flash(podium ? 0xFFF3C4 : 0xE6EEF8, podium ? 0.46 : 0.3);
-      overlay?.finish.play(place, podium);
+      overlay?.finish.arm(place, podium);
+      beatT = 0;
       // The shot the race would compose if anything were listening — with
-      // everything a rig needs to frame it — and, until then, the widest lens
-      // the published mode channel can give.
+      // everything a rig needs to frame it — and, until it does, the tightest
+      // lens the published mode channel can give. See `borrowCamera`.
       askCamera('finish', {
         racerId: ctx.player?.id ?? 0,
         place,
@@ -979,10 +1025,11 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
    * module can do about furniture it does not own.
    */
   function beginHandoff(): void {
-    if (handoffT >= 0 || ctx.race.phase === 'results') return;
-    handoffT = 0;
-    overlay?.finish.wipe();
-    overlay?.finish.retire();
+    if (wipeT >= 0 || ctx.race.phase === 'results') return;
+    wipeT = 0;
+    handedOff = false;
+    // Skip the beat straight to its exit, wherever it had got to.
+    if (beatT >= 0) beatT = Math.max(beatT, FIN_IN + FIN_HOLD);
     overlay?.ticker.retire();
     overlay?.note.reset();
     overlay?.verdict.reset();
@@ -992,7 +1039,8 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
   }
 
   function showResults(): void {
-    handoffT = -1;
+    handedOff = true;
+    beatT = -1;
     const rows = book.rows(R.points, colorOf);
     ensureCup();
     cup.apply(rows);
@@ -1003,7 +1051,6 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     endSlowMo();
     if (!overlay) return;
     overlay.ticker.clear();
-    overlay.finish.reset();
     const fast = book.fastest();
     const complete = cup.complete();
     overlay.results.show(rows, cup.state.standings, {
@@ -1234,7 +1281,10 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
       toWrap();
       wrapT = -1;
       // A seek is a cut, not a hand-off: no curtain, no ceremony to tear down.
+      beatT = -1;
+      wipeT = -1;
       overlay?.finish.reset();
+      overlay?.finish.at(-1, -1);
       overlay?.ticker.clear();
       clearWrongWay();
       returnCamera();
@@ -1291,10 +1341,10 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
         finish: {
           place: finishPlace,
           podium: finishPlace >= 1 && finishPlace <= 3,
-          beat: overlay?.finish.active ?? false,
+          beat: beatT >= 0,
           abandoned,
         },
-        handoff: +handoffT.toFixed(3),
+        handoff: { wipe: +wipeT.toFixed(3), beat: +beatT.toFixed(3), done: handedOff },
         wrongWay: wrongOn,
         camera: { mode: camMode, borrowed: camOwned },
         finished: book.finishedCount(),
@@ -1389,7 +1439,9 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
       slowWrote = -1;
       slowBase = 1;
       slowRamp = 1;
-      handoffT = -1;
+      wipeT = -1;
+      beatT = -1;
+      handedOff = false;
       finishPlace = 0;
       abandoned = false;
       wrongT = 0;
@@ -1453,6 +1505,20 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
         return;
       }
 
+      // The two ceremony clocks. Phase-independent on purpose: the beat begins
+      // in `racing`, runs through `finished`, and the curtain it hands over to
+      // has to keep opening once the phase is already `results`.
+      if (beatT >= 0) {
+        beatT += dt;
+        if (beatT >= FIN_TOTAL) beatT = -1;
+      }
+      if (wipeT >= 0) {
+        wipeT += dt;
+        // The sheet is built the moment the frame is covered, and not before.
+        if (!handedOff && wipeT >= WIPE_COVERED) showResults();
+        if (wipeT >= WIPE_TOTAL) wipeT = -1;
+      }
+
       switch (race.phase) {
         case 'intro': {
           updateFormation(dt);
@@ -1489,7 +1555,7 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
 
         case 'racing': {
           race.time += dt;
-          for (const r of ctx.racers) updateProgress(r);
+          for (const r of ctx.racers) updateProgress(r, dt);
           updateStandings();
           updateWrongWay(dt);
 
@@ -1511,15 +1577,11 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
           // The last machines are still rolling to a stop; hold the frame, then
           // close the curtain and bring the sheet in behind it.
           race.time += dt;
-          for (const r of ctx.racers) updateProgress(r);
+          for (const r of ctx.racers) updateProgress(r, dt);
           updateStandings();
           if (wrapT >= 0) {
             wrapT += dt;
             if (wrapT >= RESULTS_DELAY) { wrapT = -1; beginHandoff(); }
-          }
-          if (handoffT >= 0) {
-            handoffT += dt;
-            if (handoffT >= HANDOFF) showResults();
           }
           break;
         }
@@ -1537,6 +1599,10 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     update(rawDt: number): void {
       const dt = rawDt > 0.1 ? 0.1 : rawDt > 0 ? rawDt : 0;
       updateSlowMo(dt);
+      // The one widget drawn from the race's clock rather than the frame's —
+      // see `FinishBeat.at`. Its two clocks are integrated in `fixedUpdate`;
+      // this only paints them.
+      overlay?.finish.at(beatT, wipeT);
       // The overlay integrates its own animation from a sanitised frame delta,
       // for the same reason the HUD does: the realtime loop keeps ticking under
       // the capture harness, so `update` can be handed a delta measured between

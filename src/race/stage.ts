@@ -25,7 +25,7 @@
 
 import { clamp01, ease } from '../core/math.ts';
 import { glyphBox } from '../ui/glyphs.ts';
-import { U_CSS, bind, fromHtml, q, rgba, type Bound } from '../ui/theme.ts';
+import { bind, fromHtml, q, rgba, type Bound } from '../ui/theme.ts';
 import { signBox } from './letters.ts';
 
 export const CSS_STAGE = `
@@ -194,23 +194,28 @@ export const CSS_STAGE = `
   background: linear-gradient(178deg, rgba(88,26,20,.95) 0%, rgba(46,14,12,.96) 52%, rgba(20,7,6,.97) 100%);
 }
 #race .wrong.plate::before { background: linear-gradient(90deg, #FF3A1E, #FFC300 50%, #FF3A1E); }
-#race .wrong .arrow { display: block; height: calc(var(--u) * 2.3); width: calc(var(--u) * 2.6); }
-#race .wrong .arrow path { fill: #FF4B3A; stroke: #0A0D13; stroke-width: 7;
-  stroke-linejoin: round; }
-#race .wrong .big { height: calc(var(--u) * 2.2); color: #FFF8F0;
+/* A U-turn, not a left arrow. "That way" is not the instruction — "turn round"
+   is, and an arrow pointing at the barrier on your left says the first one. */
+#race .wrong .arrow { display: block; height: calc(var(--u) * 2.5); width: calc(var(--u) * 2.9);
+  filter: drop-shadow(0 calc(var(--u) * .08) calc(var(--u) * .2) rgba(0,0,0,.7)); }
+#race .wrong .arrow .stem { fill: none; stroke: #FF4B3A; stroke-width: 16;
+  stroke-linecap: round; }
+#race .wrong .arrow .head { fill: #FF4B3A; }
+#race .wrong .big { height: calc(var(--u) * 2.3); color: #FFF8F0;
   filter: drop-shadow(0 0 calc(var(--u) * .5) rgba(255,60,30,.6)); }
 
 /* ── the finish beat ─────────────────────────────────────────────────────── */
-/* This layer is NOT inside "#race" — it is its own root above the HUD, because
-   the two things it does are things a contained layer cannot do: it has to
-   cover the in-race furniture rather than sit beside it, and its wash has to
-   filter the *game* behind it. A "contain: paint" ancestor is a backdrop root,
-   so a backdrop-filter inside #race would sample an empty layer and do nothing.
-   See createOverlay. */
+/* The last child of #race, so it paints over the whole interface: the in-race
+   HUD is a layer below this one, and the results sheet is an earlier sibling.
+   That ordering is the point — this layer's job is to *cover* things, not to
+   sit beside them.
+
+   It was briefly its own root outside #race, so that its wash could carry a
+   backdrop-filter (a "contain: paint" ancestor is a backdrop root, and a filter
+   under one samples an empty layer). The filter is gone — see the wash — and
+   with it the reason for a second full-screen compositing layer. */
 #racefin {
-  position: fixed; inset: 0; z-index: 26; pointer-events: none;
-  -webkit-user-select: none; user-select: none;
-  --u: ${U_CSS};
+  position: absolute; inset: 0; pointer-events: none;
 }
 /* The letterbox. A kart racer's finish is the one moment the game takes the
    frame off the player, and bars arriving is how that is said without a word. */
@@ -240,16 +245,21 @@ export const CSS_STAGE = `
 #racefin .wash { position: absolute; inset: 0; opacity: 0; }
 #racefin .wash.gold {
   background:
-    radial-gradient(56% 52% at 50% 51%, rgba(255,216,102,.26), rgba(255,120,30,.13) 45%, rgba(0,0,0,0) 73%),
-    radial-gradient(98% 90% at 50% 50%, rgba(0,0,0,0) 40%, rgba(96,46,4,.52) 100%);
+    radial-gradient(52% 48% at 50% 50%, rgba(255,226,130,.34), rgba(255,132,32,.18) 44%, rgba(0,0,0,0) 72%),
+    radial-gradient(98% 92% at 50% 50%, rgba(0,0,0,0) 36%, rgba(104,48,2,.60) 100%);
 }
 /* Off the podium the colour goes out of the frame. The confetti is still there
    — it belongs to the field, not to the player — but the picture it lands in is
    cold, dark and closing in, and no still of it can be mistaken for a win. */
+/* A *grey* over the frame, not a black one. Blending a picture toward a mid
+   grey is what desaturation is; blending it toward black only turns the lights
+   down and leaves every colour in it as saturated as it was. The difference is
+   the whole point here — the confetti belongs to the race and goes on falling,
+   and it has to look like weather rather than like a party. */
 #racefin .wash.grey {
   background:
-    linear-gradient(180deg, rgba(126,146,176,.10), rgba(126,146,176,.04) 55%, rgba(126,146,176,.10)),
-    radial-gradient(76% 70% at 50% 53%, rgba(24,30,42,.50) 0%, rgba(6,9,14,.90) 100%);
+    radial-gradient(74% 68% at 50% 53%,
+      rgba(64,70,82,.56) 0%, rgba(28,32,41,.74) 58%, rgba(5,7,11,.93) 100%);
 }
 /* One band of light crossing the frame on the crossing itself. */
 #racefin .sweep {
@@ -817,8 +827,9 @@ export interface WrongWay {
 export function createWrongWay(): WrongWay {
   const root = fromHtml(`
     <div class="wrong plate">
-      <svg class="arrow" viewBox="0 0 120 100" aria-hidden="true">
-        <path d="M56 6L10 50L56 94L56 68L110 68L110 32L56 32Z"/>
+      <svg class="arrow" viewBox="0 0 120 104" aria-hidden="true">
+        <path class="stem" d="M98 96L98 44A30 30 0 0 0 38 44L38 62"/>
+        <path class="head" d="M8 56L38 98L68 56Z"/>
       </svg>
       <div class="big word"></div>
     </div>
@@ -868,27 +879,38 @@ export function createWrongWay(): WrongWay {
 
 export interface FinishBeat {
   readonly root: HTMLElement;
-  /** The player took the flag. `place` decides which of the two endings plays. */
-  play(place: number, podium: boolean): void;
-  /** True while the beat owns the frame. */
-  readonly active: boolean;
-  /** Cut it short — something else needs the frame now. */
-  retire(): void;
-  /** Close the hand-off curtain, hold it, and open it again. */
-  wipe(): void;
-  update(dt: number): void;
+  /** Which of the two endings this beat is. Called once, on the crossing. */
+  arm(place: number, podium: boolean): void;
+  /**
+   * Draw the beat, and the hand-off curtain, at the given clocks. Negative
+   * means "not running".
+   *
+   * **Both clocks are the race's, not the frame's.** Every other widget in this
+   * overlay integrates the render delta, which is right for furniture: it should
+   * animate at the same rate whatever the simulation is doing. This one is the
+   * opposite case twice over. It is a *beat of the race* — its length is stated
+   * in the same seconds as the flag hold that follows it — and it plays over a
+   * slow-motion ramp, so a beat measured in real time would run at normal speed
+   * through a frame that had visibly stopped. Driven by the simulation clock it
+   * stretches with the slow-motion exactly as it should, it survives a pause,
+   * and it lands on the same frame in every capture of the same race.
+   */
+  at(beat: number, wipe: number): void;
   reset(): void;
 }
 
-/** Letterbox in, hold, out. The whole beat is 2.55s, which is the window the
- *  race director keeps for itself after the player's own crossing. */
-const FIN_IN = 0.2;
-const FIN_HOLD = 1.9;
-const FIN_OUT = 0.45;
+/** Letterbox in, hold, out. The whole beat is 2.55s of race time, which is the
+ *  window the director keeps for itself after the player's own crossing. */
+export const FIN_IN = 0.2;
+export const FIN_HOLD = 1.9;
+export const FIN_OUT = 0.45;
+export const FIN_TOTAL = FIN_IN + FIN_HOLD + FIN_OUT;
 /** The hand-off curtain: closed by 0.24s, held, open again by 0.76s. */
 const WIPE_IN = 0.24;
 const WIPE_HOLD = 0.2;
 const WIPE_OUT = 0.32;
+export const WIPE_COVERED = WIPE_IN;
+export const WIPE_TOTAL = WIPE_IN + WIPE_HOLD + WIPE_OUT;
 
 /**
  * The two-and-a-half seconds after the player's own line crossing.
@@ -929,11 +951,8 @@ export function createFinishBeat(): FinishBeat {
   const bladeL = bind(q(root, '.blade.l'));
   const bladeR = bind(q(root, '.blade.r'));
 
-  let t = -1;
   let podium = true;
-  let wipeT = -1;
-
-  const TOTAL = FIN_IN + FIN_HOLD + FIN_OUT;
+  let clear = true;
 
   function bars(v: number): void {
     // v is 0 (clear) .. 1 (closed).
@@ -943,7 +962,8 @@ export function createFinishBeat(): FinishBeat {
   }
 
   function clearBeat(): void {
-    t = -1;
+    if (clear) return;
+    clear = true;
     bars(0);
     wash.set('opacity', '0');
     sweep.set('opacity', '0');
@@ -952,30 +972,17 @@ export function createFinishBeat(): FinishBeat {
   const api: FinishBeat = {
     root,
 
-    get active(): boolean { return t >= 0 || wipeT >= 0; },
-
-    play(place, isPodium): void {
+    arm(_place, isPodium): void {
       podium = isPodium;
+      clear = false;
       box.cls('grey', !isPodium);
       wash.cls('gold', isPodium);
       wash.cls('grey', !isPodium);
-      t = 0;
-    },
-
-    retire(): void {
-      if (t < 0) return;
-      // Skip straight to the exit, wherever the beat had got to.
-      t = Math.max(t, FIN_IN + FIN_HOLD);
-    },
-
-    wipe(): void {
-      if (wipeT >= 0) return;
-      wipeT = 0;
     },
 
     reset(): void {
+      clear = false;
       clearBeat();
-      wipeT = -1;
       bladeL.set('opacity', '0');
       bladeR.set('opacity', '0');
       bladeL.set('transform', 'translateX(-102%) skewX(-7deg)');
@@ -983,48 +990,41 @@ export function createFinishBeat(): FinishBeat {
       box.cls('grey', false);
     },
 
-    update(dt): void {
-      if (t >= 0) {
-        t += dt;
-        if (t >= TOTAL) clearBeat();
-        else {
-          const inU = ease.outQuart(clamp01(t / FIN_IN));
-          const outU = ease.inQuad(clamp01((t - FIN_IN - FIN_HOLD) / FIN_OUT));
-          bars(inU * (1 - outU));
+    at(t, wipeT): void {
+      if (t < 0 || t >= FIN_TOTAL) clearBeat();
+      else {
+        clear = false;
+        const inU = ease.outQuart(clamp01(t / FIN_IN));
+        const outU = ease.inQuad(clamp01((t - FIN_IN - FIN_HOLD) / FIN_OUT));
+        bars(inU * (1 - outU));
 
-          // The wash arrives a shade behind the bars and leaves with them.
-          const wu = ease.outQuad(clamp01(t / 0.3)) * (1 - outU);
-          // A slow breath while it holds, so a held frame is never a still.
-          const breathe = 1 + Math.sin(t * 1.9) * 0.06;
-          wash.set('opacity', (wu * (podium ? 0.98 : 1) * breathe).toFixed(3));
+        // The wash arrives a shade behind the bars and leaves with them.
+        const wu = ease.outQuad(clamp01(t / 0.3)) * (1 - outU);
+        // A slow breath while it holds, so a held frame is never a still.
+        const breathe = 1 + Math.sin(t * 1.9) * 0.06;
+        wash.set('opacity', (wu * breathe).toFixed(3));
 
-          // One band of light across the frame, on the crossing itself.
-          const su = clamp01(t / 0.62);
-          if (su < 1) {
-            sweep.set('opacity', (Math.sin(su * Math.PI) * (podium ? 1 : 0.6)).toFixed(3));
-            sweep.set('transform',
-              `translateX(${(-140 + ease.outQuad(su) * 400).toFixed(1)}%) skewX(-14deg)`);
-          } else if (su >= 1) sweep.set('opacity', '0');
-        }
+        // One band of light across the frame, on the crossing itself.
+        const su = clamp01(t / 0.62);
+        if (su < 1) {
+          sweep.set('opacity', (Math.sin(su * Math.PI) * (podium ? 1 : 0.6)).toFixed(3));
+          sweep.set('transform',
+            `translateX(${(-140 + ease.outQuad(su) * 400).toFixed(1)}%) skewX(-14deg)`);
+        } else sweep.set('opacity', '0');
       }
 
-      if (wipeT < 0) return;
-      wipeT += dt;
+      if (wipeT < 0 || wipeT >= WIPE_TOTAL) {
+        bladeL.set('opacity', '0');
+        bladeR.set('opacity', '0');
+        return;
+      }
       let v: number;
       if (wipeT < WIPE_IN) v = ease.outQuart(wipeT / WIPE_IN);
       else if (wipeT < WIPE_IN + WIPE_HOLD) v = 1;
-      else {
-        v = 1 - ease.inQuad(clamp01((wipeT - WIPE_IN - WIPE_HOLD) / WIPE_OUT));
-        if (v <= 0) {
-          wipeT = -1;
-          bladeL.set('opacity', '0');
-          bladeR.set('opacity', '0');
-          return;
-        }
-      }
+      else v = 1 - ease.inQuad(clamp01((wipeT - WIPE_IN - WIPE_HOLD) / WIPE_OUT));
       bladeL.set('opacity', '1');
       bladeR.set('opacity', '1');
-      // 62% wide blades meeting in the middle: at v = 1 each has travelled its
+      // 62%-wide blades meeting in the middle: at v = 1 each has travelled its
       // own width less the overlap, so the seam is always covered.
       bladeL.set('transform', `translateX(${((v - 1) * 102).toFixed(2)}%) skewX(-7deg)`);
       bladeR.set('transform', `translateX(${((1 - v) * 102).toFixed(2)}%) skewX(-7deg)`);

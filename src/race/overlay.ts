@@ -85,8 +85,9 @@ export interface RaceOverlay {
   readonly note: Note;
   readonly ticker: Ticker;
   /** The two-and-a-half seconds after the player's own crossing, and the
-   *  curtain that hands the frame over to the results sheet. Lives on its own
-   *  root above the HUD — see `createFinishBeat`. */
+   *  curtain that hands the frame over to the results sheet. Drawn from the
+   *  *race's* clock rather than the frame's — the director owns both clocks and
+   *  calls `finish.at()` itself. */
   readonly finish: FinishBeat;
   readonly wrongWay: WrongWay;
   readonly results: Results;
@@ -128,14 +129,12 @@ export function createOverlay(onPick: (id: string) => void): RaceOverlay | null 
   root.appendChild(wrongWay.root);
   root.appendChild(results.root);
   root.appendChild(pause.root);
-  document.body.appendChild(root);
-
-  // The finish beat is deliberately *not* a child of #race. It has to paint over
-  // the in-race HUD rather than beside it, and its wash filters what is behind
-  // it — which a `contain: paint` ancestor would make impossible, because such
-  // an element is a backdrop root and the filter would sample an empty layer.
+  // **Last.** The finish beat covers the interface rather than joining it: its
+  // letterbox has to sit over the HUD's corners and its hand-off curtain has to
+  // close over the results sheet, which is the sibling immediately above.
   const finish = createFinishBeat();
-  document.body.appendChild(finish.root);
+  root.appendChild(finish.root);
+  document.body.appendChild(root);
 
   return {
     root, card, lights, verdict, note, ticker, finish, wrongWay, results, pause,
@@ -147,7 +146,6 @@ export function createOverlay(onPick: (id: string) => void): RaceOverlay | null 
       note.update(dt);
       ticker.update(dt);
       wrongWay.update(dt);
-      finish.update(dt);
       results.update(dt);
       pause.update(dt);
     },
@@ -167,7 +165,6 @@ export function createOverlay(onPick: (id: string) => void): RaceOverlay | null 
     dispose(): void {
       results.dispose();
       pause.dispose();
-      finish.root.remove();
       root.remove();
       style.remove();
     },
