@@ -135,13 +135,20 @@ function blankSample(): SplineSample {
 
 /**
  * Signed angle from direction `a` to direction `b` in the XZ plane, positive
- * when `b` lies to `a`'s right.
+ * when `b` lies to `a`'s LEFT — it is `atan2(cross(a,b).y, dot(a,b))`, the
+ * rotation about +Y that takes `a` to `b`.
  *
  * Every heading in this file is in that convention, and so is `steer`: physics
- * adds `steer * turnRate` to a yaw of `atan2(fwd.x, fwd.z)`, which rotates the
- * nose to the driver's right. The track spline's `right` vector, confusingly
- * but consistently, points to the driver's *left* — so a positive lateral
- * offset is to the left and a positive curvature turns right.
+ * adds `steer * turnRate` to a yaw of `atan2(fwd.x, fwd.z)`, which swings the
+ * nose from +Z toward +X — the driver's left, since the chase camera looks
+ * along the heading and so puts world -X on the right of the screen. The track
+ * spline's `right` vector points the same way this angle does, so a positive
+ * lateral offset is to the left and positive curvature turns left.
+ *
+ * This block used to claim the exact opposite on every count. The maths was
+ * right and self-consistent, so the CPUs always drove correctly and nothing
+ * ever contradicted the prose — until the human key mapping was written to
+ * match the comment instead of the code, and shipped steering inverted.
  */
 const angBetween = (ax: number, az: number, bx: number, bz: number): number =>
   Math.atan2(-(ax * bz - az * bx), ax * bx + az * bz);

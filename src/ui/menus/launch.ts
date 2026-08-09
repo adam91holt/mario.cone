@@ -17,14 +17,16 @@
 //
 // ── The hold ───────────────────────────────────────────────────────────────
 //
-// The board stays across the frame until three things are true: the race exists,
-// the card has had its beat, and nobody has asked for longer. That last one is
-// the door this module leaves open for the arrival the critique asked for — a
-// course fly-through with a name lower-third. `menu:launch` carries a `hold(s)`
-// callback; a camera or race module that wants to author the arrival calls it
-// from its own listener and the board stays shut for exactly that long, then
-// swings away onto whatever that module has put on screen. Nothing has to
-// listen, and the default without a listener is the beat this card needs.
+// The board stays across the frame until two things are true: the race exists,
+// and the card has had its beat. There was a third — a `hold(seconds)` door on
+// a `menu:launch` event, for a module that wanted to author the arrival with a
+// fly-through of its own — and it is gone, because in every wave of this
+// project nothing ever subscribed to it. See `launch()` in `menus/index.ts`.
+//
+// The board itself is the game's one curtain, shared with the race's own
+// hand-off to the results sheet: geometry, paint and both travel times come
+// from `ui/theme.ts`, and the beat this card needs is the only thing decided
+// here.
 
 import { clamp01, ease, lerp } from '../../core/math.ts';
 import { glyphBox, glyphRun } from '../glyphs.ts';

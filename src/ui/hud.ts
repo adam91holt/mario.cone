@@ -185,8 +185,21 @@ export function createHudSystem(ctx: GameContext): GameSystem {
    * indicator stays: that one *is* the result.
    */
   let retire = 0;
+  /**
+   * ...and then the curtain closes, and even the place indicator goes.
+   *
+   * The race director announces `race:handoff` on the frame its blades start to
+   * close over the frame — "three live layers become one, behind a closed
+   * curtain" — and until now nothing in the game listened to it, so the one
+   * readout this HUD deliberately keeps up after the flag was still on screen
+   * behind the curtain and then underneath the results sheet. It is the only
+   * thing this module can do about furniture it does not own, and it is now
+   * done.
+   */
+  let handed = false;
 
   const unsubs: Array<() => void> = [];
+  unsubs.push(ctx.bus.on('race:handoff', () => { handed = true; }));
 
   function hit(power: number, damage: boolean): void {
     jolt = Math.min(1, Math.max(jolt, power));
@@ -228,6 +241,7 @@ export function createHudSystem(ctx: GameContext): GameSystem {
       surge = 0;
       surgeHold = 0;
       retire = 0;
+      handed = false;
       if (hurting) { hurting = false; root.classList.remove('hurt'); }
       if (surging) { surging = false; root.classList.remove('surge'); }
       layer.set('transform', 'none');
@@ -318,17 +332,17 @@ export function createHudSystem(ctx: GameContext): GameSystem {
           c.box.set('transform', `translate(${tx.toFixed(2)}%, ${ty.toFixed(2)}%)`);
           c.box.set('opacity', Math.min(1, reveal * 2.2).toFixed(3));
         }
-      } else if (ctx.player?.finished || retire > 0) {
+      } else if (ctx.player?.finished || handed || retire > 0) {
         // The working instruments leave once the race is decided; the place
         // indicator holds, because it is the answer. A beat of delay first, so
         // the crossing itself is not competing with the furniture moving.
-        const want = ctx.player?.finished ? 1 : 0;
+        const want = ctx.player?.finished || handed ? 1 : 0;
         retire = want > retire
           ? Math.min(1, retire + dt / 0.9)
           : Math.max(0, retire - dt / 0.4);
         const out = ease.inQuad(clamp01((retire - 0.25) / 0.75));
         for (const c of corners) {
-          if (c.keep) continue;
+          if (c.keep && !handed) continue;
           const tx = c.dx * out * 46 + (c.centred ? -50 : 0);
           const ty = c.dy * out * 62;
           c.box.set('transform', `translate(${tx.toFixed(2)}%, ${ty.toFixed(2)}%)`);

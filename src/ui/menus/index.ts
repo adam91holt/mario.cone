@@ -177,7 +177,7 @@ export interface MenuProbe {
   /** How much of the launch card is on the board, 0..1. */
   card: number;
   /** The hand-off, so a reviewer can photograph it without guessing at it. */
-  launch: { active: boolean; built: boolean; t: number; hold: number; outro: number };
+  launch: { active: boolean; built: boolean; t: number; outro: number };
 }
 
 export function createMenuSystem(ctx: GameContext): GameSystem {
@@ -277,9 +277,8 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
   //   (neither)        the front-end is gone
   //
   // The board is released only when the race exists *and* the card has had its
-  // beat *and* nobody has asked for longer. Anyone who wants to author the
-  // arrival — a course fly-through, a grid reveal — gets `hold(seconds)` on the
-  // `menu:launch` payload and the board waits for them.
+  // beat. It used to also wait on a `hold(seconds)` a listener could ask for
+  // through `menu:launch`; see `launch()` for why that is gone.
   //
   // **The set goes off behind the closed board, not after it opens.** This is
   // the hard cut the critique named, and it was not the wipe: the board used to
@@ -293,7 +292,6 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
   let launching = false;
   let raceBuilt = false;
   let launchT = 0;
-  let holdWanted = 0;
   /** Counts down while the board swings away. -1 when it is not. */
   let outro = -1;
   /** How long the card is guaranteed on screen, board fully closed. The hold is
@@ -304,8 +302,6 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
   /** How long the board takes to close over the frame, and to swing off it. */
   const CLOSE = CURTAIN_IN;
   const SWING = CURTAIN_OUT;
-  /** Nothing may hold the frame for ever, listener or not. */
-  const HOLD_CAP = 7;
 
   let clock = 0;
   let railScroll = 0;
@@ -432,9 +428,14 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
     launching = true;
     raceBuilt = false;
     launchT = 0;
-    holdWanted = 0;
     sfx('boost', 0.95);
-    ctx.audio?.setMusic('auto');
+    // **The hand-off bed, stated.** `auto` here handed the mixer back to the
+    // phase machine while the phase was still whatever the *previous* race left
+    // behind — so committing from the class screen played a third of a second
+    // of the race theme, or the victory fanfare, before the new race existed
+    // and settled it on the grid vamp. The board's own bed is the grid vamp;
+    // the director's reset hands it back to `auto` a beat later.
+    ctx.audio?.setMusic('grid');
     // **The card is painted from `choice` at the moment the board starts to
     // close, and from nothing else.** It used to be filled once and then shown
     // on every navigation for as long as the board was across the frame, which
@@ -455,21 +456,14 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
       round: Math.max(0, list.findIndex((c) => c.id === choice.courseId)),
       rounds: Math.max(1, list.length),
     });
-    // Said out loud a beat before `reset()`, so anything that wants to author
-    // the arrival — a course fly-through, a name card, a grid reveal — has the
-    // choice in hand while the board is still closing rather than after the
-    // race has already been built underneath it. Nothing depends on it being
-    // listened to; `hold` is how a listener that does take it asks the board to
-    // stay across the frame until its own arrival is ready to be revealed.
-    ctx.bus.emit('menu:launch', {
-      courseId: choice.courseId,
-      vehicleId: choice.vehicleId,
-      engineClass: choice.engineClass,
-      hold: (seconds: number): void => {
-        if (!(seconds > 0)) return;
-        holdWanted = Math.min(HOLD_CAP, Math.max(holdWanted, seconds));
-      },
-    });
+    // There used to be a `menu:launch` here, carrying the three choices and a
+    // `hold(seconds)` callback a listener could use to keep the board across
+    // the frame while it authored an arrival of its own. It was a good door and
+    // nothing ever walked through it: no module in the game subscribed, in any
+    // wave, so the cap, the accumulator and the branch that honoured it were a
+    // system that could not be reached. The board still waits for the race to
+    // exist — that is `raceBuilt` below, and it is real — and a future arrival
+    // author adds one line back here rather than inheriting ten dead ones.
     wipeSwapped = false;
     pushT = -1;
     pushFrom = null;
@@ -919,7 +913,7 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
         // A race takes a moment to build. The board stays across the frame
         // until it is ready rather than opening onto the menus we are about to
         // leave, and then for as long again as the card on it needs to be read.
-        const until = CLOSE + CARD_HOLD + holdWanted;
+        const until = CLOSE + CARD_HOLD;
         // ...and a floor under it: a `hold` whose owner never comes back, or a
         // race that never finishes building, must not leave a player looking at
         // a board for ever.
@@ -1113,7 +1107,6 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
         active: launching,
         built: raceBuilt,
         t: +launchT.toFixed(3),
-        hold: +holdWanted.toFixed(3),
         outro: +outro.toFixed(3),
       },
     }),

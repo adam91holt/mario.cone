@@ -482,7 +482,11 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     }
 
     ctx.race.standings = order.map((r) => r.id);
-    ctx.bus.emit('race:grid', { order: ctx.race.standings.slice() });
+    // No `race:grid` emit. It carried the seated order into a room that never
+    // had anybody in it, and the same order is already on `ctx.race.standings`
+    // for anything in the frame and on `__RACE.probe().grid` for anything
+    // outside it. An unheard emit costs frame time and makes the event table
+    // lie about what the game is.
   }
 
   /** The player's grid index, pole = 0. -1 before the grid is seated. */
@@ -716,9 +720,11 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
             overlay?.note.show('BEST LAP', formatTime(split));
           }
         }
-        if (racer.lap === ctx.race.totalLaps - 1) {
-          ctx.bus.emit('race:finallap', { racer, lap: racer.lap });
-          if (racer.isPlayer) ctx.fx?.flash(0xFF6B1A, 0.3);
+        // The final lap. Stated by `race:lap` and nothing else: `lap` is in that
+        // payload and the mixer already lifts the fanfare off it, so the second
+        // announcement this used to make was one nobody ever subscribed to.
+        if (racer.lap === ctx.race.totalLaps - 1 && racer.isPlayer) {
+          ctx.fx?.flash(0xFF6B1A, 0.3);
         }
       }
       if (racer.lap >= ctx.race.totalLaps && !racer.finished) finishRacer(racer, false);
@@ -1165,8 +1171,8 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     if (id === 'exit') {
       // The front-end owns what happens after a race, and it published a door
       // for exactly this: `ui:menu:open` raises the character-select screen.
-      // `race:exit` goes out alongside it for anyone else who wants to know.
-      ctx.bus.emit('race:exit', { from: 'results' });
+      // (There used to be a `race:exit` alongside it "for anyone else who wants
+      // to know". Nobody ever did.)
       if ((ctx.bus.inspect()['ui:menu:open'] ?? 0) > 0) {
         ctx.bus.emit('ui:menu:open', { from: 'results' });
         return;

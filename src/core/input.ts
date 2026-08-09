@@ -129,10 +129,22 @@ export function createInput(): InputController {
     const pad = pollGamepad();
     if (pad) state.source = 'gamepad';
 
+    // **Positive steer turns LEFT.** That reads backwards and it is worth being
+    // exact about why, because it shipped inverted once already.
+    //
+    // Physics integrates `yaw += steer * turnRate` against a heading of
+    // `(sin yaw, 0, cos yaw)`. Increasing that yaw swings the nose from +Z
+    // toward +X, and the chase camera looks along the heading, which puts world
+    // -X on the right of the screen. So a positive steer moves the nose to
+    // screen *left*, and the AI — which authors `steer` from a signed angle
+    // about +Y — is written to match.
+    //
+    // The devices are therefore what must be negated, not the simulation:
+    // flipping the integration would silently invert every CPU driver too.
     let steerTarget: number;
     if (has('steer')) steerTarget = clamp(virtual.steer!, -1, 1);
-    else if (pad) steerTarget = pad.steer;
-    else steerTarget = (raw.right ? 1 : 0) - (raw.left ? 1 : 0);
+    else if (pad) steerTarget = -pad.steer;
+    else steerTarget = (raw.left ? 1 : 0) - (raw.right ? 1 : 0);
 
     // Digital keys get eased into an analog value; sticks are already analog.
     const digital = !pad && !has('steer');
