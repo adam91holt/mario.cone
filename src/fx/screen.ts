@@ -95,6 +95,8 @@ export interface ScreenFx {
   /** Which tier that ring is showing: 0 uncharged, 1..3 blue/orange/purple. */
   setChargeTier(tier: number): void;
   update(dt: number): void;
+  /** What is actually on the glass. Debug only — see the probe in `index.ts`. */
+  debug(): Record<string, number | string | boolean>;
   reset(): void;
   dispose(): void;
 }
@@ -222,6 +224,19 @@ export function createScreenFx(): ScreenFx {
           wroteTier = chargeTier;
         }
       }
+    },
+
+    debug(): Record<string, number | string | boolean> {
+      return {
+        mounted: !!root && root.isConnected,
+        flash: Math.round(flashAmt * 1000) / 1000,
+        flashHex: `#${(flashHex & 0xffffff).toString(16).padStart(6, '0')}`,
+        rush: Math.round(rush * 1000) / 1000,
+        rushTarget: Math.round(rushTarget * 1000) / 1000,
+        charge: Math.round(charge * 1000) / 1000,
+        tier: chargeTier,
+        opacity: rushEl?.style.opacity ?? '',
+      };
     },
 
     reset(): void {

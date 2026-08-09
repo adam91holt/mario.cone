@@ -2866,6 +2866,106 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     qCount = 0;
   }
 
+  /**
+   * The instrument.
+   *
+   * Everything this module does is spent inside one rendered frame and then
+   * gone, which makes it the hardest piece in the game to review honestly: a
+   * screenshot says "there is warm light behind the kart" and cannot say whether
+   * that is nine sparks or four hundred, whether they are the tier's hue or
+   * white, or whether the whole plume is thirty metres away in the wrong place.
+   * Every defect this module has been rejected for was found by counting, not by
+   * looking — so the counter is part of the module.
+   *
+   * Nothing in the simulation reads this, and it draws from no random stream.
+   */
+  function installProbe(): void {
+    if (typeof globalThis === 'undefined') return;
+    (globalThis as unknown as Record<string, unknown>).__FX = {
+      /** Live population, by layer and by what it costs. */
+      probe(): Record<string, unknown> {
+        const p = ctx.player;
+        const pfx = p ? state.get(p.id) : null;
+        return {
+          pool: pool.count,
+          poolLoad: Math.round(pool.load * 100) / 100,
+          add: addLayer?.count ?? 0,
+          alpha: alphaLayer?.count ?? 0,
+          rush: rushLayer?.count ?? 0,
+          lines: lineCount,
+          density: Math.round(density * 100) / 100,
+          trauma: Math.round(trauma * 1000) / 1000,
+          drift: p ? { active: p.drift.active, tier: p.drift.tier, charge: p.drift.charge } : null,
+          boost: p ? { time: p.boost.time, power: p.boost.power, source: p.boost.source } : null,
+          surface: p?.surface ?? '',
+          grounded: p?.grounded ?? false,
+          glow: pfx ? Math.round(pfx.glow * 100) / 100 : 0,
+          boostEnv: pfx ? Math.round(pfx.boostEnv * 100) / 100 : 0,
+          grind: pfx ? Math.round(pfx.grind * 100) / 100 : 0,
+          screen: screen.debug(),
+        };
+      },
+      /**
+       * Where the light actually is, and what colour it actually is.
+       *
+       * Returns the additive layer's instances binned by distance from the
+       * camera, with the mean linear colour of each bin. This is the only way to
+       * answer the question the whole module turns on — "is the middle third of
+       * the mini-turbo actually orange on screen, or has it bleached to white" —
+       * because the answer lives in a buffer that is overwritten sixty times a
+       * second.
+       */
+      light(): Record<string, unknown> {
+        return sampleLayer(addLayer);
+      },
+      haze(): Record<string, unknown> {
+        return sampleLayer(alphaLayer);
+      },
+    };
+  }
+
+  /** Read back a layer's committed instances. Debug only; allocates. */
+  function sampleLayer(layer: SpriteLayer | null): Record<string, unknown> {
+    if (!layer || layer.count === 0) return { n: 0 };
+    const geo = layer.mesh.geometry as THREE.InstancedBufferGeometry;
+    const pos = geo.getAttribute('iPos').array as Float32Array;
+    const col = geo.getAttribute('iColor').array as Float32Array;
+    const par = geo.getAttribute('iParams').array as Float32Array;
+    const cam = ctx.camera.position;
+    const bins = [
+      { name: 'near', to: 12 }, { name: 'mid', to: 40 }, { name: 'far', to: 1e9 },
+    ];
+    const out: Record<string, unknown> = { n: layer.count };
+    for (const b of bins) {
+      let n = 0, r = 0, g = 0, bl = 0, area = 0, maxSize = 0;
+      const from = b.name === 'near' ? 0 : b.name === 'mid' ? 12 : 40;
+      for (let i = 0; i < layer.count; i++) {
+        const dx = pos[i * 3]! - cam.x, dy = pos[i * 3 + 1]! - cam.y, dz = pos[i * 3 + 2]! - cam.z;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (d < from || d >= b.to) continue;
+        const a = col[i * 4 + 3]!;
+        const size = par[i * 4]!;
+        n++;
+        r += col[i * 4]! * a; g += col[i * 4 + 1]! * a; bl += col[i * 4 + 2]! * a;
+        // Solid angle each quad covers, in square degrees — the honest measure
+        // of "how much of the frame is this effect", which neither a count nor
+        // a size in metres can give on its own.
+        const deg = (size / Math.max(0.5, d)) * 57.3;
+        area += deg * deg * a;
+        if (size > maxSize) maxSize = size;
+      }
+      const k = n > 0 ? 1 / n : 0;
+      out[b.name] = {
+        n,
+        rgb: [Math.round(r * k * 100) / 100, Math.round(g * k * 100) / 100,
+          Math.round(bl * k * 100) / 100],
+        area: Math.round(area),
+        maxSize: Math.round(maxSize * 100) / 100,
+      };
+    }
+    return out;
+  }
+
   /** Barrier scrape for the player. Physics reports the first contact and then
    *  goes quiet for as long as the kart is rubbing along the rail, so the grind
    *  itself has to be detected here — a kart riding a barrier with no sparks is
@@ -2903,6 +3003,7 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       ctx.scene.add(alphaLayer.mesh, addLayer.mesh, rushLayer.mesh, marks.mesh);
       density = clamp01(ctx.quality.particles);
       marks.applyQuality();
+      installProbe();
     },
 
     reset(cfg: RaceConfig): void {
