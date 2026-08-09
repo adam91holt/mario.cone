@@ -152,6 +152,17 @@ export class Ground {
    * placed here is unreachable by definition.
    */
   spot(d: number, side: -1 | 1, off: number, out?: Spot): Spot {
+    // Past the skirt's last ring there is no skirt. The ring search below
+    // clamps rather than extrapolates, so every offset over 150m used to come
+    // back as *the same point* — and a caller searching 130-250m for room was
+    // really asking for 130, 147 and then 150 six times over, with the sixth
+    // attempt colliding with its own first. Three courses lost most of their
+    // declared landscape props that way: eight salt heaps, sixteen brine pools
+    // and three crushers were not culled or hidden, they were never placed.
+    // Beyond the rings the visible surface is the field mesh, so answer from
+    // there instead of answering wrongly.
+    if (off > RINGS[RINGS.length - 1]!) return this.farSpot(d, side, off, out);
+
     const r: Spot = out ?? { ok: false, x: 0, y: 0, z: 0, face: 0, along: 0 };
     const s = this.spline.atDistance(d, this.s);
     const edge = s.width * 0.5 + this.verge;

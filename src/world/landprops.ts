@@ -179,19 +179,19 @@ export function snowDriftGeo(seed: number, pal: LandPalette): THREE.BufferGeomet
   const r = makeRng(0x33c1 + seed * 419);
   const snow = pal.cap ?? 0xeef4fa;
   return buildProp('snowDrift', (k) => {
-    for (let i = 0; i < 5; i++) {
-      const z = -7 + i * 3.5 + r.range(-0.8, 0.8);
-      const w = r.range(4.2, 7.5);
+    for (let i = 0; i < 4; i++) {
+      const z = -7 + i * 4.4 + r.range(-0.8, 0.8);
+      const w = r.range(4.6, 8.0);
       const h = r.range(0.5, 1.5);
       k.push();
       k.move(r.range(-1.2, 1.2), 0, z).rotY(r.range(-0.2, 0.2)).scale(1, h / w, 1);
-      k.sph(0, 0, 0, w * 0.5, snow, 7, { noAo: true, shade: r.range(0.92, 1.04) });
+      k.sph(0, 0, 0, w * 0.5, snow, 6, { noAo: true, shade: r.range(0.92, 1.04) });
       k.pop();
     }
     // The scoured lip, a shade colder so the drift has an edge in flat light.
     k.push();
     k.move(2.1, 0.15, 0).scale(1, 0.16, 1);
-    k.sph(0, 0, 0, 2.6, 0xd2e0ee, 6, { noAo: true });
+    k.sph(0, 0, 0, 2.6, 0xd2e0ee, 5, { noAo: true });
     k.pop();
   }, 0);
 }
@@ -690,8 +690,8 @@ export function landMassGeo(
   const v = ((seed % 4) + 4) % 4;
   const r = makeRng(0x51a3 + seed * 761);
   // squat / tall / twinned / broken
-  const w = r.range(7, 11) * [1.5, 0.78, 1.15, 1.3][v]!;
-  const h = r.range(5, 9) * [0.62, 1.85, 1.0, 0.8][v]!;
+  const w = r.range(6.5, 12) * [1.7, 0.72, 1.15, 1.35][v]!;
+  const h = r.range(4.5, 10) * [0.5, 2.1, 1.0, 0.72][v]!;
   const twin = v === 2;
   const broken = v === 3;
 
@@ -704,16 +704,20 @@ export function landMassGeo(
       k.push();
       k.move(sx, 0, sz).rotY(r.range(0, 6.28));
       if (shape === 'butte') {
-        // Sedimentary: a low talus skirt, two banded lifts with near-vertical
-        // walls, and a flat cap that overhangs. The walls are what say
-        // "sandstone" — a sloped one is a hill, and a hill is not a butte.
-        k.cone(0, 0, 0, fw * 1.16, fh * 0.20, 6, pal.soilDark, { noAo: true, shade: 0.9 });
-        k.cyl(0, fh * 0.30, 0, fw * 0.94, fw * 1.02, fh * 0.60, 6, tint,
-          { ao: 0.3, aoHeight: fh * 0.8 });
-        k.cyl(0, fh * 0.74, 0, fw * 0.84, fw * 0.90, fh * 0.28, 6, pal.rockDark,
-          { noAo: true, shade: 1.04 });
-        k.cyl(0, fh * 0.94, 0, fw * 0.80, fw * 0.86, fh * 0.12, 6, pal.crest,
-          { noAo: true, shade: 1.1 });
+        // Sedimentary. The proportion is the whole thing: **the talus is half
+        // the height**, the wall above it is steep and short, and the top is a
+        // long way narrower than the base. A six-sided cylinder with vertical
+        // walls and a flat top of nearly its own radius is not a mesa, it is an
+        // oil tank — which is exactly what a field of the first version looked
+        // like from the pulled-back camera.
+        k.cone(0, 0, 0, fw * 1.3, fh * 0.52, 6, pal.soilDark, { noAo: true, shade: 0.92 });
+        k.cyl(0, fh * 0.62, 0, fw * 0.66, fw * 0.80, fh * 0.44, 6, tint,
+          { ao: 0.26, aoHeight: fh * 0.9 });
+        // Cap rock: the hard band that is the reason the thing is still
+        // standing. Bleached rather than pale grey — a light *grey* disc on
+        // warm sandstone is the tank lid again.
+        k.cyl(0, fh * 0.90, 0, fw * 0.62, fw * 0.68, fh * 0.14, 6, tint,
+          { noAo: true, shade: 1.16 });
       } else if (shape === 'block') {
         // Blasted rock: slabs shoved together, nothing rounded anywhere.
         for (let i = 0; i < (broken ? 4 : 2); i++) {
@@ -725,8 +729,6 @@ export function landMassGeo(
             { ao: 0.34, aoHeight: fh * 0.8 });
           k.pop();
         }
-        k.box(0, fh * 1.02, 0, fw * 0.8, fh * 0.07, fw * 0.7, pal.crest,
-          { noAo: true, shade: 1.08 });
       } else if (shape === 'dome') {
         // A lake bed does not have mountains on it. Low, wide, soft.
         k.push();

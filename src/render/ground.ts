@@ -166,7 +166,19 @@ export function createGroundSystem(ctx: GameContext): GameSystem {
       args.d = d; args.rel = y - sy; args.x = x; args.z = z;
       surf.paint(args, out);
 
-      const nx = nor.getX(i), ny = nor.getY(i), nz = nor.getZ(i);
+      // Flat ground carries no shape at this mesh resolution and should not be
+      // asked to. The far field is 176 cells across four kilometres, so one
+      // triangle is 23 metres on a side and its normal is quantisation noise —
+      // bake a 30-degree sun against that and what prints is the triangulation:
+      // the angular tonal wedges a critic photographed from the overhead camera
+      // and read, correctly, as flat shading. Anything within twenty degrees of
+      // level is therefore lit as level, and the terminator work below is spent
+      // where there is a real slope to spend it on.
+      const rawY = nor.getY(i);
+      const flat = smoothstep(0.93, 0.995, rawY);
+      const nx = nor.getX(i) * (1 - flat);
+      const nz = nor.getZ(i) * (1 - flat);
+      const ny = rawY + (1 - rawY) * flat;
       const key = Math.max(0, nx * rig.sx + ny * rig.sy + nz * rig.sz);
       const rimAmt = Math.max(0, nx * rig.rx + ny * rig.ry + nz * rig.rz) * RIM_I;
       const hemi = 0.5 + 0.5 * ny;

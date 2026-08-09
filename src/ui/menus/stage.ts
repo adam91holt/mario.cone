@@ -118,7 +118,14 @@ const SHOTS: Record<ShotName, Shot> = {
   // here each lane sits on its own line of the road.
   title: { pos: [0.4, 4.9, 13.6], look: [0, 1.35, -8.0], fov: 40, focus: [0, -8], radius: 20 },
   hero: { pos: [4.3, 2.9, 12.6], look: [2.3, 0.75, -1.2], fov: 32, focus: [1.5, -3], radius: 12 },
-  board: { pos: [6.2, 3.6, 12.4], look: [4.0, 0.7, -1.4], fov: 33, focus: [2.5, -3], radius: 13 },
+  // The circuit and class screens print their cards across the top of the
+  // frame, so this shot puts the machine *under* them rather than behind them.
+  // It used to look level at a machine standing dead centre of the composition
+  // with four cards laid over it — a half-occluded prop poking out from behind
+  // the leftmost card, which is exactly how it photographed. Looking seven
+  // degrees over its head drops it into the lower-left quarter, where it is a
+  // whole machine standing on a road with nothing on top of it.
+  board: { pos: [3.8, 3.9, 13.6], look: [3.8, 2.35, -0.6], fov: 34, focus: [0.5, -2], radius: 13 },
 };
 
 /**
@@ -543,6 +550,53 @@ export function createStage(ctx: GameContext): Stage | null {
       part(marks, new THREE.CylinderGeometry(0.24, 0.28, 0.16, 12), CREAM, [cx, 0.45, cz]);
       part(marks, roundedBox(0.74, 0.08, 0.74, 0.03), DARK, [cx, 0.04, cz]);
     }
+    // A gantry over the road behind the mark, with a banner on it. The race has
+    // these; a front-end whose set is a road and two lamp posts, in front of a
+    // game with gantries, bunting and grandstands in it, is a front-end that
+    // looks cheaper than the thing it is selling.
+    {
+      const STEEL = mat(0x9aa4b2, { roughness: 0.45 });
+      const Z = -17.5;
+      for (const side of [-1, 1]) {
+        part(dressing, new THREE.CylinderGeometry(0.26, 0.34, 7.4, 8), STEEL,
+          [side * 13.5, 3.7, Z]);
+        part(dressing, roundedBox(1.5, 0.3, 1.5, 0.1), DARK, [side * 13.5, 0.15, Z]);
+      }
+      part(dressing, roundedBox(28, 0.42, 0.7, 0.16), STEEL, [0, 7.4, Z]);
+      part(dressing, roundedBox(28, 0.42, 0.7, 0.16), STEEL, [0, 6.1, Z]);
+      for (let i = -8; i <= 8; i++) {
+        part(dressing, roundedBox(0.22, 1.4, 0.5, 0.08), STEEL, [i * 1.65, 6.75, Z]);
+      }
+      part(dressing, roundedBox(13, 1.9, 0.24, 0.12), mat(0xff6b1a, { roughness: 0.55 }),
+        [0, 8.6, Z - 0.2]);
+      part(dressing, roundedBox(13.4, 0.26, 0.3, 0.1), mat(0xffc300, { roughness: 0.5 }),
+        [0, 9.6, Z - 0.24]);
+    }
+
+    // Bunting between the floodlight masts. Two runs, sagging, so the top of
+    // the frame has something in it that is not sky.
+    {
+      const FLAGS = [0xffc300, 0xff6b1a, 0xfff8f0, 0x5fc8f5];
+      const span = [-30, -11, 11, 30];
+      for (let s = 0; s < span.length - 1; s++) {
+        const a = span[s]!;
+        const b = span[s + 1]!;
+        const n = Math.max(6, Math.round((b - a) / 1.5));
+        for (let i = 0; i <= n; i++) {
+          const t = i / n;
+          const x = a + (b - a) * t;
+          // A catenary, near enough: the sag is what stops a string of flags
+          // reading as a ruler with triangles on it.
+          const y = 10.4 - Math.sin(t * Math.PI) * 1.5;
+          part(dressing, new THREE.ConeGeometry(0.24, 0.66, 3),
+            mat(FLAGS[(s * 3 + i) % FLAGS.length]!, { roughness: 0.6, flat: true }),
+            [x, y - 0.33, -32.6], [Math.PI, (i % 2 ? 0.3 : -0.3), 0]);
+        }
+        part(dressing, roundedBox(b - a, 0.07, 0.07, 0.03), mat(0x20242c, { roughness: 0.8 }),
+          [(a + b) / 2, 10.05, -32.6]);
+      }
+    }
+
     mergeStatic(dressing);
     mergeStatic(marks);
     // The far dressing is thirty metres behind the mark and never inside the
@@ -551,6 +605,66 @@ export function createStage(ctx: GameContext): Stage | null {
     for (const m of marks.children) { m.castShadow = true; m.receiveShadow = true; }
     scene.add(dressing, marks);
   }
+
+  // ── the crowd ───────────────────────────────────────────────────────────
+  //
+  // A raked stand behind the barriers with a hundred and twenty people on it,
+  // bobbing. One instanced draw call for the whole bank, and it is the single
+  // cheapest thing on this set that makes it read as the same product as the
+  // race — which has crowds along every straight.
+  const CROWD = 120;
+  const crowdGeo = new THREE.CapsuleGeometry(0.24, 0.5, 3, 6);
+  const crowdMat = new THREE.MeshLambertMaterial({ vertexColors: false });
+  const crowd = new THREE.InstancedMesh(crowdGeo, crowdMat, CROWD);
+  crowd.frustumCulled = false;
+  crowd.castShadow = false;
+  crowd.receiveShadow = false;
+  /** Base transform per person, and the phase of their bob. */
+  const crowdAt = new Float32Array(CROWD * 4);
+  {
+    const stand = new THREE.Group();
+    const TIERS = 5;
+    for (let t = 0; t < TIERS; t++) {
+      const y = 0.55 + t * 0.78;
+      const z = -37.5 - t * 1.5;
+      part(stand, roundedBox(70, 0.7, 1.5, 0.08), mat(0x6b7280, { roughness: 0.9 }), [0, y, z]);
+      part(stand, roundedBox(70, 0.9, 0.24, 0.06), mat(0x2b3038, { roughness: 0.8 }),
+        [0, y + 0.65, z - 0.7]);
+    }
+    // A roof on posts over the back of it, so the bank has a silhouette.
+    for (let i = -5; i <= 5; i++) {
+      part(stand, new THREE.CylinderGeometry(0.16, 0.16, 6.6, 6), mat(0x8e99a8, { roughness: 0.5 }),
+        [i * 6.6, 3.3, -45.6]);
+    }
+    part(stand, roundedBox(72, 0.5, 12, 0.2), mat(0x3b4250, { roughness: 0.85 }),
+      [0, 6.8, -40.4], [-0.09, 0, 0]);
+    part(stand, roundedBox(72, 0.7, 0.5, 0.16), mat(0xffc300, { roughness: 0.55 }),
+      [0, 6.5, -34.6]);
+    mergeStatic(stand);
+    for (const m of stand.children) { m.castShadow = false; m.receiveShadow = false; }
+    scene.add(stand);
+
+    let s = 20261;
+    const rnd = (): number => { s = (s * 48271) % 2147483647; return s / 2147483647; };
+    const SHIRTS = [0xff6b1a, 0xffc300, 0xfff8f0, 0x5fc8f5, 0x6fe04a, 0xff4b3a];
+    const colour = new THREE.Color();
+    for (let i = 0; i < CROWD; i++) {
+      const tier = Math.floor(rnd() * 5);
+      crowdAt[i * 4] = (rnd() - 0.5) * 66;
+      crowdAt[i * 4 + 1] = 1.2 + tier * 0.78;
+      crowdAt[i * 4 + 2] = -37.2 - tier * 1.5;
+      crowdAt[i * 4 + 3] = rnd() * Math.PI * 2;
+      crowd.setColorAt(i, colour.setHex(SHIRTS[Math.floor(rnd() * SHIRTS.length)]!));
+    }
+    if (crowd.instanceColor) crowd.instanceColor.needsUpdate = true;
+    scene.add(crowd);
+  }
+  /** Scratch for the crowd's per-frame transforms. Nothing here allocates. */
+  const _cm = new THREE.Matrix4();
+  const _cp = new THREE.Vector3();
+  const _cq = new THREE.Quaternion();
+  const _cs = new THREE.Vector3(1, 1, 1);
+  const _up = new THREE.Vector3(0, 1, 0);
 
   // The halo the hero stands in. A gradient on the floor rather than a
   // spotlight: a real cone of light through no atmosphere is invisible, and
@@ -728,6 +842,22 @@ export function createStage(ctx: GameContext): Stage | null {
    *  jump. */
   let pushZ = 0;
   let pushTarget = 0;
+  /**
+   * How much the machine on the mark is scaled to fit the frame, and what it is
+   * heading toward.
+   *
+   * The cast spans 1.9m (the cone) to 4.8m (the locomotive), and standing all
+   * seven on the same mark at the same scale is why the cone photographed 250px
+   * across and the tipper truck 700px and into the panel beside it. A character
+   * select frames its subject; the distance the chase camera picks per vehicle
+   * is the same idea. This is a *partial* normalisation on purpose — the big
+   * machines stay visibly bigger, they just stop being twice the size of the
+   * frame's subject.
+   */
+  let frameNow = 1;
+  let frameTarget = 1;
+  /** What a machine is framed to fill, in metres of its longest axis. */
+  const FRAME_SPAN = 3.1;
   /** The random slot: the whole cast, cycled on the mark. */
   let shuffling = false;
   const shuffleIds = listVehicles().map((v) => v.id);
@@ -860,7 +990,8 @@ export function createStage(ctx: GameContext): Stage | null {
       // thumbnail on its own character select.
       const size = getVehicle(id).size;
       const span = Math.max(size.length, size.width);
-      pushTarget = -Math.max(-0.4, Math.min(2.8, (span - 2.6) * 0.85));
+      pushTarget = -Math.max(-0.5, Math.min(0.9, (span - FRAME_SPAN) * 0.38));
+      frameTarget = Math.max(0.74, Math.min(1.42, (FRAME_SPAN / span) ** 0.62));
       if (pop) swapT = 0;
     }
     if (paradeWant) { clearParade(); enqueueParade(); }
@@ -926,6 +1057,7 @@ export function createStage(ctx: GameContext): Stage | null {
   const _mk = new THREE.Vector3();
   const _dir = new THREE.Vector3();
   const _wp = new THREE.Vector3();
+  const _ws = new THREE.Vector3();
   const _ray = new THREE.Raycaster();
   /** Everything a ground sample is allowed to land on, and everything that can
    *  legitimately be in the way of one. */
@@ -1030,9 +1162,14 @@ export function createStage(ctx: GameContext): Stage | null {
         const yaw = Math.atan2(e[8]!, e[10]!);
         const cy = Math.cos(yaw);
         const sy = Math.sin(yaw);
+        // The footprint in *world* metres. The machine on the mark is framed by
+        // scaling the group it stands in, so the declared size is only half the
+        // answer — a probe that reads the unscaled footprint of a cone shown at
+        // 1.4x samples ground the cone is no longer standing on.
+        root.getWorldScale(_ws);
         const size = getVehicle(d.id).size;
-        const hx = size.width * 0.5;
-        const hz = size.length * 0.5;
+        const hx = size.width * 0.5 * _ws.x;
+        const hz = size.length * 0.5 * _ws.z;
         const near: Array<[number, number]> = [];
         const far: Array<[number, number]> = [];
         const at = (ox: number, oz: number): [number, number] | null =>
@@ -1182,7 +1319,8 @@ export function createStage(ctx: GameContext): Stage | null {
         // frame after the keypress reads as a texture swap; one that comes up
         // off the ground reads as a machine being presented.
         const grow = shuffling ? 1 : lerp(0.68, 1, ease.outBack(swapT));
-        heroGroup.scale.setScalar(grow);
+        frameNow = damp(frameNow, shuffling ? 1 : frameTarget, 0.00005, dt);
+        heroGroup.scale.setScalar(grow * frameNow);
         pushZ = damp(pushZ, shuffling ? -1.1 : pushTarget, 0.0004, dt);
         heroGroup.position.set(0, 0, pushZ);
         d.model.root.position.set(0, 0, 0);
@@ -1216,6 +1354,19 @@ export function createStage(ctx: GameContext): Stage | null {
       focusR = damp(focusR, tr, 0.0008, dt);
       focusShadow(focusX, focusZ, focusR);
 
+      // The crowd bobs. Two frequencies per person off one phase, so the bank
+      // ripples rather than pulsing in time — a stand of a hundred people all
+      // at the same point in the same bounce is a stand nobody believes.
+      for (let i = 0; i < CROWD; i++) {
+        const ph = crowdAt[i * 4 + 3]!;
+        const bob = Math.sin(clock * 2.6 + ph) * 0.11 + Math.sin(clock * 1.3 + ph * 1.7) * 0.06;
+        _cp.set(crowdAt[i * 4]!, crowdAt[i * 4 + 1]! + bob, crowdAt[i * 4 + 2]!);
+        _cq.setFromAxisAngle(_up, Math.sin(clock * 0.8 + ph) * 0.25);
+        _cm.compose(_cp, _cq, _cs);
+        crowd.setMatrixAt(i, _cm);
+      }
+      crowd.instanceMatrix.needsUpdate = true;
+
       for (let i = 0; i < MOTES; i++) {
         let y = motePos[i * 3 + 1]! + moteVel[i]! * dt;
         if (y > 5.5) y -= 5.5;
@@ -1248,6 +1399,9 @@ export function createStage(ctx: GameContext): Stage | null {
         d.model.dispose?.();
       }
       built.clear();
+      crowd.dispose();
+      crowdGeo.dispose();
+      crowdMat.dispose();
       disposeTree(scene);
       (scene.background as THREE.Texture | null)?.dispose?.();
       roadTex.dispose();

@@ -38,6 +38,17 @@
 //   aggregate stockpiles. Only *tall* and *pale* survive the barrier's sight
 //   line from the road; the rest is there for the cameras that look down.
 //
+//   **The land** (§5c). All of the above is *things people put there*, and a
+//   round of review found the obvious hole in that: none of it is ground. From
+//   the barrier out to the backdrop — most of a chase camera's screen — all
+//   four courses were a bare plain with a hundred and fifty boulders scattered
+//   over a two-and-a-half kilometre lap. So the landscape gets its own two
+//   tiers: hundred-metre spurs at seventy to a hundred and forty metres, which
+//   occlude and give the eye a horizontal, and compact masses from fifty to six
+//   hundred. Both come in the landscape's own shape language — terraces,
+//   blocks, domes, peaks — because at that range the outline separates four
+//   places further than the colour does.
+//
 // On top of that, the horizon layer: cranes, silos, a mast, a conveyor and a
 // twenty-two metre traffic cone, one at the end of each straight, so a driver
 // knows where they are on the lap without reading the minimap.
@@ -342,8 +353,10 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       const s = ground.spot(wrap(d), side, off);
       if (!s.ok) return null;
       // Anything a few metres out has to prove it is not standing on the far
-      // side of the circuit — this loop folds back on itself twice.
-      if (off > 10 && ground.clearance(s.x, s.z) < off * 0.72) return null;
+      // side of the circuit — this loop folds back on itself twice. Capped at
+      // the skirt's reach, because past that the test stops being "am I clear
+      // of the road" and starts being "is this circuit two kilometres wide".
+      if (off > 10 && ground.clearance(s.x, s.z) < Math.min(off, 150) * 0.72) return null;
       return s;
     }
 
@@ -1046,16 +1059,13 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       for (let k = 0; k < 8; k++) {
         const dd = d + (k % 2 ? -1 : 1) * Math.ceil(k / 2) * 21;
         const off = near + ((far - near) * k) / 7;
-        // Past the skirt's last ring `at()` has nothing left to interpolate and
-        // clamps — every offset over 150m comes back as *the same point*, so a
-        // search asking for 130-250m was really asking for 130, 147 and then
-        // 150 six times, and the sixth one had already been claimed by the
-        // first. That is why eight salt heaps, sixteen brine pools and three
-        // crushers were declared by their courses and photographed by nobody:
-        // they were not culled or hidden, they were never placed. Past the
-        // rings the ground is the field mesh, and `farAt` is how you stand on
-        // it.
-        const s = off > 145 ? farAt(dd, side, off) : at(dd, side, off);
+        // `Ground.spot` hands back the field mesh past the skirt's last ring
+        // now, so a search that runs out past 150m gets eight distinct places
+        // to try rather than three and then the same one five times over. See
+        // the note in place.ts: that clamp is why eight salt heaps, sixteen
+        // brine pools and three crushers were declared by their courses and
+        // photographed by nobody.
+        const s = at(dd, side, off);
         if (s && free(s.x, s.z, r)) { claim(s.x, s.z, r * 0.9); return { s, d: dd, off }; }
       }
       return null;
@@ -1510,7 +1520,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
 
       // The near mass tier, inside the skirt, where `at()` still reconstructs
       // the drawn triangle rather than the function behind it.
-      for (let i = 0, n = many(165); i < n; i++) {
+      for (let i = 0, n = Math.round(many(165) * massBudget); i < n; i++) {
         const d = rng.range(0, L);
         const side = (rng.bool() ? 1 : -1) as -1 | 1;
         const off = 52 + rng.next() * 96;
@@ -1531,7 +1541,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       // laid a visible ring of identical hills round the circuit — a fence, not
       // a landscape. Scale climbs with range on top of that, so the far ones
       // stay legible without the near ones becoming walls.
-      for (let i = 0, n = many(430); i < n; i++) {
+      for (let i = 0, n = Math.round(many(430) * massBudget); i < n; i++) {
         const d = rng.range(0, L);
         const side = (rng.bool() ? 1 : -1) as -1 | 1;
         const off = rng.range(150, 620);

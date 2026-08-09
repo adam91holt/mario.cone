@@ -36,7 +36,7 @@ import { listCourses } from '../../track/courses/index.ts';
 import { glyphRun } from '../glyphs.ts';
 import { vehicleMark, wordmark } from './art.ts';
 import {
-  bind, courseMap, cupEmblem, fromHtml, hexCss, q, title, unitPx, type Bound,
+  bind, courseMap, courseScene, cupEmblem, fromHtml, hexCss, q, title, unitPx, type Bound,
 } from './chrome.ts';
 import type { CourseDef, EngineClass, GameContext, VehicleId } from '../../types.ts';
 
@@ -83,14 +83,14 @@ export const CSS_SCREENS = `
 /* An unknown stat. The random slot cannot honestly print a number, so it prints
    the absence of one: the whole track hatched, no fill, and a question mark
    where the change arrow goes. */
-#menu .stat .unk {
+#menu .stat .track .unk {
   position: absolute; inset: 0; border-radius: calc(var(--u) * .16);
   background: repeating-linear-gradient(114deg,
     rgba(95,200,245,.5) 0 calc(var(--u) * .17),
     rgba(95,200,245,.14) calc(var(--u) * .17) calc(var(--u) * .34));
   opacity: 0; pointer-events: none;
 }
-#menu .stat .arrow.unk { color: var(--cyan); }
+#menu .stat .arrow.qm { color: var(--cyan); }
 
 /* What the bars are being read against. The comparison is the reason this
    panel exists, so it says out loud which machine it is comparing with. */
@@ -584,13 +584,13 @@ export function createRacerScreen(): RacerScreen {
           bar.delta.set('opacity', bar.fade.toFixed(3));
           bar.delta.cls('up', up);
           bar.arrow.cls('up', up);
-          bar.arrow.cls('unk', false);
+          bar.arrow.cls('qm', false);
           bar.arrow.text(up ? '▲' : '▼');
           bar.arrow.set('opacity', bar.fade.toFixed(3));
         } else {
           bar.delta.set('opacity', '0');
           if (bar.hazy > 0.004) {
-            bar.arrow.cls('unk', true);
+            bar.arrow.cls('qm', true);
             bar.arrow.cls('up', false);
             bar.arrow.text('?');
             bar.arrow.set('opacity', bar.hazy.toFixed(3));
@@ -749,13 +749,14 @@ export function createCourseScreen(): CourseScreen {
   let cards = '';
   for (let i = 0; i < SLOTS; i++) {
     cards += `<div class="plate vis card courseCard" data-row="1" data-i="${i}">`
-      + `<div class="mapbox"></div>`
+      + `<div class="scene"></div>`
       + title('', 'nm')
+      + `<div class="row"><div class="mapbox"></div>`
       + `<div class="facts">`
       + `<div><span class="v len"></span><span class="k">Metres</span></div>`
       + `<div><span class="v lap"></span><span class="k">Laps</span></div>`
       + `<div><span class="v tot"></span><span class="k">Total km</span></div>`
-      + `</div><div class="held"></div></div>`;
+      + `</div></div><div class="held"></div></div>`;
   }
 
   const root = fromHtml(`
@@ -789,6 +790,7 @@ export function createCourseScreen(): CourseScreen {
     el,
     box: bind(el),
     held: bind(q(el, '.held')),
+    scene: q<HTMLElement>(el, '.scene'),
     mapbox: q<HTMLElement>(el, '.mapbox'),
     nm: bind(q(el, '.nm > i')),
     len: bind(q(el, '.len')),
@@ -925,6 +927,7 @@ export function createCourseScreen(): CourseScreen {
       const c = cardEls[i]!;
       const course = list[i];
       if (!course) continue;
+      c.scene.innerHTML = courseScene(course);
       c.mapbox.innerHTML = courseMap(course.points);
       c.nm.text(course.name);
       const len = Math.round(courseLength(course));

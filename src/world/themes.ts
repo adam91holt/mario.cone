@@ -54,13 +54,19 @@ const CANYON: LandPalette = {
   skyline: ['towerCrane', 'silo', 'mast', 'conveyor', 'towerCrane', 'mast', 'silo'],
 };
 
-// A working pit is grey. The floor is tan because a haul road is crusher dust,
-// but every piece of rock in it came out of a face two hours ago and has had no
-// time to weather — which is exactly why the quarry cannot be the canyon at a
-// different exposure.
+// A working pit is grey — floor included.
+//
+// The first version of this said the floor was tan because a haul road is
+// crusher dust, and kept the grey for the rock standing on it. That is true of
+// a quarry and false of a *photograph* of one from a kart: the only ground a
+// chase camera sees is the strip beyond the barrier, that strip never rises,
+// and so the whole course reported as warm tan twenty-four RGB points from Cone
+// Canyon's. Rounds one and two of the cup were one place. The dust is a film
+// now (`render/theme.ts`, `quarry.paint`) and the rock underneath it is what
+// the course is made of.
 const QUARRY: LandPalette = {
   rock: 0x8b8d92, rockDark: 0x60636a,
-  soil: 0x9a8a68, soilDark: 0x6d6350,
+  soil: 0x93876c, soilDark: 0x685f4e,
   veg: 0x6e7350, vegDark: 0x565c40,
   crest: 0xb9b4a6,
   cap: null,

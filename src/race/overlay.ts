@@ -19,8 +19,10 @@ import { CSS_MENU } from './menu.ts';
 import { CSS_RESULTS, createResults, type Results } from './results.ts';
 import { CSS_PAUSE, createPauseMenu, type PauseMenu } from './pausemenu.ts';
 import {
-  CSS_STAGE, createCard, createLights, createNote, createTicker, createVerdict,
-  type Card, type Lights, type Note, type Ticker, type Verdict,
+  CSS_STAGE, createCard, createFinishBeat, createLights, createNote, createTicker,
+  createVerdict, createWrongWay,
+  type Card, type FinishBeat, type Lights, type Note, type Ticker, type Verdict,
+  type WrongWay,
 } from './stage.ts';
 
 const CSS_BASE = `
@@ -82,6 +84,11 @@ export interface RaceOverlay {
   readonly verdict: Verdict;
   readonly note: Note;
   readonly ticker: Ticker;
+  /** The two-and-a-half seconds after the player's own crossing, and the
+   *  curtain that hands the frame over to the results sheet. Lives on its own
+   *  root above the HUD — see `createFinishBeat`. */
+  readonly finish: FinishBeat;
+  readonly wrongWay: WrongWay;
   readonly results: Results;
   readonly pause: PauseMenu;
   update(dt: number): void;
@@ -109,6 +116,7 @@ export function createOverlay(onPick: (id: string) => void): RaceOverlay | null 
   const verdict = createVerdict();
   const note = createNote();
   const ticker = createTicker();
+  const wrongWay = createWrongWay();
   const results = createResults(onPick);
   const pause = createPauseMenu(onPick);
 
@@ -117,12 +125,20 @@ export function createOverlay(onPick: (id: string) => void): RaceOverlay | null 
   root.appendChild(verdict.root);
   root.appendChild(note.root);
   root.appendChild(ticker.root);
+  root.appendChild(wrongWay.root);
   root.appendChild(results.root);
   root.appendChild(pause.root);
   document.body.appendChild(root);
 
+  // The finish beat is deliberately *not* a child of #race. It has to paint over
+  // the in-race HUD rather than beside it, and its wash filters what is behind
+  // it — which a `contain: paint` ancestor would make impossible, because such
+  // an element is a backdrop root and the filter would sample an empty layer.
+  const finish = createFinishBeat();
+  document.body.appendChild(finish.root);
+
   return {
-    root, card, lights, verdict, note, ticker, results, pause,
+    root, card, lights, verdict, note, ticker, finish, wrongWay, results, pause,
 
     update(dt: number): void {
       card.update(dt);
@@ -130,6 +146,8 @@ export function createOverlay(onPick: (id: string) => void): RaceOverlay | null 
       verdict.update(dt);
       note.update(dt);
       ticker.update(dt);
+      wrongWay.update(dt);
+      finish.update(dt);
       results.update(dt);
       pause.update(dt);
     },
@@ -140,6 +158,8 @@ export function createOverlay(onPick: (id: string) => void): RaceOverlay | null 
       verdict.reset();
       note.reset();
       ticker.clear();
+      wrongWay.reset();
+      finish.reset();
       results.reset();
       pause.reset();
     },
@@ -147,6 +167,7 @@ export function createOverlay(onPick: (id: string) => void): RaceOverlay | null 
     dispose(): void {
       results.dispose();
       pause.dispose();
+      finish.root.remove();
       root.remove();
       style.remove();
     },

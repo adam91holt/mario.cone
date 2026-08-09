@@ -25,7 +25,7 @@
 
 import { clamp01, ease } from '../core/math.ts';
 import { glyphBox } from '../ui/glyphs.ts';
-import { bind, fromHtml, q, rgba, type Bound } from '../ui/theme.ts';
+import { U_CSS, bind, fromHtml, q, rgba, type Bound } from '../ui/theme.ts';
 import { signBox } from './letters.ts';
 
 export const CSS_STAGE = `
@@ -132,6 +132,17 @@ export const CSS_STAGE = `
   filter: drop-shadow(0 0 calc(var(--u) * .55) rgba(255,90,30,.55));
 }
 #race .verdict .sub { height: calc(var(--u) * 1.05); color: #D8B4A4; opacity: .95; }
+/* The quiet half of the same mechanic. Being *a bit* early costs nothing and
+   must not be dressed as a catastrophe — but it used to be dressed as nothing
+   at all, so a whole second of the countdown meant a start the player could
+   neither win nor lose and was never told about. Steel rather than soot, and
+   two thirds the size of the answer that actually bites. */
+#race .verdict.mild.plate {
+  background: linear-gradient(178deg, rgba(50,60,78,.94) 0%, rgba(26,32,43,.95) 52%, rgba(14,17,24,.96) 100%);
+}
+#race .verdict.mild.plate::before { background: linear-gradient(90deg, #7E93B4, #B7C6DC 50%, #7E93B4); }
+#race .verdict.mild .big { height: calc(var(--u) * 1.9); color: #D3DEEE; filter: none; }
+#race .verdict.mild .sub { height: calc(var(--u) * .9); color: #93A4BC; }
 
 /* ── the note ────────────────────────────────────────────────────────────── */
 /* One line, left edge, above where the ticker will later stack. Small on
@@ -168,6 +179,110 @@ export const CSS_STAGE = `
 #race .ticker .tick .tg { height: calc(var(--u) * 1.05); color: #9FB0C6; margin-left: auto; }
 #race .ticker .tick.you .tn { color: #FFD84D; }
 #race .ticker .tick.you .tp { color: #FFD84D; }
+
+/* ── the wrong way ───────────────────────────────────────────────────────── */
+/* Dead centre and unmissable. It is the one readout in the game that exists to
+   be *obeyed*, and it is only ever on screen while the player is doing the one
+   thing the circuit cannot forgive, so nothing it covers matters. */
+#race .wrong {
+  position: absolute; left: 50%; top: 44%;
+  display: flex; align-items: center; gap: calc(var(--u) * .9);
+  padding: calc(var(--u) * .5) calc(var(--u) * 1.5) calc(var(--u) * .58);
+  transform: translate(-50%, -50%); opacity: 0;
+}
+#race .wrong.plate {
+  background: linear-gradient(178deg, rgba(88,26,20,.95) 0%, rgba(46,14,12,.96) 52%, rgba(20,7,6,.97) 100%);
+}
+#race .wrong.plate::before { background: linear-gradient(90deg, #FF3A1E, #FFC300 50%, #FF3A1E); }
+#race .wrong .arrow { display: block; height: calc(var(--u) * 2.3); width: calc(var(--u) * 2.6); }
+#race .wrong .arrow path { fill: #FF4B3A; stroke: #0A0D13; stroke-width: 7;
+  stroke-linejoin: round; }
+#race .wrong .big { height: calc(var(--u) * 2.2); color: #FFF8F0;
+  filter: drop-shadow(0 0 calc(var(--u) * .5) rgba(255,60,30,.6)); }
+
+/* ── the finish beat ─────────────────────────────────────────────────────── */
+/* This layer is NOT inside "#race" — it is its own root above the HUD, because
+   the two things it does are things a contained layer cannot do: it has to
+   cover the in-race furniture rather than sit beside it, and its wash has to
+   filter the *game* behind it. A "contain: paint" ancestor is a backdrop root,
+   so a backdrop-filter inside #race would sample an empty layer and do nothing.
+   See createOverlay. */
+#racefin {
+  position: fixed; inset: 0; z-index: 26; pointer-events: none;
+  -webkit-user-select: none; user-select: none;
+  --u: ${U_CSS};
+}
+/* The letterbox. A kart racer's finish is the one moment the game takes the
+   frame off the player, and bars arriving is how that is said without a word. */
+#racefin .bar {
+  position: absolute; left: 0; right: 0; height: 9%;
+  background: linear-gradient(180deg, #04060A, #0A0E15);
+  transform: translateY(-101%);
+}
+#racefin .bar.t { top: 0; }
+#racefin .bar.b { bottom: 0; }
+#racefin .bar::after {
+  content: ''; position: absolute; left: 0; right: 0;
+  height: calc(var(--u) * .16);
+  background: repeating-linear-gradient(115deg,
+    #FF6B1A 0 calc(var(--u) * .55), #14171F calc(var(--u) * .55) calc(var(--u) * 1.1));
+  opacity: .9;
+}
+#racefin .bar.t::after { bottom: 0; }
+#racefin .bar.b::after { top: 0; }
+
+/* The two possible endings, said in colour before they are said in a word.
+   **Paint, not a filter.** The honest way to drain a frame is a backdrop-filter,
+   and it was tried: a full-screen "saturate(.26)" under this project's software
+   renderer took a single frame past thirty seconds. A radial wash costs one
+   composited quad, reads identically in a still, and cannot fall off a
+   performance cliff on somebody's laptop. */
+#racefin .wash { position: absolute; inset: 0; opacity: 0; }
+#racefin .wash.gold {
+  background:
+    radial-gradient(56% 52% at 50% 51%, rgba(255,216,102,.26), rgba(255,120,30,.13) 45%, rgba(0,0,0,0) 73%),
+    radial-gradient(98% 90% at 50% 50%, rgba(0,0,0,0) 40%, rgba(96,46,4,.52) 100%);
+}
+/* Off the podium the colour goes out of the frame. The confetti is still there
+   — it belongs to the field, not to the player — but the picture it lands in is
+   cold, dark and closing in, and no still of it can be mistaken for a win. */
+#racefin .wash.grey {
+  background:
+    linear-gradient(180deg, rgba(126,146,176,.10), rgba(126,146,176,.04) 55%, rgba(126,146,176,.10)),
+    radial-gradient(76% 70% at 50% 53%, rgba(24,30,42,.50) 0%, rgba(6,9,14,.90) 100%);
+}
+/* One band of light crossing the frame on the crossing itself. */
+#racefin .sweep {
+  position: absolute; top: -20%; bottom: -20%; left: 0; width: 46%;
+  opacity: 0; transform: translateX(-140%) skewX(-14deg);
+  background: linear-gradient(90deg,
+    rgba(255,248,240,0), rgba(255,248,240,.30) 46%, rgba(255,216,77,.42) 62%, rgba(255,248,240,0));
+}
+#racefin.grey .sweep {
+  background: linear-gradient(90deg,
+    rgba(190,205,225,0), rgba(190,205,225,.16) 50%, rgba(150,165,190,.20) 64%, rgba(190,205,225,0));
+}
+
+/* ── the hand-off ────────────────────────────────────────────────────────── */
+/* Two blades that close over the whole frame and open again on the results
+   sheet. Not decoration: it is the only way three live layers — the in-race
+   HUD, the flag's own furniture and an arriving results table — can be swapped
+   without a second of all three being legible at once. Nothing gets torn down
+   in front of the player; it gets torn down behind a curtain. */
+#racefin .blade {
+  position: absolute; top: -6%; bottom: -6%; width: 62%;
+  background: linear-gradient(178deg, #12161F 0%, #080B11 60%, #04060A 100%);
+  opacity: 0;
+}
+#racefin .blade.l { left: 0; transform: translateX(-102%) skewX(-7deg); }
+#racefin .blade.r { right: 0; transform: translateX(102%) skewX(-7deg); }
+#racefin .blade::after {
+  content: ''; position: absolute; top: 0; bottom: 0; width: calc(var(--u) * .62);
+  background: repeating-linear-gradient(115deg,
+    #FF6B1A 0 calc(var(--u) * .7), #14171F calc(var(--u) * .7) calc(var(--u) * 1.4));
+}
+#racefin .blade.l::after { right: calc(var(--u) * -.62); }
+#racefin .blade.r::after { left: calc(var(--u) * -.62); }
 `;
 
 // ── the course card ────────────────────────────────────────────────────────
@@ -399,8 +514,9 @@ export function createLights(): Lights {
 
 export interface Verdict {
   readonly root: HTMLElement;
-  /** One loud line, plus a quiet one under it. */
-  show(big: string, sub?: string): void;
+  /** One loud line, plus a quiet one under it. `mild` is the steel treatment —
+   *  a start that was early enough to cost the boost but not the race. */
+  show(big: string, sub?: string, tone?: 'bad' | 'mild'): void;
   update(dt: number): void;
   reset(): void;
 }
@@ -430,26 +546,33 @@ export function createVerdict(): Verdict {
   const sub = signBox(q(root, '.sub'));
 
   let t = -1;
+  let mild = false;
   const IN = 0.16;
-  const HOLD = 1.25;
   const OUT = 0.3;
 
   return {
     root,
 
-    show(text, subText = ''): void {
+    show(text, subText = '', tone = 'bad'): void {
       big.set(text);
       sub.set(subText);
+      mild = tone === 'mild';
+      box.cls('mild', mild);
       t = 0;
     },
 
     reset(): void {
       t = -1;
+      mild = false;
+      box.cls('mild', false);
       box.set('opacity', '0');
     },
 
     update(dt): void {
       if (t < 0) return;
+      // A bogged engine is stuck for as long as the penalty runs; a jumped start
+      // is one line of information and then out of the way.
+      const HOLD = mild ? 0.85 : 1.25;
       t += dt;
       let alpha = 1, scale = 1, x = 0, y = 0;
       if (t < IN) {
@@ -461,9 +584,10 @@ export function createVerdict(): Verdict {
         y = (1 - u) * -40;
       } else if (t < IN + HOLD) {
         // The shudder. Two detuned frequencies so it never looks like a loop,
-        // decaying as the engine picks itself up.
+        // decaying as the engine picks itself up. Nothing is shaking on a mild
+        // verdict — the machine is fine, the timing was not.
         const u = (t - IN) / HOLD;
-        const k = (1 - u) * (1 - u);
+        const k = mild ? 0 : (1 - u) * (1 - u);
         x = Math.sin((t) * 41) * 1.7 * k;
         y = Math.sin((t) * 29 + 1.1) * 1.3 * k;
         scale = 1 + Math.sin(t * 37) * 0.012 * k;
@@ -561,6 +685,10 @@ export interface TickerEntry {
 export interface Ticker {
   readonly root: HTMLElement;
   add(entry: TickerEntry): void;
+  /** Fade the read-out off screen rather than deleting it mid-frame. Used by the
+   *  hand-off: the lines have to be *gone* before the results sheet exists, not
+   *  sharing the frame with it. */
+  retire(): void;
   update(dt: number): void;
   clear(): void;
 }
@@ -568,6 +696,9 @@ export interface Ticker {
 /** Seconds between two lines of a *batch*. Anything arriving on its own — a CPU
  *  crossing the line behind the player — is already spaced by the race. */
 const TICK_GAP = 0.17;
+/** Seconds a retiring ticker takes to leave. Shorter than the hand-off curtain
+ *  takes to close, so the lines are gone before anything can see them go. */
+const TICK_OUT = 0.2;
 
 export function createTicker(): Ticker {
   const root = fromHtml('<div class="ticker"></div>');
@@ -586,6 +717,8 @@ export function createTicker(): Ticker {
    */
   let queue: TickerEntry[] = [];
   let gap = 0;
+  /** Seconds into the fade-out. Negative while the read-out is live. */
+  let outT = -1;
 
   function mount(entry: TickerEntry): void {
     const el = fromHtml(`
@@ -612,10 +745,17 @@ export function createTicker(): Ticker {
     root,
 
     add(entry): void {
+      if (outT >= 0) return;
       // Straight on if nothing is waiting and nothing landed a moment ago;
       // otherwise it takes its place in the queue.
       if (gap <= 0 && !queue.length) { mount(entry); gap = TICK_GAP; return; }
       queue.push(entry);
+    },
+
+    retire(): void {
+      if (outT >= 0 || !chips.length) { queue = []; return; }
+      queue = [];
+      outT = 0;
     },
 
     clear(): void {
@@ -623,9 +763,25 @@ export function createTicker(): Ticker {
       chips = [];
       queue = [];
       gap = 0;
+      outT = -1;
     },
 
     update(dt): void {
+      if (outT >= 0) {
+        outT += dt;
+        const u = clamp01(outT / TICK_OUT);
+        const e = ease.inQuad(u);
+        for (const c of chips) {
+          c.box.set('opacity', (1 - u).toFixed(3));
+          c.box.set('transform', `translateX(${(e * -70).toFixed(2)}%)`);
+        }
+        if (u >= 1) {
+          for (const c of chips) c.el.remove();
+          chips = [];
+          outT = -1;
+        }
+        return;
+      }
       if (gap > 0) gap = Math.max(0, gap - dt);
       if (gap <= 0 && queue.length) { mount(queue.shift()!); gap = TICK_GAP; }
       for (const c of chips) {
@@ -637,4 +793,244 @@ export function createTicker(): Ticker {
       }
     },
   };
+}
+
+// ── the wrong way ──────────────────────────────────────────────────────────
+
+export interface WrongWay {
+  readonly root: HTMLElement;
+  set(on: boolean): void;
+  update(dt: number): void;
+  reset(): void;
+}
+
+/**
+ * The circuit's one non-negotiable instruction.
+ *
+ * A racer can leave the road, hit a wall, spin, stall — every one of those the
+ * game already says something about. Turning round and driving at the field was
+ * the single mistake it stayed silent on, and silence there is not neutral: a
+ * player who cannot tell they are going the wrong way concludes the track is
+ * broken. So it arrives hard, it strobes for as long as the mistake lasts, and
+ * it leaves the instant the machine is pointing the right way again.
+ */
+export function createWrongWay(): WrongWay {
+  const root = fromHtml(`
+    <div class="wrong plate">
+      <svg class="arrow" viewBox="0 0 120 100" aria-hidden="true">
+        <path d="M56 6L10 50L56 94L56 68L110 68L110 32L56 32Z"/>
+      </svg>
+      <div class="big word"></div>
+    </div>
+  `);
+  const box = bind(root);
+  signBox(q(root, '.big'), 'WRONG WAY');
+
+  let on = false;
+  /** Rises to 1 while the warning is up, falls to 0 when it is not. */
+  let amt = 0;
+  let t = 0;
+
+  return {
+    root,
+
+    set(next): void {
+      if (next === on) return;
+      on = next;
+      if (on) t = 0;
+    },
+
+    reset(): void {
+      on = false;
+      amt = 0;
+      t = 0;
+      box.set('opacity', '0');
+    },
+
+    update(dt): void {
+      if (!on && amt <= 0) return;
+      t += dt;
+      amt = on ? Math.min(1, amt + dt / 0.12) : Math.max(0, amt - dt / 0.18);
+      // Two beats a second, square-ish rather than sinusoidal — an alarm, not a
+      // breath. The plate itself never fully leaves while the warning is up, so
+      // the words stay readable through the flash.
+      const flash = 0.62 + 0.38 * (Math.sin(t * 11) > -0.2 ? 1 : 0);
+      const pop = ease.outBack(clamp01(t / 0.16));
+      box.set('opacity', (amt * flash).toFixed(3));
+      box.set('transform',
+        `translate(-50%, -50%) scale(${(0.76 + 0.24 * pop * amt + (1 - amt) * 0.0).toFixed(3)})`);
+      if (!on && amt <= 0) box.set('opacity', '0');
+    },
+  };
+}
+
+// ── the finish beat ────────────────────────────────────────────────────────
+
+export interface FinishBeat {
+  readonly root: HTMLElement;
+  /** The player took the flag. `place` decides which of the two endings plays. */
+  play(place: number, podium: boolean): void;
+  /** True while the beat owns the frame. */
+  readonly active: boolean;
+  /** Cut it short — something else needs the frame now. */
+  retire(): void;
+  /** Close the hand-off curtain, hold it, and open it again. */
+  wipe(): void;
+  update(dt: number): void;
+  reset(): void;
+}
+
+/** Letterbox in, hold, out. The whole beat is 2.55s, which is the window the
+ *  race director keeps for itself after the player's own crossing. */
+const FIN_IN = 0.2;
+const FIN_HOLD = 1.9;
+const FIN_OUT = 0.45;
+/** The hand-off curtain: closed by 0.24s, held, open again by 0.76s. */
+const WIPE_IN = 0.24;
+const WIPE_HOLD = 0.2;
+const WIPE_OUT = 0.32;
+
+/**
+ * The two-and-a-half seconds after the player's own line crossing.
+ *
+ * Everything here is *frame-level*: bars, a wash and a sweep of light. It says
+ * nothing in words — the place and the time are the HUD's banner to print, and
+ * two modules announcing the same result is how a finish ends up with two
+ * plates fighting over the middle of the screen.
+ *
+ * What it does say, and says before any number is legible, is **which of the
+ * two endings this was**. A podium warms and saturates the frame and takes a
+ * gold sweep across it. Fourth or worse drains the colour out of the whole
+ * picture — the confetti included, because that burst belongs to the race and
+ * not to the player — and closes a cold vignette in. A still frame from either
+ * one is unmistakably not the other, which is the entire complaint this widget
+ * exists to answer.
+ *
+ * It lives on its own root above the HUD rather than inside the race overlay,
+ * for two reasons: it has to cover the in-race furniture rather than sit beside
+ * it, and a backdrop-filter under a `contain: paint` ancestor filters nothing.
+ */
+export function createFinishBeat(): FinishBeat {
+  const root = fromHtml(`
+    <div id="racefin">
+      <div class="wash"></div>
+      <div class="sweep"></div>
+      <div class="bar t"></div>
+      <div class="bar b"></div>
+      <div class="blade l"></div>
+      <div class="blade r"></div>
+    </div>
+  `);
+  const box = bind(root);
+  const wash = bind(q(root, '.wash'));
+  const sweep = bind(q(root, '.sweep'));
+  const barT = bind(q(root, '.bar.t'));
+  const barB = bind(q(root, '.bar.b'));
+  const bladeL = bind(q(root, '.blade.l'));
+  const bladeR = bind(q(root, '.blade.r'));
+
+  let t = -1;
+  let podium = true;
+  let wipeT = -1;
+
+  const TOTAL = FIN_IN + FIN_HOLD + FIN_OUT;
+
+  function bars(v: number): void {
+    // v is 0 (clear) .. 1 (closed).
+    const y = (1 - v) * -101;
+    barT.set('transform', `translateY(${y.toFixed(2)}%)`);
+    barB.set('transform', `translateY(${(-y).toFixed(2)}%)`);
+  }
+
+  function clearBeat(): void {
+    t = -1;
+    bars(0);
+    wash.set('opacity', '0');
+    sweep.set('opacity', '0');
+  }
+
+  const api: FinishBeat = {
+    root,
+
+    get active(): boolean { return t >= 0 || wipeT >= 0; },
+
+    play(place, isPodium): void {
+      podium = isPodium;
+      box.cls('grey', !isPodium);
+      wash.cls('gold', isPodium);
+      wash.cls('grey', !isPodium);
+      t = 0;
+    },
+
+    retire(): void {
+      if (t < 0) return;
+      // Skip straight to the exit, wherever the beat had got to.
+      t = Math.max(t, FIN_IN + FIN_HOLD);
+    },
+
+    wipe(): void {
+      if (wipeT >= 0) return;
+      wipeT = 0;
+    },
+
+    reset(): void {
+      clearBeat();
+      wipeT = -1;
+      bladeL.set('opacity', '0');
+      bladeR.set('opacity', '0');
+      bladeL.set('transform', 'translateX(-102%) skewX(-7deg)');
+      bladeR.set('transform', 'translateX(102%) skewX(-7deg)');
+      box.cls('grey', false);
+    },
+
+    update(dt): void {
+      if (t >= 0) {
+        t += dt;
+        if (t >= TOTAL) clearBeat();
+        else {
+          const inU = ease.outQuart(clamp01(t / FIN_IN));
+          const outU = ease.inQuad(clamp01((t - FIN_IN - FIN_HOLD) / FIN_OUT));
+          bars(inU * (1 - outU));
+
+          // The wash arrives a shade behind the bars and leaves with them.
+          const wu = ease.outQuad(clamp01(t / 0.3)) * (1 - outU);
+          // A slow breath while it holds, so a held frame is never a still.
+          const breathe = 1 + Math.sin(t * 1.9) * 0.06;
+          wash.set('opacity', (wu * (podium ? 0.98 : 1) * breathe).toFixed(3));
+
+          // One band of light across the frame, on the crossing itself.
+          const su = clamp01(t / 0.62);
+          if (su < 1) {
+            sweep.set('opacity', (Math.sin(su * Math.PI) * (podium ? 1 : 0.6)).toFixed(3));
+            sweep.set('transform',
+              `translateX(${(-140 + ease.outQuad(su) * 400).toFixed(1)}%) skewX(-14deg)`);
+          } else if (su >= 1) sweep.set('opacity', '0');
+        }
+      }
+
+      if (wipeT < 0) return;
+      wipeT += dt;
+      let v: number;
+      if (wipeT < WIPE_IN) v = ease.outQuart(wipeT / WIPE_IN);
+      else if (wipeT < WIPE_IN + WIPE_HOLD) v = 1;
+      else {
+        v = 1 - ease.inQuad(clamp01((wipeT - WIPE_IN - WIPE_HOLD) / WIPE_OUT));
+        if (v <= 0) {
+          wipeT = -1;
+          bladeL.set('opacity', '0');
+          bladeR.set('opacity', '0');
+          return;
+        }
+      }
+      bladeL.set('opacity', '1');
+      bladeR.set('opacity', '1');
+      // 62% wide blades meeting in the middle: at v = 1 each has travelled its
+      // own width less the overlap, so the seam is always covered.
+      bladeL.set('transform', `translateX(${((v - 1) * 102).toFixed(2)}%) skewX(-7deg)`);
+      bladeR.set('transform', `translateX(${((1 - v) * 102).toFixed(2)}%) skewX(-7deg)`);
+    },
+  };
+
+  api.reset();
+  return api;
 }

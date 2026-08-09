@@ -31,6 +31,7 @@
 // through `glyphRun` so the two faces meet somewhere.
 
 import { U_CSS, hexCss, C } from '../theme.ts';
+import type { CourseDef } from '../../types.ts';
 
 export { bind, fromHtml, q, hexCss, unitPx } from '../theme.ts';
 export type { Bound } from '../theme.ts';
@@ -552,8 +553,35 @@ export const CSS_MENU = `
 }
 #menu .cupTab .t { font-size: calc(var(--u) * .92); }
 #menu .cupTab .em { width: calc(var(--u) * 1.5); height: calc(var(--u) * 1.5); display: block; }
-#menu .courseCard { width: calc(var(--u) * 16.4); min-height: calc(var(--u) * 14.4); }
+#menu .courseCard { width: calc(var(--u) * 16.4); }
 #menu .courseCard .t { font-size: calc(var(--u) * 1.05); }
+/* The picture of the place.
+
+   The four cards used to be identical dark slabs each carrying a grey route
+   line and three unit labels, and the critique was exactly right about it: Cone
+   Canyon, Jackhammer Quarry, Saltpan Bypass and Switchback Summit were
+   indistinguishable, and the only thing on them was engineering data. A circuit
+   select has to answer "what is it like there" before it answers "how long is
+   it".
+
+   So every card now carries a small painting of its own circuit, drawn from the
+   course's *own theme block* — its sky gradient, its ground colour, its haze,
+   its road base and edge paint, and a horizon keyed off the props the world
+   system dresses it with. Nothing here is authored per course; add a fifth
+   circuit and it arrives with a picture. */
+#menu .courseCard .scene {
+  position: relative; width: 100%; line-height: 0;
+  border-radius: calc(var(--u) * .34);
+  overflow: hidden;
+  box-shadow: inset 0 0 0 calc(var(--u) * .09) rgba(9,11,15,.8),
+              0 calc(var(--u) * .1) calc(var(--u) * .3) rgba(0,0,0,.45);
+}
+#menu .courseCard .scene svg { display: block; width: 100%; height: auto; }
+#menu .courseCard .row {
+  display: flex; align-items: center; gap: calc(var(--u) * .75);
+}
+#menu .courseCard .mapbox { width: 47%; flex: 0 0 auto; }
+#menu .courseCard .row .facts { flex-direction: column; gap: calc(var(--u) * .42); }
 #menu .facts { display: flex; gap: calc(var(--u) * 1.1); }
 #menu .facts div { display: flex; flex-direction: column; gap: calc(var(--u) * .12); }
 #menu .facts .v { font-size: calc(var(--u) * .92); font-weight: 900; }
@@ -614,6 +642,229 @@ export function courseMap(points: Array<{ x: number; z: number }>, cls = ''): st
     + ` stroke-dasharray="3 4" opacity=".55"/>`
     + `<circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="4.2" fill="${hexCss(C.yellow)}"`
     + ` stroke="#0A0D13" stroke-width="1.6"/>`
+    + `</svg>`;
+}
+
+// ── the picture of a place ─────────────────────────────────────────────────
+
+/**
+ * A deterministic little RNG seeded off a string.
+ *
+ * Two cards must be identical on every boot — a review sheet whose horizon is a
+ * different shape in every screenshot is a review sheet nobody can compare —
+ * and nothing in this product may reach for `Math.random`.
+ */
+function seedFrom(s: string): () => number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return (): number => {
+    h = (Math.imul(h, 48271) + 2531011) >>> 0;
+    return (h >>> 8) / 0x1000000;
+  };
+}
+
+/** Blend two packed colours and return CSS. Used to fog a distant ridge back
+ *  toward the course's own haze, which is what makes a horizon read as far. */
+function mixHex(a: number, b: number, t: number): string {
+  const r = Math.round(((a >> 16) & 255) + (((b >> 16) & 255) - ((a >> 16) & 255)) * t);
+  const g = Math.round(((a >> 8) & 255) + (((b >> 8) & 255) - ((a >> 8) & 255)) * t);
+  const l = Math.round((a & 255) + ((b & 255) - (a & 255)) * t);
+  return `#${((1 << 24) | (r << 16) | (g << 8) | l).toString(16).slice(1)}`;
+}
+
+type Ridge = (rnd: () => number, w: number, hz: number, lo: number, hi: number) => string;
+
+/** Flat-topped mesas — a canyon. */
+const ridgeMesa: Ridge = (rnd, w, hz, lo, hi) => {
+  let d = `M-8 ${hz}`;
+  let x = -8;
+  while (x < w + 8) {
+    const bw = 22 + rnd() * 28;
+    const h = lo + rnd() * (hi - lo);
+    const s = 3 + rnd() * 5;
+    d += `L${(x + s).toFixed(1)} ${(hz - h).toFixed(1)}`
+      + `L${(x + bw - s).toFixed(1)} ${(hz - h).toFixed(1)}`
+      + `L${(x + bw).toFixed(1)} ${hz}`;
+    x += bw + 2 + rnd() * 13;
+    if (x < w + 8) d += `L${x.toFixed(1)} ${hz}`;
+  }
+  return `${d}L${w + 8} ${hz}Z`;
+};
+
+/** Terraced benches — a working pit. */
+const ridgeBench: Ridge = (rnd, w, hz, lo, hi) => {
+  let d = `M-8 ${hz}`;
+  let x = -8;
+  while (x < w + 8) {
+    const bw = 30 + rnd() * 24;
+    const steps = 2 + Math.floor(rnd() * 3);
+    const h = lo + rnd() * (hi - lo);
+    for (let s = 1; s <= steps; s++) {
+      const y = (hz - (h * s) / steps).toFixed(1);
+      d += `L${(x + (bw * (s - 1)) / (steps * 2.2)).toFixed(1)} ${y}`
+        + `L${(x + (bw * s) / (steps * 2.2)).toFixed(1)} ${y}`;
+    }
+    for (let s = steps; s >= 1; s--) {
+      const y = (hz - (h * s) / steps).toFixed(1);
+      d += `L${(x + bw - (bw * s) / (steps * 2.2)).toFixed(1)} ${y}`
+        + `L${(x + bw - (bw * (s - 1)) / (steps * 2.2)).toFixed(1)} ${y}`;
+    }
+    x += bw + 1;
+    d += `L${x.toFixed(1)} ${hz}`;
+  }
+  return `${d}L${w + 8} ${hz}Z`;
+};
+
+/** Sharp peaks — altitude. */
+const ridgePeak: Ridge = (rnd, w, hz, lo, hi) => {
+  let d = `M-10 ${hz}`;
+  let x = -10;
+  while (x < w + 10) {
+    const bw = 24 + rnd() * 26;
+    const h = lo + rnd() * (hi - lo);
+    d += `L${(x + bw * 0.5).toFixed(1)} ${(hz - h).toFixed(1)}L${(x + bw).toFixed(1)} ${hz}`;
+    x += bw * (0.7 + rnd() * 0.22);
+  }
+  return `${d}L${w + 10} ${hz}Z`;
+};
+
+/** Almost nothing, a long way off — a salt flat. */
+const ridgeFlat: Ridge = (rnd, w, hz, lo, hi) => {
+  let d = `M-8 ${hz}`;
+  let x = -8;
+  while (x < w + 8) {
+    const bw = 32 + rnd() * 36;
+    const h = lo * 0.3 + rnd() * (hi - lo) * 0.24;
+    d += `L${(x + bw * 0.28).toFixed(1)} ${(hz - h).toFixed(1)}`
+      + `L${(x + bw * 0.72).toFixed(1)} ${(hz - h * 0.72).toFixed(1)}`
+      + `L${(x + bw).toFixed(1)} ${hz}`;
+    x += bw;
+  }
+  return `${d}L${w + 8} ${hz}Z`;
+};
+
+/**
+ * A picture of a circuit, drawn from the circuit's own theme.
+ *
+ * Sky gradient, haze band, two ridges fogged back at different depths, the
+ * ground colour, and the road running to the horizon in the course's own
+ * asphalt with its own edge paint on it — every one of those numbers comes out
+ * of `CourseDef.theme`, which is the same block the renderer lights the real
+ * place with. The horizon's *shape* is chosen off the props the world system
+ * dresses that course with, so a quarry gets benches and a summit gets peaks.
+ */
+export function courseScene(course: CourseDef): string {
+  const th = course.theme ?? {};
+  const sky = th.sky ?? { top: 0x2e86d6, bottom: 0xbfe7ff, horizon: 0xffe2b0 };
+  const ground = th.ground ?? 0xc99a5b;
+  const haze = th.fog?.color ?? sky.bottom;
+  const road = th.road ?? {};
+  const props = (th.props ?? {}) as Record<string, unknown>;
+  const rnd = seedFrom(course.id);
+
+  const W = 200;
+  const H = 74;
+  const HZ = 41;
+  const id = `cs-${course.id}`;
+
+  const ridge: Ridge = props.quarry ? ridgeBench
+    : props.alpine ? ridgePeak
+      : props.saltpan ? ridgeFlat
+        : ridgeMesa;
+
+  // Two bands of land at different depths, each fogged toward the course's own
+  // haze by how far away it is. One ridge reads as a fence; two read as land.
+  const far = ridge(rnd, W, HZ, 14, 26);
+  const near = ridge(rnd, W, HZ + 3, 7, 15);
+  const farInk = mixHex(ground, haze, 0.62);
+  const nearInk = mixHex(ground, haze, 0.3);
+
+  // The sun sits where the course's own key light is: azimuth across the frame,
+  // elevation up it.
+  const sun = th.sun ?? { color: 0xfff2d8, intensity: 2.6, azimuth: 0.7, elevation: 0.85 };
+  const sx = ((Math.sin(sun.azimuth) * 0.5 + 0.5) * 0.7 + 0.15) * W;
+  const sy = HZ - Math.min(1, sun.elevation) * (HZ - 8);
+
+  const base = road.base ?? '#3A3D46';
+  const edge = road.edge ?? hexCss(C.yellow);
+  const line = road.line ?? hexCss(C.white);
+
+  // The road: a wedge from the bottom of the frame to a point on the horizon,
+  // with its own edge paint down both sides and a dashed centre line.
+  const vx = W * 0.54;
+  const roadPoly = `${(vx - 3).toFixed(1)},${HZ + 3} ${(vx + 3).toFixed(1)},${HZ + 3}`
+    + ` ${(W * 0.5 + 62).toFixed(0)},${H} ${(W * 0.5 - 52).toFixed(0)},${H}`;
+
+  let dressing = '';
+  if (props.alpine) {
+    // Pines along the near ground.
+    for (let i = 0; i < 9; i++) {
+      const x = 6 + rnd() * (W - 12);
+      const h = 7 + rnd() * 6;
+      const y = HZ + 5 + rnd() * 9;
+      if (Math.abs(x - vx) < 16) continue;
+      dressing += `<path d="M${x.toFixed(1)} ${(y - h).toFixed(1)}`
+        + `L${(x + h * 0.34).toFixed(1)} ${y.toFixed(1)}H${(x - h * 0.34).toFixed(1)}Z"`
+        + ` fill="#2C4433"/>`;
+    }
+  } else if (props.quarry) {
+    // A conveyor on legs, running off the left of the pit.
+    dressing += `<path d="M6 ${HZ - 3}L58 ${HZ - 15}" stroke="#4A4E57" stroke-width="2.6"`
+      + ` stroke-linecap="round"/>`
+      + `<path d="M20 ${HZ - 6}v6M40 ${HZ - 10}v10" stroke="#3A3E46" stroke-width="1.8"/>`;
+  } else if (props.saltpan) {
+    // Survey pegs: this place has nothing in it, and that is the point.
+    for (let i = 0; i < 5; i++) {
+      const x = 14 + rnd() * (W - 28);
+      if (Math.abs(x - vx) < 18) continue;
+      dressing += `<path d="M${x.toFixed(1)} ${HZ + 2}v-7" stroke="#8A8577" stroke-width="1.4"/>`
+        + `<rect x="${(x - 0.6).toFixed(1)}" y="${HZ - 6}" width="3.6" height="2.4" fill="${edge}"/>`;
+    }
+  } else {
+    // Cones, obviously.
+    for (let i = 0; i < 6; i++) {
+      const x = 10 + rnd() * (W - 20);
+      const y = HZ + 8 + rnd() * 12;
+      if (Math.abs(x - vx) < 20) continue;
+      const h = 4 + rnd() * 3;
+      dressing += `<path d="M${x.toFixed(1)} ${(y - h).toFixed(1)}`
+        + `L${(x + h * 0.42).toFixed(1)} ${y.toFixed(1)}H${(x - h * 0.42).toFixed(1)}Z"`
+        + ` fill="${hexCss(C.orange)}"/>`;
+    }
+  }
+
+  return `<svg class="place" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">`
+    + `<defs>`
+    + `<linearGradient id="${id}-sky" x1="0" y1="0" x2="0" y2="1">`
+    + `<stop offset="0" stop-color="${hexCss(sky.top)}"/>`
+    + `<stop offset=".62" stop-color="${hexCss(sky.bottom)}"/>`
+    + `<stop offset="1" stop-color="${hexCss(sky.horizon ?? sky.bottom)}"/>`
+    + `</linearGradient>`
+    + `<radialGradient id="${id}-sun">`
+    + `<stop offset="0" stop-color="${hexCss(sun.color)}" stop-opacity=".95"/>`
+    + `<stop offset="1" stop-color="${hexCss(sun.color)}" stop-opacity="0"/>`
+    + `</radialGradient>`
+    + `<linearGradient id="${id}-gnd" x1="0" y1="0" x2="0" y2="1">`
+    + `<stop offset="0" stop-color="${mixHex(ground, haze, 0.26)}"/>`
+    + `<stop offset="1" stop-color="${mixHex(ground, 0x000000, 0.16)}"/>`
+    + `</linearGradient>`
+    + `</defs>`
+    + `<rect width="${W}" height="${HZ + 4}" fill="url(#${id}-sky)"/>`
+    + `<circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="22" fill="url(#${id}-sun)"/>`
+    + `<path d="${far}" fill="${farInk}"/>`
+    + `<path d="${near}" fill="${nearInk}"/>`
+    + `<rect y="${HZ + 3}" width="${W}" height="${H - HZ - 3}" fill="url(#${id}-gnd)"/>`
+    + `<polygon points="${roadPoly}" fill="${base}"/>`
+    + `<path d="M${(vx - 3).toFixed(1)} ${HZ + 3}L${(W * 0.5 - 52).toFixed(0)} ${H}"`
+    + ` stroke="${edge}" stroke-width="2" fill="none"/>`
+    + `<path d="M${(vx + 3).toFixed(1)} ${HZ + 3}L${(W * 0.5 + 62).toFixed(0)} ${H}"`
+    + ` stroke="${edge}" stroke-width="2" fill="none"/>`
+    + `<path d="M${vx.toFixed(1)} ${HZ + 4}L${(W * 0.5 + 5).toFixed(0)} ${H}"`
+    + ` stroke="${line}" stroke-width="1.6" stroke-dasharray="3 5" fill="none" opacity=".8"/>`
+    + dressing
     + `</svg>`;
 }
 

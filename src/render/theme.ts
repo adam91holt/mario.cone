@@ -12,9 +12,9 @@
 // This file is the fix and the contract. It is the *only* place that decides
 // what a theme key means, it is exhaustive, and it is loud:
 //
-//   * Every key a course may write is listed in `PROP_KEYS`. Anything else
-//     throws, by name, at build time. Silent no-op is exactly how thirteen dead
-//     keys shipped, so the failure mode is now a hard one.
+//   * Every key a course may write is one of the three lists below. Anything
+//     else throws, by name, at build time. Silent no-op is exactly how thirteen
+//     dead keys shipped, so the failure mode is now a hard one.
 //   * Exactly one *landscape* key is allowed. `canyon`, `quarry`, `saltpan` and
 //     `alpine` are not decorations, they are four different ground surfaces —
 //     each with its own colour ramp, its own detail texture and its own scatter
@@ -26,6 +26,26 @@
 //
 // `src/render/ground.ts` consumes the surface half of this; `src/world/themes.ts`
 // consumes the prop half.
+//
+// ── the second round ───────────────────────────────────────────────────────
+//
+// The four ramps below were authored against the overhead camera and judged
+// against the chase camera, which is not the same picture. A critic sampled the
+// ground beyond the barrier from the seat a player actually races in and found
+// Cone Canyon at #93785D and Jackhammer Quarry at #8C7347 — twenty-four RGB
+// points apart, where forty is roughly where a person sees two different
+// places. Rounds one and two of the cup were the same ground at a different
+// time of day. Saltpan Bypass was worse in a more interesting way: from
+// overhead its crust measured a genuinely neutral #BABBB8, and from the chase
+// camera the same course measured warm beige #C1B2A9, because a tan shoulder
+// band ramped over twenty-two metres owned the whole strip the low camera can
+// see and the declared 0xE0DCCC salt only started past it.
+//
+// The lesson is in every ramp now: **the first ten metres beyond the shoulder
+// is the course's identity**, because from the seat that is most of the lower
+// third of the frame, and everything past it is fog and silhouette. So the
+// near-field anchor of each surface is the loudest statement it makes, not the
+// quietest.
 
 import * as THREE from 'three';
 import { noise2, smoothstep } from '../track/geom.ts';
@@ -317,7 +337,13 @@ const saltpan: GroundSurface = {
 // two kilometres away — *snow above the line*. The road is ploughed, so the
 // snow starts well clear of it and arrives with a broken, noisy edge rather
 // than a contour ring.
-const ALPINE_SHOULDER = c(0x7c7d72);
+// Cool grey-green, and *green at the kerb*. The first cut ramped tussock in
+// between two and eighteen metres below road level, which on an embankment that
+// only falls 5.7m meant the turf never reached more than about seven per cent
+// — so the one band a chase camera sees came back neutral grey and measured
+// eleven RGB points from Cone Canyon's. A mountain road in summer has tussock
+// up against the shoulder; that is where it goes now.
+const ALPINE_SHOULDER = c(0x77806b);
 const ALPINE_WET = c(0x585a52);
 const ALPINE_TURF = c(0x67704a);
 const ALPINE_SCREE = c(0xa5a294);
@@ -331,7 +357,7 @@ const alpine: GroundSurface = {
   paint(a, out) {
     out.copy(ALPINE_SHOULDER).lerp(a.base, smoothstep(2, 30, a.d));
     out.lerp(ALPINE_TURF,
-      smoothstep(-2, -18, a.rel) * (1 - smoothstep(-24, -52, a.rel)) * 0.55);
+      smoothstep(-0.4, -7, a.rel) * (1 - smoothstep(-24, -52, a.rel)) * 0.62);
     out.lerp(ALPINE_WET, smoothstep(-16, -48, a.rel) * 0.7);
     out.lerp(ALPINE_SCREE, smoothstep(18, 74, a.rel) * 0.75);
     // The snowline, broken by a noise field so it never reads as a contour.

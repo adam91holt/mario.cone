@@ -19,7 +19,7 @@
 // clock at all — photograph the same screen every time.
 
 import { clamp01, ease, formatTime } from '../core/math.ts';
-import { glyphBox, ordinalWord } from '../ui/glyphs.ts';
+import { glyphBox, ordinalWord, type GlyphBox } from '../ui/glyphs.ts';
 import { bind, fromHtml, q, rgba, type Bound } from '../ui/theme.ts';
 import { signBox } from './letters.ts';
 import { createHint, createMenu, type Menu, type MenuOption } from './menu.ts';
@@ -234,6 +234,8 @@ const ROW_STEP = 0.085;
 const ROW_IN = 0.34;
 /** Slack after the last element has landed, before the sheet is declared still. */
 const SETTLE_PAD = 1.7;
+/** How long a championship total takes to climb to its new value. */
+const COUNT_UP = 0.55;
 
 export function createResults(onPick: (id: string) => void): Results {
   const root = fromHtml(`
@@ -303,7 +305,11 @@ export function createResults(onPick: (id: string) => void): Results {
     flash: Bound;
     isPlayer: boolean;
   }
-  interface CupRow { box: Bound }
+  /** A championship line, and the two numbers it counts between. A total that
+   *  is simply *printed* is a fact; a total that climbs while you watch is the
+   *  race you just drove being added to your season, which is the only reason
+   *  this panel is on screen at all. */
+  interface CupRow { box: Bound; pt: GlyphBox; from: number; to: number; shown: number }
 
   let rows: Row[] = [];
   let cupCells: CupRow[] = [];
@@ -358,13 +364,14 @@ export function createResults(onPick: (id: string) => void): Results {
     glyphBox(q(el, '.cpos'), String(s.place));
     signBox(q(el, '.cnm'), s.name);
     glyphBox(q(el, '.cgain'), s.gained > 0 ? `+${s.gained}` : '');
-    glyphBox(q(el, '.cpt'), String(s.points));
+    const from = Math.max(0, s.points - s.gained);
+    const pt = glyphBox(q(el, '.cpt'), String(from));
     bind(q(el, '.chip')).set('background', chipPaint(s.color));
     const b = bind(el);
     b.cls('you', s.isPlayer);
     b.cls('lead', leader);
     cupRows.appendChild(el);
-    return { box: b };
+    return { box: b, pt, from, to: s.points, shown: from };
   }
 
   const api: Results = {
@@ -442,10 +449,15 @@ export function createResults(onPick: (id: string) => void): Results {
       if (t > settleAt) { menu.update(dt); return; }
 
       // ── the sheet ────────────────────────────────────────────────────────
-      const inT = clamp01(t / 0.34);
+      // **The scrim is up before anything else is.** The race hands this screen
+      // over behind a closed curtain, so there is no fade to cover: every frame
+      // in which the in-race HUD could still be legible *underneath* the arriving
+      // table is a frame with two interfaces in it. The staged part of the
+      // entrance is the table, which is what the eye is actually reading.
+      const inT = clamp01(t / 0.14);
       const e = ease.outQuart(inT);
       box.set('opacity', e.toFixed(3));
-      scrim.set('opacity', ease.outQuad(clamp01(t / 0.5)).toFixed(3));
+      scrim.set('opacity', ease.outQuad(clamp01(t / 0.16)).toFixed(3));
       sheet.set('transform', `translateY(${((1 - e) * 2.6).toFixed(2)}%)`);
       head.set('transform', `translateY(${((1 - ease.outQuart(clamp01((t - 0.05) / 0.34))) * -140).toFixed(1)}%)`);
       head.set('opacity', clamp01((t - 0.05) / 0.18).toFixed(3));
@@ -479,9 +491,19 @@ export function createResults(onPick: (id: string) => void): Results {
       cupPanel.set('opacity', cu.toFixed(3));
       cupPanel.set('transform', `translateX(${((1 - ease.outQuart(cu)) * 14).toFixed(2)}%)`);
       for (let i = 0; i < cupCells.length; i++) {
-        const cu2 = clamp01((t - cupStart - 0.06 - i * 0.045) / 0.24);
-        cupCells[i]!.box.set('opacity', cu2.toFixed(3));
-        cupCells[i]!.box.set('transform', `translateY(${((1 - ease.outQuart(cu2)) * -34).toFixed(1)}%)`);
+        const cell = cupCells[i]!;
+        const rowStart = cupStart + 0.06 + i * 0.045;
+        const cu2 = clamp01((t - rowStart) / 0.24);
+        cell.box.set('opacity', cu2.toFixed(3));
+        cell.box.set('transform', `translateY(${((1 - ease.outQuart(cu2)) * -34).toFixed(1)}%)`);
+        // ...and then the total climbs, from what it was before this race to
+        // what it is now. Only ever rewritten when the integer changes, so a
+        // count from 12 to 27 costs fifteen glyph rebuilds and not one a frame.
+        if (cell.to !== cell.from) {
+          const k = ease.outQuad(clamp01((t - rowStart - 0.22) / COUNT_UP));
+          const want = Math.round(cell.from + (cell.to - cell.from) * k);
+          if (want !== cell.shown) { cell.shown = want; cell.pt.set(String(want)); }
+        }
       }
 
       // ── the footer ───────────────────────────────────────────────────────
