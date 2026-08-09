@@ -27,9 +27,9 @@
 // listen, and the default without a listener is the beat this card needs.
 
 import { clamp01, ease, lerp } from '../../core/math.ts';
-import { glyphRun } from '../glyphs.ts';
+import { glyphBox, glyphRun } from '../glyphs.ts';
 import { vehicleMark } from './art.ts';
-import { bind, courseMap, cupEmblem, fromHtml, hexCss, q, title } from './chrome.ts';
+import { bind, courseMap, cupEmblem, fromHtml, hexCss, q, title, titleBox } from './chrome.ts';
 import { getVehicle } from '../../vehicles/registry.ts';
 import { getCourse } from '../../track/courses/index.ts';
 import type { EngineClass, VehicleId } from '../../types.ts';
@@ -56,7 +56,8 @@ export const CSS_LAUNCH = `
 }
 #menu .launch .cup .em { width: calc(var(--u) * 1.9); height: calc(var(--u) * 1.9); display: block; }
 #menu .launch .cup .cap { font-size: calc(var(--u) * .68); }
-#menu .launch .name .t { font-size: calc(var(--u) * 2.4); text-align: center; }
+#menu .launch .name .t { font-size: calc(var(--u) * 2.4); }
+#menu .launch .name .t > i { display: flex; justify-content: center; }
 #menu .launch .row {
   display: flex; align-items: center; gap: calc(var(--u) * 1.8);
   width: 100%; justify-content: center;
@@ -77,7 +78,7 @@ export const CSS_LAUNCH = `
 }
 #menu .launch .facts { display: flex; gap: calc(var(--u) * 1.3); }
 #menu .launch .facts div { display: flex; flex-direction: column; gap: calc(var(--u) * .14); }
-#menu .launch .facts .v { font-size: calc(var(--u) * 1.3); font-weight: 900; }
+#menu .launch .facts .v { display: block; height: calc(var(--u) * 1.3); }
 #menu .launch .facts .k {
   font-size: calc(var(--u) * .56); font-weight: 800; letter-spacing: .18em;
   text-transform: uppercase; color: rgba(255,248,240,.5);
@@ -183,14 +184,14 @@ export function createLaunchCard(): LaunchCard {
   const emWrap = q<HTMLElement>(root, '.cup .em-wrap');
   const cupName = bind(q(root, '.cupname'));
   const flag = q<HTMLElement>(root, '.flag');
-  const nm = bind(q(root, '.nm > i'));
-  const mach = bind(q(root, '.mach > i'));
+  const nm = titleBox(q(root, '.nm > i'));
+  const mach = titleBox(q(root, '.mach > i'));
   const mapbox = q<HTMLElement>(root, '.mapbox');
   const sil = q<HTMLElement>(root, '.sil');
   const cc = q<HTMLElement>(root, '.cc');
-  const len = bind(q(root, '.len'));
-  const lap = bind(q(root, '.lap'));
-  const tot = bind(q(root, '.tot'));
+  const len = glyphBox(q(root, '.len'));
+  const lap = glyphBox(q(root, '.lap'));
+  const tot = glyphBox(q(root, '.tot'));
   const crawl = bind(q(root, '.crawl i'));
 
   let clock = 0;
@@ -222,9 +223,9 @@ export function createLaunchCard(): LaunchCard {
 
       nm.text(course.name);
       mapbox.innerHTML = courseMap(course.points);
-      len.text(String(metres));
-      lap.text(String(laps));
-      tot.text(((metres * laps) / 1000).toFixed(1));
+      len.set(String(metres));
+      lap.set(String(laps));
+      tot.set(((metres * laps) / 1000).toFixed(1));
       sil.innerHTML = vehicleMark(info.vehicleId);
       mach.text(veh.name);
       cc.innerHTML = glyphRun(info.engineClass.toUpperCase());

@@ -55,7 +55,7 @@ import { driveCurve, midiHz } from './dsp.ts';
 import { param, set } from './nodes.ts';
 import type { AudioBackend } from './context.ts';
 
-export type MusicMode = 'none' | 'grid' | 'race' | 'final' | 'star' | 'victory';
+export type MusicMode = 'none' | 'menu' | 'grid' | 'race' | 'final' | 'star' | 'victory';
 /** Everything but silence. Only these have a chart behind them. */
 type ActiveMode = Exclude<MusicMode, 'none'>;
 
@@ -166,6 +166,23 @@ interface ModeSpec {
 }
 
 const MODES: Record<ActiveMode, ModeSpec> = {
+  /**
+   * The front-end's theme.
+   *
+   * The whole of the front-end — title, machine, circuit, class — used to run on
+   * `grid`, which is a four-bar zero-intensity holding pattern written for the
+   * seven seconds between the grid forming and the flag. The game's title
+   * screen had no theme; it had a vamp, on a loop, for as long as a player
+   * spent choosing.
+   *
+   * So this is the theme, played the way a menu should play it: the full
+   * sixteen-bar chart, so the hook, the break and the return all land, at a
+   * relaxed tempo and a low arrangement weight. It is the same tune the race is
+   * scored with — which is the point, because the moment the flag falls the
+   * player should recognise where they are. `grid` is still what the hand-off
+   * switches to, and the flag still cuts to the theme's own downbeat.
+   */
+  menu:    { bpm: 128, transpose: 0, intensity: 0.14, bars: 16, chart: 'race',    level: 0.78 },
   grid:    { bpm: 152, transpose: 0, intensity: 0.0,  bars: 4,  chart: 'grid',    level: 0.9 },
   race:    { bpm: 152, transpose: 0, intensity: 0.35, bars: 16, chart: 'race',    level: 1 },
   final:   { bpm: 164, transpose: 2, intensity: 0.85, bars: 16, chart: 'race',    level: 1.05 },

@@ -32,8 +32,11 @@
 // exists.
 
 import { clamp01, ease, makeRng } from '../../core/math.ts';
+import { CURTAIN_IN, CURTAIN_OUT } from '../theme.ts';
 import { getVehicle, listVehicles } from '../../vehicles/registry.ts';
-import { bind, CSS_MENU, fromHtml, hintKey, q, title } from './chrome.ts';
+import {
+  bind, CSS_MENU, curtainTransform, fromHtml, hintKey, q, title, titleBox, type TitleBox,
+} from './chrome.ts';
 import { createLaunchCard, CSS_LAUNCH } from './launch.ts';
 import { createStage, type ShotName, type Stage } from './stage.ts';
 import {
@@ -237,9 +240,9 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
   const hintBox = bind(q(root, '.hint'));
   const wipeL = bind(q(root, '.wipe s.l'));
   const wipeR = bind(q(root, '.wipe s.r'));
-  const traySlots = new Map<string, { box: HTMLElement; text: ReturnType<typeof bind> }>();
+  const traySlots = new Map<string, { box: HTMLElement; text: TitleBox }>();
   for (const el of Array.from(root.querySelectorAll<HTMLElement>('.tray .slot'))) {
-    traySlots.set(el.dataset.k!, { box: el, text: bind(q(el, '.t > i')) });
+    traySlots.set(el.dataset.k!, { box: el, text: titleBox(q(el, '.t > i')) });
   }
 
   // ── state ───────────────────────────────────────────────────────────────
@@ -293,10 +296,14 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
   let holdWanted = 0;
   /** Counts down while the board swings away. -1 when it is not. */
   let outro = -1;
-  /** How long the card is guaranteed on screen, board fully closed. */
+  /** How long the card is guaranteed on screen, board fully closed. The hold is
+   *  the *only* thing this caller decides about the curtain — the two travel
+   *  times come from `ui/theme.ts` and are shared with the race's own hand-off,
+   *  so the same gesture ninety seconds later runs at the same tempo. */
   const CARD_HOLD = 1.05;
-  /** ...and how long the board takes to swing off it. */
-  const SWING = 0.55;
+  /** How long the board takes to close over the frame, and to swing off it. */
+  const CLOSE = CURTAIN_IN;
+  const SWING = CURTAIN_OUT;
   /** Nothing may hold the frame for ever, listener or not. */
   const HOLD_CAP = 7;
 
@@ -484,8 +491,7 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
 
   function navTitle(v: string): void {
     if (v === 'menu.ok') {
-      sfx('item.get', 0.9);
-      ctx.audio?.setMusic('grid');
+      sfx('ui.ok', 1);
       goTo('racer', 1);
     }
   }
@@ -769,7 +775,14 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
     // The bed the whole front-end runs on. Stated rather than inherited: with
     // no override the music follows the race behind the menus, so a front-end
     // opened over a finished race would come up to a victory fanfare.
-    ctx.audio?.setMusic('grid');
+    //
+    // `menu`, not `grid`. This used to run the countdown vamp — four bars of a
+    // zero-intensity holding pattern written for the seven seconds before a
+    // flag — under the title screen, the roster, the circuits and the classes,
+    // which is to say the game had no theme anywhere a player could hear one.
+    // The hand-off is where `grid` belongs, and `launch()` still hands the bed
+    // straight back to the phase machine to get it.
+    ctx.audio?.setMusic('menu');
     screens[at].enter?.();
     if (at === 'racer') screens.racer.setBaseline(choice.vehicleId);
     stage?.cut(SHOT[at]);
@@ -893,8 +906,8 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
       cover = 0;
       if (launching) {
         launchT += dt;
-        cover = ease.outQuart(clamp01(launchT / 0.34));
-        if (!wipeSwapped && launchT >= 0.34) {
+        cover = ease.outQuart(clamp01(launchT / CLOSE));
+        if (!wipeSwapped && launchT >= CLOSE) {
           wipeSwapped = true;
           doLaunch();
           // The machine says its own name once more as the card lands on the
@@ -906,7 +919,7 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
         // A race takes a moment to build. The board stays across the frame
         // until it is ready rather than opening onto the menus we are about to
         // leave, and then for as long again as the card on it needs to be read.
-        const until = 0.34 + CARD_HOLD + holdWanted;
+        const until = CLOSE + CARD_HOLD + holdWanted;
         // ...and a floor under it: a `hold` whose owner never comes back, or a
         // race that never finishes building, must not leave a player looking at
         // a board for ever.
@@ -934,12 +947,11 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
       // and one that fires on every arrow key is a promise about nothing.
       cardShow = launching || outro >= 0 ? clamp01((cover - 0.86) / 0.14) : 0;
       card.update(dt, cardShow);
-      // Per cent of the panel's own width, and the panel is 78% of the frame
-      // hung 10% outside it: 108% of 78% is 84% of the frame, which clears a
-      // panel whose far edge sits at 68%.
-      const off = (1 - cover) * 108;
-      wipeL.set('transform', `translateX(${(-off).toFixed(2)}%) skewX(-7deg)`);
-      wipeR.set('transform', `translateX(${off.toFixed(2)}%) skewX(-7deg)`);
+      // The blades' travel, and their geometry, come from one place — see the
+      // curtain note in `ui/theme.ts`. This module states only how far shut the
+      // board is; where that puts a blade is not its business any more.
+      wipeL.set('transform', curtainTransform(cover, -1));
+      wipeR.set('transform', curtainTransform(cover, 1));
       stage?.setLevel(1 - cover * 0.82);
 
       // ── screens ───────────────────────────────────────────────────────────

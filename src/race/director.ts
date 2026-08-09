@@ -965,12 +965,35 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
 
   // ── results ──────────────────────────────────────────────────────────────
 
+  /**
+   * Open a championship over the cup the current circuit belongs to.
+   *
+   * **The circuit the player chose decides which round this is.** It did not,
+   * and the two halves of the game said different things about it inside one
+   * second: the front-end's launch card printed the chosen circuit's index in
+   * the cup ("ROUND 3 OF 4", third of four pips lit) and `begin()` here
+   * unconditionally set round 0, so the course card on the grid a beat later
+   * said 1/4. Worse, `cup.courseId()` is `courseIds[round]`, so NEXT RACE after
+   * a race started on Saltpan sent the player to Jackhammer — skipping Cone
+   * Canyon and queueing Saltpan again later in the same championship.
+   *
+   * A cup is its registry order and nothing else, so entering it on the third
+   * circuit means entering at round three. All three screens that state a round
+   * — the circuit card's brief, the launch card, the grid's course card — now
+   * read the same number off the same list, and `advance()` walks forward
+   * through it in order.
+   *
+   * `rounds` is the list's own length rather than a hardcoded 4, so a fifth
+   * circuit added to a cup lengthens the championship without a line changing.
+   */
   function ensureCup(): void {
     if (cupStarted) return;
     const cupId = ctx.track?.course.cup ?? 'hazard';
     const inCup = coursesInCup(cupId);
     const list = (inCup.length ? inCup : listCourses().slice()).map((c) => c.id);
-    cup.begin(cupId, cupTitle(cupId), list, 4);
+    cup.begin(cupId, cupTitle(cupId), list, list.length);
+    const at = list.indexOf(cfgNow.courseId);
+    if (at > 0) cup.state.round = at;
     cupStarted = true;
   }
 

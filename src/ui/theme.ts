@@ -170,6 +170,169 @@ function hslToHex(h: number, s: number, l: number): number {
   return (r << 16) | (g << 8) | b;
 }
 
+// ── the curtain ────────────────────────────────────────────────────────────
+//
+// **One curtain, drawn once, used twice.** There were two: a hazard board the
+// front-end swung across the frame to start a race, and a pair of blades the
+// race swung across to hand over to the results sheet. Same gesture, ninety
+// seconds apart, built by two people who never met — 78% panels in edge-to-edge
+// orange stripe against 62% blades in near-black, and the second one running at
+// roughly half the first one's tempo.
+//
+// The paint is the race's: near-black blades with a single hazard strip down
+// the leading edge. Edge-to-edge orange fills the frame with the loudest colour
+// in the palette at the one moment the player is meant to be looking *forward*,
+// and the launch card printed on the closed board needs a dark ground to be
+// read against. The geometry is the front-end's, because the race's was
+// quietly wrong: a blade skewed 7° over a frame-and-a-bit of height moves each
+// corner sideways by about 4% of the frame, so a 62% blade hung at x=0 leaves a
+// wedge of bare screen in one corner at the exact moment the curtain is
+// supposed to be *shut*. Wider, and hung outside the frame on both edges, has
+// no such moment.
+//
+// The two durations are shared. The hold is the only thing a caller decides,
+// because that is the only thing the two uses genuinely disagree about: the
+// front-end holds for as long as the launch card needs to be read, the race
+// holds for exactly as long as it takes to tear down three layers.
+
+/** Seconds the blades take to close, and to open again. */
+export const CURTAIN_IN = 0.3;
+export const CURTAIN_OUT = 0.42;
+/** Blade width and how far outside the frame it hangs, both in % of the frame. */
+const CURTAIN_W = 78;
+const CURTAIN_OUTSET = 10;
+const CURTAIN_SKEW = -7;
+/** Per cent of its *own* width a blade travels to clear the frame. 108% of 78%
+ *  is 84% of the frame, which clears a blade whose far edge sits at 68%. */
+const CURTAIN_TRAVEL = 108;
+
+/** The transform for one blade at coverage `cover` (0 open, 1 shut). */
+export function curtainTransform(cover: number, side: -1 | 1): string {
+  const off = (1 - cover) * CURTAIN_TRAVEL * side;
+  return `translateX(${off.toFixed(2)}%) skewX(${CURTAIN_SKEW}deg)`;
+}
+
+/**
+ * The blades, for one layer. `sel` is the selector of a blade element; the
+ * caller supplies `.l` and `.r` variants of it.
+ */
+export function curtainCss(scope: string, sel: string): string {
+  return `
+${scope} ${sel} {
+  position: absolute; top: -14%; bottom: -14%; width: ${CURTAIN_W}%;
+  display: block; opacity: 1;
+  background: linear-gradient(178deg, #12161F 0%, #080B11 60%, #04060A 100%);
+  box-shadow: 0 0 calc(var(--u) * 2) rgba(0,0,0,.7);
+}
+${scope} ${sel}.l { left: -${CURTAIN_OUTSET}%;
+  transform: translateX(-${CURTAIN_TRAVEL}%) skewX(${CURTAIN_SKEW}deg); }
+${scope} ${sel}.r { right: -${CURTAIN_OUTSET}%;
+  transform: translateX(${CURTAIN_TRAVEL}%) skewX(${CURTAIN_SKEW}deg); }
+/* The one stripe on the whole board: a hazard strip down the edge that leads.
+   A blade is a barrier being drawn across the road, and a barrier has tape on
+   the end you are meant to stop at. */
+${scope} ${sel}::after {
+  content: ''; position: absolute; top: 0; bottom: 0; width: calc(var(--u) * .62);
+  background: repeating-linear-gradient(115deg,
+    #FF6B1A 0 calc(var(--u) * .7), #14171F calc(var(--u) * .7) calc(var(--u) * 1.4));
+}
+${scope} ${sel}.l::after { right: calc(var(--u) * -.62); }
+${scope} ${sel}.r::after { left: calc(var(--u) * -.62); }
+`;
+}
+
+// ── the cursor ─────────────────────────────────────────────────────────────
+//
+// **One selected-state.** The front-end drew the cursor as a gold outline ring
+// around an otherwise unchanged cell; the race drew it as a gold-*filled* plate
+// with a white label and a chevron pointing at itself. Two games' worth of
+// "this one is selected", ninety seconds apart.
+//
+// The ring wins, and not on taste. Half the cells this cursor has to sit on are
+// *pictures* — a machine silhouette, a card carrying a painting of a circuit —
+// and a gold fill obliterates them; a ring goes round anything. What the fill
+// had that the ring did not is a chevron aimed at the cell, and that comes
+// along: the ring below carries one on its left edge, so both layers now say
+// "here" with the same object.
+
+/** The cursor ring, as a box-shadow. `w` scales it for a smaller cell. */
+export function cursorRing(w = 1): string {
+  return `0 0 0 calc(var(--u) * ${(0.22 * w).toFixed(3)}) ${hexCss(C.yellow)},`
+    + ` 0 0 0 calc(var(--u) * ${(0.34 * w).toFixed(3)}) rgba(9,11,15,.95),`
+    + ` 0 0 calc(var(--u) * ${(1.5 * w).toFixed(2)}) rgba(255,180,40,.62)`;
+}
+
+/** The chevron that hangs off the cursor's leading edge, for one layer. */
+export function cursorChevronCss(scope: string, sel: string): string {
+  return `
+${scope} ${sel}::before {
+  content: ''; position: absolute; top: 50%; left: calc(var(--u) * -1.02);
+  width: calc(var(--u) * .8); height: calc(var(--u) * 1.15);
+  transform: translateY(-50%);
+  background: ${hexCss(C.yellow)};
+  clip-path: polygon(0 0, 100% 50%, 0 100%, 36% 50%);
+  filter: drop-shadow(0 0 calc(var(--u) * .18) rgba(255,190,60,.9));
+}
+`;
+}
+
+// ── the prompt rail ────────────────────────────────────────────────────────
+//
+// The front-end printed a dark plate of boxed keycaps in title case; the race
+// printed a bare 62%-opacity line of drawn words with no keycaps and no "Back"
+// — on a screen where Esc does in fact work. One rail now, built here, so a
+// legend cannot say different things about the same keyboard in two places.
+
+/** The keycap + label pair a prompt rail is made of. */
+export const hintKey = (key: string, label: string): string =>
+  `<span class="k"><span class="key">${key}</span><span class="lbl">${label}</span></span>`;
+
+/** The rail's own styling, for one layer. */
+export function hintCss(scope: string): string {
+  return `
+${scope} .k { display: flex; align-items: center; gap: calc(var(--u) * .38); }
+${scope} .key {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: calc(var(--u) * 1.5); height: calc(var(--u) * 1.3);
+  padding: 0 calc(var(--u) * .34);
+  border-radius: calc(var(--u) * .28);
+  background: linear-gradient(180deg, #F3F0E8, #C9C6BE);
+  color: #14171E; font-weight: 900; font-size: calc(var(--u) * .74);
+  font-family: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: .02em;
+  box-shadow: 0 calc(var(--u) * .12) 0 #6E6B65,
+              0 calc(var(--u) * .2) calc(var(--u) * .3) rgba(0,0,0,.55);
+}
+${scope} .lbl {
+  text-transform: uppercase; font-weight: 800; font-size: calc(var(--u) * .68);
+  font-family: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: .16em; color: rgba(255,248,240,.82);
+}
+`;
+}
+
+// ── the circuit, as a diagram ──────────────────────────────────────────────
+//
+// The same track was drawn as two different objects: a thick grey road with a
+// white dashed centre line and a yellow dot on the start for the circuit cards,
+// and a pale-grey outline with a chequered marker for the HUD minimap. A player
+// reads the first to choose a circuit and the second for three laps. These are
+// the numbers both of them now draw from.
+
+export const MAP = {
+  /** The casing under the road, so the ribbon has an edge against any plate. */
+  ink: 'rgba(8,10,14,.94)',
+  /** The road itself. Light enough to clear a dark plate and give the blips a
+   *  ground to be rimmed against. */
+  road: '#98A2B4',
+  /** The crown down the middle. Solid, not dashed — at minimap scale a dash is
+   *  noise, and one road cannot be dashed on one screen and solid on another. */
+  crown: 'rgba(255,248,240,.34)',
+  /** Casing width as a multiple of the road's, and crown width likewise. */
+  inkScale: 1.42,
+  crownScale: 0.16,
+} as const;
+
 // ── DOM ────────────────────────────────────────────────────────────────────
 
 /**

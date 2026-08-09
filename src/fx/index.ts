@@ -2839,13 +2839,44 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     lastPhase = phase;
   });
 
-  ctx.bus.on<{ racer: Racer }>('race:finish', ({ racer }) => {
-    if (racer.isPlayer) pendConfetti = 1;
-    else pendConfetti = Math.max(pendConfetti, 0.35);
-  });
+  /**
+   * The flag, and **what the flag was worth**.
+   *
+   * This used to be `if (racer.isPlayer) pendConfetti = 1` — full strength,
+   * place ignored — while the other two modules answering the same event both
+   * read it: the mixer picks `finish` or `finish.back` off the podium test, and
+   * the director arms a finish beat that drains the colour out of the whole
+   * frame for fourth or worse. So a sixth of eight got the sad fanfare, the
+   * grey wash *and* several hundred hot-pink confetti flakes, simultaneously.
+   *
+   * The burst is the celebration, so it scales with the thing being celebrated:
+   * full for a win, most of it for the rest of the podium, and a token amount
+   * off it — the field is still finishing, and something should still land, but
+   * nothing about the player's own frame should look like a party.
+   */
+  ctx.bus.on<{ racer: Racer; place: number; podium: boolean }>(
+    'race:finish', ({ racer, place, podium }) => {
+      if (!racer.isPlayer) { pendConfetti = Math.max(pendConfetti, 0.35); return; }
+      const worth = podium ? (place === 1 ? 1 : 0.72) : 0.12;
+      pendConfetti = Math.max(pendConfetti, worth);
+    },
+  );
 
   ctx.bus.on<{ racer: Racer }>('race:lap', ({ racer }) => {
     if (racer.isPlayer) pendLapPop = 1;
+  });
+
+  /**
+   * A new best lap, on the frame it happens.
+   *
+   * The one thing a player chases lap to lap, and until now it produced nothing
+   * at all until the results sheet — `race:bestlap` had no listener anywhere in
+   * the game. A cool flash rather than the orange one the final lap gets: this
+   * is a *time*, not a state change, and it must not be mistaken for the alarm
+   * that says the race is nearly over.
+   */
+  ctx.bus.on<{ racer: Racer }>('race:bestlap', ({ racer }) => {
+    if (racer.isPlayer) screen.flash(0x8CE9FF, 0.22);
   });
 
   ctx.bus.on<{ racer: Racer }>('race:rocketStart', ({ racer }) => {

@@ -116,6 +116,21 @@ float mcDither(vec2 p) {
 #endif
 `;
 
+/**
+ * Extra exposure on top of the engine's, so the grade is tuned in one place.
+ *
+ * Nudged up when the fill came down: cutting the ambient by more than half is
+ * what buys the modelling, but taken on its own it also takes a stop out of the
+ * whole picture, and this game is high-key. The ratio is the art direction; the
+ * absolute level is a knob.
+ *
+ * It lives here rather than in `lighting.ts` because it has two consumers: the
+ * race's post stack and the front-end's 3D set, which used to run stock ACES at
+ * a number of its own and photographed a stop darker than the machine it was
+ * about to hand the player.
+ */
+export const EXPOSURE_TRIM = 1.12;
+
 let installed = false;
 
 /**
