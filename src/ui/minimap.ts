@@ -36,16 +36,28 @@ const MAP_H = 11.2;
 const SAMPLES = 240;
 
 /**
- * Blip radius in device pixels, and the ink ring every blip wears.
+ * Blip radius and casing, **as a fraction of `--u`**.
  *
  * This used to be 2.9 — about six screen pixels of anonymous coloured dot, and
  * three of the four machines in front of the player are red, orange or yellow.
  * A map you have to zoom a screenshot to 8x to read is a map that does nothing
  * at 200km/h. Big enough to carry a hue, with a heavy enough casing that two
  * overlapping blips still show two lobes rather than a blob.
+ *
+ * **And measured in the HUD's own unit, not in device pixels.** Every other
+ * dimension in this module — the plate, its padding, the corner it sits in —
+ * is a multiple of `--u`, which is purely proportional to the viewport (see
+ * theme.ts). These four numbers were not: a blip was 4.1 device pixels on a
+ * phone and 4.1 device pixels on a 4K display, so the plate grew by a factor of
+ * two and a half around a dot that never moved. On the big screen the field
+ * became specks on an empty ribbon; on the small one the dots ate the road.
+ * Expressed in `--u` the whole widget scales as one object, and the floor in
+ * device pixels is only there so a blip is never sub-pixel on a small phone.
  */
-const BLIP_R = 4.1;
-const BLIP_RING = 2.0;
+const BLIP_R_U = 0.30;
+const BLIP_RING_U = 0.115;
+const BLIP_R_MIN = 3.0;
+const BLIP_RING_MIN = 1.3;
 /**
  * The player's marker, as a multiple of everybody else's.
  *
@@ -161,6 +173,8 @@ export function createMinimap(ctx: GameContext): Minimap {
    * edge.
    */
   let dpr = 1;
+  /** The HUD unit in CSS pixels, cached alongside `dpr` and for the same reason. */
+  let unit = 16;
   let sizeDirty = true;
 
   /** Per-racer blip colour, resolved once a race — `getVehicle` is a map lookup
@@ -182,6 +196,7 @@ export function createMinimap(ctx: GameContext): Minimap {
   /** Resize the buffers to match the CSS box. Returns true if they changed. */
   function ensureSize(): boolean {
     const u = unitPx();
+    unit = u;
     dpr = Math.min(globalThis.devicePixelRatio || 1, 2);
     const w = Math.max(1, Math.round(MAP_W * u * dpr));
     const h = Math.max(1, Math.round(MAP_H * u * dpr));
@@ -227,7 +242,11 @@ export function createMinimap(ctx: GameContext): Minimap {
     width /= SAMPLES;
 
     // Fit, with room for the road's own width and the blips that ride on it.
-    const pad = Math.max(5 * dpr, width * 0.5);
+    // A margin in `--u`, like everything else, rather than in metres — the old
+    // `width * 0.5` was half the road's width in *metres* used as a count of
+    // pixels, which happened to land near the right answer on this circuit and
+    // on no other.
+    const pad = Math.max(6 * dpr, 0.68 * unit * dpr);
     const spanX = Math.max(1, maxX - minX);
     const spanZ = Math.max(1, maxZ - minZ);
     scale = Math.min((w - pad * 2) / spanX, (h - pad * 2) / spanZ);
@@ -255,7 +274,15 @@ export function createMinimap(ctx: GameContext): Minimap {
     // machines on it, because a minimap's job is to say who is where in the
     // order, not to survey the circuit. The cap keeps a short course from
     // turning into a sausage; the floor keeps a long one from becoming thread.
-    const roadPx = Math.max(7 * dpr, Math.min(22 * dpr, width * scale * 1.95));
+    //
+    // The floor and the cap are in `--u` for the same reason the blips are: a
+    // ceiling of 22 device pixels meant that on a large display the ribbon
+    // stopped growing while the plate and the machines on it carried on, and
+    // the field ended up wider than the road it was driving down.
+    const roadPx = Math.min(
+      Math.max(width * scale * 1.95, 0.42 * unit * dpr),
+      1.35 * unit * dpr,
+    );
     sc.lineJoin = 'round';
     sc.lineCap = 'round';
 
@@ -270,7 +297,7 @@ export function createMinimap(ctx: GameContext): Minimap {
     // glance widget. The road now sits well clear of everything behind it, which
     // also gives the blips a light ground to be dark-rimmed against.
     sc.strokeStyle = 'rgba(8,10,14,.94)';
-    sc.lineWidth = roadPx + 3.4 * dpr;
+    sc.lineWidth = roadPx + Math.max(2.4 * dpr, 0.2 * unit * dpr);
     sc.stroke(path);
     sc.strokeStyle = '#98A2B4';
     sc.lineWidth = roadPx;
@@ -423,8 +450,8 @@ export function createMinimap(ctx: GameContext): Minimap {
       gc.drawImage(still, 0, 0);
 
       const player = ctx.player;
-      const r = BLIP_R * dpr;
-      const ring = BLIP_RING * dpr;
+      const r = Math.max(BLIP_R_MIN * dpr, BLIP_R_U * unit * dpr);
+      const ring = Math.max(BLIP_RING_MIN * dpr, BLIP_RING_U * unit * dpr);
 
       // Back of the field first, leader last, player over everything.
       //
@@ -501,10 +528,10 @@ export function createMinimap(ctx: GameContext): Minimap {
             // and the dark plate within one revolution, and a single gold line
             // disappears into the first of those.
             gc.strokeStyle = `rgba(10,12,18,${fade})`;
-            gc.lineWidth = 3.4 * dpr;
+            gc.lineWidth = ring * 1.7;
             gc.stroke();
             gc.strokeStyle = `rgba(255,214,90,${fade})`;
-            gc.lineWidth = 1.7 * dpr;
+            gc.lineWidth = ring * 0.85;
             gc.stroke();
           }
 
@@ -537,7 +564,7 @@ export function createMinimap(ctx: GameContext): Minimap {
             noseTri(gc, x, y, rad, racer.yaw, 0);
             gc.fillStyle = '#FF6B1A';
             gc.fill();
-            gc.lineWidth = 1.3 * dpr;
+            gc.lineWidth = Math.max(1, ring * 0.62);
             gc.strokeStyle = 'rgba(8,10,15,.9)';
             gc.stroke();
           } else if (racer.finished) {

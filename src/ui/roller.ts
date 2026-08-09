@@ -83,10 +83,21 @@ export function createRoller(root: HTMLElement): Roller {
 
       // The old value leaves the way the counter is turning: a place gained
       // rolls the old number downward out of frame, a place lost throws it up.
+      //
+      // **Percentages of the numeral's own box, never `em`.** This travel used
+      // to be `0.62em`, and not one element in the chain above it states a
+      // font-size: `#hud` sets a family and nothing else, so the em resolved
+      // against the document's 16px and the biggest number in the game — a
+      // 135px place indicator at review resolution — was thrown *ten pixels*
+      // and faded. The swap that the whole widget exists for was, measurably,
+      // a dissolve. It is the same trap `readouts.ts` fell into twice and
+      // called out in its own comments; the roller is where it was still live.
+      // A percentage resolves against this element's own height, which is the
+      // glyph height, at every resolution.
       const away = dir >= 0 ? -1 : 1;
       const out = ease.inQuad(t);
       prev.set('transform',
-        `translateY(${(away * out * 0.62).toFixed(3)}em) scale(${(1 - out * 0.26).toFixed(3)})`);
+        `translateY(${(away * out * 82).toFixed(2)}%) scale(${(1 - out * 0.26).toFixed(3)})`);
       prev.set('opacity', (1 - Math.min(1, out * 1.6)).toFixed(3));
 
       // ...and the new one arrives from the other side with a little overshoot,
@@ -94,7 +105,7 @@ export function createRoller(root: HTMLElement): Roller {
       // *landing*.
       const inT = ease.outBack(Math.min(1, t * 1.18));
       cur.set('transform',
-        `translateY(${(-away * (1 - inT) * 0.62).toFixed(3)}em) scale(${(0.72 + inT * 0.28).toFixed(3)})`);
+        `translateY(${(-away * (1 - inT) * 82).toFixed(2)}%) scale(${(0.72 + inT * 0.28).toFixed(3)})`);
       cur.set('opacity', Math.min(1, t * 3.4).toFixed(3));
 
       if (t >= 1) {

@@ -204,7 +204,7 @@ export function createSpriteLayer(opts: SpriteLayerOptions): SpriteLayer {
     uniforms: {
       tAtlas: { value: opts.atlas },
       uCamVel: { value: camVel },
-      uMaxStretch: { value: opts.maxStretch ?? 1.05 },
+      uMaxStretch: { value: opts.maxStretch ?? 0.9 },
     },
     vertexShader: VERT,
     fragmentShader: FRAG,

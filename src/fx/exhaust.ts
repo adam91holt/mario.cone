@@ -115,18 +115,18 @@ export const EXHAUST: Record<VehicleId, ExhaustPort[]> = {
   cone: [
     port({
       x: 0.24, y: 0.52, z: -1.14, dx: 0.16, dy: 1.1, dz: -1,
-      size: 0.09, grow: 2.6, idle: 24, drive: 50, alpha: 0.10,
+      size: 0.15, grow: 2.7, idle: 26, drive: 54, alpha: 0.145,
     }),
     port({
       x: -0.24, y: 0.52, z: -1.14, dx: -0.16, dy: 1.1, dz: -1,
-      size: 0.09, grow: 2.6, idle: 24, drive: 50, alpha: 0.10,
+      size: 0.15, grow: 2.7, idle: 26, drive: 54, alpha: 0.145,
     }),
   ],
   // One pipe under the rear valance, at (0, 0.42, -1.86).
   car: [
     port({
       x: 0.18, y: 0.44, z: -1.92, dx: 0.14, dy: 1.1, dz: -1,
-      size: 0.11, grow: 2.7, idle: 26, drive: 54, alpha: 0.10,
+      size: 0.17, grow: 2.8, idle: 28, drive: 58, alpha: 0.145,
     }),
   ],
   // Diesel stack behind the cab, at (0.92, 2.95, 0.42), venting straight up.

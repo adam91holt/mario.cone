@@ -17,9 +17,12 @@
 // Everything the slot shows is read from `ctx.player.item` / `.itemCount` — the
 // simulation's own truth, so a lightning bolt that empties the slot, a boo that
 // steals from it and the harness' `__ITEMS.give` all land here without any of
-// them having to know this widget exists. The bus is used only for the two
-// things state cannot express: when the roulette *started* spinning, and when
-// it stopped.
+// them having to know this widget exists. The bus carries only what state
+// cannot express: that a roulette *started* and how long it will run
+// (`item:roulette` `start`, with its `duration`), where its reel is and how much
+// of it is left (`item:reel`, once per face), and that it stopped. The drum in
+// this socket therefore turns on the item system's clock rather than on a copy
+// of its tuning constants — including when the player cuts the spin short.
 
 import { clamp01, ease } from '../core/math.ts';
 import { ITEMS, REEL_FACES } from '../items/defs.ts';
@@ -31,16 +34,22 @@ import {
 } from './theme.ts';
 
 /**
- * How long the reel is assumed to spin, for the shape of its deceleration.
+ * The spin length to fall back on if the item system ever stops stating one.
  *
- * The bus says *that* a roulette started and *that* it settled; it does not say
- * how long the spin will be. A reel that cycles at a constant rate has no
- * ending, so this mirrors `SPIN_PLAYER` in the item system to slow the cadence
- * into the answer. If the two ever disagree the reel simply lands early or
- * late — it is snapped to the real item by the settle either way, so the
- * picture can never be wrong, only less well timed.
+ * **It is a fallback and nothing else now.** This used to be a copy of
+ * `SPIN_PLAYER` — two modules holding the same tuning constant, which is a
+ * desync waiting for the first time either is touched — and worse, a constant
+ * cannot know about the things that change a spin's length while it is running.
+ * The item system's contract (ARCHITECTURE §7) hands both facts over on the
+ * bus: `item:roulette` `start` carries the `duration` this spin will actually
+ * run for, and `item:reel` fires once per face of the drum with `remaining`
+ * counting down to zero on the settle. This widget decelerates on those, so a
+ * player who *slot-stops* the reel — taps the item button to cut a second of
+ * theatre down to eighty milliseconds — sees the drum snap into the answer
+ * instead of carrying on at a cadence timed for a spin that is no longer
+ * happening.
  */
-const ASSUMED_SPIN = 1.05;
+const FALLBACK_SPIN = 1.05;
 
 // ── the charge collar ──────────────────────────────────────────────────────
 //
@@ -59,8 +68,20 @@ const ASSUMED_SPIN = 1.05;
 // says the same thing the colour does, and "two thirds round" always means
 // "one more beat to purple".
 
-const SLOT_U = 6.1;
-const SLOT_RADIUS_U = 1.15;
+/**
+ * The socket, in `--u`.
+ *
+ * **Sized against the rest of the set, not against the space available.** At
+ * 6.1 this was the *smallest* of the five clusters on screen — a third of the
+ * area of the minimap, two thirds the height of the place indicator — while
+ * being, by this module's own argument, the one widget the player looks at
+ * while they are busy driving. A first-party racer gives the item frame about
+ * an eighth of the frame's height, which is what this is: at review resolution
+ * a 116px socket, comfortably clear of the banner line at 21% and of the
+ * countdown numeral below it, and unmistakably the loudest object in the HUD.
+ */
+const SLOT_U = 6.8;
+const SLOT_RADIUS_U = 1.28;
 
 // ── the drum ───────────────────────────────────────────────────────────────
 //
@@ -196,17 +217,30 @@ export const CSS_ITEM = `
    deep and dark, the hazard floor shows through the way the inside of a real
    socket does, and the ring drops off the boil. Holding something lights the
    ring and puts an object in the light. Nothing has to be read. */
+/* **The housing stays lit; it is the *well* that goes dark.** The first cut of
+   this dropped the hazard ring to 52% along with everything else, and
+   photographed against a bright sky the whole object turned into a grey
+   rounded rectangle with a brown smear in it — not "an empty socket" but "an
+   element that failed to load", in the most looked-at position on the screen,
+   for the eighty percent of a lap the player is holding nothing. An empty
+   frame in a first-party racer is still *drawn*: full rim, full bevel, and a
+   recess behind it deep enough that the absence is obviously an absence. So
+   the ring keeps most of its heat, the orange in the housing texture is pulled
+   back from the value where it reads as dirt on the glass, and the well gets a
+   proper radial floor. */
 #hud .slot.empty {
   background:
-    linear-gradient(163deg, rgba(70,80,99,.5), rgba(10,13,19,.9)),
+    radial-gradient(125% 105% at 50% 34%, rgba(0,0,0,.1), rgba(0,0,0,.6) 78%),
+    linear-gradient(163deg, rgba(84,96,119,.72), rgba(16,20,29,.9)),
     repeating-linear-gradient(128deg,
-      rgba(255,107,26,.26) 0 calc(var(--u) * .55),
+      rgba(255,107,26,.2) 0 calc(var(--u) * .55),
       rgba(0,0,0,0) calc(var(--u) * .55) calc(var(--u) * 1.1));
   box-shadow:
-    inset 0 0 0 calc(var(--u) * .2) rgba(255,195,0,.52),
+    inset 0 0 0 calc(var(--u) * .2) rgba(255,195,0,.82),
     inset 0 0 0 calc(var(--u) * .34) rgba(20,24,34,.85),
-    inset 0 calc(var(--u) * .5) calc(var(--u) * 1.3) rgba(0,0,0,.72),
-    inset 0 calc(var(--u) * -.5) calc(var(--u) * 1.1) rgba(0,0,0,.6),
+    inset 0 calc(var(--u) * .46) calc(var(--u) * 1.2) rgba(0,0,0,.6),
+    inset 0 calc(var(--u) * -.5) calc(var(--u) * 1.1) rgba(0,0,0,.5),
+    inset 0 calc(var(--u) * .38) 0 calc(var(--u) * -.3) rgba(255,255,255,.16),
     0 calc(var(--u) * .34) calc(var(--u) * .9) rgba(0,0,0,.45);
 }
 /* **Nothing is in it, so nothing is drawn in it.** The first attempt at this put
@@ -227,7 +261,7 @@ export const CSS_ITEM = `
     0 0 calc(var(--u) * 1.5) rgba(255,236,170,.55);
 }
 
-#hud .reel { position: relative; width: calc(var(--u) * 4.1); height: calc(var(--u) * 4.1); }
+#hud .reel { position: relative; width: calc(var(--u) * 4.9); height: calc(var(--u) * 4.9); }
 #hud .reel .face { position: absolute; inset: 0; }
 #hud .reel svg {
   position: absolute; inset: 0; width: 100%; height: 100%; display: none;
@@ -254,7 +288,7 @@ export const CSS_ITEM = `
   height: calc(var(--u) * ${DRUM_CELL});
 }
 #hud .slot .strip i svg {
-  width: calc(var(--u) * 3.9); height: calc(var(--u) * 3.9); display: block;
+  width: calc(var(--u) * 4.6); height: calc(var(--u) * 4.6); display: block;
   filter: drop-shadow(0 calc(var(--u) * .16) 0 rgba(0,0,0,.45));
 }
 /* The lip. A drum whose faces stay bright to the rim of the window reads as a
@@ -382,6 +416,11 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
 
   let spinning = false;
   let spinTime = 0;
+  /** This spin's length and what is left of it, both stated by the item system. */
+  let spinDur = FALLBACK_SPIN;
+  let spinLeft = 0;
+  /** True until the first `item:reel` lands, which is what the drum aligns to. */
+  let alignPending = false;
   /** Where the drum is, in cells travelled. Fractional — that is the point. */
   let drumPhase = 0;
   /** ...and how fast, in cells per second, which is what drives the smear. */
@@ -434,17 +473,43 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       `radial-gradient(circle, ${rgba(hex, 0.95)}, ${rgba(hex, 0)} 62%)`);
   }
 
-  unsubs.push(ctx.bus.on<{ racer: Racer; phase: 'start' | 'settle' }>('item:roulette', (e) => {
+  unsubs.push(ctx.bus.on<{
+    racer: Racer; phase: 'start' | 'settle'; duration?: number;
+  }>('item:roulette', (e) => {
     if (!e.racer.isPlayer) return;
     if (e.phase === 'start') {
       spinning = true;
       spinTime = 0;
+      spinDur = e.duration && e.duration > 0.05 ? e.duration : FALLBACK_SPIN;
+      spinLeft = spinDur;
+      alignPending = true;
       setGlow(0xFFF0C4, 0.55);
     } else {
       // The icon itself comes from the racer's own state on the next frame —
       // one source of truth for what is in the slot. All this has to do is stop
       // the drum.
       spinning = false;
+      spinLeft = 0;
+    }
+  }));
+
+  // One event per face of the item system's own reel. Two things come off it:
+  // the authoritative time left in this spin — which is what a slot-stop
+  // changes, and which no clock of our own could know about — and, on the first
+  // tick, *which face* the sim's reel is on, so the drum in the socket and the
+  // reel in the simulation are turning through the same items in the same
+  // order on the same seed.
+  unsubs.push(ctx.bus.on<{
+    racer: Racer; index: number; remaining: number; total: number;
+  }>('item:reel', (e) => {
+    if (!e.racer.isPlayer) return;
+    if (e.total > 0.05) spinDur = e.total;
+    spinLeft = e.remaining > 0 ? e.remaining : 0;
+    if (alignPending) {
+      alignPending = false;
+      // Lands within a step of the start, long before a frame is drawn, so the
+      // alignment is never a visible jump.
+      drumPhase = ((e.index % DRUM_N) + DRUM_N) % DRUM_N;
     }
   }));
 
@@ -489,8 +554,12 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       collarTicks.set('opacity', '0');
       collarArc.set('opacity', '0');
       collarSvg.set('transform', 'none');
+      spinDur = FALLBACK_SPIN;
+      spinLeft = 0;
+      alignPending = false;
       slot.cls('spinning', false);
       strip.set('transform', 'none');
+      strip.set('filter', 'none');
       // Both stacks emptied outright rather than rolled: a reset is not a
       // transition, and half a shell sliding out of the socket as the lights go
       // down for the next race is not a beat anybody asked for.
@@ -514,17 +583,25 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       // ── the drum ─────────────────────────────────────────────────────────
       if (spinning) {
         spinTime += dt;
-        // A roulette can be *cancelled* rather than settled: a lightning bolt
-        // takes the draw out of the player's hand mid-spin and there is no
-        // event for it. Without a stop of its own the drum would keep turning
-        // for the rest of the race over an empty slot.
-        if (spinTime > ASSUMED_SPIN * 3) spinning = false;
+        spinLeft = spinLeft > dt ? spinLeft - dt : 0;
+        // A roulette always ends in a `settle`, but a belt is cheaper than an
+        // investigation: if one were ever dropped the drum would turn over an
+        // empty socket for the rest of the race.
+        if (spinTime > spinDur * 3 + 1) spinning = false;
         // Fourteen faces a second at the top of the spin, easing to about three
         // as it runs out of road. Never to zero: the drum is stopped by the
         // settle, not by running down, and a wheel that has already coasted to a
         // halt before the answer arrives has told the player the answer early.
-        const t = clamp01(spinTime / ASSUMED_SPIN);
-        spinSpeed = 3 + 11 * (1 - t) * (1 - t);
+        //
+        // The ratio is the *item system's* remaining time over its own stated
+        // total, so a slot-stop — which drops `remaining` from most of a second
+        // to eighty milliseconds between one step and the next — throws the
+        // wheel straight onto the brakes. Chased rather than assigned, so that
+        // brake is a hard deceleration and not a discontinuity: a wheel whose
+        // speed changes instantly is a wheel that has been edited, not stopped.
+        const u = clamp01(spinLeft / Math.max(0.05, spinDur));
+        const want = 3 + 11 * u * u;
+        spinSpeed += (want - spinSpeed) * Math.min(1, dt * 20);
         drumPhase += spinSpeed * dt;
         if (drumPhase >= DRUM_N) drumPhase -= DRUM_N;
         jitter = 1;
@@ -560,8 +637,21 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
           ejecting = 0;
         } else if (heldId) {
           // Spent, stolen or struck out of the player's hand.
+          //
+          // **The icon leaves on the same frame the item does.** What used to
+          // happen here was that `ejecting` was set and the reel's opacity was
+          // driven by `1 - ejecting * 0.9` — which, since `ejecting` counts
+          // *down* from 1, dropped the spent item to a tenth of its opacity on
+          // the frame it was fired and then faded it back **up** to full over
+          // the next fifth of a second before finally sliding it out. Firing a
+          // shell made the shell blink and come back. The exit the widget
+          // already owns — the roller, which lifts the outgoing face up through
+          // the top of the socket — is the right one, so it is what runs; and
+          // `ejecting` goes back to being what its name says, the socket's own
+          // recoil.
           ejecting = 1;
           setGlow(ITEMS[heldId].color, 0.5);
+          showFace(null, 0.18);
         }
         heldId = id;
       }
@@ -572,13 +662,10 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
         countText.set(n > 1 ? `X${n}` : '');
       }
 
-      if (ejecting > 0) {
-        ejecting = Math.max(0, ejecting - dt * 4.5);
-        if (ejecting === 0) showFace(null, 0.14);
-      }
+      if (ejecting > 0) ejecting = Math.max(0, ejecting - dt * 4.5);
 
-      // The hazard "?" waits for the spent item to finish leaving, or it pops in
-      // behind an icon that is still on its way out.
+      // The empty housing waits for the spent item to finish leaving, or the
+      // well goes dark behind an icon that is still on its way out.
       slot.cls('empty', !heldId && !spinning && ejecting <= 0);
       count.set('opacity', heldCount > 1 ? '1' : '0');
 
@@ -608,12 +695,13 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       // to read.
       const bob = heldId && !spinning ? Math.sin(clock * 2.3) * 2.2 : 0;
       reel.set('transform',
-        `translateY(${bob.toFixed(2)}%) scale(${(1 + punch * 0.22 - ejecting * 0.25).toFixed(3)})`);
+        `translateY(${bob.toFixed(2)}%) scale(${(1 + punch * 0.22).toFixed(3)})`);
       // **Written here rather than left to `.slot.spinning .reel`.** The stack
-      // carries an inline opacity for the eject, and an inline style beats a
-      // stylesheet rule every time — so the settled icon would sit visible
-      // underneath a transparent drum for the whole spin.
-      reel.set('opacity', spinning ? '0' : (1 - ejecting * 0.9).toFixed(2));
+      // carries an inline opacity, and an inline style beats a stylesheet rule
+      // every time — so the settled icon would sit visible underneath a
+      // transparent drum for the whole spin. The eject is the roller's job now;
+      // this is only the drum's mask.
+      reel.set('opacity', spinning ? '0' : '1');
 
       glow.set('opacity', glowAmount > 0.004 ? (glowAmount * 0.95).toFixed(3) : '0');
       if (glowAmount > 0.004) {

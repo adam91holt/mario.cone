@@ -49,10 +49,10 @@ const CSS = `
   will-change: opacity, transform;
   background:
     radial-gradient(ellipse farthest-side at 50% 50%,
-      rgba(255,190,90,0) 62%,
-      rgba(255,182,86,0.10) 80%,
-      rgba(255,158,60,0.34) 92%,
-      rgba(255,126,34,0.72) 100%);
+      rgba(255,190,90,0) 69%,
+      rgba(255,182,86,0.09) 84%,
+      rgba(255,158,60,0.30) 94%,
+      rgba(255,126,34,0.64) 100%);
 }
 /* The charge ring. Its colour follows the mini-turbo tier, so the frame itself
    is part of the meter — the sparks say it loudest, this says it in peripheral

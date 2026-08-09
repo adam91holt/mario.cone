@@ -184,6 +184,20 @@ const ANG_SOFT_ADD = 0.55;
 const ANG_HARD_ADD = 1.20;
 const ANG_CLAMP_ADD = 1.00;
 
+/**
+ * Below this apparent diameter a sprite is not worth drawing, in radians.
+ *
+ * 1.6 milliradians is about one pixel on a 900-line frame — a sprite that
+ * cannot resolve to more than a single dim pixel, which after the alpha ramp is
+ * a pixel nobody will ever see. Measured on a drift with the field strung out,
+ * **1247 of the additive layer's 1969 instances were past forty metres** and
+ * contributed one part in a hundred and forty of its coverage between them.
+ * That is half the layer's capacity, half its fill rate and half its buffer
+ * upload spent on nothing, and worse, it is capacity the effects at the player's
+ * own wheels have to compete for when the pool gets busy.
+ */
+const ANG_MIN = 0.0016;
+
 export function createParticlePool(capacity: number): ParticlePool {
   const data = new Float32Array(capacity * STRIDE);
   let count = 0;
@@ -307,11 +321,30 @@ export function createParticlePool(capacity: number): ParticlePool {
           if (a < 0.004) continue;
         }
       }
+      const packed = isAdd ? code - ADDITIVE_BIT : code;
+      const mode = Math.floor(packed / 8);
+      const cell = packed - mode * 8;
+
       // ...and cut down anything that has grown to own the frame, wherever it
       // happens to be. See the note on the angular governor above.
+      //
+      // Ground quads are exempt, and the exemption is geometric rather than a
+      // favour: they lie flat in the world, so a chase camera looking twelve
+      // degrees down foreshortens them to about a quarter of their length and
+      // `size / distance` overstates what they actually cover by four to one.
+      // They also cannot do the thing the governor exists to prevent — a quad
+      // welded to the road can never hover in front of the lens — and they are
+      // the module's whole vocabulary for *contact*, which is the one thing the
+      // art direction says may never be traded away.
       const soft = isAdd ? ANG_SOFT_ADD : ANG_SOFT;
       const ang = size / (d > 0.5 ? d : 0.5);
-      if (ang > soft) {
+      // Too small to resolve. Velocity-mode quads get a third of the threshold
+      // rather than an exemption: their length comes from the stretch in the
+      // vertex shader, which this cannot see, so a distant spark is longer than
+      // its diameter suggests — but not thirty times longer, and past a certain
+      // range it is a dim sub-pixel dash like everything else.
+      if (ang < (mode === MODE.velocity ? ANG_MIN * 0.34 : ANG_MIN)) continue;
+      if (mode !== MODE.ground && ang > soft) {
         const hard = isAdd ? ANG_HARD_ADD : ANG_HARD;
         if (ang >= hard) continue;
         const t = (hard - ang) / (hard - soft);
@@ -330,10 +363,6 @@ export function createParticlePool(capacity: number): ParticlePool {
       const r = data[o + S.r0] + (data[o + S.r1] - data[o + S.r0]) * u;
       const g = data[o + S.g0] + (data[o + S.g1] - data[o + S.g0]) * u;
       const b = data[o + S.b0] + (data[o + S.b1] - data[o + S.b0]) * u;
-
-      const packed = isAdd ? code - ADDITIVE_BIT : code;
-      const mode = Math.floor(packed / 8);
-      const cell = packed - mode * 8;
 
       // `stretch` goes across as the raw coefficient. Turning it into a length
       // needs the camera's velocity, which only the shader has — and doing it

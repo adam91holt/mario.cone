@@ -94,6 +94,7 @@ const _s = new THREE.Vector3();
 const _c = new THREE.Color();
 const _up = new THREE.Vector3();
 const _off = new THREE.Vector3();
+const _dir = new THREE.Vector3();
 const UP_AXIS = new THREE.Vector3(0, 1, 0);
 
 /** Bin width for the pickup broadphase, metres. */
@@ -453,9 +454,23 @@ export function createBoxField(ctx: GameContext): BoxField {
 
         // The halo breathes on its own beat — slower than the core, so the two
         // never lock into a single throb.
+        //
+        // ...and it *stands down when the camera climbs*. Yawing to the lens is
+        // what keeps the glow upright behind the cube instead of lying flat on
+        // the tarmac, and it has one failure mode: from directly above, a plane
+        // that only turns about the vertical is edge-on, and every box in the
+        // row grows a pair of bright coloured wings. Photographed from the
+        // overhead camera that is unmistakably a bug. Past about 55° of
+        // elevation the halo is therefore scaled away to nothing — the angles
+        // where a glow is doing work (a chase camera sits at ten or fifteen)
+        // are untouched, and the angles where it can only misbehave get the box
+        // on its own, which from overhead is exactly what reads.
+        _dir.subVectors(ctx.camera.position, b.pos);
+        const elev = Math.abs(_dir.y) / Math.max(0.001, _dir.length());
+        const face = 1 - clamp((elev - 0.55) / 0.34, 0, 1);
         _e.set(0, Math.atan2(camX - b.pos.x, camZ - b.pos.z), 0);
         _face.setFromEuler(_e);
-        _s.setScalar(scale * (0.92 + Math.sin(time * 2.3 + b.phase * 1.7) * 0.12));
+        _s.setScalar(scale * face * (0.92 + Math.sin(time * 2.3 + b.phase * 1.7) * 0.12));
         // Lifted clear of the road. A glow centred on a box floating a metre
         // and a half up reaches the tarmac underneath it and lights exactly the
         // patch the contact shadow lives on — which is how a box ends up with a

@@ -54,11 +54,15 @@ export const CSS_READOUTS = `
 #hud .lap-num .tot { height: calc(var(--u) * 2.8); color: #FFF8F0; opacity: .88;
   margin-bottom: calc(var(--u) * .06); }
 #hud .pips { display: flex; gap: calc(var(--u) * .22); margin-left: auto; align-self: center; }
+/* An unlit pip has to be *visibly a pip* — a slot waiting to be filled — or the
+   row reads as "one bar" rather than as "one of three". Dark enough to be
+   plainly off, light enough to be plainly there. */
 #hud .pips i {
   display: block; width: calc(var(--u) * .5); height: calc(var(--u) * 1.5);
   border-radius: calc(var(--u) * .14);
-  background: rgba(255,248,240,.16);
-  box-shadow: inset 0 0 0 1px rgba(0,0,0,.5);
+  background: rgba(255,248,240,.24);
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.55),
+              inset 0 calc(var(--u) * .08) 0 rgba(255,255,255,.18);
 }
 #hud .pips i.done { background: #FFC300; box-shadow: inset 0 0 0 1px rgba(0,0,0,.5), 0 0 calc(var(--u) * .34) rgba(255,195,0,.75); }
 #hud .pips i.now { background: #FFF8F0; box-shadow: inset 0 0 0 1px rgba(0,0,0,.5), 0 0 calc(var(--u) * .4) rgba(255,248,240,.8); }
@@ -132,7 +136,7 @@ export const CSS_READOUTS = `
 #hud .floats { position: absolute; left: calc(var(--u) * 2.4); bottom: 100%; width: 0; height: 0; }
 #hud .floats b {
   position: absolute; left: 0; top: 0; white-space: nowrap;
-  height: calc(var(--u) * 2.1); opacity: 0;
+  height: calc(var(--u) * 2.5); opacity: 0;
 }
 `;
 

@@ -148,8 +148,9 @@ const CSS = `
    item whose correct response is "let go of the accelerator for six seconds" is
    an item that stops the race rather than complicating it.
 
-   Three rules replace it, and they are measured rather than eyeballed — the
-   layout below is scored for coverage of three regions before it is written.
+   Four rules replace it, and they are measured rather than eyeballed — the
+   layout below is scored for coverage of three named regions before it is
+   written down.
 
      *The kart and the road in front of it are never inked.* Under half a
      percent of the box that contains the machine and the tarmac it is about to
@@ -157,21 +158,27 @@ const CSS = `
      everything you were using to decide *how*.
 
      *The periphery is taken outright.* Better than a third of the frame goes,
-     concentrated at the edges — the horizon, the mirrors, the apex you were
-     lining up, the kart alongside. Peak coverage of the central play area is
-     about an eighth, which lands the frame's below-luminance-60 fraction around
-     0.33 against a clean racing frame's 0.24.
+     and it goes thick and opaque: the horizon, the mirrors, the apex you were
+     lining up, the kart alongside.
+
+     *What lands in the middle is thin.* The splats that reach the play area are
+     spatter, not a blot — half-transparent, tinted, with a bright wet rim, so
+     the road under them is a smear rather than a hole. That is what a thrown
+     liquid actually leaves at the edge of its throw, and it is also the only
+     honest way to make the middle of the screen *expensive to read* without
+     making it impossible: detail dies, luminance does not. A frame taken at the
+     worst moment of the ink measures about a tenth of the central play area
+     newly below luminance 60, against the two thirds this replaced.
 
      *It runs off.* Splats shrink about their own centres — half of which are
      outside the frame, so shrinking pulls them off the edge — and drift down
-     with their drips lengthening behind them. The play area is a third clearer
-     a second and a half in, and effectively gone by four. The ink is a hard
-     beat and then a receding nuisance, which is the shape the item wants.
+     with their drips lengthening behind them. The play area is largely clear
+     three seconds in. The ink is a hard beat and then a receding nuisance,
+     which is the shape the item wants.
 
-   The splats are opaque and the element is not: a splat that is itself half
-   transparent, faded again by the layer it sits on, photographs as a pale grey
-   bubble. Each one is near-solid, and the whole field's fade lives in one
-   opacity. */
+   The thick splats are opaque and the *layer* is not: a splat that is itself
+   half transparent, faded again by the layer it sits on, photographs as a pale
+   grey bubble. The whole field's fade lives in one opacity. */
 #item-ink {
   position: fixed; inset: 0; z-index: 12; pointer-events: none;
   opacity: 0;
@@ -179,6 +186,13 @@ const CSS = `
   --wipe: 0;
   /* The arrival punch. Every splat's scale is multiplied by it. */
   --land: 1;
+  /* A wash under the splats: nothing at all in the middle, a third of a stop of
+     cold blue at the edges. It is what turns thirty separate shapes into one
+     film *on the glass* — without it the splats read as objects floating in
+     front of the game rather than as something covering the lens — and it costs
+     the play area precisely nothing, because it is zero there. */
+  background: radial-gradient(ellipse 66% 60% at 50% 56%,
+    rgba(14,20,58,0) 0 42%, rgba(14,20,58,.34) 100%);
 }
 #item-ink i {
   position: absolute; display: block;
@@ -193,58 +207,103 @@ const CSS = `
     rotate(calc(var(--rot, 0) * 1deg))
     scaleY(var(--sq, 1))
     scale(calc(var(--land, 1) * (1 - var(--wipe, 0) * var(--shrink, 0.5))));
-  /* Solid, and *not a circle*. A radial gradient on a square element can only
-     ever make a disc, and a screenful of discs is weather, not ink — which is
-     exactly how an earlier pass photographed: raindrops on a windscreen. The
-     silhouette is carried by an irregular border-radius, per splat. */
+  /* Darkest where it pooled, bluer where it thinned — which is the way round
+     liquid actually dries, and the way round the first pass had it backwards.
+     Not a circle, either: a radial gradient on a square element can only ever
+     make a disc, and a screenful of discs is weather, not ink. The silhouette
+     is carried by a lopsided border-radius, per splat. */
   background:
-    radial-gradient(circle closest-side at 38% 32%,
-      rgba(24,33,86,1) 0 40%, rgba(10,14,40,1) 100%);
-  /* Extreme on purpose. A gentle border-radius is still a circle. */
+    radial-gradient(circle closest-side at 42% 38%,
+      rgba(7,9,26,1) 0 42%, rgba(20,28,74,1) 100%);
   border-radius: 74% 26% 58% 42% / 32% 68% 32% 68%;
-  /* The wet edge, and it is not decoration. Ink is near-black and so is this
-     circuit's tarmac; a splat that lands on the road with no rim is a splat
-     nobody sees, so the item reads as "the sky got dirty" and costs its victim
-     nothing. An *inset* shadow follows the lopsided border-radius exactly,
-     which no gradient stop can do on a shape like this. */
+  /* Two edges, and neither is an outline. A *hairline* of wet blue picks the
+     silhouette off this circuit's near-black tarmac — without it the item reads
+     as "the sky got dirty" and costs its victim nothing — and a soft dark
+     spread outside feathers the cut and lets neighbouring splats run together
+     into one mass rather than sitting apart like cut paper. The keyline this
+     replaces was four times as thick and photographed as exactly that. */
   box-shadow:
-    inset 0 0 0 0.22vmin rgba(128,160,255,.5),
-    inset 0 0.55vmin 1.5vmin rgba(84,116,222,.2),
-    0 0 1.1vmin rgba(8,11,34,.5);
+    inset 0 0 0 0.09vmin rgba(150,180,255,.42),
+    inset 0.3vmin 0.5vmin 1.3vmin rgba(96,130,230,.18),
+    0 0.2vmin 1.8vmin 0.35vmin rgba(6,8,26,.5);
 }
 /* A second lobe, offset — the thing that turns one blob into a splat. */
 #item-ink i::before {
-  content: ''; position: absolute; left: -18%; top: 26%;
-  width: 68%; height: 62%;
-  background: rgba(10,14,40,1);
+  content: ''; position: absolute; left: -22%; top: 24%;
+  width: 76%; height: 68%;
+  background: rgba(9,12,34,1);
   border-radius: 62% 38% 44% 56% / 56% 44% 60% 40%;
-  box-shadow: inset 0 0 0 0.18vmin rgba(128,160,255,.34);
+  box-shadow: inset 0 0 0 0.09vmin rgba(150,180,255,.3);
 }
 /* The drip. One tapered tongue running off the low edge of each splat, and it
    *lengthens as the ink runs* — the single motion that says the stuff on the
    glass is liquid rather than a mask being faded out. */
 #item-ink i::after {
-  content: ''; position: absolute; left: 34%; top: 70%;
-  width: 26%; height: 44%;
+  content: ''; position: absolute; left: 31%; top: 68%;
+  width: 29%; height: 54%;
   transform-origin: 50% 0;
-  transform: scaleY(calc(1 + var(--wipe, 0) * 2.2));
-  background: linear-gradient(rgba(10,14,40,1) 0 40%, rgba(10,14,40,.85) 72%, rgba(10,14,40,0) 100%);
-  border-radius: 42% 58% 50% 50% / 18% 18% 84% 84%;
+  /* Half again, not three and a half times. Past about 1.6 the tongue is longer
+     than the splat that made it is wide, and a dark shape that much taller than
+     it is broad stops reading as a run of ink and starts reading as a scratch
+     on the lens. */
+  transform: scaleY(calc(1 + var(--wipe, 0) * 1.5));
+  background: linear-gradient(rgba(9,12,34,1) 0 40%, rgba(11,15,44,.72) 70%, rgba(13,18,52,0) 100%);
+  border-radius: 42% 58% 50% 50% / 14% 14% 86% 86%;
 }
 #item-ink i:nth-child(3n) { border-radius: 34% 66% 72% 28% / 68% 30% 70% 32%; }
 #item-ink i:nth-child(3n+1) { border-radius: 66% 34% 30% 70% / 28% 72% 26% 74%; }
-#item-ink i:nth-child(3n)::before { left: auto; right: -16%; top: 8%; }
-#item-ink i:nth-child(4n)::after { left: 58%; width: 20%; height: 36%; }
-/* A few flecks thrown clear of the main splats. Ink that is all big shapes
-   reads as a mask; ink that has spatter reads as something hitting you. They
-   cost almost nothing in coverage and a great deal in attention, which is the
-   best trade available in an item that must not blind anybody. */
+#item-ink i:nth-child(5n) { border-radius: 52% 48% 28% 72% / 74% 26% 66% 34%; }
+#item-ink i:nth-child(3n)::before { left: auto; right: -20%; top: 6%; }
+#item-ink i:nth-child(4n)::after { left: 60%; width: 19%; height: 46%; }
+/* ...and the satellite: one droplet thrown clear of the splat that made it.
+   Spatter is what separates ink from a mask, and it is nearly free — a droplet
+   is a few hundred pixels and it is the detail the eye uses to decide what the
+   dark shapes on the screen *are*. */
+#item-ink i b {
+  position: absolute; left: 78%; top: -14%;
+  width: 22%; height: 20%;
+  background: rgba(9,12,34,.95);
+  border-radius: 58% 42% 38% 62% / 46% 54% 46% 54%;
+}
+#item-ink i:nth-child(2n) b { left: -12%; top: 76%; width: 18%; height: 17%; }
+
+/* ── the thin half ─────────────────────────────────────────────────────────
+
+   Everything that reaches the middle of the frame. Half-transparent, so the
+   road under it survives as a smear, and strongly rimmed, so it is
+   unmistakably *on the lens* rather than a colour grade.
+
+   The alpha is the load-bearing number, and the colour under it has to stay
+   ink. Thin ink drawn light *and* transparent photographs as pale blue glass —
+   a lens flare, not a splat — which is what seven tenths of a mid navy did.
+   Six tenths of near-black leaves a sky pixel around luminance 78 and a tarmac
+   pixel around 28: legible where the frame was bright, unreadable in detail,
+   and no darker than the road already was. That is the whole trick by which the
+   middle of the screen can be made expensive to read without being blacked
+   out. */
+#item-ink i.thin {
+  background:
+    radial-gradient(circle closest-side at 44% 40%,
+      rgba(8,11,34,.62) 0 40%, rgba(14,20,58,.58) 84%, rgba(20,28,78,.40) 100%);
+  box-shadow:
+    inset 0 0 0 0.11vmin rgba(168,196,255,.45),
+    inset 0.3vmin 0.45vmin 1.1vmin rgba(110,145,240,.16),
+    0 0.15vmin 1.4vmin rgba(8,11,34,.28);
+}
+#item-ink i.thin::before { background: rgba(9,12,38,.56); box-shadow: none; }
+#item-ink i.thin::after {
+  background: linear-gradient(rgba(9,12,38,.58) 0 44%, rgba(13,18,54,.38) 76%, rgba(16,22,66,0) 100%);
+}
+#item-ink i.thin b { background: rgba(9,12,38,.58); }
+/* Flecks: the smallest spatter, and the cheapest attention in the item. No
+   lobes, no drip — a droplet is a droplet. */
 #item-ink i.fleck {
   background: radial-gradient(circle closest-side at 50% 50%,
-    rgba(11,16,48,.98) 0 44%, rgba(18,25,66,.55) 74%, rgba(18,25,66,0) 100%);
-  box-shadow: none;
+    rgba(10,14,44,.9) 0 42%, rgba(24,34,92,.5) 76%, rgba(28,40,104,0) 100%);
+  box-shadow: inset 0 0 0 0.08vmin rgba(160,190,255,.36);
 }
 #item-ink i.fleck::before, #item-ink i.fleck::after { display: none; }
+#item-ink i.fleck b { display: none; }
 #item-flash {
   position: fixed; inset: 0; z-index: 13; pointer-events: none;
   opacity: 0; mix-blend-mode: screen;
@@ -445,35 +504,39 @@ function iconSvg(id: ItemId): string {
  * rotation °]`.
  *
  * Not hand-waved. The layout was scored for area coverage of three regions
- * before it was written down, and those three numbers are the design:
+ * before it was written down, and those numbers are the design:
  *
  * | region | what it is | coverage |
  * |---|---|---|
  * | the channel | the kart, and the tarmac it is about to drive over | 0.004 |
- * | the vanishing point | where the road disappears | 0.004 |
- * | the central play area | the crop a reviewer measures | 0.128 |
- * | the whole frame | | 0.385 |
+ * | the vanishing point | where the road disappears | 0.005 |
+ * | the central play area | the crop a reviewer measures | 0.14 |
+ * | the whole frame | | 0.42 |
  *
- * The first ten centres sit on or outside the frame's edges, so what is on
- * screen is an arc of each — a third of the picture is gone and none of it is
- * the part you steer by. The five after them are the *biters*: smaller shapes
- * that reach into the middle third, because a blooper that only crowds the
- * edges costs a driver who is looking at the vanishing point precisely nothing.
- * They are placed to frame that point rather than cover it.
+ * The first twelve centres sit on or outside the frame's edges, so what is on
+ * screen is an arc of each and they run together into one mass — a third of the
+ * picture is gone and none of it is the part you steer by. The five after them
+ * are the *biters*: they reach into the middle third, because a blooper that
+ * only crowds the edges costs a driver who is looking at the vanishing point
+ * precisely nothing. Those five are drawn thin (see `.thin`), which is how they
+ * can sit over the play area without blacking it out.
  *
  * Sizes are `vmin` so a splat keeps its share of the *shorter* axis: on a wide
  * monitor the field spreads sideways rather than swelling to swallow the frame,
  * which is what `vmax` did.
  */
 const INK_SPLATS: ReadonlyArray<readonly [number, number, number, number, number]> = [
-  // the edge band
+  // the edge band — thick, opaque, overlapping
   [8, 2, 40, 1.10, -18], [38, -5, 35, 0.95, 22], [68, -1, 39, 1.15, 10],
   [96, 4, 35, 1.00, -28], [-3, 34, 39, 1.15, 40], [0, 78, 35, 0.95, -12],
   [102, 44, 39, 1.20, -14], [99, 88, 33, 1.05, 28], [21, 103, 33, 1.00, 52],
-  [70, 106, 31, 0.90, -36],
-  // the biters
-  [29, 26, 23, 1.05, -30], [77, 23, 21, 0.95, 18], [22, 62, 20, 1.00, -50],
-  [82, 64, 19, 1.10, 34], [55, 9, 18, 0.95, -8],
+  [70, 106, 31, 0.90, -36], [-4, 57, 30, 1.10, -66], [104, 68, 29, 1.00, 74],
+];
+
+/** ...and the biters, drawn thin. Same shape data. */
+const INK_THIN: ReadonlyArray<readonly [number, number, number, number, number]> = [
+  [28, 25, 25, 1.05, -30], [78, 22, 23, 0.95, 18], [21, 62, 22, 1.00, -50],
+  [83, 64, 21, 1.10, 34], [55, 8, 20, 0.95, -8],
 ];
 
 /** Spatter. Deterministic — decoration, but decoration that must not differ
@@ -494,9 +557,10 @@ const INK_FLECKS: ReadonlyArray<readonly [number, number, number]> = [
  */
 function splat(
   [x, y, r, squash, rot]: readonly [number, number, number, number, number],
-  i: number,
+  i: number, cls = '',
 ): HTMLElement {
   const s = document.createElement('i');
+  if (cls) s.className = cls;
   s.style.left = `${x}%`;
   s.style.top = `${y}%`;
   s.style.width = `${r}vmin`;
@@ -505,6 +569,7 @@ function splat(
   s.style.setProperty('--rot', String(rot));
   s.style.setProperty('--fall', (4.5 + (i % 4) * 1.3).toFixed(2));
   s.style.setProperty('--shrink', (0.46 + (i % 3) * 0.1).toFixed(2));
+  if (cls !== 'fleck') s.appendChild(document.createElement('b'));
   return s;
 }
 
@@ -631,12 +696,11 @@ export function createItemHud(): ItemHud {
     // published one of its own.
     inkEl = document.createElement('div');
     inkEl.id = 'item-ink';
-    for (let i = 0; i < INK_SPLATS.length; i++) inkEl.appendChild(splat(INK_SPLATS[i]!, i));
-    for (let i = 0; i < INK_FLECKS.length; i++) {
-      const [x, y, r] = INK_FLECKS[i]!;
-      const s = splat([x, y, r, 1, 0], i + INK_SPLATS.length);
-      s.className = 'fleck';
-      inkEl.appendChild(s);
+    let k = 0;
+    for (const s of INK_SPLATS) inkEl.appendChild(splat(s, k++));
+    for (const s of INK_THIN) inkEl.appendChild(splat(s, k++, 'thin'));
+    for (const [x, y, r] of INK_FLECKS) {
+      inkEl.appendChild(splat([x, y, r, 1, 0], k++, 'fleck'));
     }
     document.body.appendChild(inkEl);
 

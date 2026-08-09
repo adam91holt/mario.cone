@@ -69,7 +69,7 @@ const TAU = Math.PI * 2;
 // drops what it cannot hold thins the effect exactly on the frame the reviewer
 // photographs, so the caps have to clear the worst legitimate case rather than
 // the typical one.
-const POOL = 4600;
+const POOL = 6000;
 const LAYER_ADD = 2400;
 const LAYER_ALPHA = 3000;
 const LAYER_RUSH = 240;
@@ -161,6 +161,18 @@ interface SurfaceFx {
   /**
    * Cross-section of one wake streak, which is *not* the size of a dust puff.
    *
+   * A note on why the hard surfaces run almost none of this. The wake is drawn
+   * in velocity mode, and velocity mode measures its stretch in *screen space*
+   * — which is exactly right for a spark thrown sideways and exactly useless
+   * for a wake, because a wake behind a machine in a chase camera travels
+   * directly away from the lens and therefore has no screen-space direction to
+   * stretch along at all. Pushed up to where it could be seen on tarmac it
+   * photographed as a scatter of small ragged pale patches lying on the road
+   * behind the kart: lint, not motion. Speed on a hard surface is carried by
+   * the exhaust, the road going past and the camera; this is left as the barest
+   * suggestion of disturbed air, and the loose surfaces — where there is real
+   * material to lift and it climbs into the light — keep the whole effect.
+   *
    * The wake is drawn in velocity mode, so its width comes from `size` and its
    * length from the stretch — and on tarmac, where the whole effect has to be
    * almost subliminal, a wake sprite as wide as a dust puff comes out as a
@@ -241,12 +253,12 @@ interface SurfaceFx {
  * apart, and at three a second nobody ever saw one.
  */
 const SURFACE_FX: Record<Surface, SurfaceFx> = {
-  road:  { color: 0xEAEEF6, deep: 0xD6DCE8, lift: 0.20, rate: 0,   slip: 42,  wake: 40, size: 0.34, wakeSize: 0.24, grow: 2.0, alpha: 0.075, grit: 0.00, sparky: false, mark: 1.00, markTint: 0x3F3E4A, smoke: 0.30, smokeRate: 78 },
-  boost: { color: 0xF3E8D6, deep: 0xE2D9C8, lift: 0.22, rate: 0,   slip: 40,  wake: 40, size: 0.36, wakeSize: 0.24, grow: 2.0, alpha: 0.080, grit: 0.00, sparky: false, mark: 0.80, markTint: 0x423F4D, smoke: 0.30, smokeRate: 78 },
-  dirt:  { color: 0xF7E6C6, deep: 0xDCBE93, lift: 1.25, rate: 165, slip: 105, wake: 44, size: 0.58, wakeSize: 0.46, grow: 2.5, alpha: 0.150, grit: 0.62, sparky: false, mark: 0.85, markTint: 0x9c7444, smoke: 0.12, smokeRate: 26 },
-  sand:  { color: 0xFDF4E0, deep: 0xEBD9AF, lift: 1.35, rate: 180, slip: 110, wake: 46, size: 0.60, wakeSize: 0.48, grow: 2.6, alpha: 0.155, grit: 0.44, sparky: false, mark: 0.72, markTint: 0x9c8050, smoke: 0.10, smokeRate: 22 },
-  grass: { color: 0xE3F0CC, deep: 0xB2CE8C, lift: 0.90, rate: 120, slip: 84,  wake: 34, size: 0.52, wakeSize: 0.42, grow: 2.3, alpha: 0.130, grit: 0.54, sparky: false, mark: 0.62, markTint: 0x6d8b4c, smoke: 0.11, smokeRate: 24 },
-  water: { color: 0xF8FDFF, deep: 0xD7EFFA, lift: 1.30, rate: 145, slip: 112, wake: 44, size: 0.48, wakeSize: 0.38, grow: 2.2, alpha: 0.130, grit: 0.36, sparky: false, mark: 0.00, markTint: 0xffffff, smoke: 0.10, smokeRate: 18 },
+  road:  { color: 0xEAEEF6, deep: 0xD6DCE8, lift: 0.20, rate: 0,   slip: 42,  wake: 20, size: 0.34, wakeSize: 0.22, grow: 2.0, alpha: 0.075, grit: 0.00, sparky: false, mark: 1.00, markTint: 0x3F3E4A, smoke: 0.30, smokeRate: 78 },
+  boost: { color: 0xF3E8D6, deep: 0xE2D9C8, lift: 0.22, rate: 0,   slip: 40,  wake: 20, size: 0.36, wakeSize: 0.22, grow: 2.0, alpha: 0.080, grit: 0.00, sparky: false, mark: 0.80, markTint: 0x423F4D, smoke: 0.30, smokeRate: 78 },
+  dirt:  { color: 0xF7E6C6, deep: 0xDCBE93, lift: 1.25, rate: 165, slip: 105, wake: 44, size: 0.58, wakeSize: 0.46, grow: 2.5, alpha: 0.185, grit: 0.62, sparky: false, mark: 0.85, markTint: 0x9c7444, smoke: 0.12, smokeRate: 26 },
+  sand:  { color: 0xFDF4E0, deep: 0xEBD9AF, lift: 1.35, rate: 180, slip: 110, wake: 46, size: 0.60, wakeSize: 0.48, grow: 2.6, alpha: 0.190, grit: 0.44, sparky: false, mark: 0.72, markTint: 0x9c8050, smoke: 0.10, smokeRate: 22 },
+  grass: { color: 0xE3F0CC, deep: 0xB2CE8C, lift: 0.90, rate: 120, slip: 84,  wake: 34, size: 0.52, wakeSize: 0.42, grow: 2.3, alpha: 0.160, grit: 0.54, sparky: false, mark: 0.62, markTint: 0x6d8b4c, smoke: 0.11, smokeRate: 24 },
+  water: { color: 0xF8FDFF, deep: 0xD7EFFA, lift: 1.30, rate: 145, slip: 112, wake: 44, size: 0.48, wakeSize: 0.38, grow: 2.2, alpha: 0.160, grit: 0.36, sparky: false, mark: 0.00, markTint: 0xffffff, smoke: 0.10, smokeRate: 18 },
   rail:  { color: 0xCFE2FF, deep: 0xCFE2FF, lift: 0.20, rate: 0,   slip: 22,  wake: 0,  size: 0.22, wakeSize: 0.20, grow: 1.4, alpha: 0.90,  grit: 0.00, sparky: true,  mark: 0.00, markTint: 0xffffff, smoke: 0.00, smokeRate: 0 },
   air:   { color: 0xffffff, deep: 0xffffff, lift: 0.00, rate: 0,   slip: 0,   wake: 0,  size: 0.40, wakeSize: 0.20, grow: 2.0, alpha: 0.00,  grit: 0.00, sparky: false, mark: 0.00, markTint: 0xffffff, smoke: 0.00, smokeRate: 0 },
 };
@@ -1248,7 +1260,15 @@ export function createFxSystem(ctx: GameContext): GameSystem {
         exhaustSpec.vz = racer.vel.z * 0.94
           + (_right.z * p.dx + _up.z * p.dy + _fwd.z * p.dz) * out + rng.range(-0.5, 0.5);
         exhaustSpec.life = p.life * rng.range(0.75, 1.3);
-        exhaustSpec.size0 = p.size * rng.range(0.7, 1.25) * (0.8 + 0.4 * load) * (1 + 0.5 * far);
+        // Bigger with distance as well as denser, and the size term matters
+        // more than the opacity one. A plume genuinely disperses as it travels,
+        // but the reason this is here is optical: a wisp tuned to read at the
+        // eight metres the chase camera sits from the player subtends a fifth
+        // of a degree on the machine four places up the road, which is two
+        // pixels, which is nothing. A pack shot with nothing attached to any of
+        // the seven machines the player is racing is a diorama, and it was the
+        // measured state of this module twice.
+        exhaustSpec.size0 = p.size * rng.range(0.7, 1.25) * (0.8 + 0.4 * load) * (1 + 1.6 * far);
         exhaustSpec.size1 = exhaustSpec.size0 * p.grow;
         // Denser with distance, which is not a cheat: the same volume of gas
         // covers fewer pixels the further away it is, so the optical depth
@@ -1486,7 +1506,7 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       // tarmac that is a quarter of what a dust puff wants.
       wakeSpec.size0 = sfx.wakeSize * rng.range(0.75, 1.2);
       wakeSpec.size1 = wakeSpec.size0 * 2.1;
-      wakeSpec.alpha = sfx.alpha * 1.9 * rng.range(0.7, 1.15);
+      wakeSpec.alpha = sfx.alpha * 1.8 * rng.range(0.7, 1.15);
       setHdr(wakeSpec.color0, col, 1.0);
       setHdr(wakeSpec.color1, deep, 0.98);
       if (!pool.emit(wakeSpec)) break;
@@ -1661,7 +1681,11 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       // The ground's own colour, not the dust's: this is the surface itself
       // rather than the powder off it, and the contrast between the two is the
       // whole effect. Two tones, so the spray is not one material stamped out.
-      setHdr(gritSpec.color0, deep, rng.range(0.55, 1.0));
+      // Darker than the dust and darker than `deep`: a clod is the ground
+      // *in shadow*, and the contrast against the pale powder it comes out of
+      // is the entire reason it exists. At the old range it came out cream and
+      // read as torn paper blowing off the verge.
+      setHdr(gritSpec.color0, deep, rng.range(0.26, 0.52));
       gritSpec.color1.copy(gritSpec.color0);
       if (!pool.emit(gritSpec)) break;
     }
@@ -1930,7 +1954,7 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       gritSpec.size0 = 0.15 * scale;
       gritSpec.size1 = gritSpec.size0 * 0.8;
       gritSpec.rotVel = rng.range(-13, 13);
-      setHdr(gritSpec.color0, deep, 0.85);
+      setHdr(gritSpec.color0, deep, 0.42);
       gritSpec.color1.copy(gritSpec.color0);
       pool.burst(gritSpec, Math.round(n * sfx.grit * density), speed * 1.15, 0.45, rng);
     }
@@ -3046,6 +3070,10 @@ export function createFxSystem(ctx: GameContext): GameSystem {
         return {
           pool: pool.count,
           poolLoad: Math.round(pool.load * 100) / 100,
+          // The two numbers the veil governor turns on: what the alpha layer
+          // covered last frame, and how far the loop has had to cut to hold it.
+          veil: Math.round(pool.veil * 1000) / 1000,
+          veilScale: Math.round(veilScale * 100) / 100,
           add: addLayer?.count ?? 0,
           alpha: alphaLayer?.count ?? 0,
           rush: rushLayer?.count ?? 0,
