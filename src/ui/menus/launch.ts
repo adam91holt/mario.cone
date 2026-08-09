@@ -73,6 +73,7 @@ export const CSS_LAUNCH = `
 #menu .launch .side {
   display: flex; flex-direction: column; gap: calc(var(--u) * 1.05);
   justify-content: center; align-items: flex-start;
+  min-width: calc(var(--u) * 13.5);
 }
 #menu .launch .facts { display: flex; gap: calc(var(--u) * 1.3); }
 #menu .launch .facts div { display: flex; flex-direction: column; gap: calc(var(--u) * .14); }

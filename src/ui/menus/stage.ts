@@ -910,20 +910,31 @@ export function createStage(ctx: GameContext): Stage | null {
       // the median of five points is not a measurement. Three bands at sixteen
       // angles leaves ten to twenty on each side.
       const ANGLES = 24;
-      /** Fractions of the footprint's half-extent — under the machine. */
-      const UNDER = [0.3, 0.48, 0.66];
+      /**
+       * Fractions of the footprint's half-extent — under the machine.
+       *
+       * Out to nine tenths of it, because how much of a machine's own footprint
+       * a camera can see depends on how the machine stands on it. A kart with
+       * wheels has daylight under the chassis and the lens looks straight
+       * through it; the digger sits on two continuous tracks and there is *no*
+       * visible ground inside 0.7 of its footprint from any angle a player can
+       * reach. With the inner bands alone the instrument could read every
+       * machine in the cast except the one the critique was written about.
+       */
+      const UNDER = [0.3, 0.5, 0.7, 0.9];
       /**
        * Metres clear of the footprint — the asphalt to read it against.
        *
-       * Close in, deliberately. Three metres out is already twice the width of
-       * the widest contact patch on the set and well past the halo's inner
-       * edge, and it is *inside the frame*: on the character select the lens is
-       * fourteen metres away at 32°, so ground five metres to the left of a
-       * machine standing left of centre is not on screen at all, and a control
-       * sample that lands off the edge of the picture is a control sample
-       * thrown away.
+       * Close in, deliberately, and starting closer still. Two metres out is
+       * already past the widest contact patch on the set and inside the halo's
+       * hole, and — the reason the nearest band exists at all — it is *inside
+       * the frame*: on the character select the lens is fourteen metres away at
+       * 32°, so ground five metres to the left of a machine standing left of
+       * centre is not on screen, and a control sample that lands off the edge
+       * of the picture is a control sample thrown away. With only the outer
+       * bands, that screen reported nothing at all.
        */
-      const BESIDE = [2.9, 3.5, 4.2];
+      const BESIDE = [2.3, 2.9, 3.5, 4.2];
       /** Below this on either side, the machine is too obscured to judge. */
       const ENOUGH = 6;
 
