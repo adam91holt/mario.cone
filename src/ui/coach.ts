@@ -256,7 +256,10 @@ export function createCoachSystem(ctx: GameContext): GameSystem {
       // ── the card ─────────────────────────────────────────────────────────
       // Visible whenever the player is not racing: the grid, the countdown and
       // the pause screen are all moments with nothing else to do.
-      const idle = phase === 'intro' || phase === 'countdown' || phase === 'loading';
+      // `loading` is deliberately not in this set: that is the phase the front
+      // end sits in, and the menus carry their own prompt rail. A second legend
+      // over the title screen would be two things describing one keyboard.
+      const idle = phase === 'intro' || phase === 'countdown';
       cardWant = cardPinned || idle ? 1 : 0;
       // Out faster than in — furniture should never be the thing still leaving
       // when the lights go green.
