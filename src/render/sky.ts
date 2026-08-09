@@ -31,6 +31,19 @@ export interface AtmosphereUniforms {
   uInscatter: { value: number };
   /** Metres of visibility, roughly: where sea-level air reaches ~63% opacity. */
   uFogDistance: { value: number };
+  /**
+   * The colour of the *air*, normalised to unit luminance.
+   *
+   * Distance fades to the sky in that direction, which is the right idea and
+   * the reason this game has aerial perspective rather than grey fog. But the
+   * sky above the horizon and the air you are looking through are not the same
+   * colour: a mountain's haze is colder and deeper than its horizon band, and a
+   * working quarry's is dust. `theme.fog.color` says which, and until this
+   * existed it said it to nobody. Applied as a tint rather than a colour so it
+   * shifts hue without touching exposure, and so the sun's glow still comes
+   * through the haze where the haze is between you and the sun.
+   */
+  uAirTint: { value: THREE.Color };
   /** Scale height of the haze layer. Low air is thick, high air is clear. */
   uFogHeight: { value: number };
   [key: string]: THREE.IUniform;
@@ -50,6 +63,7 @@ export function makeAtmosphereUniforms(): AtmosphereUniforms {
     uInscatter: { value: 1.0 },
     uFogDistance: { value: 1400 },
     uFogHeight: { value: 150 },
+    uAirTint: { value: new THREE.Color(1, 1, 1) },
   };
 }
 
@@ -81,6 +95,7 @@ uniform float uHazeBand;
 uniform float uInscatter;
 uniform float uFogDistance;
 uniform float uFogHeight;
+uniform vec3 uAirTint;
 `;
 
 /** `mcSkyBase(dir)` — scene-referred linear radiance of the air, no clouds. */

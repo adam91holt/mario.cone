@@ -38,7 +38,18 @@ export interface SurfacePatchDef {
 export interface ShortcutDef {
   from: number;
   to: number;
-  /** -1 cuts the left verge, +1 the right. */
+  /**
+   * Which shoulder the cut runs down, in the *spline's* lateral frame — and
+   * that frame is the opposite of the driver's, because `TrackSpline` builds
+   * `right` as `tangent × up`, which points to the driver's **left**. So `-1`
+   * is the driver's right and `+1` is the driver's left, and the value you
+   * want is whichever side the corner's apex is on: `-1` for a right-hander,
+   * `+1` for a left.
+   *
+   * Getting it backwards is silent rather than loud: the ribbon is painted on
+   * the outside of the corner, `ai/knowledge.ts` measures a chord *longer*
+   * than the arc, `save` clamps to zero, and no driver ever takes it.
+   */
   side: -1 | 1;
 }
 

@@ -196,7 +196,15 @@ void main() {
   // ground plane never ends in a visible line against the sky.
   float air = mcAirMass(dist, uCamPos.y, world.y);
   float fog = (1.0 - exp(-(air + 2.6 * air * air * air))) * uFogAmount * isWorld;
-  col = mix(col, mcSkyBase(world), clamp(fog, 0.0, 1.0));
+  // The air has its own colour (the course theme's "fog.color"), applied as a
+  // unit-luminance tint on the directional sky rather than as a flat fog
+  // colour — no backticks in here, see ARCHITECTURE rule 7 — so the shape
+  // of the haze — brighter toward the sun, thinner with altitude — is the good
+  // idea and stays, while a course still gets to say whether its distance is
+  // cold and deep or hot and full of dust. The sky itself is left alone, so a
+  // far ridge sits cooler than the sky above it, which is what aerial
+  // perspective looks like.
+  col = mix(col, mcSkyBase(world) * uAirTint, clamp(fog, 0.0, 1.0));
 
   col += texture2D(tBloom, uv).rgb * uBloom;
 

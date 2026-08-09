@@ -34,6 +34,14 @@ server and it plays.
    times. No per-frame allocation in hot paths — reuse scratch vectors.
 6. **Leave it running.** Every commit must leave the game playable. Verify with
    `node tools/capture.mjs --smoke` before you finish.
+7. **No backticks inside a CSS template literal — not even in a comment.** Most of
+   the UI in this codebase is a several-hundred-line `` const CSS_X = `…` ``. A
+   backtick inside one *closes* it, and because these are written in prose-commented
+   style the offender is usually a pair of them quoting a property name inside a
+   `/* … */`. The literal reopens on the second one, so the count stays even and
+   the file looks balanced — meanwhile the text between them is parsed as
+   TypeScript. `#race .row { flex: 1 1 0 }` quoted that way cost a green build and
+   read as three unrelated syntax errors on one line. Quote with `"` inside CSS.
 
 ---
 
@@ -142,6 +150,22 @@ ctx = {
 
 Need a change in someone else's file? Either emit an event they already listen for,
 or state the request in your final report so the orchestrator routes it.
+
+### The one exception: the coherence pass
+
+Strict ownership is what lets many agents edit this repo at once, and it has a
+cost that nothing above can pay. No row in that table owns the space *between*
+the rows. Two agents each pick a defensible yellow, each passes its own critic,
+and the game ends up looking like it was made by people who never met.
+
+So `tools/coherence.workflow.mjs` runs one agent with **whole-repo ownership** and
+no restrictions, judged by a critic who scores the game as a single work rather
+than as a piece. It runs between waves and **never during one** — whole-repo
+ownership and strict ownership cannot both be true at the same time, and the
+builder loses that race silently.
+
+If you are a wave builder, this is not your exception. It is not available to you
+and asking for it is the same as asking to edit someone else's file.
 
 ---
 

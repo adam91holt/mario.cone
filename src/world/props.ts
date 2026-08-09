@@ -21,6 +21,7 @@
 import * as THREE from 'three';
 import { Kit, buildProp } from './kit.ts';
 import { BOARD, C, PARKED } from './look.ts';
+import { LAND_PALETTES, type LandPalette } from './themes.ts';
 import { makeRng } from '../core/math.ts';
 
 // ── the small stuff you pass at arm's length ───────────────────────────────
@@ -360,17 +361,21 @@ export function palletStackGeo(): THREE.BufferGeometry {
 
 /** A heap of spoil. Scaled at placement, so one geometry covers everything from
  *  a shovelful to a quarry tip. */
-export function spoilHeapGeo(): THREE.BufferGeometry {
+export function spoilHeapGeo(pal: LandPalette = LAND_PALETTES.canyon): THREE.BufferGeometry {
   return buildProp('spoil', (k) => {
-    k.cone(0, 0, 0, 2.6, 2.0, 9, C.dirt, { ao: 0.45, aoHeight: 2.2 });
+    k.cone(0, 0, 0, 2.6, 2.0, 9, pal.soil, { ao: 0.45, aoHeight: 2.2 });
     k.push();
     k.move(1.4, 0, -0.9).rotY(0.6);
-    k.cone(0, 0, 0, 1.7, 1.3, 8, C.dirtDark, { ao: 0.45, aoHeight: 2.2 });
+    k.cone(0, 0, 0, 1.7, 1.3, 8, pal.soilDark, { ao: 0.45, aoHeight: 2.2 });
     k.pop();
     k.push();
     k.move(-1.1, 0, 1.3).rotY(1.9);
-    k.cone(0, 0, 0, 1.4, 1.0, 8, C.dirt, { ao: 0.45, aoHeight: 2.2, shade: 1.08 });
+    k.cone(0, 0, 0, 1.4, 1.0, 8, pal.soil, { ao: 0.45, aoHeight: 2.2, shade: 1.08 });
     k.pop();
+    // Whatever settles on top here: snow above the line, salt rime on the pan.
+    if (pal.cap !== null) {
+      k.cone(0, 1.16, 0, 1.05, 0.88, 9, pal.cap, { noAo: true });
+    }
   }, 0.45);
 }
 
@@ -381,7 +386,7 @@ export function spoilHeapGeo(): THREE.BufferGeometry {
  * scale reads as a flying saucer parked on the hillside, which is exactly what
  * the first pass looked like. Flat faces at odd angles read as stone.
  */
-export function boulderGeo(): THREE.BufferGeometry {
+export function boulderGeo(pal: LandPalette = LAND_PALETTES.canyon): THREE.BufferGeometry {
   return buildProp('boulder', (k) => {
     const slabs: Array<[number, number, number, number, number, number, number, number]> = [
       // x, y, z, w, h, d, yaw, tilt
@@ -396,7 +401,12 @@ export function boulderGeo(): THREE.BufferGeometry {
       k.push();
       k.move(s[0]!, s[1]!, s[2]!).rotY(s[6]!).rotZ(s[7]!).rotX(s[7]! * 0.6);
       k.box(0, 0, 0, s[3]!, s[4]!, s[5]!,
-        i % 2 ? C.rust : 0xa9713f, { ao: 0.42, aoHeight: 1.8, shade: 1 - i * 0.045 });
+        i % 2 ? pal.rockDark : pal.rock, { ao: 0.42, aoHeight: 1.8, shade: 1 - i * 0.045 });
+      // Snow or rime lies on the up-facing slab, not on the whole rock — a
+      // uniformly white boulder reads as a marshmallow.
+      if (pal.cap !== null) {
+        k.box(0, s[4]! * 0.5, 0, s[3]! * 0.86, 0.13, s[5]! * 0.86, pal.cap, { noAo: true });
+      }
       k.pop();
     }
   }, 0.42);
@@ -491,13 +501,13 @@ export function hoardingGeo(variant = 0): THREE.BufferGeometry {
   }, 0.5);
 }
 
-export function scrubGeo(): THREE.BufferGeometry {
+export function scrubGeo(pal: LandPalette = LAND_PALETTES.canyon): THREE.BufferGeometry {
   return buildProp('scrub', (k) => {
     k.push(); k.scale(1, 0.62, 1);
-    k.sph(0, 0.62, 0, 0.74, 0x7d8a4e, 5, { ao: 0.45, aoHeight: 1.0 });
+    k.sph(0, 0.62, 0, 0.74, pal.veg, 5, { ao: 0.45, aoHeight: 1.0 });
     k.pop();
     k.push(); k.move(0.6, 0, 0.32).scale(1, 0.55, 1);
-    k.sph(0, 0.46, 0, 0.52, 0x6d7a42, 5, { ao: 0.45, aoHeight: 1.0 });
+    k.sph(0, 0.46, 0, 0.52, pal.vegDark, 5, { ao: 0.45, aoHeight: 1.0 });
     k.pop();
   }, 0.45);
 }
@@ -525,14 +535,18 @@ export function scrubGeo(): THREE.BufferGeometry {
  * out here is one flat orange-tan, so a pale rectangle of scalpings does more
  * for the band than anything standing on it.
  */
-export function hardstandGeo(w = 46, d = 30): THREE.BufferGeometry {
+export function hardstandGeo(
+  w = 46, d = 30, pal: LandPalette = LAND_PALETTES.canyon,
+): THREE.BufferGeometry {
   return buildProp('hardstand', (k) => {
-    // A battered skirt so it meets whatever the dirt has done underneath.
-    k.box(0, -3.0, 0, w * 1.16, 6, d * 1.16, C.dirtDark, { noAo: true, shade: 0.7 });
+    // A battered skirt so it meets whatever the dirt has done underneath — in
+    // the landscape's own soil, because a brown earthwork on a salt lake is a
+    // rectangle of the wrong planet.
+    k.box(0, -3.0, 0, w * 1.16, 6, d * 1.16, pal.soilDark, { noAo: true, shade: 0.7 });
     for (let i = 0; i < 3; i++) {
       const t = i / 2;
       k.box(0, -0.08 - t * 2.6, 0, w * (1 + t * 0.22), 0.12, d * (1 + t * 0.22),
-        i === 0 ? C.concreteDark : C.dirtDark, { noAo: true, shade: 1 - t * 0.26 });
+        i === 0 ? pal.crest : pal.soilDark, { noAo: true, shade: 1 - t * 0.26 });
     }
     // Pale, but not white: the point is a value step off the orange dirt, and a
     // slab that goes brighter than the road markings pulls the eye off the
@@ -649,17 +663,17 @@ export function marqueeGeo(seed = 1): THREE.BufferGeometry {
  * between the circuit and the canyon wall look like it has been worked rather
  * than like a hole in the mesh.
  */
-export function bermGeo(): THREE.BufferGeometry {
+export function bermGeo(pal: LandPalette = LAND_PALETTES.canyon): THREE.BufferGeometry {
   const rng = makeRng(0x8ab3);
   return buildProp('berm', (k) => {
     const L = 46;
     for (let i = 0; i < 4; i++) {
       const t = i / 3;
       k.box(-i * 2.1, 0.5 + i * 0.95, 0, 11 - i * 2.1, 2.0 + i * 0.1, L - i * 5,
-        i % 2 ? C.dirt : C.dirtDark, { noAo: true, shade: 0.82 + t * 0.2 });
+        i % 2 ? pal.soil : pal.soilDark, { noAo: true, shade: 0.82 + t * 0.2 });
     }
     // Crest: scalped rock, the pale line that does most of the work.
-    k.box(-6.3, 4.3, 0, 4.6, 0.5, L - 15, C.concreteDark, { noAo: true, shade: 1.02 });
+    k.box(-6.3, 4.3, 0, 4.6, 0.5, L - 15, pal.crest, { noAo: true, shade: 1.02 });
     // Rubble down the face and along the toe. Four stacked boxes is a stepped
     // quarry bench, which is right; four stacked boxes and nothing else is a
     // stack of boxes, which is what it looked like.
@@ -669,12 +683,12 @@ export function bermGeo(): THREE.BufferGeometry {
       k.move(-step * 2.1 + rng.range(-1.4, 1.4), 0.4 + step * 0.95,
         rng.range(-0.44, 0.44) * L).rotY(rng.range(0, 6.28));
       k.box(0, 0, 0, rng.range(0.9, 2.2), rng.range(0.7, 1.4), rng.range(0.9, 2.0),
-        rng.bool() ? C.dirtDark : C.sand, { noAo: true, shade: rng.range(0.72, 1.0) });
+        rng.bool() ? pal.soilDark : pal.rock, { noAo: true, shade: rng.range(0.72, 1.0) });
       k.pop();
     }
     // Haul road along the toe.
-    k.box(7.6, 0.12, 0, 6.4, 0.24, L + 4, C.concreteDark, { noAo: true, shade: 0.92 });
-    k.box(10.4, 0.3, 0, 0.7, 0.5, L + 4, C.dirt, { noAo: true, shade: 0.86 });
+    k.box(7.6, 0.12, 0, 6.4, 0.24, L + 4, pal.crest, { noAo: true, shade: 0.92 });
+    k.box(10.4, 0.3, 0, 0.7, 0.5, L + 4, pal.soil, { noAo: true, shade: 0.86 });
   }, 0);
 }
 
@@ -985,21 +999,25 @@ export function conveyorGeo(): THREE.BufferGeometry {
  * The plinth runs eight metres down so it always meets the ground it is cut
  * into, however far the embankment has dropped by.
  */
-export function padGeo(w = 34, d = 26): THREE.BufferGeometry {
+export function padGeo(
+  w = 34, d = 26, pal: LandPalette = LAND_PALETTES.canyon,
+): THREE.BufferGeometry {
   return buildProp('pad', (k) => {
-    // Battered sides: a slab with vertical faces reads as a floating box.
+    // Battered sides: a slab with vertical faces reads as a floating box. The
+    // cut is in whatever this landscape is made of — the platform is imported
+    // hardcore, so only the running surface stays the same everywhere.
     for (let i = 0; i < 4; i++) {
       const t = i / 3;
       const y = -0.1 - t * 8;
       const g = 1 + t * 0.55;
-      k.box(0, y, 0, w * g, 0.1, d * g, i === 0 ? C.dirt : C.dirtDark,
+      k.box(0, y, 0, w * g, 0.1, d * g, i === 0 ? pal.soil : pal.soilDark,
         { noAo: true, shade: 1 - t * 0.32 });
     }
-    k.box(0, -4.1, 0, w * 1.3, 8.2, d * 1.3, C.dirtDark, { noAo: true, shade: 0.72 });
+    k.box(0, -4.1, 0, w * 1.3, 8.2, d * 1.3, pal.soilDark, { noAo: true, shade: 0.72 });
     k.box(0, 0.02, 0, w, 0.16, d, C.concrete, { noAo: true, shade: 0.96 });
     // A kerb of scalped hardcore around the rim, so the edge has a line.
-    for (const sx of [-1, 1]) k.box(sx * w * 0.5, 0.1, 0, 0.7, 0.3, d, C.dirtDark, { noAo: true });
-    for (const sz of [-1, 1]) k.box(0, 0.1, sz * d * 0.5, w, 0.3, 0.7, C.dirtDark, { noAo: true });
+    for (const sx of [-1, 1]) k.box(sx * w * 0.5, 0.1, 0, 0.7, 0.3, d, pal.soilDark, { noAo: true });
+    for (const sz of [-1, 1]) k.box(0, 0.1, sz * d * 0.5, w, 0.3, 0.7, pal.soilDark, { noAo: true });
   }, 0);
 }
 

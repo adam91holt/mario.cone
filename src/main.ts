@@ -17,12 +17,14 @@ import { createItemSystem } from './items/index.ts';
 import { createRaceDirector } from './race/director.ts';
 import { createCameraSystem } from './render/camera.ts';
 import { createLightingSystem } from './render/lighting.ts';
+import { createGroundSystem } from './render/ground.ts';
 import { createVehicleSystem } from './vehicles/index.ts';
 import { createWorldSystem } from './world/index.ts';
 import { createFxSystem } from './fx/index.ts';
 import { createAudioSystem } from './audio/index.ts';
 import { getVehicle, listVehicles } from './vehicles/registry.ts';
 import { createHudSystem } from './ui/hud.ts';
+import { createMenuSystem } from './ui/menus/index.ts';
 import type {
   GameContext, QualitySettings, RaceConfig, VehicleId,
 } from './types.ts';
@@ -82,6 +84,7 @@ async function boot(): Promise<void> {
 
   const track = createTrackSystem(ctx);
   engine.add(track);
+  engine.add(createGroundSystem(ctx));
   engine.add(createWorldSystem(ctx));
   engine.add(createLightingSystem(ctx));
   engine.add(createAiSystem(ctx));
@@ -93,6 +96,7 @@ async function boot(): Promise<void> {
   engine.add(createFxSystem(ctx));
   engine.add(createAudioSystem(ctx));
   engine.add(createHudSystem(ctx));
+  engine.add(createMenuSystem(ctx));
 
   /** Tear down the previous field and build a fresh one. */
   function buildField(cfg: RaceConfig): void {

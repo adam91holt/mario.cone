@@ -189,6 +189,78 @@ block audio before a user gesture — unlock on first input and never throw if
 audio is unavailable, since the capture harness runs with no audio device.`,
   },
 
+  flow: {
+    name: 'Race flow & results',
+    owns: 'src/race/**',
+    shots: 'countdown,grid,racing',
+    brief: `
+Own everything around the race rather than in it. The director counts laps and
+positions correctly, and that is all it does — the race currently starts without
+ceremony and ends without acknowledgement.
+
+Build:
+- A start sequence worth watching: the grid forming, a camera sweep, the lights,
+  the rocket-start window, and a GO! that lands.
+- Real grid positions. Every racer currently sits at place 1 through the
+  countdown, which the HUD critic caught firing four false lost-a-place alarms
+  in the first two seconds. Assign actual starting places in reset().
+- Finishing: crossing the line should be an event — slow-mo, a camera change, a
+  banner, the CPU field finishing behind you one by one.
+- A results screen: finishing order with times and gaps, points awarded, the
+  cup standings table, and a way to race again.
+- Lap times, best lap, and a final-lap state the whole game reacts to.
+- Pause, and a way out of a race.
+
+You own the race director and the results UI under src/race. Coordinate with ui
+through bus events rather than editing their files.`,
+  },
+
+  menus: {
+    name: 'Front-end & menus',
+    owns: 'src/ui/menus/** (new), and one engine.add line in src/main.ts',
+    shots: 'grid',
+    brief: `
+Own everything before the race. There is no front-end at all: the game boots
+straight into a race on a fixed course with a fixed vehicle.
+
+Build:
+- A title screen with real presence — the game's name, the cast, motion,
+  something happening behind the logo.
+- Character select: all seven machines with their stat bars, blurbs, a rotating
+  preview and a sound. Picking a racer is the first thing a player does and it
+  should feel good.
+- Course select, engine class (50/100/150/200cc), and cup selection.
+- Transitions between every screen that feel authored rather than instant.
+- The whole thing has to be navigable by keyboard and by gamepad, and it must
+  drive the existing startRace() rather than reimplementing it.
+
+Look at how the HUD does its plates and units (src/ui/theme.ts) and stay
+consistent with it — this is the same product.`,
+  },
+
+  courses: {
+    name: 'Course roster',
+    owns: 'src/track/courses/**',
+    shots: 'overhead,racing,far',
+    brief: `
+Own the circuit roster. There is exactly one course. A kart racer needs a cup.
+
+Build three more, each with a distinct theme, silhouette and problem:
+- They must look nothing like each other from the overhead shot.
+- Each needs its own theme block — sky, sun, fog, ground, and the props hooks
+  the world module reads.
+- Each needs a signature: a genuinely memorable corner or set piece.
+- Vary the shape: something tighter and more technical than Cone Canyon,
+  something faster and more open, something with real elevation.
+- Follow the two rules Cone Canyon is held to: width follows speed, and nothing
+  is dead straight for longer than the run to the first corner.
+
+Use the same waypoint authoring path (loopFromWaypoints) so banking is derived
+rather than hand-tuned. Register them in courses/index.ts. Verify each one is
+drivable by running the capture harness against it — a course the AI cannot get
+around is not a course.`,
+  },
+
   world: {
     name: 'World dressing',
     owns: 'src/world/** (new module)',
@@ -215,6 +287,79 @@ line or be mistaken for a hazard the player can hit.
 You own a new module: register a system with order 22 (after track, before
 physics) and build from ctx.track once track:built fires.`,
   },
+
+  themewire: {
+    name: 'Theme wiring',
+    owns: 'src/render/**, src/world/**',
+    shots: 'racing,far,overhead',
+    brief: `
+Own the wiring between a course's declared theme and what the renderer and the
+world module actually draw. Right now that wiring mostly does not exist, and it
+is blocking the course roster outright.
+
+What a critic measured, with file and line — verify each before you fix it:
+- \`theme.ground\` is read in exactly one place, src/render/lighting.ts:176, as a
+  hemisphere-light ground colour. It never paints the terrain material. Saltpan
+  Bypass declares 0xe0dccc, near-white salt, and photographs as rgb(122,100,59)
+  off-road — within 12 points of Switchback Summit's.
+- All thirteen \`theme.props\` keys — saltpan, alpine, snowPoles, pines,
+  avalancheFence, windsocks, machinery, conveyors, dust, heatShimmer, surveyPegs,
+  quarry, canyon — have ZERO property reads anywhere in src/. They are prose in a
+  data structure, not switches. Jackhammer Quarry cannot contain a quarry.
+
+Build:
+- A per-course terrain material driven by \`theme.ground\`, so the ground under
+  the tyres is the colour the course says it is. Not a tint on one shared
+  material — salt, quarry dust, alpine rock and canyon sand are different
+  surfaces, not one surface at four brightnesses.
+- A prop-set switch keyed off \`theme.props\`. Each key names a set the world
+  module builds and places; an unknown key is a loud error, not a silent no-op,
+  because silent no-op is exactly how this got shipped.
+- The same treatment for anything else a course declares and nobody reads. Audit
+  the whole theme block and report every key with no consumer. Either wire it or
+  delete it from the type — a field that lies about being read is worse than no
+  field.
+
+Judge yourself the way the critic will: photograph all four courses from the
+overhead and far shots and put them side by side. If you cannot tell which is
+which without the minimap, you are not done.
+
+Everything you add must be instanced and must respect ctx.quality.drawDistance,
+and nothing you add may block the racing line or read as a hazard.`,
+  },
+
+  perf: {
+    name: 'Performance',
+    owns: 'src/core/quality.ts (new), plus render-budget changes anywhere',
+    shots: 'pack,racing,far',
+    brief: `
+Own the frame budget. The world is now 723k triangles across 304 draw calls and
+nobody has ever measured whether it holds 60fps on a machine that is not this
+one. A racer that hitches is not first-party, no matter how it photographs.
+
+Measure first, then cut. Use window.__GAME.stats() and add whatever counters you
+need to it; do not guess at what is expensive.
+
+Build:
+- An honest frame budget. Instrument the fixed-step and the render separately so
+  a sim spike and a draw spike are distinguishable. Report both in stats().
+- LOD on everything with a silhouette: vehicles, crowd, dressing, terrain. The
+  pack shot must keep its detail; the far shot must not pay for detail nobody
+  can resolve.
+- Instancing audit. Anything that appears more than eight times and is not
+  already instanced is a bug. Merge static shells per material the way
+  mergeStatic() already does for vehicles.
+- A quality ladder driven by measured frame time, not by a hardcoded guess:
+  drawDistance, shadow resolution, particle caps, crowd density. It must settle,
+  not oscillate — hysteresis, and never mid-corner.
+- Kill per-frame allocation in the hot path. Scratch vectors, no closures per
+  racer per step, no array churn in fixedUpdate.
+
+Hard constraints: the simulation is deterministic and must stay that way — LOD
+and culling may never touch anything fixedUpdate reads. A quality change must
+not alter a single racer's position. Prove it: run the same seed at two quality
+levels and diff the snapshots.`,
+  },
 };
 
 const VERDICT = {
@@ -232,13 +377,25 @@ const VERDICT = {
   },
 };
 
+/**
+ * A verdict's `evidence` is an array in the schema, but a verdict handed in as
+ * `carry` is hand-authored and arrives however the author typed it. `.join` on a
+ * string is a TypeError, and a TypeError here does not fail loudly — it throws
+ * inside a pipeline stage, which drops that piece to null and skips it. A wave
+ * would launch, report itself started, and quietly build one piece out of three.
+ */
+function evidenceLine(evidence) {
+  if (!evidence) return '';
+  return Array.isArray(evidence) ? evidence.join(' | ') : String(evidence);
+}
+
 function buildPrompt(piece, round, last) {
   const feedback = last ? `
 ── ROUND ${round}. A critic played the previous build and rejected it. ──
 Score ${last.score}/10. Blind A/B against Mario Kart: ${last.blindPick}.
 Biggest gap: ${last.biggestGap}
 Directive: ${last.directive}
-Observed: ${(last.evidence || []).join(' | ')}
+Observed: ${evidenceLine(last.evidence)}
 Close that gap first. Do not start a redesign.
 ` : '';
 
