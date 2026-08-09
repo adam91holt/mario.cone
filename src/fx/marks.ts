@@ -22,6 +22,28 @@ import type { GameContext } from '../types.ts';
 
 /** Metres between stamps. Shorter is smoother and costs quads. */
 const STEP = 1.1;
+/**
+ * Hardest a single stroke may ever be.
+ *
+ * A mark is rubber left on a road, and rubber on a road is a *shade*, not a
+ * hole. At full strength the multiply landed on 0.15 of the surface value,
+ * which over sunlit asphalt is very nearly black — and a capture of a committed
+ * slide at 77 m/s came back with a row of solid black parallelograms lying on
+ * the tarmac. The shape gave it away as much as the tone: a strip that dark has
+ * *ends*, and ends are the one thing a skid mark must never have.
+ */
+const MAX_FADE = 0.62;
+/**
+ * Quads a fresh ribbon spends ramping up to full strength.
+ *
+ * The ends are the other half of the same defect. A ribbon breaks whenever the
+ * wheel leaves the ground — which at racing pace happens several times a
+ * corner — and each restart used to stamp its first quad at full darkness, so
+ * what the road actually collected was a scattering of hard-edged black slabs
+ * rather than one arc that comes and goes. Fading the first couple of metres in
+ * costs two multiplies and turns every break into a taper.
+ */
+const RUN_IN = 2;
 /** Beyond this a racer was moved, not driven — break the ribbon. */
 const BREAK = 26;
 /**
@@ -77,8 +99,13 @@ void main() {
   // then a soft edge over the remainder. That is the shape of the contact patch
   // of a tyre with a rounded sidewall, and it is what makes the mark read as a
   // band of spent rubber rather than as a scratch.
+  // Softer shoulders than the old 0.46 plateau. A stroke laid at speed is a
+  // long thin quad, and a plateau that wide gives its two long sides a
+  // hard-looking boundary against the road — which is what turned a row of
+  // strokes into a row of slabs. Rubber laid by a rounded sidewall has no
+  // boundary at all: it just runs out.
   float s = abs(vSide);
-  float edge = 1.0 - smoothstep(0.46, 1.0, s);
+  float edge = 1.0 - smoothstep(0.20, 1.0, s);
   float a = vFade * edge;
   if (a < 0.004) discard;
   gl_FragColor = vec4(mix(vec3(1.0), vTint, a), 1.0);
@@ -87,6 +114,8 @@ void main() {
 interface Track {
   live: boolean;
   x: number; y: number; z: number;
+  /** Quads laid since this ribbon started, capped at `RUN_IN`. */
+  run: number;
 }
 
 export interface TyreMarks {
@@ -218,24 +247,29 @@ export function createTyreMarks(ctx: GameContext, maxQuads: number): TyreMarks {
     stroke(id, nx, ny, nz, rx, ry, rz, halfWidth, strength, tint): void {
       let t = tracks.get(id);
       if (!t) {
-        t = { live: false, x: 0, y: 0, z: 0 };
+        t = { live: false, x: 0, y: 0, z: 0, run: 0 };
         tracks.set(id, t);
       }
       const dx = nx - t.x, dy = ny - t.y, dz = nz - t.z;
       const d2 = dx * dx + dy * dy + dz * dz;
       if (!t.live || d2 > BREAK * BREAK) {
         t.live = true;
+        t.run = 0;
         t.x = nx; t.y = ny; t.z = nz;
         return;
       }
       if (d2 < STEP * STEP) return;
-      quad(t.x, t.y, t.z, nx, ny, nz, rx, ry, rz, halfWidth, strength, tint);
+      // Ramp the head of a ribbon in, and never let one reach full black.
+      const ramp = t.run >= RUN_IN ? 1 : (t.run + 1) / (RUN_IN + 1);
+      const s = strength * ramp * MAX_FADE;
+      if (t.run < RUN_IN) t.run++;
+      quad(t.x, t.y, t.z, nx, ny, nz, rx, ry, rz, halfWidth, s, tint);
       t.x = nx; t.y = ny; t.z = nz;
     },
 
     lift(id): void {
       const t = tracks.get(id);
-      if (t) t.live = false;
+      if (t) { t.live = false; t.run = 0; }
     },
 
     update(elapsed): void {

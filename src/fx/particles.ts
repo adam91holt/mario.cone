@@ -100,6 +100,20 @@ export interface ParticlePool {
   readonly capacity: number;
   /** 0..1 how full the pool is. Emitters throttle themselves on this. */
   readonly load: number;
+  /**
+   * How much of the frame the *veil* — everything on the alpha layer — actually
+   * covered last time it was filled, as a sum of solid angles weighted by
+   * opacity. 1.0 is roughly one full screen covered once at full opacity.
+   *
+   * The number this module was missing. Every previous pass tuned dust and
+   * smoke by adjusting fifteen separate alphas and rates against a screenshot,
+   * which works for the one frame it was tuned on and for no other: put eight
+   * machines in a hairpin, or drop the frame rate so each emission is fatter,
+   * or drive onto a surface with a different table row, and the same numbers
+   * produce a windscreen nobody has wiped. Measuring the thing that actually
+   * fails means the emitters can be governed against it directly.
+   */
+  readonly veil: number;
   emit(spec: ParticleSpec): boolean;
   /** Emit `n` copies, scattering direction and speed through `rng`. */
   burst(spec: ParticleSpec, n: number, speed: number, spread: number, rng: Rng): void;
@@ -131,13 +145,64 @@ export interface ParticlePool {
  * able to reach the camera and wash the frame warm, and it brightens rather
  * than obscures. This is only ever about things that hide the game.
  */
-const NEAR_NEAR = 1.1;
-const NEAR_FAR = 3.0;
+const NEAR_NEAR = 2.2;
+const NEAR_FAR = 6.0;
+
+/**
+ * The angular governor, in radians of apparent diameter.
+ *
+ * The metric dissolve above is not enough on its own, and the arithmetic says
+ * why: a 2.4m puff sitting 3.1m from the lens — just outside `NEAR_FAR`, so at
+ * *full* opacity — subtends 43°, which on a 90° frame is half the picture. A
+ * measured capture of an ordinary tier-one drift came back with the sky, the
+ * mountains, the road and the HUD behind six of them. Distance is the wrong
+ * variable: what matters is how much of the frame one sprite owns, and that is
+ * `size / distance` whatever combination of the two produced it.
+ *
+ * So an alpha-layer sprite fades out as its apparent diameter grows past
+ * `ANG_SOFT` (15°) and is gone by `ANG_HARD` (36°), and its drawn diameter is
+ * capped at `ANG_CLAMP` on the way. Nothing on the alpha layer can obscure the
+ * game no matter what an emitter asks for — which is a guarantee, not a tuning
+ * pass, and it is the only kind of answer that survives the next set of numbers
+ * somebody types into the surface table.
+ *
+ * Additive particles get the same treatment at roughly twice the size. They are
+ * not exempt, and believing they were is how the alpha layer got fixed and the
+ * frame stayed unreadable: with the dust under control, a measured drift at 77
+ * km/h had **thirty-one** additive quads inside twelve metres covering five
+ * thousand square degrees between them — against a frame worth about four and a
+ * half thousand. A shock ring fourteen metres across and a lock-in flare six
+ * metres across are not "washing the frame warm", they are painting it out. The
+ * looser ceiling is the real difference between the two layers: a flame plume
+ * genuinely may fill the picture with light, so it is allowed to get twice as
+ * big before anything happens to it.
+ */
+const ANG_SOFT = 0.26;
+const ANG_HARD = 0.62;
+const ANG_CLAMP = 0.50;
+const ANG_SOFT_ADD = 0.55;
+const ANG_HARD_ADD = 1.20;
+const ANG_CLAMP_ADD = 1.00;
+
+/**
+ * Below this apparent diameter a sprite is not worth drawing, in radians.
+ *
+ * 1.6 milliradians is about one pixel on a 900-line frame — a sprite that
+ * cannot resolve to more than a single dim pixel, which after the alpha ramp is
+ * a pixel nobody will ever see. Measured on a drift with the field strung out,
+ * **1247 of the additive layer's 1969 instances were past forty metres** and
+ * contributed one part in a hundred and forty of its coverage between them.
+ * That is half the layer's capacity, half its fill rate and half its buffer
+ * upload spent on nothing, and worse, it is capacity the effects at the player's
+ * own wheels have to compete for when the pool gets busy.
+ */
+const ANG_MIN = 0.0016;
 
 export function createParticlePool(capacity: number): ParticlePool {
   const data = new Float32Array(capacity * STRIDE);
   let count = 0;
   let camX = 0, camY = 0, camZ = 0;
+  let veil = 0;
 
   function emit(spec: ParticleSpec): boolean {
     if (count >= capacity) return false;
@@ -221,6 +286,7 @@ export function createParticlePool(capacity: number): ParticlePool {
   }
 
   function fill(additive: SpriteLayer, alpha: SpriteLayer): void {
+    veil = 0;
     for (let i = 0; i < count; i++) {
       const o = i * STRIDE;
       const u = data[o + S.age] / data[o + S.life];
@@ -240,29 +306,63 @@ export function createParticlePool(capacity: number): ParticlePool {
 
       const code = data[o + S.code];
       const isAdd = code >= ADDITIVE_BIT;
+      let size = data[o + S.size0] + (data[o + S.size1] - data[o + S.size0]) * u;
+      const dx = data[o + S.px] - camX;
+      const dy = data[o + S.py] - camY;
+      const dz = data[o + S.pz] - camZ;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      const d = Math.sqrt(d2);
       if (!isAdd) {
-        // Dissolve anything that has wandered into the lens. Squared distance,
-        // no square root: this runs over every live particle every frame.
-        const dx = data[o + S.px] - camX;
-        const dy = data[o + S.py] - camY;
-        const dz = data[o + S.pz] - camZ;
-        const d2 = dx * dx + dy * dy + dz * dz;
+        // Dissolve anything that has wandered into the lens.
         if (d2 < NEAR_FAR * NEAR_FAR) {
           if (d2 <= NEAR_NEAR * NEAR_NEAR) continue;
-          const t = (Math.sqrt(d2) - NEAR_NEAR) / (NEAR_FAR - NEAR_NEAR);
+          const t = (d - NEAR_NEAR) / (NEAR_FAR - NEAR_NEAR);
           a *= t * t;
           if (a < 0.004) continue;
         }
+      }
+      const packed = isAdd ? code - ADDITIVE_BIT : code;
+      const mode = Math.floor(packed / 8);
+      const cell = packed - mode * 8;
+
+      // ...and cut down anything that has grown to own the frame, wherever it
+      // happens to be. See the note on the angular governor above.
+      //
+      // Ground quads are exempt, and the exemption is geometric rather than a
+      // favour: they lie flat in the world, so a chase camera looking twelve
+      // degrees down foreshortens them to about a quarter of their length and
+      // `size / distance` overstates what they actually cover by four to one.
+      // They also cannot do the thing the governor exists to prevent — a quad
+      // welded to the road can never hover in front of the lens — and they are
+      // the module's whole vocabulary for *contact*, which is the one thing the
+      // art direction says may never be traded away.
+      const soft = isAdd ? ANG_SOFT_ADD : ANG_SOFT;
+      const ang = size / (d > 0.5 ? d : 0.5);
+      // Too small to resolve. Velocity-mode quads get a third of the threshold
+      // rather than an exemption: their length comes from the stretch in the
+      // vertex shader, which this cannot see, so a distant spark is longer than
+      // its diameter suggests — but not thirty times longer, and past a certain
+      // range it is a dim sub-pixel dash like everything else.
+      if (ang < (mode === MODE.velocity ? ANG_MIN * 0.34 : ANG_MIN)) continue;
+      if (mode !== MODE.ground && ang > soft) {
+        const hard = isAdd ? ANG_HARD_ADD : ANG_HARD;
+        if (ang >= hard) continue;
+        const t = (hard - ang) / (hard - soft);
+        a *= t * t;
+        if (a < 0.004) continue;
+        const cap = isAdd ? ANG_CLAMP_ADD : ANG_CLAMP;
+        if (ang > cap) size = d * cap;
+      }
+      if (!isAdd) {
+        // What this sprite is about to cost the frame, in steradian-ish units.
+        // Cheap: two multiplies on a number already in a register.
+        const cover = size / (d > 1 ? d : 1);
+        veil += cover * cover * a;
       }
 
       const r = data[o + S.r0] + (data[o + S.r1] - data[o + S.r0]) * u;
       const g = data[o + S.g0] + (data[o + S.g1] - data[o + S.g0]) * u;
       const b = data[o + S.b0] + (data[o + S.b1] - data[o + S.b0]) * u;
-      const size = data[o + S.size0] + (data[o + S.size1] - data[o + S.size0]) * u;
-
-      const packed = isAdd ? code - ADDITIVE_BIT : code;
-      const mode = Math.floor(packed / 8);
-      const cell = packed - mode * 8;
 
       // `stretch` goes across as the raw coefficient. Turning it into a length
       // needs the camera's velocity, which only the shader has — and doing it
@@ -283,11 +383,12 @@ export function createParticlePool(capacity: number): ParticlePool {
     get count() { return count; },
     capacity,
     get load() { return count / capacity; },
+    get veil() { return veil; },
     emit,
     burst,
     update,
     setCamera(x: number, y: number, z: number): void { camX = x; camY = y; camZ = z; },
     fill,
-    clear(): void { count = 0; },
+    clear(): void { count = 0; veil = 0; },
   };
 }

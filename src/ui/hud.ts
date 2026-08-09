@@ -61,6 +61,19 @@ const CSS_HUD = `
     0 0 0 calc(var(--u) * .12) rgba(9,11,15,.92),
     0 calc(var(--u) * .22) calc(var(--u) * .62) rgba(0,0,0,.5),
     0 0 calc(var(--u) * 1.6) rgba(255,226,150,.5); }
+/* ...and the socket with them. It is the one cluster on screen that is not a
+   plate, so it was also the one object that sat there unmoved while every other
+   instrument in the set lit up — a hole in the middle of the reaction, in the
+   middle of the frame. Declared here rather than in itemslot.ts for the
+   ordering the states need: after the socket's own empty and spinning rules, so
+   a boost shows in either, and before the damage rules below, so a shunt taken
+   mid-boost still reads as damage. */
+#hud.surge .slot { box-shadow:
+    inset 0 0 0 calc(var(--u) * .21) rgba(255,246,214,.98),
+    inset 0 0 0 calc(var(--u) * .34) rgba(20,24,34,.88),
+    inset 0 calc(var(--u) * -.62) calc(var(--u) * 1.1) rgba(0,0,0,.45),
+    0 calc(var(--u) * .34) calc(var(--u) * .9) rgba(0,0,0,.5),
+    0 0 calc(var(--u) * 1.5) rgba(255,232,160,.55); }
 
 /* ...and the same trick in the other direction. Being hit turns every strip red
    at once: the cheapest possible reaction, and the one that reads fastest,

@@ -18,7 +18,9 @@ import { createRaceDirector } from './race/director.ts';
 import { createCameraSystem } from './render/camera.ts';
 import { createLightingSystem } from './render/lighting.ts';
 import { createVehicleSystem } from './vehicles/index.ts';
+import { createWorldSystem } from './world/index.ts';
 import { createFxSystem } from './fx/index.ts';
+import { createAudioSystem } from './audio/index.ts';
 import { getVehicle, listVehicles } from './vehicles/registry.ts';
 import { createHudSystem } from './ui/hud.ts';
 import type {
@@ -80,6 +82,7 @@ async function boot(): Promise<void> {
 
   const track = createTrackSystem(ctx);
   engine.add(track);
+  engine.add(createWorldSystem(ctx));
   engine.add(createLightingSystem(ctx));
   engine.add(createAiSystem(ctx));
   engine.add(createKartPhysics(ctx));
@@ -88,6 +91,7 @@ async function boot(): Promise<void> {
   engine.add(createCameraSystem(ctx));
   engine.add(createVehicleSystem(ctx));
   engine.add(createFxSystem(ctx));
+  engine.add(createAudioSystem(ctx));
   engine.add(createHudSystem(ctx));
 
   /** Tear down the previous field and build a fresh one. */
