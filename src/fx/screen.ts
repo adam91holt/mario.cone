@@ -24,64 +24,66 @@ const CSS = `
   opacity: 0; mix-blend-mode: screen;
   will-change: opacity;
 }
-/* The rush has to stay out of the driving line.
+/* The rush has to be a *frame*, and it has to stay out of the driving line.
 
-   farthest-corner sizes the ellipse so its 100% stop lands exactly on the
-   corner of the frame. That fixes where every other percentage falls: the
-   middle of the bottom edge — the strip of glass the player is actually
-   steering through — sits at about 65% of the radius, and the middles of the
-   side and top edges at about 71%. The previous stops opened at 40% and were
-   already a third of the way up by 72%, so a boost put a third of its amber
-   straight over the road ahead and the kart on it. Reviewers read that,
-   correctly, as the effect obliterating the part of the frame the game is
-   played in.
+   The previous version used farthest-corner, which sizes the ellipse so its
+   100% stop lands on the corner of the picture — and with nothing before 78%
+   that confined the whole effect to the four corners. Four corners is precisely
+   where the HUD lives: lap counter, minimap, coins, position. Measured on a
+   live mini-turbo boost with the rush element sitting at 0.79 opacity, almost
+   none of it reached a pixel the player could see, because the panels were
+   drawn over all four of the places it had been carefully confined to. The
+   loudest sustained signal in the game was being emitted into the furniture.
 
-   So nothing at all before 78%, which is outside every edge midpoint, and the
-   real weight after 92%. Geometrically that confines it to the four corners
-   and a thin band along the extreme rim, which is where peripheral vision picks
-   up speed anyway — the centre two thirds stay completely clean. */
+   farthest-side puts the 100% stop on the middles of the four edges instead, so
+   the hot band runs the whole way round the rim — including the top and bottom
+   centre, which no HUD element occupies — and the corners simply saturate. The
+   opening stop is what keeps it out of the driving line, and 66% of the
+   half-height is a long way outside the road ahead: at 900px tall that is the
+   outer 150px of the frame, and the horizon sits near the middle. The centre
+   two thirds stay completely clean, which was always the point. */
 #fx-screen .rush {
   position: absolute; inset: 0;
   opacity: 0; mix-blend-mode: screen;
-  transform-origin: 50% 52%;
+  transform-origin: 50% 50%;
   will-change: opacity, transform;
   background:
-    radial-gradient(ellipse farthest-corner at 50% 52%,
-      rgba(255,190,90,0) 68%,
-      rgba(255,180,86,0.09) 82%,
-      rgba(255,158,60,0.40) 94%,
-      rgba(255,128,36,0.80) 100%);
+    radial-gradient(ellipse farthest-side at 50% 50%,
+      rgba(255,190,90,0) 62%,
+      rgba(255,182,86,0.10) 80%,
+      rgba(255,158,60,0.34) 92%,
+      rgba(255,126,34,0.72) 100%);
 }
 /* The charge ring. Its colour follows the mini-turbo tier, so the frame itself
    is part of the meter — the sparks say it loudest, this says it in peripheral
    vision, where a player who is busy driving actually reads it. */
 #fx-screen .rush.charge {
   background:
-    radial-gradient(ellipse farthest-corner at 50% 52%,
-      rgba(255,242,216,0) 76%,
-      rgba(255,242,216,0.06) 90%,
-      rgba(255,242,216,0.18) 100%);
+    radial-gradient(ellipse farthest-side at 50% 50%,
+      rgba(255,242,216,0) 70%,
+      rgba(255,242,216,0.06) 88%,
+      rgba(255,242,216,0.16) 100%);
 }
 #fx-screen .rush.charge.t1 {
   background:
-    radial-gradient(ellipse farthest-corner at 50% 52%,
-      rgba(120,205,255,0) 74%,
-      rgba(110,195,255,0.09) 89%,
+    radial-gradient(ellipse farthest-side at 50% 50%,
+      rgba(120,205,255,0) 68%,
+      rgba(110,195,255,0.10) 87%,
       rgba(79,195,247,0.30) 100%);
 }
 #fx-screen .rush.charge.t2 {
   background:
-    radial-gradient(ellipse farthest-corner at 50% 52%,
-      rgba(255,180,80,0) 74%,
-      rgba(255,168,60,0.10) 89%,
+    radial-gradient(ellipse farthest-side at 50% 50%,
+      rgba(255,180,80,0) 68%,
+      rgba(255,168,60,0.11) 87%,
       rgba(255,152,0,0.32) 100%);
 }
 #fx-screen .rush.charge.t3 {
   background:
-    radial-gradient(ellipse farthest-corner at 50% 52%,
-      rgba(224,110,251,0) 74%,
-      rgba(224,90,251,0.11) 89%,
-      rgba(224,64,251,0.36) 100%);
+    radial-gradient(ellipse farthest-side at 50% 50%,
+      rgba(224,110,251,0) 68%,
+      rgba(224,90,251,0.13) 87%,
+      rgba(224,64,251,0.38) 100%);
 }
 `;
 
@@ -206,7 +208,7 @@ export function createScreenFx(): ScreenFx {
         // element is a tenth larger than the frame, which carries the gradient's
         // hot last stop clean off the glass; at full rush it lands exactly on
         // the corners. That is the whole travel of the effect.
-        const s = Math.round((1.10 - a * 0.10) * 100) / 100;
+        const s = Math.round((1.16 - a * 0.16) * 100) / 100;
         if (s !== wroteRushScale) {
           rushEl.style.transform = `scale(${s})`;
           wroteRushScale = s;

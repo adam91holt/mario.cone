@@ -1725,10 +1725,20 @@ export function createFxSystem(ctx: GameContext): GameSystem {
         sparkSpec.vy = racer.vel.y * 0.88 + rng.range(0.4, 3.0);
         sparkSpec.vz = racer.vel.z * 0.88 - _fwd.z * kick + rng.range(-2.2, 2.2);
         sparkSpec.life = rng.range(0.12, 0.24);
-        sparkSpec.size0 = rng.range(0.13, 0.24);
+        sparkSpec.size0 = rng.range(0.10, 0.19);
         sparkSpec.gravity = 8;
         sparkSpec.drag = 0.8;
-        sparkSpec.color0.lerpColors(tint, WHITE_HOT, 0.28).multiplyScalar(gain * 1.1);
+        // Split, not averaged — the same correction the mini-turbo sparks
+        // already carry. Lerping every spark toward white and then multiplying
+        // by the tier gain produces a population whose *mean* is bright and
+        // whose *mode* is nothing in particular, and the eye reads the mode. A
+        // measured mini-turbo boost came back with a stream of cream lozenges
+        // and no trace of the tier that fired it.
+        if (rng.next() < 0.22) {
+          sparkSpec.color0.lerpColors(tint, WHITE_HOT, 0.34).multiplyScalar(gain * 0.95);
+        } else {
+          setHdr(sparkSpec.color0, tint, gain * 1.2);
+        }
         setHdr(sparkSpec.color1, tint, gain * 0.25);
         pool.emit(sparkSpec);
         sparkSpec.gravity = 15;
@@ -1770,15 +1780,29 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     // orange from inside. A pair set out at the flanks has *width*, which is
     // the one dimension the chase camera cannot take away, and width is what
     // makes the shape read as exhaust rather than as a tint.
+    // ── how bright the throats are allowed to be ──────────────────────────
+    //
+    // A measured tier-one drift that ran over a boost pad photographed as a
+    // *white headlamp* four hundred pixels across with the machine hidden
+    // behind it, and the arithmetic is not subtle: two throat glows at 3.9, two
+    // white pinpoints at 3.2, a 2.8m wash at 2.0, a ground pool, a flare at
+    // each wheel and twenty flame bodies at 3.4 all land inside the same metre.
+    // ACES takes anything much past 2.5 to white and it takes stacked additives
+    // there immediately, so the loudest moment in the game arrived with no hue
+    // in it at all and — worse — obscured the thing it was happening to.
+    //
+    // The peak comes down to about 2.7 and the *area* comes down with it, which
+    // matters more. Brightness above the clip point buys nothing; what it costs
+    // is every pixel it spreads to.
     const flick = 0.85 + 0.15 * Math.sin(ctx.time.elapsed * 61 + racer.id * 2.3);
-    const k = (gain * 1.15 + 0.9 * power) * flick;
+    const k = (gain * 0.86 + 0.5 * power) * flick;
     const spread = s.halfW * 0.42;
     for (let side = -1; side <= 1; side += 2) {
       local(side * spread, -0.1, -s.len * 0.46, _p);
       add.push(
         _p.x, _p.y, _p.z, 0, 0, 0,
         tint.r * k, tint.g * k, tint.b * k, 0.95,
-        (0.62 + 0.42 * power) * flick * rig, 0, 0, CELL.glow, MODE.billboard,
+        (0.52 + 0.34 * power) * flick * rig, 0, 0, CELL.glow, MODE.billboard,
       );
       // A white pinpoint at each throat. Everything else here is broad and
       // soft, and without something hard at the centre the plume reads as fog
@@ -1794,8 +1818,8 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     local(0, -0.1, -s.len * 0.46, _p);
     add.push(
       _p.x, _p.y, _p.z, 0, 0, 0,
-      FLAME_MID.r * k * 0.5, FLAME_MID.g * k * 0.5, FLAME_MID.b * k * 0.5, 0.8,
-      (1.7 + 1.1 * power) * flick * rig, 0, 0, CELL.glow, MODE.billboard,
+      FLAME_MID.r * k * 0.34, FLAME_MID.g * k * 0.34, FLAME_MID.b * k * 0.34, 0.72,
+      (1.25 + 0.75 * power) * flick * rig, 0, 0, CELL.glow, MODE.billboard,
     );
     // ...and the light it throws on the road, which is what welds the plume to
     // the ground instead of leaving it hovering behind the machine.
@@ -1986,10 +2010,15 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       // and photographed as a chain of glowing pods being towed home. More of
       // them, each smaller, is the same brightness arranged as a spray.
       sparkSpec.life = rng.range(0.12, 0.22);
-      sparkSpec.size0 = rng.range(0.10, 0.20);
+      sparkSpec.size0 = rng.range(0.09, 0.17);
       sparkSpec.gravity = 12;
       sparkSpec.drag = 0.7;
-      sparkSpec.color0.lerpColors(tint, WHITE_HOT, 0.28).multiplyScalar(gain * 1.2);
+      // Hue first, heat second — see the note in the plume's own spark branch.
+      if (rng.next() < 0.22) {
+        sparkSpec.color0.lerpColors(tint, WHITE_HOT, 0.34).multiplyScalar(gain * 1.0);
+      } else {
+        setHdr(sparkSpec.color0, tint, gain * 1.3);
+      }
       setHdr(sparkSpec.color1, tint, gain * 0.25);
       if (!pool.emit(sparkSpec)) break;
     }

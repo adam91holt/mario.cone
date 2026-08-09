@@ -56,14 +56,23 @@ export interface ExhaustPort {
   /** Seconds a puff lasts. */
   life: number;
   /**
-   * Peak opacity of one puff, before the atlas's own ceiling — about two
-   * thirds — takes its cut. The read comes from having several wisps
+   * Peak opacity of one puff, before the atlas's own ceiling — about three
+   * quarters — takes its cut. The read comes from having several wisps
    * overlapping, never from any one of them being solid.
    *
-   * These are all about a third of what they were, and they had to be: the
-   * puff cell was rebuilt (see `atlas.ts`) from a hollow ring peaking at 0.20
-   * into a solid-centred cloud peaking at 0.66. Left alone, the locomotive's
-   * steam would have gone from a wisp to a wall of cotton wool.
+   * Every plume in this table has been rebuilt around one measurement: a
+   * screenshot of the locomotive at racing speed came back with **four
+   * separate, individually outlined translucent balls** stacked over the
+   * chimney. The rate was 30 a second against a 0.6s life and a puff that grew
+   * to very nearly a metre across, which is a dozen large discs in the air at
+   * once — and a dozen large discs is a bag of marbles, not steam, whatever
+   * opacity each of them carries.
+   *
+   * So every port now runs at roughly three times the rate, half the diameter
+   * and a third of the opacity. That is *the same integrated density* arranged
+   * as a mass rather than as a handful of objects, and the difference is
+   * categorical: a mass has an outline that changes every frame, and objects
+   * have outlines you can count.
    */
   alpha: number;
   /** Pale body colour, and the slightly deeper tone it settles to. */
@@ -76,9 +85,9 @@ export interface ExhaustPort {
 const port = (over: Partial<ExhaustPort>): ExhaustPort => ({
   x: 0, y: 0.5, z: -1,
   dx: 0, dy: 0.9, dz: -1,
-  size: 0.22, grow: 3.4,
-  idle: 8, drive: 20,
-  speed: 3.0, life: 0.62, alpha: 0.15,
+  size: 0.12, grow: 3.4,
+  idle: 24, drive: 48,
+  speed: 3.0, life: 0.62, alpha: 0.10,
   color: 0xE9EDF4, tail: 0xC2C8D4,
   hot: false,
   ...over,
@@ -106,18 +115,18 @@ export const EXHAUST: Record<VehicleId, ExhaustPort[]> = {
   cone: [
     port({
       x: 0.24, y: 0.52, z: -1.14, dx: 0.16, dy: 1.1, dz: -1,
-      size: 0.11, grow: 2.6, idle: 18, drive: 38,
+      size: 0.09, grow: 2.6, idle: 24, drive: 50, alpha: 0.10,
     }),
     port({
       x: -0.24, y: 0.52, z: -1.14, dx: -0.16, dy: 1.1, dz: -1,
-      size: 0.11, grow: 2.6, idle: 18, drive: 38,
+      size: 0.09, grow: 2.6, idle: 24, drive: 50, alpha: 0.10,
     }),
   ],
   // One pipe under the rear valance, at (0, 0.42, -1.86).
   car: [
     port({
       x: 0.18, y: 0.44, z: -1.92, dx: 0.14, dy: 1.1, dz: -1,
-      size: 0.13, grow: 2.7, idle: 20, drive: 42,
+      size: 0.11, grow: 2.7, idle: 26, drive: 54, alpha: 0.10,
     }),
   ],
   // Diesel stack behind the cab, at (0.92, 2.95, 0.42), venting straight up.
@@ -130,16 +139,16 @@ export const EXHAUST: Record<VehicleId, ExhaustPort[]> = {
       // the sky above it and the tarmac below, so it reads against both. That
       // still satisfies the rule this module got wrong last round — nothing
       // airborne may be darker than the ground — with room to spare.
-      size: 0.26, grow: 3.0, idle: 9, drive: 16, speed: 3.8, life: 0.50,
-      alpha: 0.28, color: 0x9DA3AE, tail: 0x818794,
+      size: 0.13, grow: 3.4, idle: 28, drive: 46, speed: 3.8, life: 0.56,
+      alpha: 0.115, color: 0x9DA3AE, tail: 0x818794,
     }),
   ],
   // Stack on the engine deck at the back of the house, venting up.
   digger: [
     port({
       x: 0.56, y: 2.06, z: -0.34, dx: 0.02, dy: 1, dz: -0.14,
-      size: 0.24, grow: 3.0, idle: 8, drive: 15, speed: 3.4, life: 0.48,
-      alpha: 0.28, color: 0x9BA1AC, tail: 0x7F8591,
+      size: 0.12, grow: 3.4, idle: 26, drive: 44, speed: 3.4, life: 0.54,
+      alpha: 0.115, color: 0x9BA1AC, tail: 0x7F8591,
     }),
   ],
   // The chimney, at (0, 2.72, 1.62). Steam: white, fat, and it climbs. Kept
@@ -149,29 +158,29 @@ export const EXHAUST: Record<VehicleId, ExhaustPort[]> = {
   train: [
     port({
       x: 0, y: 2.84, z: 1.62, dx: 0, dy: 1, dz: -0.12,
-      size: 0.30, grow: 3.2, idle: 11, drive: 19, speed: 5.4, life: 0.60,
-      alpha: 0.30, color: 0xFDFEFF, tail: 0xC9D2DE,
+      size: 0.15, grow: 3.6, idle: 34, drive: 54, speed: 5.0, life: 0.70,
+      alpha: 0.115, color: 0xFDFEFF, tail: 0xC9D2DE,
     }),
   ],
   // Exhaust stubs either side of the cowl, blowing back along the fuselage.
   plane: [
     port({
       x: 0.34, y: 0.86, z: 0.86, dx: 0.2, dy: 0.5, dz: -1,
-      size: 0.15, grow: 2.8, idle: 15, drive: 32, speed: 5.0, life: 0.52,
-      alpha: 0.17, color: 0xDCE3EF, tail: 0xB4BDCC, hot: true,
+      size: 0.09, grow: 3.0, idle: 30, drive: 60, speed: 5.0, life: 0.56,
+      alpha: 0.085, color: 0xDCE3EF, tail: 0xB4BDCC, hot: true,
     }),
     port({
       x: -0.34, y: 0.86, z: 0.86, dx: -0.2, dy: 0.5, dz: -1,
-      size: 0.15, grow: 2.8, idle: 15, drive: 32, speed: 5.0, life: 0.52,
-      alpha: 0.17, color: 0xDCE3EF, tail: 0xB4BDCC, hot: true,
+      size: 0.09, grow: 3.0, idle: 30, drive: 60, speed: 5.0, life: 0.56,
+      alpha: 0.085, color: 0xDCE3EF, tail: 0xB4BDCC, hot: true,
     }),
   ],
   // Turbine exhaust on the engine deck under the mast, blowing down the boom.
   helicopter: [
     port({
       x: 0.28, y: 1.76, z: -0.72, dx: 0.24, dy: 0.4, dz: -1,
-      size: 0.19, grow: 3.0, idle: 16, drive: 34, speed: 6.0, life: 0.6,
-      alpha: 0.17, color: 0xDEE5F1, tail: 0xB6BFCE, hot: true,
+      size: 0.11, grow: 3.2, idle: 32, drive: 62, speed: 6.0, life: 0.62,
+      alpha: 0.085, color: 0xDEE5F1, tail: 0xB6BFCE, hot: true,
     }),
   ],
 };

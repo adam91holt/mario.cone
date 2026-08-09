@@ -18,7 +18,7 @@
 
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
-import { mkdir, rm, readdir } from 'node:fs/promises';
+import { mkdir, rm, readdir, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -108,21 +108,37 @@ const CLIPS = [
   },
 ];
 
-function encode(dir, name, fps) {
+/**
+ * Encode a directory of frames to WebM.
+ *
+ * The ffmpeg that ships with Playwright is cut down to exactly what Playwright's
+ * own video recording needs: **mjpeg in, VP8 out, and nothing else**. There is no
+ * PNG decoder and no image2 file-sequence demuxer, so the usual
+ * `-i frames/f%05d.png` fails twice over. Frames are therefore captured as JPEG
+ * and streamed in through image2pipe.
+ */
+async function encode(dir, name, fps) {
+  const out = path.join(OUT, `${name}.webm`);
+  const frames = (await readdir(dir)).filter((f) => f.endsWith('.jpg')).sort();
+  if (!frames.length) throw new Error(`no frames in ${dir}`);
+
   return new Promise((resolve, reject) => {
-    const out = path.join(OUT, `${name}.webm`);
-    const args = [
+    const p = spawn(FFMPEG, [
       '-y', '-loglevel', 'error',
-      '-framerate', String(fps),
-      '-i', path.join(dir, 'f%05d.png'),
-      '-c:v', 'libvpx', '-b:v', '1400k', '-crf', '31',
-      '-pix_fmt', 'yuv420p',
-      '-an', out,
-    ];
-    const p = spawn(FFMPEG, args);
+      '-f', 'image2pipe', '-vcodec', 'mjpeg', '-framerate', String(fps),
+      '-i', 'pipe:0',
+      '-c:v', 'libvpx', '-b:v', '1100k', '-crf', '33',
+      '-pix_fmt', 'yuv420p', '-an', out,
+    ]);
     let err = '';
     p.stderr.on('data', (d) => { err += d; });
     p.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(err || `ffmpeg exit ${code}`))));
+
+    // Concatenated JPEGs — image2pipe splits them on their own markers.
+    (async () => {
+      for (const f of frames) p.stdin.write(await readFile(path.join(dir, f)));
+      p.stdin.end();
+    })().catch(reject);
   });
 }
 
@@ -192,7 +208,11 @@ for (const clip of wanted) {
     // One frame of game time, rendered. advance() interleaves the fixed steps
     // with a draw, so per-frame visual state (springs, particles) is correct.
     await game.advance(1 / FPS, 1);
-    await page.screenshot({ path: path.join(dir, `f${String(i).padStart(5, '0')}.png`) });
+    // JPEG, because the bundled ffmpeg has no PNG decoder (see encode()).
+    await page.screenshot({
+      path: path.join(dir, `f${String(i).padStart(5, '0')}.jpg`),
+      type: 'jpeg', quality: 82,
+    });
   }
 
   const file = await encode(dir, clip.name, FPS);
