@@ -1,6 +1,6 @@
 {
-  "phase": "Coherence pass — playing the whole game and closing the seams",
-  "phaseNote": "Wave 5 finished: themewire 6.5, flow 7.5, menus 7.0, all sent back, all with measured directives. Three of them point outside their own module — missing shadows, a finish nobody reacts to, events published with data no listener reads — so the next pass is the whole-game one, which owns everything.",
+  "phase": "Coherence pass — closing 14 seams",
+  "phaseNote": "The survey played the game front to back and found the break is not subtle. Worst first: two alphabets; a silent race interface against a front-end with 26 cues; finishing last firing the same confetti cannon as winning; camera:shot emitted for grid, countdown and podium with nothing ever listening; and weapons named out of another studio's game.",
   "pieces": [
     {
       "id": "feel",
@@ -152,11 +152,15 @@
       "scope": "everything",
       "state": "build",
       "rounds": 1,
-      "verdict": "Running now — the first whole-game pass this project has had.",
-      "gap": "Shadows have now failed three separate pieces: the menu stage, the world geometry, and the contact under every machine. No single module owns lighting, which is exactly why no piece critic could ever close it."
+      "verdict": "Survey complete: 14 seams. \"A bag of very good parts, and the parts know it — several files carry comments apologising for the space they cannot reach across.\" Smoothing agent now working through them worst-first.",
+      "gap": "Two products with a curtain between them. Everything before the flag is a web front-end — Trebuchet MS, keycap chips, its own renderer, 26 sound cues. Everything after is a console game — every word drawn as geometry, the studio's own grade and bloom, and total silence from its interface. The launch card and the course card say CONE CANYON SPEEDWAY one second apart in two different typefaces."
     }
   ],
   "log": [
+    {
+      "when": "2026-08-09 23:27 UTC",
+      "text": "Player feedback beat the critics: steering was mirrored and nothing said what the buttons were. Both fixed, verified and deployed. Coherence survey found 14 seams and the smoothing pass is underway."
+    },
     {
       "when": "2026-08-09 21:32 UTC",
       "text": "Wave 5 landed. Smoke passes at 62.6 m/s and 747k triangles. The review sheet confirms the critics: nothing in the frame casts a shadow, so the coherence pass goes next rather than more piece work."
