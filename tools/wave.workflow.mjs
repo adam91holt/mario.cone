@@ -288,6 +288,46 @@ You own a new module: register a system with order 22 (after track, before
 physics) and build from ctx.track once track:built fires.`,
   },
 
+  themewire: {
+    name: 'Theme wiring',
+    owns: 'src/render/**, src/world/**',
+    shots: 'racing,far,overhead',
+    brief: `
+Own the wiring between a course's declared theme and what the renderer and the
+world module actually draw. Right now that wiring mostly does not exist, and it
+is blocking the course roster outright.
+
+What a critic measured, with file and line — verify each before you fix it:
+- \`theme.ground\` is read in exactly one place, src/render/lighting.ts:176, as a
+  hemisphere-light ground colour. It never paints the terrain material. Saltpan
+  Bypass declares 0xe0dccc, near-white salt, and photographs as rgb(122,100,59)
+  off-road — within 12 points of Switchback Summit's.
+- All thirteen \`theme.props\` keys — saltpan, alpine, snowPoles, pines,
+  avalancheFence, windsocks, machinery, conveyors, dust, heatShimmer, surveyPegs,
+  quarry, canyon — have ZERO property reads anywhere in src/. They are prose in a
+  data structure, not switches. Jackhammer Quarry cannot contain a quarry.
+
+Build:
+- A per-course terrain material driven by \`theme.ground\`, so the ground under
+  the tyres is the colour the course says it is. Not a tint on one shared
+  material — salt, quarry dust, alpine rock and canyon sand are different
+  surfaces, not one surface at four brightnesses.
+- A prop-set switch keyed off \`theme.props\`. Each key names a set the world
+  module builds and places; an unknown key is a loud error, not a silent no-op,
+  because silent no-op is exactly how this got shipped.
+- The same treatment for anything else a course declares and nobody reads. Audit
+  the whole theme block and report every key with no consumer. Either wire it or
+  delete it from the type — a field that lies about being read is worse than no
+  field.
+
+Judge yourself the way the critic will: photograph all four courses from the
+overhead and far shots and put them side by side. If you cannot tell which is
+which without the minimap, you are not done.
+
+Everything you add must be instanced and must respect ctx.quality.drawDistance,
+and nothing you add may block the racing line or read as a hazard.`,
+  },
+
   perf: {
     name: 'Performance',
     owns: 'src/core/quality.ts (new), plus render-budget changes anywhere',
@@ -337,13 +377,25 @@ const VERDICT = {
   },
 };
 
+/**
+ * A verdict's `evidence` is an array in the schema, but a verdict handed in as
+ * `carry` is hand-authored and arrives however the author typed it. `.join` on a
+ * string is a TypeError, and a TypeError here does not fail loudly — it throws
+ * inside a pipeline stage, which drops that piece to null and skips it. A wave
+ * would launch, report itself started, and quietly build one piece out of three.
+ */
+function evidenceLine(evidence) {
+  if (!evidence) return '';
+  return Array.isArray(evidence) ? evidence.join(' | ') : String(evidence);
+}
+
 function buildPrompt(piece, round, last) {
   const feedback = last ? `
 ── ROUND ${round}. A critic played the previous build and rejected it. ──
 Score ${last.score}/10. Blind A/B against Mario Kart: ${last.blindPick}.
 Biggest gap: ${last.biggestGap}
 Directive: ${last.directive}
-Observed: ${(last.evidence || []).join(' | ')}
+Observed: ${evidenceLine(last.evidence)}
 Close that gap first. Do not start a redesign.
 ` : '';
 

@@ -261,8 +261,8 @@
   // ── board state ──────────────────────────────────────────────────────
   // Updated as the build progresses. Everything below renders from this.
   const STATE = {
-  "phase": "Wave 4 — race flow, menus, course roster",
-  "phaseNote": "Three builders in flight. Next: the coherence pass — one fresh agent plays the whole game front to back and closes the seams between pieces — then performance.",
+  "phase": "Wave 5 — theme wiring, race flow, menus",
+  "phaseNote": "Wave 4 was killed mid-flight by a container suspend. All three pieces had already been judged and failed with measured gaps, so those verdicts are carried forward rather than rediscovered. Courses waits on theme wiring.",
   "pieces": [
     {
       "id": "feel",
@@ -367,28 +367,37 @@
       "id": "flow",
       "name": "Race flow & results",
       "scope": "src/race",
-      "state": "build",
+      "state": "fail",
       "rounds": 1,
-      "verdict": "Wave 4, round 1 in flight — builder working now.",
-      "gap": ""
+      "verdict": "6.0/10, blind pick Mario Kart. Grid, lights, flag, wrap and results state machine all landed; the start mechanic is backwards.",
+      "gap": "The rocket start is inverted. Pressing accelerate ON the green — a 0.1s reaction window — gives 1.38s of boost and 119.3m in two seconds; holding through the final beat, which is Mario Kart's actual rocket window, gives nothing and 41.5m."
     },
     {
       "id": "menus",
       "name": "Front-end & menus",
       "scope": "src/ui/menus",
-      "state": "build",
+      "state": "fail",
       "rounds": 1,
-      "verdict": "Wave 4, round 1 in flight — builder working now.",
-      "gap": ""
+      "verdict": "6.5/10, blind pick Mario Kart. Title, class, roster and circuit screens exist and are drawn geometry throughout.",
+      "gap": "The menu stage casts no contact shadow: ground luminance under the digger reads 96.9 against 42.4 for the asphalt beside it — a pool of light where there should be a shadow. The same machine on the grid a quarter-second later is correctly darker than its surroundings."
     },
     {
       "id": "courses",
       "name": "Course roster",
       "scope": "src/track/courses",
+      "state": "fail",
+      "rounds": 1,
+      "verdict": "5.0/10, blind pick Mario Kart. Three new circuits authored — Jackhammer Quarry, Saltpan Bypass, Switchback Summit — with distinct layouts.",
+      "gap": "All four render as the same brown desert bypass. The cause is not the layouts: theme.ground is read once as a hemisphere-light colour and never paints terrain, and all thirteen theme.props keys have zero reads anywhere in src. The roster is blocked until the renderer consumes what a course declares."
+    },
+    {
+      "id": "themewire",
+      "name": "Theme wiring",
+      "scope": "src/render, src/world",
       "state": "build",
       "rounds": 1,
-      "verdict": "Wave 4, round 1 in flight — builder working now.",
-      "gap": ""
+      "verdict": "Added mid-wave to unblock the course roster.",
+      "gap": "A course can declare its ground colour and thirteen prop sets and the renderer reads almost none of it. Saltpan Bypass declares near-white salt and photographs within 12 points of an alpine massif."
     },
     {
       "id": "perf",
@@ -410,6 +419,10 @@
     }
   ],
   "log": [
+    {
+      "when": "2026-08-09 13:21 UTC",
+      "text": "All three wave-4 pieces failed round 1 with measured gaps. Courses turned out to be blocked by the renderer ignoring what a course declares, so a theme-wiring piece was added ahead of it."
+    },
     {
       "when": "2026-08-09 10:19 UTC",
       "text": "Wave 4 building: race flow & results, front-end menus, three more courses. Added the perf brief and the coherence pass to the roster."
@@ -514,7 +527,7 @@
       "caption": " Countdown beat. HUD punch and the pre-race camera."
     }
   ],
-  "updated": "2026-08-09 10:19 UTC"
+  "updated": "2026-08-09 13:22 UTC"
 };
 
   const LABEL = { queued: "Queued", build: "Building", review: "In review", fail: "Sent back", pass: "Passed" };
