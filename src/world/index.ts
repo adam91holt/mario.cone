@@ -300,12 +300,12 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       // ten of the detailed article was seventy-seven thousand triangles on its
       // own, and most of why this course loaded at 914k against Cone Canyon's
       // 757k.
-      for (let i = 0; i < 3; i++) def(`pines${i}`, LP.pineStandGeo(i, pal), 460);
+      for (let i = 0; i < 3; i++) def(`pines${i}`, LP.pineStandGeo(i, pal), 430);
       for (let i = 0; i < 3; i++) {
-        def(`pinesFar${i}`, LP.pineStandGeo(i + 7, pal, { far: true }), 1400);
+        def(`pinesFar${i}`, LP.pineStandGeo(i + 7, pal, { far: true }), 1150);
       }
     }
-    if (T.snowPoles) def('snowPole', LP.snowPoleGeo(), 340);
+    if (T.snowPoles) def('snowPole', LP.snowPoleGeo(), 270);
     if (T.avalancheFence) def('avFence', LP.avalancheFenceGeo(), 1300);
     if (T.windsocks) {
       def('windsockMast', LP.windsockMastGeo(), 620);
@@ -1102,6 +1102,18 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
     // deliberate part of what the course feels like, not a shortfall.
     const many = (n: number): number => Math.round(n * pal.scatter);
 
+    /**
+     * How much of §5c's landform budget this course actually needs.
+     *
+     * A hillside of conifers *is* a middle distance — it occludes, it has
+     * relief, and it is already paid for — so a course that declares pines does
+     * not also need a full ration of rock in the same band. Switchback Summit
+     * carries the alpine kit on top of everything Cone Canyon carries and was
+     * measured at 914k triangles against Cone Canyon's 757k; this is one of the
+     * places that difference comes back from.
+     */
+    const massBudget = T.pines ? 0.6 : 1;
+
     // Mid-distance heaps, so the ground between the circuit and the canyon rim
     // is not a bald plain. Deliberately large: at a hundred metres out a spoil
     // heap has to be the size of a house before it is anything at all.
@@ -1289,7 +1301,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       // sixty metres over the nearest road and a forest growing through it
       // would undo the one cue that makes a mountain read as a mountain.
       if (T.pines) {
-        for (let i = 0; i < 230; i++) {
+        for (let i = 0; i < 190; i++) {
           const d = rng.range(0, L);
           const side = (rng.bool() ? 1 : -1) as -1 | 1;
           const off = 18 + rng.next() * 190;
@@ -1298,11 +1310,11 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
           if (!free(s.x, s.z, 4.6)) continue;
           claim(s.x, s.z, 4);
           // Detail is chosen by where the stand *is*, not by where the camera
-          // is, because a batch is switched whole. Everything past sixty metres
-          // takes the silhouette build — that is the distance at which the
-          // trunk, the fourth skirt and the snow line all stop existing — and
-          // it is roughly three quarters of the forest.
-          const kind = off < 60 ? `pines${i % 3}` : `pinesFar${i % 3}`;
+          // is, because a batch is switched whole. Everything past forty-eight
+          // metres takes the silhouette build — that is the distance at which
+          // the trunk, the fourth skirt and the snow line all stop existing —
+          // and it is roughly four fifths of the forest.
+          const kind = off < 48 ? `pines${i % 3}` : `pinesFar${i % 3}`;
           drop(kind, s, rng.range(0, 6.28), rng.range(0.72, 1.25), d, 0);
         }
       }
