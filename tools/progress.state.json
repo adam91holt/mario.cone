@@ -1,6 +1,6 @@
 {
-  "phase": "Wave 3",
-  "phaseNote": "Items, effects and HUD have been through three rounds and six critics. All still fail, but the faults are now measured to the pixel and the millisecond. AI, audio and world dressing go next; the three polish pieces carry their directives forward.",
+  "phase": "Wave 3 landed",
+  "phaseNote": "AI, audio and world dressing all exist and run. All three failed their critics; the reviews are now measuring the game in its own units \u2014 percent of race spent in gravel, decibels in a named frequency band, pixels that change between two frames.",
   "pieces": [
     {
       "id": "feel",
@@ -69,10 +69,10 @@
       "id": "ai",
       "name": "CPU racers",
       "scope": "src/ai",
-      "state": "build",
-      "rounds": 0,
-      "verdict": "",
-      "gap": ""
+      "state": "fail",
+      "rounds": 2,
+      "verdict": "5.5/10 after two rounds. Rebuilt with awareness, knowledge and personality. CPUs now plan corners, use items and differ from each other.",
+      "gap": "The field spends ~17.5% of every race unintentionally in the gravel, falling off at the same two corners every lap. And every drift is released the instant tier 1 lands \u2014 a whole 8-kart race produces 128 blue mini-turbos, 1 orange and 0 purple."
     },
     {
       "id": "hud",
@@ -87,19 +87,19 @@
       "id": "world",
       "name": "World dressing",
       "scope": "src/world",
-      "state": "build",
-      "rounds": 0,
-      "verdict": "",
-      "gap": ""
+      "state": "fail",
+      "rounds": 2,
+      "verdict": "6.5/10 after two rounds. Crowds, floodlights, marshal posts, flags, grandstands, cranes and roadworks dressing, all instanced.",
+      "gap": "On the straights the 0-60m band on both sides is bare barrier and empty dirt, and nothing within 100m of the camera moves. Park the kart and advance 1.4s: the only pixels that change are sky clouds and the exhaust."
     },
     {
       "id": "audio",
       "name": "Music & sound",
       "scope": "src/audio",
-      "state": "build",
-      "rounds": 0,
-      "verdict": "",
-      "gap": ""
+      "state": "fail",
+      "rounds": 2,
+      "verdict": "6.5/10 after two rounds. A full synthesized stack: per-vehicle engines, drift, impacts, items, music, positional audio. No audio files.",
+      "gap": "A two-second drift has no tyre scrub at all \u2014 0.09 dB difference across the module own documented 1900 Hz band between slip 0 and slip 1. The corner the player lives in is silent apart from one 80ms tick."
     },
     {
       "id": "flow",
@@ -139,6 +139,10 @@
     }
   ],
   "log": [
+    {
+      "at": "Wave 3",
+      "text": "<b>AI 5.5, audio 6.5, world 6.5 \u2014 all fail, all merged.</b> The AI critic ran two full 120s races at 10Hz and found the field spends 17.5% of the race in the gravel, falling off at the same two named corners every lap. The audio critic measured a 0.09 dB difference in the drift-scrub band between no slip and full slip, against a 6 dB pass bar. The world critic parked the kart and advanced 1.4 seconds of visual time: nothing in the bottom 60% of frame changed."
+    },
     {
       "at": "Wave 3",
       "text": "<b>AI, audio and world dressing dispatched.</b> Items, effects and HUD carry their directives to a later polish wave \u2014 they are at 6.5-7 and improving, while these three do not exist at all."
