@@ -1,0 +1,68 @@
+name: Deploy to GitHub Pages
+
+# Publishes the playable build. Every push to main redeploys, and the manual
+# trigger is there for redeploying without a commit — useful when the Pages
+# settings change rather than the code.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time, and a newer push wins. `cancel-in-progress: false`
+# because cancelling half-way through the deploy step can leave Pages serving a
+# partially uploaded site; a queued run costs a minute and is always safe.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Playwright is a devDependency used only by the local capture harness.
+      # Its postinstall would otherwise pull ~150MB of browsers that this job
+      # never launches.
+      - name: Install
+        run: npm ci
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+
+      - name: Build
+        run: npm run build
+
+      # The build board is a plain self-contained HTML file that lives outside
+      # the Vite graph, so it has to be copied in by hand to be served.
+      # .nojekyll stops Pages running the output through Jekyll, which strips
+      # any path segment beginning with an underscore.
+      - name: Stage extras
+        run: |
+          cp progress.html dist/progress.html
+          touch dist/.nojekyll
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
