@@ -1238,7 +1238,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       // sixty metres over the nearest road and a forest growing through it
       // would undo the one cue that makes a mountain read as a mountain.
       if (T.pines) {
-        for (let i = 0; i < 260; i++) {
+        for (let i = 0; i < 210; i++) {
           const d = rng.range(0, L);
           const side = (rng.bool() ? 1 : -1) as -1 | 1;
           const off = 18 + rng.next() * 170;

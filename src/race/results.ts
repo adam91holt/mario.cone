@@ -141,9 +141,10 @@ export const CSS_RESULTS = `
    results table beside it, and the bottom third of the championship — the half
    of the screen that is supposed to be the reason to play the next race — was
    blank plate. Same rule the table on the left already runs to. */
-#race .cup .crows { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+#race .cup .crows { flex: 1; display: flex; flex-direction: column;
+  justify-content: center; min-height: 0; }
 #race .cup .crow { display: flex; align-items: center; gap: calc(var(--u) * .5);
-  flex: 1 1 0; min-height: 0; max-height: calc(var(--u) * 3.3); opacity: 0; }
+  flex: 1 1 0; min-height: 0; max-height: calc(var(--u) * 4.4); opacity: 0; }
 #race .cup .crow .cpos { height: calc(var(--u) * 1.25); color: #9FB0C6; width: calc(var(--u) * 2.1); }
 #race .cup .crow .chip { width: calc(var(--u) * .55); height: calc(var(--u) * 1.7);
   transform: skewX(-9deg); border-radius: calc(var(--u) * .08);

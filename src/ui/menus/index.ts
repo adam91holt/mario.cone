@@ -62,11 +62,21 @@ const SHOT: Record<ScreenName, ShotName> = {
  * on that screen is a plate with the key printed on it, and a rail repeating it
  * forty pixels below was the same instruction twice.
  */
-function hintsFor(screen: ScreenName, courseRow: 0 | 1): string {
+function hintsFor(screen: ScreenName, courseRow: 0 | 1, courses: number): string {
   switch (screen) {
     case 'racer':
       return hintKey('◀ ▶', 'Choose') + hintKey('↵', 'Select') + hintKey('Esc', 'Back');
     case 'course':
+      // A cup with nothing in it advertises nothing. The rail used to offer
+      // "▼ Circuits" and "◀ ▶ Circuit" on a closed cup, where ▼ lands on a
+      // single card wearing tape and ◀ ▶ cannot move: a legend that names keys
+      // which do not do what it says is worse than no legend, because the
+      // player concludes the screen is broken rather than that the cup is shut.
+      if (courses === 0) {
+        return courseRow === 0
+          ? hintKey('◀ ▶', 'Cup') + hintKey('Esc', 'Back')
+          : hintKey('▲', 'Cups') + hintKey('Esc', 'Back');
+      }
       return courseRow === 0
         ? hintKey('◀ ▶', 'Cup') + hintKey('▼', 'Circuits')
           + hintKey('↵', 'Open cup') + hintKey('Esc', 'Back')
@@ -98,6 +108,23 @@ const PAD_BUTTONS: Array<[number, string]> = [
 /** How long a held direction waits before it starts repeating, and how fast. */
 const REPEAT_DELAY = 0.36;
 const REPEAT_RATE = 0.11;
+
+export interface CellProbe { scale: number; opacity: number; shown: boolean }
+export interface RingProbe { opacity: number; x: number; y: number; w: number; h: number }
+
+export interface UiProbe {
+  screen: ScreenName;
+  row: 0 | 1;
+  /** Scale of the cell that currently has the cursor. */
+  sel: number;
+  ring: RingProbe;
+  cells: CellProbe[];
+  cupRing: RingProbe;
+  cardRing: RingProbe;
+  cards: CellProbe[];
+  cupTabs: CellProbe[];
+  held: number[];
+}
 
 export interface MenuProbe {
   open: boolean;
@@ -216,7 +243,7 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
   /** The rail follows the cursor, not just the screen — so it is repainted from
    *  `update` rather than only when a screen changes. */
   function paintHint(): void {
-    const want = hintsFor(screen, screens.course.row);
+    const want = hintsFor(screen, screens.course.row, screens.course.courseCount());
     if (want === hintText) return;
     hintText = want;
     hintBox.el.innerHTML = want;
@@ -278,6 +305,16 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
     launching = true;
     sfx('boost', 0.95);
     ctx.audio?.setMusic('auto');
+    // Said out loud a beat before `reset()`, so anything that wants to author
+    // the arrival — a course fly-through, a name card, a grid reveal — has the
+    // choice in hand while the board is still closing rather than after the
+    // race has already been built underneath it. Nothing depends on it being
+    // listened to.
+    ctx.bus.emit('menu:launch', {
+      courseId: choice.courseId,
+      vehicleId: choice.vehicleId,
+      engineClass: choice.engineClass,
+    });
     wipeT = 0;
     wipeSwapped = false;
     pending = null;
@@ -514,6 +551,10 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
     screen = at;
     for (const k of Object.keys(show) as ScreenName[]) show[k] = k === at ? 1 : 0;
     root.classList.add('on');
+    // The bed the whole front-end runs on. Stated rather than inherited: with
+    // no override the music follows the race behind the menus, so a front-end
+    // opened over a finished race would come up to a victory fanfare.
+    ctx.audio?.setMusic('grid');
     screens[at].enter?.();
     stage?.cut(SHOT[at]);
     stage?.setLevel(1);
@@ -709,6 +750,62 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
         if (i >= 0) screens.class.setIndex(i);
       }
       paintTray();
+    },
+    /** Where the ground is worth reading, for the contact check. */
+    marks: () => stage?.marks() ?? [],
+    /**
+     * What the cursor is actually doing, read the way a reviewer reads it: out
+     * of the computed style, not out of the variable that was supposed to
+     * produce it. The last critique of this screen was made entirely of numbers
+     * like these — a tile that steps 1.000 → 1.224 in 33ms and then reports the
+     * same matrix for twenty-five frames, a ring at opacity 0 on every cell of
+     * every row — and none of them were checkable without a browser and a
+     * stopwatch. Now they are one call.
+     */
+    uiProbe: (): UiProbe => {
+      const read = (q: string): CellProbe[] =>
+        Array.from(root.querySelectorAll<HTMLElement>(q)).map((el) => {
+          const cs = getComputedStyle(el);
+          const m = /matrix\(([-\d.]+)/.exec(cs.transform);
+          return {
+            scale: m ? +Number(m[1]).toFixed(4) : 1,
+            opacity: +Number(cs.opacity).toFixed(3),
+            shown: cs.display !== 'none',
+          };
+        });
+      const ring = (q: string): RingProbe => {
+        const el = root.querySelector<HTMLElement>(q);
+        if (!el) return { opacity: 0, x: 0, y: 0, w: 0, h: 0 };
+        const cs = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        return {
+          opacity: +Number(cs.opacity).toFixed(3),
+          x: +r.x.toFixed(1), y: +r.y.toFixed(1),
+          w: +r.width.toFixed(1), h: +r.height.toFixed(1),
+        };
+      };
+      const which = screen === 'racer' ? '.scr-racer .tile'
+        : screen === 'class' ? '.scr-class .cc'
+          : screens.course.row === 0 ? '.scr-course .cupTab' : '.scr-course .courseCard';
+      const idx = screen === 'racer' ? screens.racer.index
+        : screen === 'class' ? screens.class.index
+          : screens.course.row === 0 ? screens.course.cupIndex : screens.course.courseIndex;
+      const cells = read(which);
+      const ringSel = screen === 'racer' ? '.rove.tileRing'
+        : screen === 'class' ? '.rove.classRing'
+          : screens.course.row === 0 ? '.rove.cupRing' : '.rove.cardRing';
+      return {
+        screen,
+        row: screens.course.row,
+        sel: cells[idx]?.scale ?? 0,
+        ring: ring(ringSel),
+        cells,
+        cupRing: ring('.rove.cupRing'),
+        cardRing: ring('.rove.cardRing'),
+        cards: read('.scr-course .courseCard'),
+        cupTabs: read('.scr-course .cupTab'),
+        held: read('.scr-course .held').map((c) => c.opacity),
+      };
     },
     probe: (): MenuProbe => ({
       open: visible,

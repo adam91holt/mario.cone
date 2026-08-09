@@ -435,7 +435,9 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     overlay?.card.retire();
     overlay?.lights.arm();
     setPhase('countdown');
-    askCamera('countdown', { slot: playerSlot(), total: seats.length });
+    // `back` is the metres of grid standing in front of the player: the number a
+    // rig needs to know how much road the countdown framing has to hold.
+    askCamera('countdown', { slot: playerSlot(), total: seats.length, back: gridDepth() });
     ctx.race.countdown = R.countdownFrom;
     beat(R.countdownFrom);
   }
@@ -701,6 +703,9 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     ensureCup();
     cup.apply(rows);
     setPhase('results');
+    // The sheet is a dark scrim over whatever the lens happened to be looking at
+    // when the last machine stopped. Ask for the winner instead; see askCamera.
+    askCamera('podium', { racerId: rows[0]?.id ?? ctx.player?.id ?? 0 });
     if (!overlay) return;
     overlay.ticker.clear();
     const fast = book.fastest();

@@ -56,6 +56,32 @@
 // The warm pool survives, but as a *halo* — a ring of light with a hole in the
 // middle where the machine stands. It is what says "on show" without ever
 // putting light where a shadow belongs.
+//
+// ── Why the first attempt at that still measured as a light pool ────────────
+//
+// Both layers were built, and neither of them was visible. Two reasons, and
+// they are worth writing down because they are the reasons a contact shadow
+// fails anywhere:
+//
+//   *A shadow needs a lit ground.* This set was pitched at dusk — asphalt at a
+//   luminance of about 36, against 61 for the same road on the race grid. A
+//   multiply-darkening patch on a ground that is already nearly black has
+//   nothing left to take away, so it measured as no change at all. The set is
+//   now lit at the same hour Cone Canyon is, which is also what closes the
+//   hand-off the critique named: a dim navy road cutting to a sunlit canyon.
+//
+//   *A shadow behind the subject is a shadow nobody sees.* The key was at
+//   (-7, 9, 6) — camera side — so every shadow it cast fell *away* from the
+//   lens and hid behind the machine that cast it. The key is now nearly
+//   side-on, at (-9.4, 7.4, 1.6): high enough for a short shadow, lateral
+//   enough that the shadow lands beside the machine where the camera can see
+//   it, and still from the left so the warm key stays on the same cheek of
+//   every machine as it is in the race.
+//
+// `marks()` at the bottom of this file is the measurement, so neither of those
+// can quietly come back: it hands out the ground samples — raycast, so they are
+// only ever points where the ground is genuinely visible — and the ring hugging
+// a machine has to read darker than the road four metres away.
 
 import * as THREE from 'three';
 import { clamp01, damp, ease, lerp } from '../../core/math.ts';
@@ -90,7 +116,7 @@ const SHOTS: Record<ShotName, Shot> = {
   // parade used to project onto within a few pixels of the same screen row, so
   // a machine four metres behind another was simply drawn on top of it; from
   // here each lane sits on its own line of the road.
-  title: { pos: [0.5, 4.1, 13.0], look: [0, 2.0, -8.6], fov: 39, focus: [0, -9], radius: 21 },
+  title: { pos: [0.4, 4.9, 13.6], look: [0, 1.35, -8.0], fov: 40, focus: [0, -8], radius: 20 },
   hero: { pos: [4.3, 2.9, 12.6], look: [2.3, 0.75, -1.2], fov: 32, focus: [1.5, -3], radius: 12 },
   board: { pos: [6.2, 3.6, 12.4], look: [4.0, 0.7, -1.4], fov: 33, focus: [2.5, -3], radius: 13 },
 };
@@ -117,16 +143,25 @@ const SHOTS: Record<ShotName, Shot> = {
 const MASCOT: VehicleId = 'cone';
 /** Left of the wordmark and nearer the lens than any lane, so it is the biggest
  *  machine on the screen and can never be the one hidden behind another. */
-const MASCOT_AT = { x: -4.7, z: -3.9 } as const;
-/** Half a loop each way. Wide enough that a wrap happens well off frame even in
- *  the far lane, where the camera sees roughly ±18m. */
-const PARADE_SPAN = 24;
-const PARADE_LANES = 3;
+const MASCOT_AT = { x: -5.0, z: -3.2 } as const;
+/**
+ * Half a loop each way, and the number that decides how much of the cast is on
+ * screen at once.
+ *
+ * The first parade ran six machines two-to-a-lane on a 48m loop, which put them
+ * 24m apart — and the camera sees about 15m either side of the mark. Exactly
+ * one of every pair could be on screen at any moment, so a title card advertising
+ * seven machines showed three. Three to a lane on a 41m loop puts them 13.6m
+ * apart: two or three of every lane are in frame at all times, and the wrap
+ * still happens five metres outside it.
+ */
+const PARADE_SPAN = 20.4;
+const PARADE_LANES = 2;
 /** Metres of clear air between the widest machine in one lane and the next. */
 const LANE_MARGIN = 1.25;
-const NEAR_LANE_Z = -9.4;
+const NEAR_LANE_Z = -7.6;
 /** Nearest lane first. Near runs fastest, so the line-up reads with parallax. */
-const LANE_SPEED = [8.1, 6.9, 5.9] as const;
+const LANE_SPEED = [7.4, 5.8] as const;
 
 interface Display {
   id: VehicleId;
@@ -146,8 +181,28 @@ interface ParadeEntry {
   wob: number;
 }
 
+/**
+ * A ground sample point for the contact check, in CSS pixels of the canvas.
+ *
+ * The contact critique was made by reading the luminance of the ground *under*
+ * a machine against the asphalt beside it, out of a screenshot. That is the
+ * right measurement and it should not need a human with an eyedropper, so the
+ * set hands out the three points to read: the ground at the machine's own
+ * centre, the ground just outside its footprint, and the ground well clear of
+ * it. `under` must come back darker than `beside`, on every screen.
+ */
+export interface StageMark {
+  id: VehicleId;
+  /** Visible ground hugging the machine's footprint. */
+  near: Array<[number, number]>;
+  /** Visible ground four metres clear of it. */
+  far: Array<[number, number]>;
+}
+
 export interface Stage {
   readonly canvas: HTMLCanvasElement;
+  /** Screen-space ground samples for every machine currently on the set. */
+  marks(): StageMark[];
   /** Cut to a shot instantly (used when a screen is opened, not moved to). */
   cut(shot: ShotName): void;
   /** Move to a shot on the stage's own eased clock. */
@@ -166,9 +221,16 @@ export interface Stage {
 // Scratch. Nothing in the per-frame path may allocate.
 const _look = new THREE.Vector3();
 const _pos = new THREE.Vector3();
-/** The key's direction, normalised once. Moving the light and its target by the
- *  same delta keeps this constant while the shadow volume follows the subject. */
-const LIGHT_DIR = new THREE.Vector3(-7, 9, 6).normalize();
+/**
+ * The key's direction, normalised once. Moving the light and its target by the
+ * same delta keeps this constant while the shadow volume follows the subject.
+ *
+ * Nearly side-on, and only a little toward the lens. A key at 45° to the camera
+ * axis throws its shadow behind the thing it lights, where the thing it lights
+ * is standing on it; from here a two-metre machine puts a shadow 2.5m to its
+ * right and only half a metre back, which is a shadow on screen.
+ */
+const LIGHT_DIR = new THREE.Vector3(-9.4, 7.4, 1.6).normalize();
 
 // ── procedural textures ────────────────────────────────────────────────────
 
@@ -177,14 +239,18 @@ function gradientSky(): THREE.Texture {
   c.width = 4;
   c.height = 256;
   const g = c.getContext('2d')!;
+  // The same hour as Cone Canyon: a bright blue overhead, a pale warm band at
+  // the horizon, and sunlit land under it. It used to run to dusk, which is
+  // what made the hand-off from this set to the race a cut between two
+  // different times of day.
   const grad = g.createLinearGradient(0, 0, 0, 256);
-  grad.addColorStop(0.00, '#2A63AE');
-  grad.addColorStop(0.30, '#5F9AD6');
-  grad.addColorStop(0.52, '#A7CDE9');
-  grad.addColorStop(0.63, '#DCD3BE');
-  grad.addColorStop(0.68, '#B79A76');
-  grad.addColorStop(0.84, '#7C6650');
-  grad.addColorStop(1.00, '#4A3D31');
+  grad.addColorStop(0.00, '#3D86D8');
+  grad.addColorStop(0.30, '#79B4E6');
+  grad.addColorStop(0.52, '#BEDCF2');
+  grad.addColorStop(0.62, '#EFE6CE');
+  grad.addColorStop(0.68, '#D3B78E');
+  grad.addColorStop(0.84, '#A98A66');
+  grad.addColorStop(1.00, '#7C6650');
   g.fillStyle = grad;
   g.fillRect(0, 0, 4, 256);
   const tex = new THREE.CanvasTexture(c);
@@ -199,7 +265,12 @@ function roadTexture(): THREE.Texture {
   c.width = S;
   c.height = S;
   const g = c.getContext('2d')!;
-  g.fillStyle = '#32353D';
+  // Read against the race's own road, not against a mood board. Cone Canyon's
+  // asphalt photographs at a luminance of about 61 with a machine's shadow at
+  // 43; a menu road that reads 36 has no room left underneath it for a shadow
+  // to be, which is precisely how a contact pass can be built twice and
+  // measure as absent both times.
+  g.fillStyle = '#4B505B';
   g.fillRect(0, 0, S, S);
   // Aggregate. Deterministic — a menu that is speckled differently on every
   // boot is a menu whose screenshots cannot be compared.
@@ -209,7 +280,7 @@ function roadTexture(): THREE.Texture {
     return seed / 0x7fffffff;
   };
   for (let i = 0; i < 2600; i++) {
-    const v = 44 + Math.floor(rnd() * 34);
+    const v = 62 + Math.floor(rnd() * 40);
     g.fillStyle = `rgb(${v},${v + 2},${v + 6})`;
     g.fillRect(rnd() * S, rnd() * S, 1 + rnd() * 2, 1 + rnd() * 2);
   }
@@ -252,11 +323,14 @@ function haloTexture(): THREE.Texture {
   c.width = S;
   c.height = S;
   const g = c.getContext('2d')!;
+  // The hole is wide on purpose. The biggest machine in the cast is 4.8m long,
+  // so a ring that starts lifting at 30% of a 13.5m plane was putting warm
+  // light on the tarmac under the locomotive's own buffers.
   const grad = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
   grad.addColorStop(0.00, 'rgba(255,255,255,0)');
-  grad.addColorStop(0.30, 'rgba(255,255,255,0)');
-  grad.addColorStop(0.52, 'rgba(255,255,255,.85)');
-  grad.addColorStop(0.74, 'rgba(255,255,255,.36)');
+  grad.addColorStop(0.46, 'rgba(255,255,255,0)');
+  grad.addColorStop(0.66, 'rgba(255,255,255,.9)');
+  grad.addColorStop(0.82, 'rgba(255,255,255,.34)');
   grad.addColorStop(1.00, 'rgba(255,255,255,0)');
   g.fillStyle = grad;
   g.fillRect(0, 0, S, S);
@@ -278,10 +352,10 @@ function patchTexture(): THREE.Texture {
   c.width = S;
   c.height = S;
   const g = c.getContext('2d')!;
-  const grad = g.createRadialGradient(S / 2, S / 2, S * 0.05, S / 2, S / 2, S / 2);
-  grad.addColorStop(0.00, 'rgba(255,255,255,.80)');
-  grad.addColorStop(0.34, 'rgba(255,255,255,.62)');
-  grad.addColorStop(0.66, 'rgba(255,255,255,.26)');
+  const grad = g.createRadialGradient(S / 2, S / 2, S * 0.04, S / 2, S / 2, S / 2);
+  grad.addColorStop(0.00, 'rgba(255,255,255,.92)');
+  grad.addColorStop(0.40, 'rgba(255,255,255,.78)');
+  grad.addColorStop(0.70, 'rgba(255,255,255,.34)');
   grad.addColorStop(1.00, 'rgba(255,255,255,0)');
   g.fillStyle = grad;
   g.fillRect(0, 0, S, S);
@@ -317,7 +391,7 @@ export function createStage(ctx: GameContext): Stage | null {
 
   const scene = new THREE.Scene();
   scene.background = gradientSky();
-  scene.fog = new THREE.Fog(0xb7cadb, 58, 250);
+  scene.fog = new THREE.Fog(0xcfe0ee, 80, 320);
 
   const camera = new THREE.PerspectiveCamera(34, 16 / 9, 0.2, 400);
 
@@ -326,16 +400,23 @@ export function createStage(ctx: GameContext): Stage | null {
   // behind that the material module's Fresnel rim then rides on. Same three
   // lights the race is lit with, so a machine looks like itself in both — and,
   // now, the same one of the three casting.
-  const key = new THREE.DirectionalLight(0xffe6c2, 3.1);
-  key.position.set(-7, 9, 6);
+  const KEY_I = 3.5;
+  const KICK_I = 0.95;
+  const SKY_I = 1.05;
+  const key = new THREE.DirectionalLight(0xffeccb, KEY_I);
+  key.position.copy(LIGHT_DIR).multiplyScalar(34);
   key.castShadow = SHADOWS;
-  key.shadow.mapSize.set(1024, 1024);
-  key.shadow.bias = -0.0007;
-  key.shadow.normalBias = 0.03;
-  key.shadow.radius = 1.6;
-  const kick = new THREE.DirectionalLight(0x8fc4ff, 1.35);
+  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.bias = -0.0006;
+  key.shadow.normalBias = 0.026;
+  key.shadow.radius = 2.1;
+  const kick = new THREE.DirectionalLight(0x8fc4ff, KICK_I);
   kick.position.set(6, 3.4, -8);
-  const sky = new THREE.HemisphereLight(0x9ad4ff, 0x3b2f24, 1.5);
+  // The fill is dropped a third from where it was. A hemisphere strong enough
+  // to light the underside of every machine is a hemisphere strong enough to
+  // fill in the shadow the key just cast, and the two together are why the
+  // first contact pass measured flat.
+  const sky = new THREE.HemisphereLight(0xa8dcff, 0x4e4132, SKY_I);
   scene.add(key, key.target, kick, sky);
 
   let shadowR = -1;
@@ -362,7 +443,7 @@ export function createStage(ctx: GameContext): Stage | null {
   const roadTex = roadTexture();
   const ground = new THREE.Mesh(
     new THREE.CircleGeometry(150, 48),
-    new THREE.MeshStandardMaterial({ map: roadTex, color: 0xb6bac4, roughness: 0.86, metalness: 0.02 }),
+    new THREE.MeshStandardMaterial({ map: roadTex, color: 0xeef0f4, roughness: 0.88, metalness: 0.02 }),
   );
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
@@ -546,10 +627,11 @@ export function createStage(ctx: GameContext): Stage | null {
       blendDst: THREE.OneMinusSrcAlphaFactor,
       opacity: 0,
     });
-    // Half again the footprint, because the gradient's dark core is only the
-    // middle two-thirds of the plane.
+    // Sized to the footprint and not much more. A patch half again the
+    // machine's own length is a smudge the machine happens to be standing near;
+    // the occlusion this layer is standing in for lives under the chassis.
     const patch = new THREE.Mesh(
-      new THREE.PlaneGeometry(def.size.width * 1.7, def.size.length * 1.5), patchMat);
+      new THREE.PlaneGeometry(def.size.width * 1.36, def.size.length * 1.26), patchMat);
     patch.rotation.x = -Math.PI / 2;
     patch.position.y = 0.017;
     patch.renderOrder = -1;
@@ -563,7 +645,7 @@ export function createStage(ctx: GameContext): Stage | null {
 
   /** How strong a contact patch is. With a real cast shadow under it the patch
    *  is the occlusion term only; without one it is the whole shadow. */
-  const PATCH_MAX = SHADOWS ? 0.62 : 0.95;
+  const PATCH_MAX = SHADOWS ? 0.46 : 0.9;
 
   const parade: ParadeEntry[] = [];
   /** Ids still waiting to join the parade. One is built per rendered frame, so
@@ -717,8 +799,94 @@ export function createStage(ctx: GameContext): Stage | null {
     camera.updateProjectionMatrix();
   }
 
+  /**
+   * Scratch for the contact probe. It is not a per-frame path — a reviewer
+   * calls it between screenshots — but it reuses its vectors anyway, because a
+   * debug hook that allocates is a debug hook someone eventually calls in a
+   * loop.
+   */
+  const _mk = new THREE.Vector3();
+  const _dir = new THREE.Vector3();
+  const _box = new THREE.Box3();
+  const _ray = new THREE.Raycaster();
+  /** Everything a ground sample is allowed to land on, and everything that can
+   *  legitimately be in the way of one. */
+  const _hitList: THREE.Object3D[] = [];
+
   const api: Stage = {
     canvas,
+
+    marks(): StageMark[] {
+      const out: StageMark[] = [];
+      const w = canvas.clientWidth || 1600;
+      const h = canvas.clientHeight || 900;
+      camera.updateMatrixWorld();
+      scene.updateMatrixWorld();
+
+      // A ground sample is only worth reading if the ground is what the camera
+      // can see there. Every naive version of this measurement reads the roof
+      // of the machine it is trying to find the shadow of — the point under a
+      // digger, projected from a lens 15° above the road, is behind the digger.
+      // So each candidate is raycast, and only the ones where the first thing
+      // hit is the road itself survive.
+      _hitList.length = 0;
+      _hitList.push(ground);
+      for (const m of paint.children) _hitList.push(m);
+      for (const m of marks.children) _hitList.push(m);
+      for (const d of built.values()) if (d.model.root.parent) _hitList.push(d.model.root);
+      const groundIds = new Set<number>([ground.id]);
+      for (const m of paint.children) groundIds.add(m.id);
+
+      const sample = (x: number, z: number): [number, number] | null => {
+        _mk.set(x, 0.015, z);
+        _dir.copy(_mk).sub(camera.position).normalize();
+        _ray.set(camera.position, _dir);
+        _ray.far = camera.position.distanceTo(_mk) + 0.4;
+        const hits = _ray.intersectObjects(_hitList, true);
+        // The contact patch and the halo are transparent overlays lying on the
+        // road; they are the thing being measured, not an obstruction.
+        for (const hit of hits) {
+          if (groundIds.has(hit.object.id)) break;
+          if ((hit.object as THREE.Mesh).material === undefined) continue;
+          const mm = (hit.object as THREE.Mesh).material as THREE.Material;
+          if (Array.isArray(mm) ? false : mm.transparent && mm.depthWrite === false) continue;
+          return null;
+        }
+        _mk.project(camera);
+        if (Math.abs(_mk.x) > 0.98 || Math.abs(_mk.y) > 0.98) return null;
+        return [(_mk.x * 0.5 + 0.5) * w, (-_mk.y * 0.5 + 0.5) * h];
+      };
+
+      const RINGS = 20;
+      const add = (d: Display): void => {
+        const root = d.model.root;
+        if (!root.parent || !root.visible) return;
+        _box.setFromObject(root);
+        const cx = (_box.min.x + _box.max.x) / 2;
+        const cz = (_box.min.z + _box.max.z) / 2;
+        const rx = Math.max(0.5, (_box.max.x - _box.min.x) / 2);
+        const rz = Math.max(0.5, (_box.max.z - _box.min.z) / 2);
+        const near: Array<[number, number]> = [];
+        const far: Array<[number, number]> = [];
+        for (let i = 0; i < RINGS; i++) {
+          const a = (i / RINGS) * Math.PI * 2;
+          const ca = Math.cos(a);
+          const sa = Math.sin(a);
+          const n = sample(cx + ca * (rx + 0.32), cz + sa * (rz + 0.32));
+          if (n) near.push(n);
+          const f = sample(cx + ca * (rx + 4.1), cz + sa * (rz + 4.1));
+          if (f) far.push(f);
+        }
+        if (near.length && far.length) out.push({ id: d.id, near, far });
+      };
+
+      if (heroId && heroLevel > 0.5) add(displayOf(heroId));
+      if (paradeLevel > 0.5) {
+        if (mascot) add(mascot);
+        for (const e of parade) add(e.d);
+      }
+      return out;
+    },
 
     cut(shot): void {
       from = SHOTS[shot];
@@ -875,7 +1043,7 @@ export function createStage(ctx: GameContext): Stage | null {
       // ── the set ──────────────────────────────────────────────────────────
       // The halo is a ring: it lights the ground *around* the machine and
       // leaves the ground under it to the shadow.
-      poolMat.opacity = heroLevel * level * 0.42;
+      poolMat.opacity = heroLevel * level * 0.3;
       pool.visible = poolMat.opacity > 0.01;
       pool.position.set(heroGroup.position.x, 0.03, heroGroup.position.z);
 
@@ -901,9 +1069,9 @@ export function createStage(ctx: GameContext): Stage | null {
 
       // The whole set dims under a wipe, so the transition happens *in front of*
       // a stage that is going dark rather than over a stage that is not.
-      key.intensity = 3.1 * level;
-      kick.intensity = 1.35 * level;
-      sky.intensity = 1.5 * level;
+      key.intensity = KEY_I * level;
+      kick.intensity = KICK_I * level;
+      sky.intensity = SKY_I * level;
       renderer.toneMappingExposure = 1.16 * (0.35 + 0.65 * level);
     },
 

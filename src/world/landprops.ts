@@ -51,17 +51,22 @@ export function pineStandGeo(seed: number, pal: LandPalette, count = 4): THREE.B
       k.push();
       k.move(Math.cos(a) * rad, 0, Math.sin(a) * rad).rotY(r.range(0, 6.28));
       k.cyl(0, h * 0.13, 0, 0.17, 0.30, h * 0.26, 5, 0x4a3a2c, { ao: 0.5, aoHeight: 2 });
+      // Four tiers, six-sided, and snow on the top two only. A stand is four of
+      // these and a hillside is a hundred and fifty stands, so every segment
+      // here is paid for about two and a half thousand times — and the snow on
+      // the bottom skirt is behind the skirt above it from every angle a player
+      // ever sees, which makes it the cheapest thing in the game to delete.
       const tiers = 4;
       for (let t = 0; t < tiers; t++) {
         const f = t / tiers;
         const y = h * (0.16 + f * 0.62);
         const rr = w * (1 - f * 0.62);
         const hh = h * (0.34 - f * 0.06);
-        if (pal.cap !== null) {
-          k.cone(0, y - 0.12, 0, rr * 1.05, hh * 0.42, 7, pal.cap,
+        if (pal.cap !== null && t >= 2) {
+          k.cone(0, y - 0.12, 0, rr * 1.05, hh * 0.42, 6, pal.cap,
             { ao: 0.3, aoHeight: h * 0.6 });
         }
-        k.cone(0, y, 0, rr, hh, 7, t % 2 ? mid : dark,
+        k.cone(0, y, 0, rr, hh, 6, t % 2 ? mid : dark,
           { ao: 0.42, aoHeight: h * 0.7, shade: 1 - f * 0.08 });
       }
       k.pop();

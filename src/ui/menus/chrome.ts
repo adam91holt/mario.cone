@@ -332,11 +332,28 @@ export const CSS_MENU = `
    by nothing but the opacity of one gold ring — 1.0 against 0.55 — which
    photographed as no difference at all. */
 #menu .held {
-  position: absolute; inset: calc(var(--u) * -.16); border-radius: calc(var(--u) * .76);
+  position: absolute; inset: calc(var(--u) * -.18); border-radius: calc(var(--u) * .78);
   box-shadow:
-    0 0 0 calc(var(--u) * .1) rgba(255,248,240,.66),
-    0 0 0 calc(var(--u) * .2) rgba(9,11,15,.9);
+    0 0 0 calc(var(--u) * .14) rgba(255,248,240,.82),
+    0 0 0 calc(var(--u) * .26) rgba(9,11,15,.92);
   opacity: 0; pointer-events: none;
+}
+/* ...and a corner tick on the same object, so the difference between "this row
+   holds it" and "this row has the cursor" survives a black-and-white print as
+   well as it survives colour. */
+#menu .held::before, #menu .held::after {
+  content: ''; position: absolute; width: calc(var(--u) * .9); height: calc(var(--u) * .9);
+  border: 0 solid rgba(255,248,240,.92);
+}
+#menu .held::before {
+  left: calc(var(--u) * -.34); top: calc(var(--u) * -.34);
+  border-left-width: calc(var(--u) * .2); border-top-width: calc(var(--u) * .2);
+  border-radius: calc(var(--u) * .5) 0 0 0;
+}
+#menu .held::after {
+  right: calc(var(--u) * -.34); bottom: calc(var(--u) * -.34);
+  border-right-width: calc(var(--u) * .2); border-bottom-width: calc(var(--u) * .2);
+  border-radius: 0 0 calc(var(--u) * .5) 0;
 }
 /* The chosen cell paints over its neighbours. Without this the ring around a
    scaled-up card is drawn and then covered by the card next to it. */
@@ -447,15 +464,21 @@ export const CSS_MENU = `
 
 /* ── the title screen ───────────────────────────────────────────────────── */
 
+/* Higher than centre and hung on a board that hugs it. The board used to run
+   from a quarter of the mark's height above it to a fifth below, which made it
+   the largest object on the title screen by some distance — a black rectangle
+   across the top half of the frame with the cast driving along behind its
+   bottom edge, half of them cut in two by it. A sign is the right idea; a sign
+   the size of the sky is not. */
 #menu .mark-wrap {
-  position: absolute; left: 50%; top: 31%;
-  width: min(74%, calc(var(--u) * 62));
+  position: absolute; left: 50%; top: 27%;
+  width: min(68%, calc(var(--u) * 56));
 }
 #menu .mark-wrap .board {
-  position: absolute; left: -6%; right: -6%; top: -26%; bottom: -22%;
+  position: absolute; left: -4.5%; right: -4.5%; top: -17%; bottom: -12%;
   border-radius: calc(var(--u) * 1);
   background:
-    linear-gradient(180deg, rgba(28,33,44,.72), rgba(10,13,19,.86));
+    linear-gradient(180deg, rgba(34,40,53,.86), rgba(12,15,22,.92));
   box-shadow: 0 0 0 calc(var(--u) * .16) rgba(9,11,15,.9),
               0 calc(var(--u) * .5) calc(var(--u) * 2.2) rgba(0,0,0,.62);
   transform: rotate(-1.4deg);
