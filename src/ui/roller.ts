@@ -11,6 +11,7 @@
 // different place in its timeline in every screenshot ever taken of the game.
 
 import { ease } from '../core/math.ts';
+import { glyphRun } from './glyphs.ts';
 import { bind } from './theme.ts';
 
 export interface Roller {
@@ -27,9 +28,21 @@ export interface Roller {
 
 const SWAP = 0.34;
 
+/**
+ * Both faces of the roller are **drawn numerals**, not text nodes.
+ *
+ * See `glyphs.ts`: a kart racer's numbers are objects with a lit face, a shaded
+ * under-face and an ink keyline, and this widget exists to throw one of those
+ * objects out of the frame and drop the next one in. Writing `innerHTML` here
+ * costs a parse, but it happens only when the value actually changes — once a
+ * lap, or once in the several seconds it takes to gain a place — while the
+ * animation itself is transforms on the two spans and touches nothing.
+ */
 export function createRoller(root: HTMLElement): Roller {
-  const prev = bind(root.querySelector<HTMLElement>('.r-prev')!);
-  const cur = bind(root.querySelector<HTMLElement>('.r-cur')!);
+  const prevEl = root.querySelector<HTMLElement>('.r-prev')!;
+  const curEl = root.querySelector<HTMLElement>('.r-cur')!;
+  const prev = bind(prevEl);
+  const cur = bind(curEl);
 
   let t = 1;
   let dir = 0;
@@ -45,9 +58,9 @@ export function createRoller(root: HTMLElement): Roller {
       if (text === shown) return;
       // Mid-swap and asked to change again: whatever was on screen is what the
       // player last saw, so that is what gets thrown out. Anything else pops.
-      prev.text(shown);
+      prevEl.innerHTML = glyphRun(shown);
       shown = text;
-      cur.text(text);
+      curEl.innerHTML = glyphRun(text);
       dir = d;
       t = 0;
       prev.set('display', 'block');
@@ -55,8 +68,8 @@ export function createRoller(root: HTMLElement): Roller {
 
     reset(text: string): void {
       shown = text;
-      cur.text(text);
-      prev.text('');
+      curEl.innerHTML = glyphRun(text);
+      prevEl.innerHTML = '';
       prev.set('display', 'none');
       cur.set('transform', 'none');
       cur.set('opacity', '1');

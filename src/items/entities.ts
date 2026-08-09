@@ -56,6 +56,8 @@ export interface Entity {
   /** Contact radius, or the current radius of a blast/shockwave. */
   radius: number;
   scale: number;
+  /** Size the effect was spawned at, held apart from the animated `scale`. */
+  base: number;
   groundY: number;
   node: THREE.Object3D | null;
   /** Which item drew this, for the strike report. */
@@ -77,6 +79,8 @@ export interface SpawnOptions {
   radius?: number;
   groundY?: number;
   color?: number;
+  /** Size multiplier for the effects that have no radius of their own. */
+  scale?: number;
 }
 
 /** Called when an entity reaches a racer. Return true to consume the entity. */
@@ -85,8 +89,27 @@ export type HitFn = (entity: Entity, racer: Racer) => boolean;
 export type ExpireFn = (entity: Entity) => void;
 
 const MAX = 44;
-const SHELL_SPEED = 58;
-const RED_SPEED = 56;
+/**
+ * How fast a shell travels, and this is a *gameplay* number, not a visual one.
+ *
+ * A kart on this circuit runs at 55 m/s and tops out over 60. At the 58 and 56
+ * these were, a green shell thrown forward closed on a flat-out rival at three
+ * metres a second and a red shell at one — which is to say neither of them ever
+ * arrived. Instrumented over a minute of racing, nothing aimed at the player
+ * ever got inside a second and a half of hitting them; the two most-drawn
+ * attacking items in the table were, against anybody actually driving well,
+ * decorations. The only shells that ever connected were the ones a victim drove
+ * into from behind.
+ *
+ * At 76 and 74 a shell closes at twenty metres a second, which is the rate that
+ * makes it a *threat you have about a second to answer* — brake, cut, spend the
+ * banana you were saving, blow the horn. That second is the whole game of being
+ * shot at, and it is also exactly the window the incoming warning is built
+ * around. Still under a metre of travel per fixed step against a contact radius
+ * of one and a half, so nothing tunnels.
+ */
+const SHELL_SPEED = 76;
+const RED_SPEED = 74;
 const _v = new THREE.Vector3();
 const _to = new THREE.Vector3();
 const _sample: SplineSample = {
@@ -118,12 +141,52 @@ export function roadCrown(lateral: number, width: number, verge = 5): number {
   return surfaceHeight(lateral, width, verge);
 }
 
+/**
+ * Which way the key light is coming from, read off the scene's own sun.
+ *
+ * Every blob shadow this module lays has to agree with the shadows the renderer
+ * projects for the karts, or the two kinds of shadow contradict each other in
+ * the same frame — and the frame that makes that obvious is the overhead one, a
+ * kart's shadow raked two metres to the left of it and an item box's pooled
+ * directly underneath. Read rather than duplicated: the lighting module applies
+ * a house azimuth trim and clamps the elevation, and a copy of those constants
+ * here would be wrong the first time either changed.
+ */
+const _sunDir = new THREE.Vector3(-0.53, 0.565, 0.632).normalize();
+const UP = new THREE.Vector3(0, 1, 0);
+
+export function refreshSunDirection(ctx: GameContext): void {
+  let best: THREE.DirectionalLight | null = null;
+  ctx.scene.traverse((o) => {
+    const l = o as THREE.DirectionalLight;
+    if (!l.isDirectionalLight) return;
+    // The key is the one that casts; with shadows off, the brightest wins.
+    if (!best || (l.castShadow && !best.castShadow)
+      || (l.castShadow === best.castShadow && l.intensity > best.intensity)) best = l;
+  });
+  const light = best as THREE.DirectionalLight | null;
+  if (light && light.position.lengthSq() > 0.01) _sunDir.copy(light.position).normalize();
+}
+
+/**
+ * Where the shadow of a point `height` above the road lands, as an offset from
+ * the point directly beneath it — projected into the plane whose normal is
+ * `up`, so it stays on a banked or crowned surface instead of driving through
+ * it. Reuses `out`; nothing here allocates.
+ */
+export function shadowOffset(height: number, up: THREE.Vector3, out: THREE.Vector3):
+THREE.Vector3 {
+  const k = height / Math.max(0.25, _sunDir.y);
+  out.set(-_sunDir.x * k, 0, -_sunDir.z * k);
+  return out.addScaledVector(up, -out.dot(up));
+}
+
 function blank(): Entity {
   return {
     kind: 'banana', active: false, ownerId: -1,
     pos: new THREE.Vector3(), prevPos: new THREE.Vector3(), vel: new THREE.Vector3(),
     life: 0, age: 0, arm: 0, bounces: 0, targetId: -1,
-    dist: 0, lat: 0, yaw: 0, spin: 0, radius: 1.5, scale: 1, groundY: 0,
+    dist: 0, lat: 0, yaw: 0, spin: 0, radius: 1.5, scale: 1, base: 1, groundY: 0,
     node: null, source: 'banana', puff: 0,
   };
 }
@@ -158,7 +221,7 @@ export function createEntityField(ctx: GameContext): EntityField {
     if (prototypes.size) return;
     prototypes.set('banana', buildBanana());
     prototypes.set('greenShell', buildShell(0x46D63C, 0x2C9A2A));
-    prototypes.set('redShell', buildShell(0xF03A2E, 0xB0231A));
+    prototypes.set('redShell', buildShell(0xF03A2E, 0x7E1610, true));
     prototypes.set('bomb', buildBomb());
     prototypes.set('blast', buildBlast());
     prototypes.set('ring', buildRing(0xFF8A2A));
@@ -269,7 +332,15 @@ export function createEntityField(ctx: GameContext): EntityField {
     e.spin = 0;
     e.radius = opts.radius ?? 1.55;
     e.scale = 1;
+    e.base = opts.scale ?? 1;
     e.groundY = opts.groundY ?? e.pos.y;
+    // Effects that ride their owner remember how high above the kart they were
+    // put. `lat` is the red shell's field and no attached effect has any use
+    // for it, so it doubles as the ride height rather than growing the record.
+    if (kind === 'ring' || kind === 'burst') {
+      const owner = e.ownerId >= 0 ? racerById(e.ownerId) : null;
+      e.lat = owner ? e.pos.y - owner.pos.y : 0;
+    }
     e.puff = 0;
     e.node = acquire(kind);
     e.node.position.copy(e.pos);
@@ -344,23 +415,34 @@ export function createEntityField(ctx: GameContext): EntityField {
     const spline = track.spline;
 
     let targetLat = e.lat;
-    const target = ctx.racers.find((r) => r.id === e.targetId);
+    const target = racerById(e.targetId);
+    let chase = 1;
     if (target) {
       const ts = spline.nearest(target.pos, _sample);
-      targetLat = ts.lateral ?? 0;
       const gap = spline.forwardDistance(e.dist, ts.distance);
-      // Closing: lean on the throttle a little when it is a long way back, so a
-      // red shell fired from twelfth still means something.
-      const chase = gap > 60 ? 1.18 : gap > 25 ? 1.08 : 1.0;
-      e.dist += RED_SPEED * chase * dt;
       if (gap > L * 0.5) {
-        // The target has gone past us the other way round the lap — it can only
-        // be a shell fired at someone who has since been lapped. Let it die.
-        e.life = Math.min(e.life, 0.4);
+        // The target is *behind* the shell. Two ways that happens: it was fired
+        // at somebody who has since been lapped, or — far more often — the pack
+        // is three abreast and `place` disagrees with raw spline distance by a
+        // couple of metres, so the shell is born a step ahead of the machine it
+        // was aimed at.
+        //
+        // This used to kill the shell outright, on a quarter-second fuse. In a
+        // tight pack that is the single most valuable attacking item in the
+        // table evaporating on the frame it was thrown, with nothing on screen
+        // to say why: the player spends a red shell and simply nothing happens.
+        // It now stops homing and carries on down the road instead, which is
+        // both an item that still does something and the behaviour a player
+        // would expect of a shell whose target has gone.
+        e.targetId = -1;
+      } else {
+        targetLat = ts.lateral ?? 0;
+        // Closing: lean on the throttle a little when it is a long way back, so
+        // a red shell fired from twelfth still means something.
+        chase = gap > 60 ? 1.18 : gap > 25 ? 1.08 : 1.0;
       }
-    } else {
-      e.dist += RED_SPEED * dt;
     }
+    e.dist += RED_SPEED * chase * dt;
     // Ease the lateral rather than snapping: the weave as it lines up is the
     // tell that lets a player know it is theirs and start looking for a wall.
     e.lat = damp(e.lat, targetLat, 0.00004, dt);
@@ -371,6 +453,40 @@ export function createEntityField(ctx: GameContext): EntityField {
     e.yaw = Math.atan2(s.tangent.x, s.tangent.z);
     e.spin += dt * 16;
     e.groundY = e.pos.y - 0.18;
+  }
+
+  /**
+   * Keep an effect glued to the kart it belongs to.
+   *
+   * Two of these entities are not objects in the world at all — they are things
+   * *happening to a racer*: the super horn's shockwave, and the burst that
+   * punctuates a hit. Both were spawned at a world position and left there, and
+   * at sixty metres a second that is a catastrophic difference. The horn's wave
+   * takes 0.42s to reach its full nine metres, by which time the kart that blew
+   * it is twenty-five metres up the road and the entire effect has expanded and
+   * died behind the chase camera — which is why the one item a leader has to
+   * answer a red shell photographed as nothing at all.
+   *
+   * `ownerId` on a ring or a burst therefore means "ride this racer". Every
+   * other kind keeps it as a *credit* — whose bomb, whose banana — and stays
+   * exactly where it was put, because a scorch mark that follows you around the
+   * lap is not a scorch mark.
+   */
+  function rideOwner(e: Entity): void {
+    if (e.ownerId < 0) return;
+    const r = racerById(e.ownerId);
+    // The height the effect was spawned at is preserved relative to the kart —
+    // stashed in `lat` at spawn, which no attached effect otherwise uses — so a
+    // burst thrown at roof height stays at roof height.
+    if (r) e.pos.set(r.pos.x, r.pos.y + e.lat, r.pos.z);
+  }
+
+  /** `Array.find` with a closure allocates, and this runs per attached effect
+   *  per fixed step. */
+  function racerById(id: number): Racer | null {
+    const all = ctx.racers;
+    for (let i = 0; i < all.length; i++) if (all[i]!.id === id) return all[i]!;
+    return null;
   }
 
   function stepBomb(e: Entity, dt: number): void {
@@ -416,6 +532,7 @@ export function createEntityField(ctx: GameContext): EntityField {
           // gone past the lens before the eye had registered it starting, and
           // the only frames that caught it were the ones nobody was looking at.
           e.scale = ease.outCubic(clamp01(e.age / 0.42));
+          rideOwner(e);
           break;
         case 'ghost':
         case 'squid': {
@@ -424,8 +541,12 @@ export function createEntityField(ctx: GameContext): EntityField {
           break;
         }
         case 'burst':
-          e.scale = 1 + e.age * 6;
-          e.spin += dt * 7;
+          // Out hard, then keep drifting outward. `outCubic` spends most of the
+          // motion in the first tenth of a second, which is what makes it read
+          // as an impact rather than as a balloon inflating.
+          e.scale = ease.outCubic(clamp01(e.age / 0.12)) * 2.2 + e.age * 0.7;
+          e.spin += dt * 5;
+          rideOwner(e);
           break;
         case 'scorch':
           // A mark on the road. It does nothing but cool.
@@ -487,7 +608,18 @@ export function createEntityField(ctx: GameContext): EntityField {
     const s = node.getObjectByName('shadow');
     if (!s) return;
     const h = Math.max(0, node.position.y - e.groundY);
-    s.position.y = (0.05 - h) / Math.max(0.01, node.scale.y);
+    const inv = 1 / Math.max(0.01, node.scale.y);
+    // Thrown along the sun, like every other shadow in the frame — and undone
+    // out of the node's own yaw, because the node spins and a shadow that
+    // orbits the thing casting it is worse than no shadow at all.
+    shadowOffset(h, UP, _v);
+    const c = Math.cos(-node.rotation.y);
+    const sn = Math.sin(-node.rotation.y);
+    s.position.set(
+      (_v.x * c + _v.z * sn) * inv,
+      (0.05 - h) * inv,
+      (-_v.x * sn + _v.z * c) * inv,
+    );
     // A shadow spreads and weakens as the thing casting it climbs. Materials
     // are shared across the pool, so this is done with scale rather than alpha.
     s.scale.setScalar(clamp(1 - h * 0.06, 0.5, 1.15) / Math.max(0.01, node.scale.x));
@@ -511,7 +643,7 @@ export function createEntityField(ctx: GameContext): EntityField {
     if (!fx) return;
     e.puff -= dt;
     if (e.puff > 0) return;
-    e.puff = 0.055;
+    e.puff = 0.038;
     // Out of shot, and it is not worth a slot in the queue.
     if (node.position.distanceToSquared(ctx.camera.position) > 120 * 120) return;
     const hot = e.kind === 'redShell' ? 0xFF9A72 : 0x9CFF74;
@@ -553,6 +685,22 @@ export function createEntityField(ctx: GameContext): EntityField {
           // the slot, is four pixels of green forty metres down a straight —
           // and forty metres down a straight is where a shell has to be read.
           node.scale.setScalar(1.3);
+          // **The glow holds a minimum size on screen.**
+          //
+          // A shell leaves the kart at 76 m/s and is fifty metres away inside a
+          // second, by which point a 0.75m hat is a handful of pixels — and a
+          // handful of pixels of green on grey tarmac is nothing. Photographed
+          // frame by frame, a thrown shell was a dome at the bumper, a dot at
+          // 100ms and gone by 400ms: you never saw your own shot land, which
+          // takes the whole payoff out of throwing it. Growing the halo with
+          // range keeps a bright bead of the item's own colour on screen all the
+          // way to the impact, without inflating the object itself — the model
+          // stays the right size for the road it is skittering along.
+          const glow = node.getObjectByName('glow');
+          if (glow) {
+            const range = Math.sqrt(node.position.distanceToSquared(ctx.camera.position));
+            glow.scale.setScalar(clamp(0.85 + range * 0.048, 0.85, 3.7));
+          }
           groundShadow(e, node);
           flightTrail(e, node, dt);
           break;
@@ -630,15 +778,32 @@ export function createEntityField(ctx: GameContext): EntityField {
           }
           break;
         }
-        case 'burst':
+        case 'burst': {
           // Billboarded: a flat starburst edge-on is no starburst at all. Kept
           // small — this is a punctuation mark on the hit, not the hit itself,
           // and one that fills the frame reads as a bug.
           node.lookAt(ctx.camera.position);
           node.rotateZ(e.spin);
-          node.scale.setScalar(e.scale * 0.24);
-          setOpacity(node, clamp01(e.life * 3.4) * 0.85);
+          node.scale.setScalar(e.scale * 0.22 * e.base);
+          // Three clocks off one age. The core is a flash and is gone first;
+          // the star carries the shape through the middle of the beat; the ring
+          // keeps expanding and thinning and is the last thing to leave, which
+          // is what stops the whole effect being over in three frames.
+          const fade = clamp01(e.life * 3.4);
+          const core = node.getObjectByName('core');
+          if (core) {
+            setOpacity(core, clamp01(1 - e.age / 0.16) * 0.95);
+            core.scale.setScalar(1 + e.age * 1.4);
+          }
+          const star = node.getObjectByName('star');
+          if (star) setOpacity(star, fade * clamp01(1.2 - e.age / 0.24) * 0.9);
+          const ring = node.getObjectByName('ring');
+          if (ring) {
+            ring.scale.setScalar(0.8 + e.age * 2.2);
+            setOpacity(ring, fade * clamp01(1 - e.age / 0.48) * 0.6);
+          }
           break;
+        }
         default: break;
       }
     }

@@ -24,8 +24,11 @@
 import { clamp01, ease } from '../core/math.ts';
 import { ITEMS, REEL_FACES } from '../items/defs.ts';
 import type { GameContext, ItemId, Racer } from '../types.ts';
+import { glyphBox } from './glyphs.ts';
 import { itemIconSvg, ITEM_IDS } from './icons.ts';
-import { bind, fromHtml, hexCss, q, rgba, TIER_COLORS, TIER_RING, type Bound } from './theme.ts';
+import {
+  bind, fromHtml, hexCss, q, rgba, TIER_COLORS, TIER_RING, unitPx, type Bound,
+} from './theme.ts';
 
 /**
  * How long the reel is assumed to spin, for the shape of its deceleration.
@@ -58,6 +61,32 @@ const ASSUMED_SPIN = 1.05;
 
 const SLOT_U = 6.1;
 const SLOT_RADIUS_U = 1.15;
+
+// ── the drum ───────────────────────────────────────────────────────────────
+//
+// **A wheel, not a slideshow.**
+//
+// What was here before cross-faded between two stacked icons about a dozen
+// times a second. In motion that is a flicker; in a *still frame* — and a still
+// frame is how every reviewer and half the players see this game — it is
+// indistinguishable from a settled item, because most of the time the cross-fade
+// has just finished and one icon is sitting dead centre in the socket. A player
+// glancing down could not tell whether they were holding a bomb or still finding
+// out, which is the one thing a roulette exists to say.
+//
+// So the faces are stacked into a strip inside the socket and the strip
+// *travels*, continuously, at a rate that decays into the answer. Three things
+// fall out of that and all three matter: the motion is a continuation rather
+// than a cut, so it reads as a wheel; there is no moment at which a face is
+// perfectly centred, so no frame of it can be mistaken for a decision; and the
+// housing can darken at the lip, which is what turns a scrolling list into
+// something turning inside a machine.
+//
+// The strip carries one extra cell — a copy of the first face — so the wrap from
+// the last face back to the first is a continuation rather than a jump backwards
+// through the whole drum.
+const DRUM_INSET = 0.42;
+const DRUM_CELL = SLOT_U - DRUM_INSET * 2;
 /** How far the collar's box extends past the socket, and where its line sits. */
 const COLLAR_OUT = 0.62;
 const COLLAR_GAP = 0.3;
@@ -89,6 +118,43 @@ function collarPath(): string {
 const COLLAR_LEN =
   8 * COLLAR_HALF - 8 * COLLAR_R + 2 * Math.PI * COLLAR_R;
 
+/** How wide a tier mark is cut across the collar, in viewBox units. */
+const TICK_W = 1.1;
+
+/**
+ * The tier boundaries, cut across the collar as two pairs of short marks.
+ *
+ * A meter with no scale on it is a glow. These are what make the collar an
+ * *instrument*: the player can see that they are a third of the way to the next
+ * tier rather than only that the ring is a different colour than it was, which
+ * is the difference between holding a drift for one more beat on purpose and
+ * holding it and hoping.
+ *
+ * Positions are mirrored either side of twelve o'clock because the fill grows
+ * both ways out of it, and the dash pattern sums to exactly one lap of the
+ * collar so it cannot creep.
+ */
+function tickDash(tiers: number): string {
+  const marks: number[] = [];
+  for (let i = 1; i < tiers; i++) {
+    const p = (i / tiers) * COLLAR_LEN * 0.5;
+    marks.push(p, COLLAR_LEN - p);
+  }
+  marks.sort((a, b) => a - b);
+
+  const parts: number[] = [0];
+  let cur = 0;
+  for (const p of marks) {
+    parts.push(Math.max(0, p - TICK_W / 2 - cur), TICK_W);
+    cur = p + TICK_W / 2;
+  }
+  parts.push(Math.max(0, COLLAR_LEN - cur));
+  // An odd-length dasharray is duplicated by the renderer, which halves the
+  // period and puts marks where no tier boundary is.
+  if (parts.length % 2) parts.push(0);
+  return parts.map((v) => v.toFixed(2)).join(' ');
+}
+
 export const CSS_ITEM = `
 #hud .slot-wrap { position: relative; }
 /* The collar sits behind the socket and outside it, so the count badge in the
@@ -98,6 +164,9 @@ export const CSS_ITEM = `
   display: block; overflow: visible; pointer-events: none;
 }
 #hud .slot-wrap .collar path { fill: none; stroke-linecap: round; }
+/* Butt caps on the tier marks, or a zero-length leading dash draws a dot at
+   twelve o'clock and the marks themselves grow a cap-width at each end. */
+#hud .slot-wrap .collar .ticks { stroke-linecap: butt; }
 #hud .slot {
   position: relative;
   width: calc(var(--u) * ${SLOT_U}); height: calc(var(--u) * ${SLOT_U});
@@ -115,27 +184,48 @@ export const CSS_ITEM = `
   display: grid; place-items: center;
   overflow: hidden;
 }
-/* An empty slot is *waiting*, not disabled: the ring stays lit and a hazard "?"
-   sits in it, so it reads as a socket with nothing in it rather than a control
-   that has been greyed out. */
+/* **An empty socket looks empty.**
+
+   What used to sit here was a hazard "?" — the *same glyph the world paints on
+   an uncollected item box*. So the one question this widget exists to answer,
+   "have I got something or not", was answered with the picture of the thing you
+   get something from: hold nothing and the slot showed a question mark; drive at
+   a box and the box showed a question mark. Two states, one picture.
+
+   Empty is now a state of the housing rather than a symbol in it: the well goes
+   deep and dark, the hazard floor shows through the way the inside of a real
+   socket does, and the ring drops off the boil. Holding something lights the
+   ring and puts an object in the light. Nothing has to be read. */
 #hud .slot.empty {
+  background:
+    linear-gradient(163deg, rgba(70,80,99,.5), rgba(10,13,19,.9)),
+    repeating-linear-gradient(128deg,
+      rgba(255,107,26,.26) 0 calc(var(--u) * .55),
+      rgba(0,0,0,0) calc(var(--u) * .55) calc(var(--u) * 1.1));
   box-shadow:
-    inset 0 0 0 calc(var(--u) * .2) rgba(255,195,0,.6),
-    inset 0 0 0 calc(var(--u) * .34) rgba(20,24,34,.8),
-    inset 0 calc(var(--u) * -.62) calc(var(--u) * 1.1) rgba(0,0,0,.45),
+    inset 0 0 0 calc(var(--u) * .2) rgba(255,195,0,.52),
+    inset 0 0 0 calc(var(--u) * .34) rgba(20,24,34,.85),
+    inset 0 calc(var(--u) * .5) calc(var(--u) * 1.3) rgba(0,0,0,.72),
+    inset 0 calc(var(--u) * -.5) calc(var(--u) * 1.1) rgba(0,0,0,.6),
     0 calc(var(--u) * .34) calc(var(--u) * .9) rgba(0,0,0,.45);
 }
-#hud .slot .mark {
-  position: absolute; font-size: calc(var(--u) * 3.2); font-weight: 900; line-height: 1;
-  color: #FFC300; opacity: 0;
-  text-shadow:
-    calc(var(--u) * .12) calc(var(--u) * .12) 0 rgba(18,21,29,.95),
-    calc(var(--u) * -.12) calc(var(--u) * .12) 0 rgba(18,21,29,.95),
-    calc(var(--u) * .12) calc(var(--u) * -.12) 0 rgba(18,21,29,.95),
-    calc(var(--u) * -.12) calc(var(--u) * -.12) 0 rgba(18,21,29,.95),
-    0 calc(var(--u) * .26) 0 rgba(0,0,0,.5);
+/* **Nothing is in it, so nothing is drawn in it.** The first attempt at this put
+   a slab of hazard tape on the floor of the well, and photographed at socket
+   size that slab read as *an object sitting in the slot* — which is the same
+   mistake as the question mark, made in a different material. An empty socket is
+   an empty socket: a deep dark recess with the housing's own hazard texture
+   running down it, and a ring that has gone off the boil. */
+/* A socket that is deciding is *lit*. The ring goes white-hot while the drum
+   runs, so the state is carried by the housing as well as by the motion inside
+   it — which is what makes a single photograph of it unambiguous. */
+#hud .slot.spinning {
+  box-shadow:
+    inset 0 0 0 calc(var(--u) * .22) rgba(255,246,214,.98),
+    inset 0 0 0 calc(var(--u) * .36) rgba(20,24,34,.9),
+    inset 0 calc(var(--u) * -.62) calc(var(--u) * 1.1) rgba(0,0,0,.45),
+    0 calc(var(--u) * .34) calc(var(--u) * .9) rgba(0,0,0,.5),
+    0 0 calc(var(--u) * 1.5) rgba(255,236,170,.55);
 }
-#hud .slot.empty .mark { opacity: .95; }
 
 #hud .reel { position: relative; width: calc(var(--u) * 4.1); height: calc(var(--u) * 4.1); }
 #hud .reel .face { position: absolute; inset: 0; }
@@ -144,6 +234,38 @@ export const CSS_ITEM = `
   filter: drop-shadow(0 calc(var(--u) * .16) 0 rgba(0,0,0,.45));
 }
 #hud .reel svg.on { display: block; }
+
+/* ── the drum ─────────────────────────────────────────────────────────────── */
+#hud .slot .drum {
+  position: absolute; inset: calc(var(--u) * ${DRUM_INSET});
+  border-radius: calc(var(--u) * ${SLOT_RADIUS_U - DRUM_INSET});
+  overflow: hidden; display: none;
+}
+#hud .slot.spinning .drum { display: block; }
+/* The settled face, the hazard "?" and the count all belong to a socket that has
+   finished deciding. While it is deciding, the drum is the only thing in it. */
+#hud .slot.spinning .reel { opacity: 0; }
+#hud .slot .strip { position: absolute; left: 0; right: 0; top: 0; }
+#hud .slot .strip i {
+  display: grid; place-items: center;
+  /* One cell per window, so a whole number of cells travelled always puts a
+     face dead centre — which is what makes the deceleration land somewhere
+     rather than stopping wherever it happened to be. */
+  height: calc(var(--u) * ${DRUM_CELL});
+}
+#hud .slot .strip i svg {
+  width: calc(var(--u) * 3.9); height: calc(var(--u) * 3.9); display: block;
+  filter: drop-shadow(0 calc(var(--u) * .16) 0 rgba(0,0,0,.45));
+}
+/* The lip. A drum whose faces stay bright to the rim of the window reads as a
+   list being scrolled; one that goes under a shadow at the top and bottom reads
+   as something turning inside a housing. */
+#hud .slot .drum::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(180deg,
+    rgba(9,11,17,.9) 0%, rgba(9,11,17,0) 28%,
+    rgba(9,11,17,0) 72%, rgba(9,11,17,.9) 100%);
+}
 
 /* The scanner. A bright bar that runs down the face while the reel is spinning:
    the movement of the icons alone is a smear at 18Hz, and this is what tells
@@ -163,10 +285,12 @@ export const CSS_ITEM = `
   border-radius: calc(var(--u) * .5);
   background: linear-gradient(180deg, #FF8A2A, #E24E06);
   box-shadow: 0 0 0 calc(var(--u) * .13) rgba(12,14,20,.92), 0 calc(var(--u) * .16) calc(var(--u) * .3) rgba(0,0,0,.5);
-  font-size: calc(var(--u) * 1.05); font-weight: 900; line-height: calc(var(--u) * 1.5);
-  text-align: center; color: #FFF8F0; opacity: 0;
-  text-shadow: 0 calc(var(--u) * .1) 0 rgba(0,0,0,.5);
+  height: calc(var(--u) * 1.5); display: grid; place-items: center;
+  color: #FFF8F0; opacity: 0;
 }
+/* The count is a number too, so it is drawn like every other number in this
+   HUD rather than set in whatever the browser has. */
+#hud .slot-wrap .count .gl { height: calc(var(--u) * .92); }
 `;
 
 export interface ItemSlot {
@@ -178,21 +302,30 @@ export interface ItemSlot {
 
 export function createItemSlot(ctx: GameContext): ItemSlot {
   const collarD = collarPath();
+  /** The drum's faces, plus a copy of the first so the wrap is a continuation. */
+  const drumFaces = REEL_FACES.map((e) => e.id);
+  const DRUM_N = drumFaces.length;
+  const drumCells = [...drumFaces, drumFaces[0]!]
+    .map((id) => `<i>${itemIconSvg(id)}</i>`).join('');
+
   const root = fromHtml(`
     <div class="slot-wrap" data-item-slot>
       <svg class="collar" viewBox="0 0 100 100" aria-hidden="true">
-        <path class="bed" d="${collarD}" stroke="rgba(8,10,15,.72)" stroke-width="${(0.5 * VB_PER_U).toFixed(2)}" opacity="0"/>
+        <path class="bed" d="${collarD}" stroke="rgba(7,9,14,.9)" stroke-width="${(0.72 * VB_PER_U).toFixed(2)}" opacity="0"/>
         <path class="halo" d="${collarD}" stroke="#4FC3F7" stroke-width="${(0.6 * VB_PER_U).toFixed(2)}" opacity="0"/>
+        <path class="ticks" d="${collarD}" stroke="rgba(255,248,240,.85)"
+          stroke-width="${(0.72 * VB_PER_U).toFixed(2)}"
+          stroke-dasharray="${tickDash(ctx.config.kart.drift.tiers.length)}" opacity="0"/>
         <path class="arc" d="${collarD}" stroke="#4FC3F7" stroke-width="${(0.26 * VB_PER_U).toFixed(2)}" opacity="0"/>
       </svg>
       <div class="slot empty">
         <div class="glow"></div>
-        <div class="sweep"></div>
-        <div class="mark">?</div>
         <div class="reel">
           <div class="face a">${ITEM_IDS.map(itemIconSvg).join('')}</div>
           <div class="face b">${ITEM_IDS.map(itemIconSvg).join('')}</div>
         </div>
+        <div class="drum"><div class="strip">${drumCells}</div></div>
+        <div class="sweep"></div>
       </div>
       <div class="count"></div>
     </div>
@@ -200,12 +333,15 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
 
   const slot = bind(q(root, '.slot'));
   const reel = bind(q(root, '.reel'));
+  const strip = bind(q(root, '.strip'));
   const sweep = bind(q(root, '.sweep'));
   const glow = bind(q(root, '.glow'));
   const count = bind(q(root, '.count'));
+  const countText = glyphBox(q(root, '.count'));
   const collarSvg = bind(q<SVGElement>(root, '.collar'));
   const collarBed = bind(q<SVGPathElement>(root, '.collar .bed'));
   const collarHalo = bind(q<SVGPathElement>(root, '.collar .halo'));
+  const collarTicks = bind(q<SVGPathElement>(root, '.collar .ticks'));
   const collarArc = bind(q<SVGPathElement>(root, '.collar .arc'));
 
   /** The sim's own tier thresholds, so the collar's thirds can never drift. */
@@ -246,8 +382,10 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
 
   let spinning = false;
   let spinTime = 0;
-  let nextTick = 0;
-  let reelIndex = 0;
+  /** Where the drum is, in cells travelled. Fractional — that is the point. */
+  let drumPhase = 0;
+  /** ...and how fast, in cells per second, which is what drives the smear. */
+  let spinSpeed = 0;
 
   let heldId: ItemId | null = null;
   let heldCount = 0;
@@ -264,6 +402,18 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
   let boostFlare = 0;
 
   const unsubs: Array<() => void> = [];
+
+  /**
+   * The HUD unit in CSS pixels, cached.
+   *
+   * The smear is the one number in this widget that has to be in real pixels
+   * rather than in `--u`, and `unitPx()` reads the viewport. Doing that inside
+   * `update` would put a viewport read in among the HUD's style writes on every
+   * frame of every spin, for an answer that only changes when somebody drags a
+   * window edge. Same discipline as the minimap's canvas sizing.
+   */
+  let unit = unitPx();
+  unsubs.push(ctx.bus.on('engine:resize', () => { unit = unitPx(); }));
 
   function showFace(id: ItemId | null, dur: number): void {
     const key = id ?? '';
@@ -289,12 +439,11 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
     if (e.phase === 'start') {
       spinning = true;
       spinTime = 0;
-      nextTick = 0;
       setGlow(0xFFF0C4, 0.55);
     } else {
       // The icon itself comes from the racer's own state on the next frame —
       // one source of truth for what is in the slot. All this has to do is stop
-      // the reel.
+      // the drum.
       spinning = false;
     }
   }));
@@ -333,10 +482,15 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       collar = 0;
       collarLive = 0;
       boostFlare = 0;
+      drumPhase = 0;
+      spinSpeed = 0;
       collarBed.set('opacity', '0');
       collarHalo.set('opacity', '0');
+      collarTicks.set('opacity', '0');
       collarArc.set('opacity', '0');
       collarSvg.set('transform', 'none');
+      slot.cls('spinning', false);
+      strip.set('transform', 'none');
       // Both stacks emptied outright rather than rolled: a reset is not a
       // transition, and half a shell sliding out of the socket as the lights go
       // down for the next race is not a beat anybody asked for.
@@ -357,27 +511,43 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       const id = player?.item ?? null;
       const n = player?.itemCount ?? 0;
 
-      // ── the reel ─────────────────────────────────────────────────────────
+      // ── the drum ─────────────────────────────────────────────────────────
       if (spinning) {
         spinTime += dt;
         // A roulette can be *cancelled* rather than settled: a lightning bolt
         // takes the draw out of the player's hand mid-spin and there is no
-        // event for it. Without a stop of its own the reel would keep spinning
+        // event for it. Without a stop of its own the drum would keep turning
         // for the rest of the race over an empty slot.
         if (spinTime > ASSUMED_SPIN * 3) spinning = false;
-        nextTick -= dt;
-        if (nextTick <= 0) {
-          // Fast at the top of the spin, slowing into the answer. The curve is
-          // the same shape the item system uses for its own reel.
-          const t = clamp01(spinTime / ASSUMED_SPIN);
-          const gap = 0.05 + 0.11 * t * t;
-          nextTick = gap;
-          reelIndex = (reelIndex + 1) % REEL_FACES.length;
-          showFace(REEL_FACES[reelIndex]!.id, gap * 0.8);
-        }
+        // Fourteen faces a second at the top of the spin, easing to about three
+        // as it runs out of road. Never to zero: the drum is stopped by the
+        // settle, not by running down, and a wheel that has already coasted to a
+        // halt before the answer arrives has told the player the answer early.
+        const t = clamp01(spinTime / ASSUMED_SPIN);
+        spinSpeed = 3 + 11 * (1 - t) * (1 - t);
+        drumPhase += spinSpeed * dt;
+        if (drumPhase >= DRUM_N) drumPhase -= DRUM_N;
         jitter = 1;
       } else {
         jitter = Math.max(0, jitter - dt * 6);
+      }
+      slot.cls('spinning', spinning);
+      if (spinning) {
+        // Percentages of the strip's own height, which is (N+1) cells — the
+        // extra cell is the wrap copy, and the travel never reaches it except
+        // on the way round.
+        strip.set('transform', `translateY(${(-drumPhase * (100 / (DRUM_N + 1))).toFixed(3)}%)`);
+        // **Smeared by how fast it is going.**
+        //
+        // The drum is the honest cue, but honesty is not the same as legibility
+        // in a *single frame*: land the shutter on the moment a face happens to
+        // be centred and a photograph of a wheel at full speed is a photograph
+        // of a settled item. Blur is the cue that has no such moment — it is a
+        // function of the speed and nothing else, so every frame of the spin
+        // looks like a spin and the first frame that does not is the answer.
+        // Scaled by the HUD unit so it is the same smear at any resolution.
+        const blur = Math.min(2.4, spinSpeed * 0.17) * (unit / 17);
+        strip.set('filter', blur > 0.15 ? `blur(${blur.toFixed(2)}px)` : 'none');
       }
 
       // ── what is actually in the slot ─────────────────────────────────────
@@ -398,7 +568,8 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       if (n !== heldCount) {
         if (heldId && n > 0 && n < heldCount) badgePunch = 1;
         heldCount = n;
-        count.text(n > 1 ? `×${n}` : '');
+        // "X2", drawn — the multiplication cross is the letter X in this face.
+        countText.set(n > 1 ? `X${n}` : '');
       }
 
       if (ejecting > 0) {
@@ -438,7 +609,11 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       const bob = heldId && !spinning ? Math.sin(clock * 2.3) * 2.2 : 0;
       reel.set('transform',
         `translateY(${bob.toFixed(2)}%) scale(${(1 + punch * 0.22 - ejecting * 0.25).toFixed(3)})`);
-      reel.set('opacity', (1 - ejecting * 0.9).toFixed(2));
+      // **Written here rather than left to `.slot.spinning .reel`.** The stack
+      // carries an inline opacity for the eject, and an inline style beats a
+      // stylesheet rule every time — so the settled icon would sit visible
+      // underneath a transparent drum for the whole spin.
+      reel.set('opacity', spinning ? '0' : (1 - ejecting * 0.9).toFixed(2));
 
       glow.set('opacity', glowAmount > 0.004 ? (glowAmount * 0.95).toFixed(3) : '0');
       if (glowAmount > 0.004) {
@@ -465,6 +640,7 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       if (!charging && boostFlare <= 0.004 && collar <= 0.002 && collarLive <= 0.002) {
         collarArc.set('opacity', '0');
         collarHalo.set('opacity', '0');
+        collarTicks.set('opacity', '0');
         collarBed.set('opacity', '0');
         collarSvg.set('transform', 'none');
         return;
@@ -499,7 +675,14 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       // outward off the socket as it fades. Without it the meter simply vanishes
       // at the instant it mattered most, which is the half of a mini-turbo the
       // player actually gets paid for.
-      const shown = hot ? Math.max(collar, flare) : collar;
+      // **A whole ring for the whole flare.** This used to draw the release at
+      // `flare` — a length that decays with the fade — so the shockwave was a
+      // shrinking arc: at two thirds through, a pale croissant hanging off the
+      // top of the socket, which is what the photograph showed. A release is a
+      // ring *leaving*, so the geometry stays closed for the whole beat and the
+      // fade is carried by opacity and scale, which is what "blowing outward"
+      // actually looks like.
+      const shown = hot ? 1 : collar;
       if (shown > 0.002) {
         const len = shown * COLLAR_LEN;
         // **The gap is the rest of the perimeter, not something larger.**
@@ -526,11 +709,18 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
         collarArc.set('opacity', Math.max(collarLive, flare).toFixed(3));
         collarHalo.set('opacity',
           (Math.max(ring.halo * collarLive, flare) * shimmer).toFixed(3));
-        collarBed.set('opacity', (collarLive * 0.5).toFixed(3));
+        // **The bed is nearly opaque, not half of it.** This ring is drawn over
+        // whatever the camera is pointed at — a white cloud on one side of this
+        // circuit and wet tarmac on the other — and a translucent channel means
+        // the meter changes colour with the scenery. Dark and solid, it is the
+        // same instrument everywhere on the lap.
+        collarBed.set('opacity', (collarLive * 0.92).toFixed(3));
+        collarTicks.set('opacity', (collarLive * 0.5).toFixed(3));
       } else {
         collarArc.set('opacity', '0');
         collarHalo.set('opacity', '0');
-        collarBed.set('opacity', '0');
+        collarTicks.set('opacity', '0');
+        collarBed.set('opacity', (collarLive * 0.92).toFixed(3));
       }
       collarSvg.set('transform', boostFlare > 0.004
         ? `scale(${(1 + (1 - boostFlare) * 0.26).toFixed(3)})`

@@ -13,17 +13,19 @@
 //   of the two tightest corners. Those cost real time to reach, and the payment
 //   is that everyone behind you is drawing from the same table you are.
 //
-// The boxes themselves are one InstancedMesh each for shell, core and contact
-// shadow — three draw calls for the whole circuit's worth.
+// The boxes themselves are one InstancedMesh each for glass, inner lamp, the
+// `?` plate, the halo and the contact shadow — five draw calls for the whole
+// circuit's worth, whatever the layout turns out to be.
 
 import * as THREE from 'three';
 import { clamp, ease } from '../core/math.ts';
 import { features } from '../track/courses/types.ts';
-import { roadCrown } from './entities.ts';
+import { roadCrown, shadowOffset } from './entities.ts';
 import type { RacingLine } from '../track/racingline.ts';
 import {
-  boxCoreGeometry, boxHaloGeometry, boxHaloMaterial, boxShellGeometry,
-  contactShadowGeometry, contactShadowMaterial, makeBoxMaterials, type BoxMaterials,
+  boxCoreGeometry, boxGlyphGeometry, boxHaloGeometry, boxHaloMaterial, boxHue,
+  boxShellGeometry, contactShadowGeometry, contactShadowMaterial, makeBoxMaterials,
+  type BoxMaterials,
 } from './models.ts';
 import type { GameContext, Track } from '../types.ts';
 
@@ -41,6 +43,9 @@ const PICK_RADIUS = 2.5;
 /** Metres the halo billboard is raised above the box, so its lower falloff
  *  never reaches the road. */
 const HALO_LIFT = 0.45;
+/** Metres the contact shadow floats above the tarmac. Small — the polygon
+ *  offset on its material is what actually keeps it out of the road. */
+const SHADOW_LIFT = 0.03;
 /** Boxes in a row across the road. Five is the Mario Kart number and it is the
  *  right one: a road that fits four or five karts abreast needs a box for each
  *  of them, or taking one becomes a fight instead of a decision. */
@@ -50,6 +55,15 @@ export interface ItemBox {
   pos: THREE.Vector3;
   /** Where the road surface is under it, for the contact shadow. */
   groundY: number;
+  /** The same point as a vector, and the rotation that lays a flat disc *in
+   *  the road's own plane* there. A contact shadow composed against the world
+   *  horizontal cuts into a crowned, banked road and photographs as a sliver of
+   *  itself — which is how five boxes ended up apparently casting nothing. */
+  ground: THREE.Vector3;
+  groundQuat: THREE.Quaternion;
+  /** The road's own up at that point, for projecting the sun offset into the
+   *  surface rather than through it. */
+  groundQuat_up: THREE.Vector3;
   /** Absolute spline distance, for the pickup broadphase. */
   distance: number;
   /** Seconds until it comes back; 0 means it is there now. */
@@ -73,9 +87,14 @@ export interface BoxField {
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
 const _face = new THREE.Quaternion();
+const _billboard = new THREE.Quaternion();
 const _e = new THREE.Euler();
 const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
+const _c = new THREE.Color();
+const _up = new THREE.Vector3();
+const _off = new THREE.Vector3();
+const UP_AXIS = new THREE.Vector3(0, 1, 0);
 
 /** Bin width for the pickup broadphase, metres. */
 const BIN = 12;
@@ -91,12 +110,16 @@ export function createBoxField(ctx: GameContext): BoxField {
   let coreGeo: THREE.BufferGeometry | null = null;
   let haloGeo: THREE.BufferGeometry | null = null;
   let haloMat: THREE.MeshBasicMaterial | null = null;
+  let glyphGeo: THREE.BufferGeometry | null = null;
   let blobGeo: THREE.BufferGeometry | null = null;
   let blobMat: THREE.MeshBasicMaterial | null = null;
+  let ghostMat: THREE.MeshBasicMaterial | null = null;
   let shell: THREE.InstancedMesh | null = null;
   let core: THREE.InstancedMesh | null = null;
+  let glyph: THREE.InstancedMesh | null = null;
   let halo: THREE.InstancedMesh | null = null;
   let shadow: THREE.InstancedMesh | null = null;
+  let ghost: THREE.InstancedMesh | null = null;
   let bins: number[][] = [];
   let binCount = 0;
   let trackLength = 1;
@@ -104,19 +127,22 @@ export function createBoxField(ctx: GameContext): BoxField {
   function clearMeshes(): void {
     // The instanced meshes are rebuilt per course; the geometry and materials
     // behind them are not, so only the wrappers are thrown away here.
-    for (const m of [shell, core, halo, shadow]) {
+    for (const m of [shell, core, glyph, halo, shadow, ghost]) {
       if (!m) continue;
       group.remove(m);
       m.dispose();
     }
-    shell = core = halo = shadow = null;
+    shell = core = glyph = halo = shadow = ghost = null;
   }
 
   function ensureAssets(): void {
     if (!materials) materials = makeBoxMaterials();
     if (!shellGeo) shellGeo = boxShellGeometry(SIZE);
     if (!coreGeo) coreGeo = boxCoreGeometry(SIZE);
-    if (!haloGeo) haloGeo = boxHaloGeometry(SIZE * 0.82);
+    if (!glyphGeo) glyphGeo = boxGlyphGeometry(SIZE * 0.80);
+    // Wider than the cube, and that is the point: at eighty metres the glass is
+    // four pixels and the glow is the only part still on screen.
+    if (!haloGeo) haloGeo = boxHaloGeometry(SIZE * 1.15);
     if (!haloMat) haloMat = boxHaloMaterial();
     if (!blobGeo) {
       // Sized to the box, not to its glow: a blob half again as wide as the
@@ -124,8 +150,23 @@ export function createBoxField(ctx: GameContext): BoxField {
       // this circuit lays a crisp shadow, and a floating box laying none is the
       // fastest way to make it look pasted on — ARCHITECTURE §12, contact is
       // everything.
-      blobGeo = contactShadowGeometry(SIZE * 0.42, 0.30);
+      blobGeo = contactShadowGeometry(SIZE * 0.60, 0.20);
       blobMat = contactShadowMaterial();
+    }
+    if (!ghostMat) {
+      // The empty socket a taken box leaves behind.
+      //
+      // Without it a row that the pack has been through is a row with holes in
+      // it, and a hole says nothing: a player cannot tell a box that was taken
+      // two seconds ago from a row that was only ever three wide, so they
+      // cannot decide whether to wait, and the four-second respawn — which is a
+      // real tactical clock — is invisible. Mario Kart leaves a translucent
+      // husk standing for exactly this reason. Deliberately colourless and
+      // unlit: it must never be mistaken for the thing itself.
+      ghostMat = new THREE.MeshBasicMaterial({
+        color: 0x8FA0BC, transparent: true, opacity: 0.16,
+        depthWrite: false, toneMapped: false, side: THREE.BackSide,
+      });
     }
   }
 
@@ -137,10 +178,12 @@ export function createBoxField(ctx: GameContext): BoxField {
 
     shell = new THREE.InstancedMesh(shellGeo!, materials!.shell, n);
     core = new THREE.InstancedMesh(coreGeo!, materials!.core, n);
+    glyph = new THREE.InstancedMesh(glyphGeo!, materials!.glyph, n);
     halo = new THREE.InstancedMesh(haloGeo!, haloMat!, n);
     shadow = new THREE.InstancedMesh(blobGeo!, blobMat!, n);
+    ghost = new THREE.InstancedMesh(shellGeo!, ghostMat!, n);
 
-    for (const m of [shell, core, halo, shadow]) {
+    for (const m of [shell, core, glyph, halo, shadow, ghost]) {
       // One mesh spans the whole circuit, so a bounding-sphere cull can only
       // ever be wrong. Skip it rather than pay for it.
       m.frustumCulled = false;
@@ -150,11 +193,16 @@ export function createBoxField(ctx: GameContext): BoxField {
       group.add(m);
     }
     shadow.renderOrder = -1;
+    ghost.renderOrder = 0;
     // The halo sits *behind* the box it belongs to, so the glass and the glyph
     // are never washed out by their own glow.
     halo.renderOrder = 1;
     shell.renderOrder = 2;
     core.renderOrder = 3;
+    // ...and the glyph sits in front of everything, including the near face of
+    // its own cube. The shell writes no depth, so without an explicit order the
+    // `?` would be occluded by the glass it is supposed to be seen through.
+    glyph.renderOrder = 4;
   }
 
   /** Mean |curvature| over a window — how straight the road is around here. */
@@ -178,9 +226,14 @@ export function createBoxField(ctx: GameContext): BoxField {
       .addScaledVector(s.right, lateral)
       .addScaledVector(s.up, roadCrown(lateral, s.width, ctx.track?.course.vergeWidth ?? 5));
     const pos = ground.clone().addScaledVector(s.up, FLOAT);
+    const groundQuat = new THREE.Quaternion().setFromUnitVectors(
+      UP_AXIS, _up.copy(s.up).normalize());
     boxes.push({
       pos,
       groundY: ground.y,
+      ground: ground.clone().addScaledVector(s.up, SHADOW_LIFT),
+      groundQuat,
+      groundQuat_up: s.up.clone().normalize(),
       distance: ((distance % trackLength) + trackLength) % trackLength,
       respawn: 0,
       pop: 1,
@@ -342,8 +395,14 @@ export function createBoxField(ctx: GameContext): BoxField {
     },
 
     update(dt: number, time: number): void {
-      if (!shell || !core || !halo || !shadow) return;
+      if (!shell || !core || !glyph || !halo || !shadow || !ghost) return;
       materials?.tick(time);
+      // The glyph plates are square to the lens, all of them, so one quaternion
+      // serves the whole circuit. Full camera-facing rather than yaw-only: this
+      // plate lives *inside* a cube and never touches the road, so it has none
+      // of the reasons the halo below has to stay upright, and an overhead or
+      // minimap camera has to be able to read it too.
+      _billboard.copy(ctx.camera.quaternion);
       // The halo billboards about the *vertical only*, and that one word is the
       // whole fix. A full camera-facing billboard is edge-on to the road when
       // the camera is above it — which is exactly what an overhead or minimap
@@ -355,6 +414,12 @@ export function createBoxField(ctx: GameContext): BoxField {
       const camX = ctx.camera.position.x;
       const camZ = ctx.camera.position.z;
 
+      // Husks are compacted into the front of their buffer and the instance
+      // count is set to however many are actually standing — which is usually
+      // none. An InstancedMesh with a count of zero is skipped outright, so the
+      // empty-socket rig costs a draw call only on the laps it has something to
+      // say.
+      let husks = 0;
       for (let i = 0; i < boxes.length; i++) {
         const b = boxes[i]!;
         const gone = b.respawn > 0;
@@ -379,6 +444,13 @@ export function createBoxField(ctx: GameContext): BoxField {
         _m.compose(_p, _q, _s);
         core.setMatrixAt(i, _m);
 
+        // The `?`. It nods rather than sitting rigid — a plate pinned square to
+        // the lens with no motion of its own reads as a decal stuck on the
+        // screen instead of an object floating inside the glass.
+        _s.setScalar(scale * (0.94 + Math.sin(time * 3.1 + b.phase) * 0.07));
+        _m.compose(_p, _billboard, _s);
+        glyph.setMatrixAt(i, _m);
+
         // The halo breathes on its own beat — slower than the core, so the two
         // never lock into a single throb.
         _e.set(0, Math.atan2(camX - b.pos.x, camZ - b.pos.z), 0);
@@ -391,18 +463,48 @@ export function createBoxField(ctx: GameContext): BoxField {
         _p.y += HALO_LIFT;
         _m.compose(_p, _face, _s);
         halo.setMatrixAt(i, _m);
+        halo.setColorAt(i, boxHue(time, _c));
         _p.y -= HALO_LIFT;
 
-        _p.set(b.pos.x, b.groundY + 0.07, b.pos.z);
-        _q.identity();
-        _s.set(scale * (1 - bob * 0.4), 1, scale * (1 - bob * 0.4));
-        _m.compose(_p, _q, _s);
+        // The contact shadow, laid **in the road's plane** rather than in the
+        // world's. On a crowned, banked circuit those differ by more than the
+        // disc's own clearance, so a world-horizontal blob spends most of its
+        // area inside the tarmac and only a crescent survives the depth test.
+        // It also breathes with the bob: the box rises, the shadow spreads and
+        // lightens, which is the cue that says "this thing is floating" rather
+        // than "this thing is stuck to a decal".
+        const lift = 1 + bob * 0.6;
+        _s.set(scale * lift, 1, scale * lift);
+        // Thrown along the sun, the same way the karts' shadows are. A blob
+        // pooled directly under a floating object is the one arrangement that
+        // contradicts every other shadow in the frame — and from overhead the
+        // box sits on top of it, so the object appears to cast nothing at all.
+        _p.copy(b.ground).add(shadowOffset(FLOAT + bob, b.groundQuat_up, _off));
+        _m.compose(_p, b.groundQuat, _s);
         shadow.setMatrixAt(i, _m);
+
+        // ...and the husk, which is the exact complement of the box: present
+        // only while the box is not. It shrinks as the respawn clock runs down,
+        // so the socket visibly *refills* rather than blinking back.
+        if (gone) {
+          const k = clamp(b.respawn / RESPAWN, 0, 1);
+          _e.set(time * 0.3 + b.phase, time * 0.4 + b.phase * 0.5, 0);
+          _q.setFromEuler(_e);
+          _s.setScalar(0.62 + 0.3 * k);
+          _p.copy(b.pos);
+          _p.y += bob * 0.4;
+          _m.compose(_p, _q, _s);
+          ghost.setMatrixAt(husks++, _m);
+        }
       }
+      ghost.count = husks;
       shell.instanceMatrix.needsUpdate = true;
       core.instanceMatrix.needsUpdate = true;
+      glyph.instanceMatrix.needsUpdate = true;
       halo.instanceMatrix.needsUpdate = true;
+      if (halo.instanceColor) halo.instanceColor.needsUpdate = true;
       shadow.instanceMatrix.needsUpdate = true;
+      ghost.instanceMatrix.needsUpdate = true;
     },
 
     dispose(): void {
@@ -410,13 +512,15 @@ export function createBoxField(ctx: GameContext): BoxField {
       materials?.dispose();
       shellGeo?.dispose();
       coreGeo?.dispose();
+      glyphGeo?.dispose();
       haloGeo?.dispose();
       haloMat?.dispose();
       blobGeo?.dispose();
       blobMat?.dispose();
+      ghostMat?.dispose();
       materials = null;
-      shellGeo = coreGeo = haloGeo = blobGeo = null;
-      haloMat = blobMat = null;
+      shellGeo = coreGeo = glyphGeo = haloGeo = blobGeo = null;
+      haloMat = blobMat = ghostMat = null;
       ctx.scene.remove(group);
       boxes.length = 0;
     },

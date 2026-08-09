@@ -1,6 +1,6 @@
 {
-  "phase": "Wave 2 round 3",
-  "phaseNote": "Items, effects and HUD all failed their critics after two rounds and go back with measured directives. The critics are now finding faults by instrumenting the running game \u2014 sampling CSS opacity over 1200 frames, measuring atlas alpha, measuring spark streak length in metres.",
+  "phase": "Wave 3",
+  "phaseNote": "Items, effects and HUD have been through three rounds and six critics. All still fail, but the faults are now measured to the pixel and the millisecond. AI, audio and world dressing go next; the three polish pieces carry their directives forward.",
   "pieces": [
     {
       "id": "feel",
@@ -52,24 +52,24 @@
       "name": "Effects & spectacle",
       "scope": "src/fx",
       "state": "fail",
-      "rounds": 2,
-      "verdict": "5.5/10, blind A/B went to Mario Kart. Drift sparks, boost flames, dust, tyre marks and screen effects all present and firing off the right events.",
-      "gap": "Mini-turbo sparks stretch along world velocity instead of velocity relative to the kart, so each renders as a 2-3m golden bar and a charged drift lays ~40 of them across 7m of track, burying the road edge and the kart itself."
+      "rounds": 6,
+      "verdict": "6.5/10 after three rounds. Sparks, tyre smoke, boost flames, marks and impacts all firing off the right events.",
+      "gap": "Every smoke puff is a flat-alpha polygon with a hard cookie-cutter rim \u2014 at 9x zoom you can count a 16-gon silhouette \u2014 so the one particle on screen in every frame reads as a cutout disc rather than smoke."
     },
     {
       "id": "items",
       "name": "Items",
       "scope": "src/items",
       "state": "fail",
-      "rounds": 2,
-      "verdict": "7/10, blind A/B went to Mario Kart. Boxes, roulette, the full item set, coins and hit reactions all exist and work. Blind A/B still goes to Mario Kart.",
-      "gap": "The incoming-projectile warning sits over the vanishing point for 52% of the race and never exceeds 0.79 opacity \u2014 too constant to mean anything, too faint to read."
+      "rounds": 6,
+      "verdict": "7/10 after three rounds. Boxes, roulette, full item set, coins, and a genuinely strong hit vocabulary \u2014 banana spins you 1.00 rotation in 0.73s and drops you 53 to 23 m/s; a green shell flips you 1.08 rotations in 1.02s and launches you.",
+      "gap": "The blooper blacks out ~66% of the central play area at up to 0.97 opacity for six seconds. Mario Kart ink is a nuisance you race through; this one is a blindfold."
     },
     {
       "id": "ai",
       "name": "CPU racers",
       "scope": "src/ai",
-      "state": "queued",
+      "state": "build",
       "rounds": 0,
       "verdict": "",
       "gap": ""
@@ -79,15 +79,15 @@
       "name": "HUD & minimap",
       "scope": "src/ui",
       "state": "fail",
-      "rounds": 2,
-      "verdict": "6.5/10, blind A/B went to Mario Kart. Item slot, minimap, lap pips, coin and position plates, banners \u2014 a real instrument set that scales to a phone.",
-      "gap": "Every racer sits at place 1 through the countdown, so the first thing the game tells the player after GO! is a gold \"1st\" followed by four false lost-a-place alarms cascading to 8th."
+      "rounds": 6,
+      "verdict": "6.5/10 after three rounds. Item slot, minimap, lap pips, coin and position plates, banners, designed numerals.",
+      "gap": "The roulette is visibly dead for 92% of its duration: the drum runs 0.067s of a 1.05s spin, then the slot sits empty for a full second before the item teleports in with no landing punch."
     },
     {
       "id": "world",
       "name": "World dressing",
       "scope": "src/world",
-      "state": "queued",
+      "state": "build",
       "rounds": 0,
       "verdict": "",
       "gap": ""
@@ -96,7 +96,7 @@
       "id": "audio",
       "name": "Music & sound",
       "scope": "src/audio",
-      "state": "queued",
+      "state": "build",
       "rounds": 0,
       "verdict": "",
       "gap": ""
@@ -139,6 +139,14 @@
     }
   ],
   "log": [
+    {
+      "at": "Wave 3",
+      "text": "<b>AI, audio and world dressing dispatched.</b> Items, effects and HUD carry their directives to a later polish wave \u2014 they are at 6.5-7 and improving, while these three do not exist at all."
+    },
+    {
+      "at": "Wave 2 r3",
+      "text": "<b>Six critics, three rounds, still no pass \u2014 and the reviews are getting better.</b> The blooper critique came with a numeric pass condition: re-run the same crop and require fraction-below-luminance-60 under 0.40. The particle critique came with an acceptance test: re-shoot the train funnel at 9x zoom, no straight edge traceable. This is what a review loop looks like when it stops guessing."
+    },
     {
       "at": "Wave 2",
       "text": "<b>All three pieces failed and go back.</b> Items 7/10, HUD 6.5/10, effects 5.5/10 \u2014 every blind A/B went to Mario Kart. The critics measured rather than eyeballed: CSS opacity sampled every four fixed steps across 40s, particle-atlas alpha peaks read off the live texture, spark streak length computed in metres against the length of the kart."

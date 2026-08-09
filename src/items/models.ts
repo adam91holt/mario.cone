@@ -265,10 +265,14 @@ export function buildBanana(): THREE.Object3D {
  *
  * Built about its own centre so it can roll on the axis it travels along.
  */
-export function buildShell(color: number, spot: number): THREE.Object3D {
+export function buildShell(color: number, spot: number, homing = false): THREE.Object3D {
   const g = new THREE.Group();
-  const shellMat = plastic(color, 0.28, 0.18);
-  const trimMat = plastic(0xFFF8F0, 0.34, 0.12);
+  // 0.44, not 0.28. At the tighter roughness the dome carried a specular that
+  // clipped to white over a third of its surface, and a blown highlight is not
+  // a highlight — it is a hole in the model. Painted vinyl, per ARCHITECTURE
+  // §12: a broad soft sheen that describes the curve instead of erasing it.
+  const shellMat = plastic(color, 0.44, 0.16);
+  const trimMat = plastic(0xFFF8F0, 0.46, 0.12);
   const bandMat = plastic(spot, 0.36, 0.1);
 
   // The crown.
@@ -294,6 +298,44 @@ export function buildShell(color: number, spot: number): THREE.Object3D {
   // A hazard band round the base of the crown.
   addMesh(g, new THREE.TorusGeometry(0.375, 0.05, 6, 22), bandMat, [0, 0.24, 0],
     [Math.PI / 2, 0, 0]);
+
+  if (homing) {
+    /**
+     * The **supervisor's** helmet — and this is a silhouette job, not a paint
+     * job.
+     *
+     * Green and red used to be the same mesh in two hues, which is the worst
+     * possible answer for the two most-thrown items in the game: a player
+     * glancing in the mirror at something coming up the inside has to know
+     * *now* whether it will follow them round the corner, and hue alone does
+     * not survive a small mirror, motion blur, or a red kart in front of it.
+     * So the homing one gets three shapes the plain one has not: a peak over
+     * the eyes that points where it is going, ear defenders that widen it, and
+     * a beacon on the crown that breaks the dome. Black shapes, they are two
+     * different objects.
+     */
+    // The peak. Forward-facing, so a shell nose-on is an arrow.
+    const peak = addMesh(g, new THREE.CylinderGeometry(0.30, 0.34, 0.06, 16, 1, false,
+      -0.85, 1.7), shellMat, [0, 0.155, 0.36]);
+    peak.rotation.x = -0.16;
+    peak.scale.set(1, 1, 1.5);
+    // Ear defenders.
+    for (const sx of [-1, 1]) {
+      addMesh(g, new THREE.CylinderGeometry(0.15, 0.15, 0.11, 12), bandMat,
+        [sx * 0.42, 0.19, 0], [0, 0, Math.PI / 2]);
+    }
+    // The beacon: a stalk and a lamp that is a light source in its own right,
+    // so the thing behind you is *lit* rather than merely red.
+    addMesh(g, new THREE.CylinderGeometry(0.055, 0.07, 0.1, 10), trimMat, [0, 0.44, 0]);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.115, 12, 9),
+      new THREE.MeshStandardMaterial({
+        color: 0xFFE9C8, emissive: 0xFF4A20, emissiveIntensity: 2.4,
+        roughness: 0.3, metalness: 0,
+      }));
+    lamp.position.set(0, 0.52, 0);
+    lamp.name = 'beacon';
+    g.add(lamp);
+  }
 
   mergeStatic(g);
   castShadows(g, true, false);
@@ -492,6 +534,36 @@ export function buildBulletHusk(): THREE.Object3D {
     p.scale.z = 0.5;
     g.add(p);
   }
+
+  // Eight blades round the stern, and they are here to break a *circle*.
+  //
+  // Everything the driver can see of this thing is concentric: a collar at the
+  // rim, a shock ring inside that, a white-hot core in the middle. Photographed
+  // from the chase camera — which is the only camera that ever sees it — those
+  // three rings composited into a bullseye. A roundel is not a machine, and it
+  // is certainly not a bullet: it reads as a target painted on the back of the
+  // kart, which is very nearly the opposite of what the item is saying.
+  //
+  // Radial blades cut every one of those rings eight times. The silhouette from
+  // astern becomes a hub with spokes, the alternating hazard colours give it a
+  // direction of rotation the eye can hold, and — because they stand proud of
+  // the stern dome — they catch the key light and give the flat back of the
+  // casing somewhere for a highlight to live.
+  const bladeHot = mat(0xFFC300, { roughness: 0.3, emissiveIntensity: 0.55 });
+  const bladeDark = mat(0x20242E, { roughness: 0.45, metalness: 0.3 });
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * TAU;
+    const r = 0.84;
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.54, 0.13),
+      i % 2 === 0 ? bladeHot : bladeDark);
+    // The casing's axis is +Z and its centre line sits at y = 0.95, so the
+    // radial plane is (x, y - 0.95). Rotating the box by -a about Z points its
+    // long axis straight out along that radius.
+    blade.position.set(Math.sin(a) * r, 0.95 + Math.cos(a) * r, -1.99);
+    blade.rotation.z = -a;
+    g.add(blade);
+  }
+
   mergeStatic(g);
   castShadows(g, true, false);
 
@@ -768,11 +840,19 @@ export function contactShadowMaterial(): THREE.MeshBasicMaterial {
     // material at full opacity it changes nothing about the result.
     premultipliedAlpha: true,
     transparent: true, depthWrite: false, toneMapped: false,
+    // A blob lies within a few centimetres of the surface it is a shadow *on*,
+    // and this road is crowned and banked — so the disc and the tarmac
+    // interpenetrate, and the depth test eats whichever part of the disc lost.
+    // Photographed, that is a shadow reduced to a thin crescent, or to nothing.
+    // Biasing the fragment toward the camera is the standard answer and costs a
+    // state change; the alternative — lifting the disc far enough to clear the
+    // crown — is a shadow visibly floating off the ground.
+    polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -12,
   });
 }
 
 /** A flat contact shadow lying in the XZ plane, ready to parent to an item. */
-export function contactShadow(size: number, darkness = 0.34): THREE.Mesh {
+export function contactShadow(size: number, darkness = 0.26): THREE.Mesh {
   const mesh = new THREE.Mesh(
     contactShadowGeometry(size * 0.5, darkness), contactShadowMaterial());
   mesh.name = 'shadow';
@@ -782,7 +862,10 @@ export function contactShadow(size: number, darkness = 0.34): THREE.Mesh {
 }
 
 export function addProjectileShadow(node: THREE.Object3D, size = 1.15): void {
-  node.add(contactShadow(size, 0.42));
+  // 0.24, not 0.42. Multiply blending scales the road's own brightness, and
+  // this road is asphalt — there is not much brightness there to scale, so a
+  // disc that only takes 58% of it off is a shadow you have to be told about.
+  node.add(contactShadow(size, 0.24));
 }
 
 export function addProjectileGlow(node: THREE.Object3D, color: number, radius = 0.62): void {
@@ -845,7 +928,21 @@ export function buildScorch(): THREE.Object3D {
   return g;
 }
 
-/** The starburst that marks a connection. Recoloured to whatever hit you. */
+/**
+ * The starburst that marks a connection, and the flare a box comes apart in.
+ *
+ * Three parts, on three clocks, and the count is the whole point. A single
+ * additive star photographed frame by frame is a bright shape on the frame it
+ * spawned and nothing two frames later — which is what the box break was: a
+ * flash at 0ms, a smear at 17ms, gone by 50ms. Nobody at sixty frames a second
+ * ever saw it.
+ *
+ * `core` is the flash — brightest, smallest, first to go. `star` is the spikes,
+ * which carry the shape. `ring` is the shockwave, and it is the part that
+ * actually survives: a thin expanding annulus reads at any size, against any
+ * background, for as long as you let it live. The entity animates all three off
+ * one age.
+ */
 export function buildBurst(): THREE.Object3D {
   const g = new THREE.Group();
   const geo = new THREE.ExtrudeGeometry(starShape(1, 0.34, 6), {
@@ -853,9 +950,15 @@ export function buildBurst(): THREE.Object3D {
   });
   geo.center();
   const a = new THREE.Mesh(geo, glowMaterial(0xFFF8F0, 1));
+  a.name = 'star';
   g.add(a);
   const b = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 8), glowMaterial(0xFFF8F0, 0.9));
+  b.name = 'core';
   g.add(b);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.86, 1.0, 30),
+    glowMaterial(0xFFF8F0, 0.9));
+  ring.name = 'ring';
+  g.add(ring);
   g.traverse((o) => { o.userData.noShadow = true; });
   return g;
 }
@@ -883,13 +986,22 @@ export function buildStarAura(): THREE.Object3D {
   shell.renderOrder = 6;
   g.add(shell);
 
-  // The pool. Flat on the road, additive, and the widest thing in the rig, so
-  // an invincible kart lights the tarmac up ahead of itself. Feathered rather
-  // than cut: see `radialGlowGeometry`.
-  const poolGeo = radialGlowGeometry(3.0, 28);
+  // The pool. Flat on the road, additive, so an invincible kart lights the
+  // tarmac it is standing on. Feathered rather than cut: see
+  // `radialGlowGeometry`.
+  //
+  // Two metres, not three, and that is a correction rather than a taste. A
+  // ground disc six metres across, six centimetres above the road, sits between
+  // a chase camera and everything the player is steering by: photographed from
+  // behind the kart it filled the whole lower half of the frame with gold and
+  // the road, the kerb and the machine itself went with it. The pool's job is
+  // to say the kart is *on* the road at 250km/h, and it can do that at four
+  // metres across — which is still wider than the widest machine in the cast —
+  // without becoming the floor.
+  const poolGeo = radialGlowGeometry(2.0, 28);
   poolGeo.rotateX(-Math.PI / 2);
   const pool = new THREE.Mesh(poolGeo, new THREE.MeshBasicMaterial({
-    color: 0xFFD84D, vertexColors: true, transparent: true, opacity: 0.55,
+    color: 0xFFD84D, vertexColors: true, transparent: true, opacity: 0.4,
     blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
   }));
   pool.position.y = 0.06;
@@ -931,10 +1043,15 @@ export function buildBooShroud(): THREE.Object3D {
   shell.renderOrder = 6;
   g.add(shell);
 
+  // The passenger sits *outboard*. On the axis it read as a white growth on top
+  // of whatever machine was underneath it — photographed over a road cone, the
+  // boo's head and the cone's tip fused into one pale lump and neither shape
+  // survived. Off to one side and level with the roofline it is plainly a
+  // second object, riding along, which is the whole joke.
   const boo = buildBoo();
   boo.name = 'rider';
   boo.scale.setScalar(0.7);
-  boo.position.set(0, 1.5, -0.6);
+  boo.position.set(0.95, 1.55, -0.35);
   g.add(boo);
 
   g.traverse((o) => { o.userData.noShadow = true; });
@@ -986,55 +1103,23 @@ export function coinMaterial(): THREE.MeshStandardMaterial {
 // ── the item box ───────────────────────────────────────────────────────────
 
 /**
- * The face texture. A bold `?` inside a chevron frame — the frame is what makes
- * a translucent cube read as an object at forty metres, where the glyph alone
- * has mipmapped away to a smudge.
+ * The `?` itself, as a path.
+ *
+ * Drawn rather than typed, and that is not fussiness. `fillText` depends on a
+ * font actually being installed: on the headless renderer every reviewer
+ * photographs this game through, "Trebuchet MS" is not, and the fallback's
+ * question mark rendered with a fat round-joined outline fused its dot into its
+ * stem and photographed — unmistakably — as the numeral 2. A path is the same
+ * shape on every machine that will ever run this.
  */
-function boxFaceTexture(): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const g = c.getContext('2d')!;
-
-  // Warm glass, not white glass: at forty metres the fill is most of what the
-  // eye gets, and a neutral one disappears against the sky. Kept faint — the
-  // shimmer in the shader and the light behind the cube are what this face is
-  // *for*, and a solid wash over it is why the first version photographed as
-  // painted orange plastic rather than as glass.
-  g.fillStyle = 'rgba(255,206,132,0.20)';
-  g.fillRect(0, 0, 128, 128);
-
-  // A hazard frame, and only a frame. At lineWidth 22 the two strokes below
-  // covered better than half the face and the box lost its translucency
-  // entirely; thin bands read as an edge on glass and still survive mipmapping
-  // down a straight, because a frame is a shape and not a detail.
-  g.strokeStyle = 'rgba(255,107,26,0.95)';
-  g.lineWidth = 9;
-  g.strokeRect(6.5, 6.5, 115, 115);
-  g.strokeStyle = 'rgba(255,195,0,0.9)';
-  g.lineWidth = 4;
-  g.strokeRect(19, 19, 90, 90);
-
-  // ── the glyph ───────────────────────────────────────────────────────────
-  //
-  // Drawn as a path rather than as text, and that is not fussiness. `fillText`
-  // depends on a font actually being installed: on the headless renderer every
-  // reviewer photographs this game through, "Trebuchet MS" is not, and the
-  // fallback's question mark rendered with a fat round-joined outline fused its
-  // dot into its stem and photographed — unmistakably — as the numeral 2. A
-  // path is the same shape on every machine that will ever run this.
-  //
-  // Three strokes, widest first: a dark backing so the glyph survives against a
-  // bright sky, an orange midline, then the white face.
+function drawGlyph(g: CanvasRenderingContext2D, strokes: ReadonlyArray<readonly [number, string]>): void {
   const hook = new Path2D();
   hook.moveTo(38, 50);
   // Over the top of the bowl, left to right...
   hook.bezierCurveTo(37, 31, 90, 29, 86, 51);
   // ...then in and down into the stem, which stops clear of the dot.
   hook.bezierCurveTo(83, 67, 64, 67, 64, 81);
-
-  for (const [w, style] of [
-    [22, 'rgba(34,38,50,0.95)'], [14, 'rgba(255,107,26,1)'], [8, '#FFFDF6'],
-  ] as const) {
+  for (const [w, style] of strokes) {
     g.lineWidth = w;
     g.lineCap = 'round';
     g.lineJoin = 'round';
@@ -1046,6 +1131,43 @@ function boxFaceTexture(): THREE.CanvasTexture {
     g.arc(64, 104, w * 0.5, 0, TAU);
     g.fill();
   }
+}
+
+/**
+ * The face texture: a hazard frame on glass, and **no glyph**.
+ *
+ * The glyph used to live here, on all six faces, and that was the single worst
+ * read in the item system. The shell is translucent and draws with
+ * `depthWrite: false` and `DoubleSide`, so a cube photographed from any angle
+ * showed three to six question marks at once — the near faces the right way
+ * round, the far faces mirrored, all overlapping. It did not read as a `?`. It
+ * read as a scribble, and an item box that reads as a scribble is a gift-wrapped
+ * parcel sitting on a racetrack.
+ *
+ * So the glass keeps only what glass should have — an edge — and the glyph moves
+ * inside the cube as a single camera-facing billboard. See `boxGlyphMaterial`.
+ */
+function boxFaceTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d')!;
+
+  // Near-neutral, and fainter than it was. The colour of an item box is now the
+  // iridescence in the shader below; a warm wash baked into the texture fought
+  // it and won, which is why a row of these photographed as five identical
+  // orange parcels rather than as a rainbow strung across the road.
+  g.fillStyle = 'rgba(255,246,232,0.13)';
+  g.fillRect(0, 0, 128, 128);
+
+  // A hazard frame, and only a frame. Thin bands read as an edge on glass and
+  // still survive mipmapping down a straight, because a frame is a shape and
+  // not a detail.
+  g.strokeStyle = 'rgba(255,107,26,0.92)';
+  g.lineWidth = 8;
+  g.strokeRect(6, 6, 116, 116);
+  g.strokeStyle = 'rgba(255,248,240,0.85)';
+  g.lineWidth = 3;
+  g.strokeRect(17, 17, 94, 94);
 
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -1053,12 +1175,68 @@ function boxFaceTexture(): THREE.CanvasTexture {
   return tex;
 }
 
+/**
+ * The glyph that rides inside the cube, on its own transparent plate.
+ *
+ * One per box, always square to the lens, so there is exactly one `?` on screen
+ * per item box no matter where the camera is. Three strokes, widest first: a
+ * dark backing so it survives against a bright sky, a hazard-orange midline,
+ * then the white face — the same treatment every readable sign in this game
+ * gets, because half this circuit is framed against cloud and half against
+ * tarmac.
+ */
+export function boxGlyphMaterial(): THREE.MeshBasicMaterial {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d')!;
+  // Widest first: a near-black rim so the mark holds against cloud *and* against
+  // tarmac, a hazard keyline for warmth, then a broad white core. It used to be
+  // the other way round — a 16px orange stroke with a 9px white centre — which
+  // made the `?` a mid-tone orange-brown mark on a pale translucent face. Two
+  // mid-tones against each other is the one contrast pairing that dies first at
+  // distance, and at forty metres the glyph was simply not there.
+  drawGlyph(g, [
+    [30, 'rgba(20,23,32,0.96)'], [22, 'rgba(255,107,26,1)'], [14, '#FFFDF6'],
+  ]);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return new THREE.MeshBasicMaterial({
+    map: tex, transparent: true, depthWrite: false, toneMapped: false,
+    // Alpha, not additive. An additive glyph over a bright sky is a ghost, and
+    // the whole point of this plate is that the `?` is the one thing about an
+    // item box that is legible from anywhere.
+    side: THREE.FrontSide,
+  });
+}
+
+export function boxGlyphGeometry(size = 1.1): THREE.BufferGeometry {
+  return new THREE.PlaneGeometry(size, size);
+}
+
 export interface BoxMaterials {
   shell: THREE.MeshStandardMaterial;
   core: THREE.MeshBasicMaterial;
+  glyph: THREE.MeshBasicMaterial;
   /** Advance the iridescence. Visual only. */
   tick(t: number): void;
   dispose(): void;
+}
+
+/**
+ * The hue every box is wearing right now — the CPU-side twin of `mcHue` in the
+ * shell shader, and it takes no position because the shader's seed no longer
+ * does either. One colour, cycling, shared by the whole circuit: see the
+ * `vMcSeed` note in `makeBoxMaterials` for why five different-coloured boxes in
+ * a row is a bug and not a flourish.
+ */
+export function boxHue(t: number, out: THREE.Color): THREE.Color {
+  const h = t * 0.16 + 0.27;
+  return out.setRGB(
+    0.55 + 0.45 * Math.cos(TAU * h),
+    0.55 + 0.45 * Math.cos(TAU * (h + 0.33)),
+    0.55 + 0.45 * Math.cos(TAU * (h + 0.67)),
+  );
 }
 
 /**
@@ -1100,56 +1278,82 @@ export function makeBoxMaterials(): BoxMaterials {
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
         varying vec3 vMcNormal;
-        varying vec3 vMcView;`)
+        varying vec3 vMcView;
+        varying float vMcSeed;`)
       .replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
         // The boxes are one InstancedMesh, so the instance rotation has to be
         // folded into both the position and the normal by hand — three only
         // does it for the attributes its own lighting path uses.
         vec4 mcLocal = vec4( transformed, 1.0 );
         vec3 mcNormal = objectNormal;
+        vec3 mcOrigin = vec3( 0.0 );
         #ifdef USE_INSTANCING
           mcLocal = instanceMatrix * mcLocal;
           mcNormal = mat3( instanceMatrix ) * mcNormal;
+          mcOrigin = instanceMatrix[ 3 ].xyz;
         #endif
         vec4 mcWorld = modelMatrix * mcLocal;
         vMcNormal = normalize( mat3( modelMatrix ) * mcNormal );
-        vMcView = normalize( cameraPosition - mcWorld.xyz );`);
+        vMcView = normalize( cameraPosition - mcWorld.xyz );
+        // **Every box is the same box.** The seed is a constant, not a function
+        // of where the cube stands, and that is a gameplay decision rather than
+        // an art one. A row of five in five different colours is a *false
+        // affordance*: a player reads five distinct objects and concludes the
+        // colour picks the item, spends a lap testing the theory, and learns
+        // that the game lied to them. Mario Kart makes every box identical
+        // precisely because the unknown is the whole point of the pickup.
+        // The shimmer stays — it comes from view angle and time below, which
+        // vary across a single cube's faces and give it life without ever
+        // making two boxes different from each other.
+        vMcSeed = 0.0;
+        mcOrigin;`);
 
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
         uniform float uTime;
         varying vec3 vMcNormal;
         varying vec3 vMcView;
+        varying float vMcSeed;
         vec3 mcHue( float h ) {
           return 0.55 + 0.45 * cos( 6.28318 * ( h + vec3( 0.0, 0.33, 0.67 ) ) );
         }`)
       .replace('#include <dithering_fragment>', `#include <dithering_fragment>
-        // Fresnel drives both the hue sweep and its strength, so the shimmer
-        // rides the silhouette of the cube and the faces stay readable.
+        // Fresnel sweeps the hue *across each face* as well as round the
+        // silhouette. The old exponent of 1.8 confined the whole rainbow to the
+        // grazing rim, so a cube seen square-on — which is most of them, most of
+        // the time — wore only the warm base colour and photographed as painted
+        // card. At 1.0 the sweep covers the face and the box is iridescent from
+        // every angle a player can reach.
         float mcF = 1.0 - abs( dot( normalize( vMcNormal ), normalize( vMcView ) ) );
-        vec3 mcTint = mcHue( mcF * 0.85 + uTime * 0.12 );
-        // Held well below a blow-out: the shimmer has to sit *on* the faces, not
-        // erase them. A box that clips to white loses its frame and its glyph,
-        // which are the only two things that identify it. Stronger than it was,
-        // because with the face texture thinned out to let the glass read there
-        // is now room for the rainbow it is supposed to have.
-        gl_FragColor.rgb += mcTint * ( pow( mcF, 1.8 ) * 0.72 + 0.08 );
-        gl_FragColor.a = clamp( gl_FragColor.a + mcF * mcF * 0.45, 0.0, 1.0 );`);
+        vec3 mcTint = mcHue( vMcSeed + mcF * 0.55 + uTime * 0.16 );
+        // Held below a blow-out: the shimmer has to sit *on* the faces, not
+        // erase them. A box that clips to white loses its frame, which is the
+        // only thing holding its silhouette together at distance.
+        gl_FragColor.rgb += mcTint * ( mcF * 0.62 + 0.30 );
+        gl_FragColor.a = clamp( gl_FragColor.a + mcF * mcF * 0.42, 0.0, 1.0 );`);
   };
 
+  // The light *behind* the glyph, not the thing in the middle of the box. It
+  // was the octahedron that photographed as a white blob crowding the `?`; now
+  // it is a small backing lamp that gives the plate something to sit against.
   const core = new THREE.MeshBasicMaterial({
-    color: 0xFFF3C4, transparent: true, opacity: 0.85,
+    color: 0xFFEFC0, transparent: true, opacity: 0.55,
     blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
   });
+
+  const glyph = boxGlyphMaterial();
 
   return {
     shell,
     core,
+    glyph,
     tick(t: number): void { uTime.value = t; },
     dispose(): void {
       tex.dispose();
       shell.dispose();
       core.dispose();
+      glyph.map?.dispose();
+      glyph.dispose();
     },
   };
 }
@@ -1159,7 +1363,7 @@ export function boxShellGeometry(size = 1.5): THREE.BufferGeometry {
 }
 
 export function boxCoreGeometry(size = 1.5): THREE.BufferGeometry {
-  return new THREE.OctahedronGeometry(size * 0.3, 0);
+  return new THREE.OctahedronGeometry(size * 0.24, 0);
 }
 
 /**
@@ -1177,7 +1381,10 @@ export function boxHaloGeometry(radius = 2.5): THREE.BufferGeometry {
 
 export function boxHaloMaterial(): THREE.MeshBasicMaterial {
   return new THREE.MeshBasicMaterial({
-    color: 0xFFD98A, vertexColors: true, transparent: true, opacity: 0.62,
+    // White, because the hue arrives per instance — see `boxHue` and
+    // `setColorAt` in the box field. A tinted base would multiply into it and
+    // pull every box back toward the same warm smear.
+    color: 0xFFFFFF, vertexColors: true, transparent: true, opacity: 0.7,
     blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
   });
 }

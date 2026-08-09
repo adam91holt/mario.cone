@@ -172,7 +172,8 @@ Canonical events — add new ones to this list when you introduce them:
 | `kart:offroad` | `{ racer, surface }` | physics |
 | `kart:hit` | `{ racer, by, kind }` | items |
 | `item:box` | `{ racer, pos }` — a box was taken | items |
-| `item:roulette` | `{ racer, phase:'start'\|'settle', item? }` | items |
+| `item:roulette` | `{ racer, phase:'start'\|'settle', duration?, item? }` | items |
+| `item:reel` | `{ racer, index, remaining, total }` — one per face of the drum | items |
 | `item:get` | `{ racer, item, count }` | items |
 | `item:use` | `{ racer, item, count, forward }` | items |
 | `item:bounce` | `{ kind, pos, bounces }` — shell off a barrier | items |
@@ -182,6 +183,7 @@ Canonical events — add new ones to this list when you introduce them:
 | `item:block` | `{ racer, by, item, blocked }` — a carried item ate the hit | items |
 | `item:effect` | `{ racer, effect, on }` — star/bullet/shrunk/inked/boo | items |
 | `item:steal` | `{ racer, from, item }` | items |
+| `item:warn` | `{ racer, on, item, level, bearing }` — something is about to hit the player | items |
 | `coin:get` | `{ racer, total }` | items |
 | `coin:lose` | `{ racer, count, total }` | items |
 
@@ -194,6 +196,44 @@ almost no rotation: a star, a bullet bill, a horn) and `squish` (flattened on
 the spot: lightning). Anything hanging a sound, a particle or a camera move off
 a hit should read `item:strike`, not `kart:hit` — physics emits the latter from
 `stunRacer` and only knows its own three-value vocabulary.
+
+**Timing the reel.** `item:roulette` `start` carries `duration` — the seconds
+that spin will actually run — and `item:reel` fires once per face of the drum
+with `remaining` counting down to zero on the settle. A slot drawn by another
+module can therefore decelerate on the item system's own clock instead of
+mirroring `SPIN_PLAYER` as a constant of its own. Note that the reel's length is
+**simulation** time: the engine's rAF loop steps the sim off the wall clock, so
+any tool that renders a frame and then does something slow (a screenshot under
+software GL costs 100-300ms) advances the game underneath itself. Call
+`__GAME.setTimeScale(0)` before timing anything frame by frame, and read
+`__ITEMS.probe().spin` / `.spinTotal` rather than inferring the duration from
+when `racer.item` changed.
+
+**A cancelled roulette.** `item:roulette` always comes in pairs: a `start` is
+always followed by a `settle`, so anything that begins a loop on the first can
+end it on the second without a timeout of its own. A `settle` that carries **no
+`item`** means the spin was thrown away rather than landed — lightning struck
+the racer mid-draw, the flag fell, or the reviewer's bench put something
+straight into the slot. Treat it as "the reel stopped and there is nothing in
+the slot", never as a draw.
+
+**Invulnerability vs immunity.** `racer.invulnerable` is a *short* timer with a
+visual meaning attached: the vehicle rig blinks any racer carrying it, which is
+correct for the second after a hit and wrong for anything longer. The item
+system therefore keeps its long protections — a star, a bullet bill, a boo — in
+`racer.effects` and only hands the last fraction of a second to
+`invulnerable`, as the tell that it is about to run out. Anything asking "can
+this racer be hurt" must check `effects` for `star`, `bullet` and `boo` as well
+as `invulnerable`, or use the item system's own `strike` path, which does.
+
+**The incoming warning.** `item:warn` fires on the two *edges* only — once when
+something starts being on course to hit the player and once when it stops — so a
+siren can be started and stopped without polling. It is a **time-to-impact**
+signal, not a proximity one: nothing is reported unless closest approach puts it
+inside a kart's width of the player within the next 1.6s, so it is silent for
+most of a lap and means something every time it is not. `level` is 0..1 and
+reaches 1 on the frame of impact; `bearing` is where the threat is in the
+player's own frame — 0 dead ahead, positive to the right, ±π behind.
 
 The item system integrates the spin-out itself, in `fixedUpdate` at order 50,
 *after* the kart model has stepped: it holds the racer's world-space direction

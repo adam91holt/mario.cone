@@ -104,13 +104,40 @@ export interface ParticlePool {
   /** Emit `n` copies, scattering direction and speed through `rng`. */
   burst(spec: ParticleSpec, n: number, speed: number, spread: number, rng: Rng): void;
   update(dt: number): void;
+  /**
+   * Where the lens is this frame, so `fill` can dissolve anything that gets
+   * into it. See the note on the fade in `fill`.
+   */
+  setCamera(x: number, y: number, z: number): void;
   fill(additive: SpriteLayer, alpha: SpriteLayer): void;
   clear(): void;
 }
 
+/**
+ * The near-camera dissolve band, in metres. An opaque-layer particle is at full
+ * strength beyond `NEAR_FAR` and gone by `NEAR_NEAR`.
+ *
+ * This exists because of a defect that no amount of per-emitter tuning can
+ * reach. Every continuous emitter in the module throws its output *backwards*
+ * relative to the machine, the chase camera sits six to eight metres behind
+ * that machine, and so sooner or later some of that output arrives at the lens.
+ * A dust puff a metre from the camera is a soft disc covering a quarter of the
+ * frame; twenty of them is a race being played behind frosted glass, which is
+ * exactly what the review frames caught — fifteen to twenty translucent discs
+ * over the sky, the mountains and the HUD while the player was in an ordinary
+ * drift.
+ *
+ * Additive particles are deliberately exempt. A flame plume is *meant* to be
+ * able to reach the camera and wash the frame warm, and it brightens rather
+ * than obscures. This is only ever about things that hide the game.
+ */
+const NEAR_NEAR = 1.1;
+const NEAR_FAR = 3.0;
+
 export function createParticlePool(capacity: number): ParticlePool {
   const data = new Float32Array(capacity * STRIDE);
   let count = 0;
+  let camX = 0, camY = 0, camZ = 0;
 
   function emit(spec: ParticleSpec): boolean {
     if (count >= capacity) return false;
@@ -211,13 +238,28 @@ export function createParticlePool(capacity: number): ParticlePool {
       }
       if (a < 0.004) continue;
 
+      const code = data[o + S.code];
+      const isAdd = code >= ADDITIVE_BIT;
+      if (!isAdd) {
+        // Dissolve anything that has wandered into the lens. Squared distance,
+        // no square root: this runs over every live particle every frame.
+        const dx = data[o + S.px] - camX;
+        const dy = data[o + S.py] - camY;
+        const dz = data[o + S.pz] - camZ;
+        const d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 < NEAR_FAR * NEAR_FAR) {
+          if (d2 <= NEAR_NEAR * NEAR_NEAR) continue;
+          const t = (Math.sqrt(d2) - NEAR_NEAR) / (NEAR_FAR - NEAR_NEAR);
+          a *= t * t;
+          if (a < 0.004) continue;
+        }
+      }
+
       const r = data[o + S.r0] + (data[o + S.r1] - data[o + S.r0]) * u;
       const g = data[o + S.g0] + (data[o + S.g1] - data[o + S.g0]) * u;
       const b = data[o + S.b0] + (data[o + S.b1] - data[o + S.b0]) * u;
       const size = data[o + S.size0] + (data[o + S.size1] - data[o + S.size0]) * u;
 
-      const code = data[o + S.code];
-      const isAdd = code >= ADDITIVE_BIT;
       const packed = isAdd ? code - ADDITIVE_BIT : code;
       const mode = Math.floor(packed / 8);
       const cell = packed - mode * 8;
@@ -244,6 +286,7 @@ export function createParticlePool(capacity: number): ParticlePool {
     emit,
     burst,
     update,
+    setCamera(x: number, y: number, z: number): void { camX = x; camY = y; camZ = z; },
     fill,
     clear(): void { count = 0; },
   };

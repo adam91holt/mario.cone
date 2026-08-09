@@ -68,6 +68,25 @@ const LAYER_RUSH = 240;
 const MARK_QUADS = 2600;
 
 /**
+ * The hard ceiling on how big any one airborne sprite may be, in metres.
+ *
+ * Not a taste call — a legibility rule with arithmetic behind it. The chase
+ * camera sits six to eight metres from the machine, so a sprite born at a racer
+ * covers `2*atan(size/2 / 7)` of the frame: at two metres that is sixteen
+ * degrees, which is a puff; at seven metres it is fifty-three degrees, which is
+ * most of the screen, and at that scale the puff cell's own alpha ramp becomes
+ * a visible hard-edged circle — the "these are quads" tell in its purest form.
+ *
+ * The module had no such ceiling. A caller asking for `scale: 2.2` — a
+ * perfectly reasonable request meaning "a big one" — had it multiplied by the
+ * surface's puff size, by the dust ring's own 1.35, and then by a growth of
+ * 2.7, and got a seven-metre disc. Twenty of those, born at a racer, is the
+ * wall of translucent circles over the sky, the mountains and the HUD that
+ * reviewers kept photographing. Volume comes from *count*, never from diameter.
+ */
+const MAX_PUFF = 2.4;
+
+/**
  * How a surface answers to a tyre. `rate` is puffs per second at top speed;
  * `slip` is the extra that only happens when the tyres are actually sliding,
  * which is why tarmac throws almost nothing until you commit to a drift.
@@ -115,6 +134,19 @@ interface SurfaceFx {
    */
   wake: number;
   size: number;
+  /**
+   * Cross-section of one wake streak, which is *not* the size of a dust puff.
+   *
+   * The wake is drawn in velocity mode, so its width comes from `size` and its
+   * length from the stretch — and on tarmac, where the whole effect has to be
+   * almost subliminal, a wake sprite as wide as a dust puff comes out as a
+   * lozenge. Six lozenges at a time behind a machine is not a wake, it is six
+   * grey thumbprints on the glass, which is precisely what a photograph of the
+   * game at racing pace came back with. Narrow and long reads as air being
+   * dragged; round reads as a smudge on the lens, whatever it is called in the
+   * code.
+   */
+  wakeSize: number;
   grow: number;
   alpha: number;
   /**
@@ -132,17 +164,50 @@ interface SurfaceFx {
   /** Multiplier on tyre-mark darkness, and the mark's own tint. */
   mark: number;
   markTint: number;
+  /**
+   * Peak opacity of one puff of *tyre smoke* — the ribbon that boils off a
+   * sliding contact patch — as opposed to `alpha`, which is the ground being
+   * disturbed.
+   *
+   * They had to be separated. `alpha` is shared by the dust cloud and the speed
+   * wake, both of which are veils that want to stay near-subliminal on tarmac;
+   * smoke off a locked tyre is the opposite, and the module was rejected
+   * precisely for having only one number for both. On asphalt the ground gives
+   * nothing at all, so `alpha` is 0.075 and `smoke` is four times that: the
+   * whole of a committed slide on a hard surface is rubber, and rubber is the
+   * one thing tarmac has to give.
+   */
+  smoke: number;
+  /** Puffs of tyre smoke per second, summed over both rear wheels, at full
+   *  commitment. Loose surfaces run less of it because `surfaceDust` is already
+   *  throwing a cloud off the same wheels for the same reason. */
+  smokeRate: number;
 }
 
+/**
+ * Every `alpha` here is roughly a third of what it was, and that is not a
+ * retreat — it is the correction that goes with rebuilding the puff cell (see
+ * `atlas.ts`). The old cell peaked at 0.20 alpha and was a *donut*, densest at
+ * a third of its radius and nearly hollow at the middle, so the table was tuned
+ * to compensate for a texture that could not cover anything. The rebuilt cell
+ * peaks at 0.66 with a solid centre, which is about three and a quarter times
+ * the covering power per sprite; leaving these numbers alone would have turned
+ * every dust trail in the game into a wall.
+ *
+ * Net density lands a little above where it was. What changes is *legibility*:
+ * the same opacity now arrives as a handful of individually readable puffs with
+ * a shape and a silhouette, instead of as four hundred hollow rings that
+ * photographed as soap bubbles on a hillside and as smears on the windscreen.
+ */
 const SURFACE_FX: Record<Surface, SurfaceFx> = {
-  road:  { color: 0xEAEEF6, deep: 0xCED4E0, lift: 0.18, rate: 0,   slip: 132, wake: 26, size: 0.26, grow: 2.2, alpha: 0.12, grit: 0.00, sparky: false, mark: 1.00, markTint: 0x272630 },
-  boost: { color: 0xF3E8D6, deep: 0xDCD1BE, lift: 0.20, rate: 0,   slip: 116, wake: 26, size: 0.28, grow: 2.2, alpha: 0.13, grit: 0.00, sparky: false, mark: 0.80, markTint: 0x2a2833 },
-  dirt:  { color: 0xF7E6C6, deep: 0xDCBE93, lift: 1.00, rate: 156, slip: 124, wake: 58, size: 0.42, grow: 2.4, alpha: 0.28, grit: 0.42, sparky: false, mark: 0.85, markTint: 0x8a6236 },
-  sand:  { color: 0xFDF4E0, deep: 0xEBD9AF, lift: 1.10, rate: 168, slip: 128, wake: 62, size: 0.44, grow: 2.5, alpha: 0.30, grit: 0.26, sparky: false, mark: 0.72, markTint: 0x9c8050 },
-  grass: { color: 0xE3F0CC, deep: 0xB2CE8C, lift: 0.75, rate: 108, slip: 96,  wake: 42, size: 0.38, grow: 2.2, alpha: 0.24, grit: 0.36, sparky: false, mark: 0.62, markTint: 0x5c7a3e },
-  water: { color: 0xF8FDFF, deep: 0xD7EFFA, lift: 1.25, rate: 172, slip: 132, wake: 58, size: 0.34, grow: 2.1, alpha: 0.26, grit: 0.30, sparky: false, mark: 0.00, markTint: 0xffffff },
-  rail:  { color: 0xCFE2FF, deep: 0xCFE2FF, lift: 0.20, rate: 0,   slip: 22,  wake: 0,  size: 0.22, grow: 1.4, alpha: 0.90, grit: 0.00, sparky: true,  mark: 0.00, markTint: 0xffffff },
-  air:   { color: 0xffffff, deep: 0xffffff, lift: 0.00, rate: 0,   slip: 0,   wake: 0,  size: 0.40, grow: 2.0, alpha: 0.00, grit: 0.00, sparky: false, mark: 0.00, markTint: 0xffffff },
+  road:  { color: 0xEAEEF6, deep: 0xD6DCE8, lift: 0.20, rate: 0,   slip: 50, wake: 26, size: 0.44, wakeSize: 0.20, grow: 2.0, alpha: 0.075, grit: 0.00, sparky: false, mark: 1.00, markTint: 0x272630, smoke: 0.34, smokeRate: 112 },
+  boost: { color: 0xF3E8D6, deep: 0xE2D9C8, lift: 0.22, rate: 0,   slip: 46, wake: 26, size: 0.46, wakeSize: 0.20, grow: 2.0, alpha: 0.080, grit: 0.00, sparky: false, mark: 0.80, markTint: 0x2a2833, smoke: 0.34, smokeRate: 112 },
+  dirt:  { color: 0xF7E6C6, deep: 0xDCBE93, lift: 1.25, rate: 96,  slip: 60, wake: 30, size: 0.86, wakeSize: 0.52, grow: 2.7, alpha: 0.200, grit: 0.42, sparky: false, mark: 0.85, markTint: 0x8a6236, smoke: 0.12, smokeRate: 30 },
+  sand:  { color: 0xFDF4E0, deep: 0xEBD9AF, lift: 1.35, rate: 104, slip: 62, wake: 32, size: 0.90, wakeSize: 0.55, grow: 2.8, alpha: 0.210, grit: 0.28, sparky: false, mark: 0.72, markTint: 0x9c8050, smoke: 0.10, smokeRate: 26 },
+  grass: { color: 0xE3F0CC, deep: 0xB2CE8C, lift: 0.90, rate: 70,  slip: 48, wake: 22, size: 0.76, wakeSize: 0.46, grow: 2.5, alpha: 0.170, grit: 0.36, sparky: false, mark: 0.62, markTint: 0x5c7a3e, smoke: 0.11, smokeRate: 28 },
+  water: { color: 0xF8FDFF, deep: 0xD7EFFA, lift: 1.30, rate: 84,  slip: 64, wake: 30, size: 0.70, wakeSize: 0.42, grow: 2.4, alpha: 0.165, grit: 0.24, sparky: false, mark: 0.00, markTint: 0xffffff, smoke: 0.10, smokeRate: 22 },
+  rail:  { color: 0xCFE2FF, deep: 0xCFE2FF, lift: 0.20, rate: 0,   slip: 22, wake: 0,  size: 0.22, wakeSize: 0.20, grow: 1.4, alpha: 0.90,  grit: 0.00, sparky: true,  mark: 0.00, markTint: 0xffffff, smoke: 0.00, smokeRate: 0 },
+  air:   { color: 0xffffff, deep: 0xffffff, lift: 0.00, rate: 0,   slip: 0,  wake: 0,  size: 0.40, wakeSize: 0.20, grow: 2.0, alpha: 0.00,  grit: 0.00, sparky: false, mark: 0.00, markTint: 0xffffff, smoke: 0.00, smokeRate: 0 },
 };
 
 /** Confetti. High-vis roadworks, not a birthday party. */
@@ -159,8 +224,11 @@ interface RacerFx {
   /** Fractional emitter for the always-on exhaust. One per port. */
   exhaust: number;
   exhaust2: number;
-  /** Fractional emitter for the tyre haze under the drift sparks. */
+  /** Fractional emitter for the tyre smoke under the drift sparks. */
   scrub: number;
+  /** One-frame density spike in the tyre smoke, carrying the tier that caused
+   *  it. Set when a mini-turbo locks in, spent by the next rendered frame. */
+  pendSmoke: number;
   /** Fractional emitter for the speed wake. */
   wake: number;
   /** Charge this racer was carrying last frame, so a *release* can be seen
@@ -188,6 +256,11 @@ interface RacerFx {
   pendBoost: number;
   boostTier: number;
   pendLand: number;
+  /** Seconds this racer was actually in the air. A drift hop and a launch off
+   *  the canyon crest both arrive as `kart:land` with a healthy impact, and
+   *  without this the hop — which happens several times a corner — fires the
+   *  full landing treatment. */
+  landAir: number;
   pendHop: number;
   pendOffroad: number;
   pendWall: number;
@@ -214,20 +287,34 @@ interface RacerFx {
   grindSide: number;
   /** Recomputed each frame: how much this racer's effects are worth drawing. */
   near: number;
+  /**
+   * The same idea as `near` but far more generous, and it exists because the
+   * two halves of this module fail differently with distance. A spark is a
+   * pinpoint: forty metres away it is one pixel and paying for it is pure
+   * waste, so `near` now falls to nothing by the middle of the pack. A plume of
+   * exhaust is a *silhouette* against the sky, and it is the only thing telling
+   * a still frame that the machines up the road are running. It keeps its
+   * reach.
+   */
+  reach: number;
+  /** What the last hit on this racer looked like, straight off `item:reaction`:
+   *  0 unknown, 1 spin, 2 flip, 3 bump, 4 squish. */
+  hitKind: number;
 }
 
 function newRacerFx(): RacerFx {
   return {
-    spark: 0, dust: 0, grit: 0, flame: 0, exhaust: 0, exhaust2: 0, scrub: 0, wake: 0,
+    spark: 0, dust: 0, grit: 0, flame: 0, exhaust: 0, exhaust2: 0, scrub: 0, pendSmoke: 0,
+    wake: 0,
     lastCharge: 0, lastTier: 0, release: 0, releaseTier: 0, boostEnv: 0,
     glow: 0, pop: 0, popTier: 0,
     pendDriftStart: 0, pendTier: 0, pendBoost: 0, boostTier: 0,
-    pendLand: 0, pendHop: 0, pendOffroad: 0, pendWall: 0, pendHit: 0,
+    pendLand: 0, landAir: 0, pendHop: 0, pendOffroad: 0, pendWall: 0, pendHit: 0,
     pendTrick: 0, pendBump: 0, pendBurnout: 0, pendLaunch: 0, pendDraft: 0,
     pendCoin: 0, pendCoinLoss: 0, pendPowerUp: 0,
     bumpX: 0, bumpY: 0, bumpZ: 0,
     draft: 0, draftEase: 0, sparkle: 0,
-    grind: 0, grindSide: 1, near: 1,
+    grind: 0, grindSide: 1, near: 1, reach: 1, hitKind: 0,
   };
 }
 
@@ -247,6 +334,8 @@ const _camUp = new THREE.Vector3();
 const _shakeQ = new THREE.Quaternion();
 const _shakeE = new THREE.Euler();
 const _tint = new THREE.Color();
+/** Velocity a queued `spawn` inherits from whatever it happened to. */
+const _qv = new THREE.Vector3();
 const _sample: SplineSample = {
   pos: new THREE.Vector3(), tangent: new THREE.Vector3(),
   right: new THREE.Vector3(), up: new THREE.Vector3(),
@@ -254,8 +343,11 @@ const _sample: SplineSample = {
 };
 
 /** Deferred `ctx.fx.spawn` calls. Fixed capacity: a caller in a runaway loop
- *  must never be able to make this module allocate. */
-const QUEUE = 32;
+ *  must never be able to make this module allocate. Sized for the worst
+ *  legitimate frame — a bob-omb going off inside a row of item boxes with the
+ *  pack on top of it — because a queue that overflows drops the *last* effects
+ *  asked for, which are the ones from the loudest event. */
+const QUEUE = 64;
 
 export function createFxSystem(ctx: GameContext): GameSystem {
   const K = ctx.config.kart;
@@ -295,9 +387,20 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     0xFFF2D8, K.drift.tiers[0]!.color, K.drift.tiers[1]!.color, K.drift.tiers[2]!.color,
   ];
   /** Peak HDR gain per tier — above this the hue starts bleaching. */
-  const TIER_GAIN = [2.0, 2.3, 2.05, 2.9];
-  /** Sparks per second, summed over both rear wheels, per tier. */
-  const TIER_RATE = [90, 210, 265, 320];
+  const TIER_GAIN = [1.8, 2.3, 2.05, 2.9];
+  /**
+   * Sparks per second, summed over both rear wheels, per tier.
+   *
+   * Tier zero is deliberately the quietest thing here now. An uncharged drift
+   * is the state seven CPU machines are in for most of a lap, its colour is a
+   * warm cream, and at the old rate the field was laying down a permanent bed
+   * of warm sparks for the player's blue tier one to try to be seen against.
+   * The tiers themselves went the other way: an instance dump caught a
+   * committed tier one putting **seventeen** sparks near the machine while a
+   * single landing ring lit eight metres of road. Blue was not competing with
+   * orange, it was competing with everything else in the frame at once.
+   */
+  const TIER_RATE = [52, 380, 420, 460];
 
   const FLAME_HOT = new THREE.Color(0xFFF0C0);
   const FLAME_MID = new THREE.Color(0xFF7A18);
@@ -337,7 +440,7 @@ export function createFxSystem(ctx: GameContext): GameSystem {
   const sparkSpec = makeSpec({
     cell: CELL.spark, mode: MODE.velocity, additive: true,
     life: 0.34, size0: 0.20, size1: 0.03, alpha: 1,
-    gravity: 15, drag: 2.0, stretch: 0.05, fadeIn: 0,
+    gravity: 15, drag: 2.0, stretch: 0.035, fadeIn: 0,
   });
   const emberSpec = makeSpec({
     cell: CELL.glow, mode: MODE.billboard, additive: true,
@@ -356,17 +459,27 @@ export function createFxSystem(ctx: GameContext): GameSystem {
   // not arrived yet.
   const dustSpec = makeSpec({
     cell: CELL.puff, mode: MODE.billboard, additive: false,
-    life: 0.8, size0: 0.45, size1: 1.5, alpha: 0.22,
+    life: 0.8, size0: 0.45, size1: 1.5, alpha: 0.08,
     gravity: -0.2, drag: 1.5, fadeIn: 0.12,
   });
+  // The flame body is drawn on the *puff* cell, not the glow.
+  //
+  // A glow is a perfect radial gaussian, and twenty perfect radial gaussians
+  // emitted along the path of a machine doing 55 m/s do not merge into fire —
+  // they stack into a string of beads rolling away down the road, each one
+  // rounder and larger than the last. That is what the boost photographed as,
+  // and no amount of colour work fixes a shape problem. Fire has a torn edge;
+  // the puff cell has one, and overlapping torn edges read as turbulence. The
+  // smooth core the glow was providing is now where it belongs — in the two
+  // immediate-mode nozzles, which never flicker and never travel.
   const flameSpec = makeSpec({
-    cell: CELL.glow, mode: MODE.billboard, additive: true,
+    cell: CELL.puff, mode: MODE.billboard, additive: true,
     life: 0.28, size0: 0.5, size1: 1.25, alpha: 0.95,
     gravity: -3, drag: 4.5, fadeIn: 0.07,
   });
   const smokeSpec = makeSpec({
     cell: CELL.puff, mode: MODE.billboard, additive: false,
-    life: 0.85, size0: 0.38, size1: 1.5, alpha: 0.12,
+    life: 0.85, size0: 0.38, size1: 1.5, alpha: 0.042,
     gravity: -1.4, drag: 2.2, fadeIn: 0.2,
   });
   // Exhaust. Its own preset rather than a borrowed smoke spec: it is the only
@@ -374,12 +487,20 @@ export function createFxSystem(ctx: GameContext): GameSystem {
   // race, so it has to be the cheapest and the quietest thing here.
   const exhaustSpec = makeSpec({
     cell: CELL.puff, mode: MODE.billboard, additive: false,
-    life: 0.5, size0: 0.16, size1: 0.5, alpha: 0.12,
+    life: 0.5, size0: 0.16, size1: 0.5, alpha: 0.042,
     // Negative gravity: hot gas rises, and rising is what lifts the plume out
     // of the machine's own shadow and puts it against the road or the sky where
-    // it can actually be seen. Low drag so it keeps climbing rather than
-    // stalling in place a metre behind the pipe.
-    gravity: -1.6, drag: 1.6, fadeIn: 0.14,
+    // it can actually be seen.
+    //
+    // Drag is where this went badly wrong. At 1.6, a puff born travelling at
+    // 50 m/s has lost 80% of that inside a second — so while the machine covers
+    // fifty metres its own exhaust covers twenty-six, and the difference is a
+    // twenty-four metre band of pale spheres hanging in the air behind it. That
+    // is the "floating grey blobs" defect, and no amount of tuning the rate
+    // fixes it, because the shape is wrong rather than the quantity. At 0.15 a
+    // puff keeps very nearly all of its inherited speed and stays with the
+    // stack it came out of, which is what smoke leaving a moving chimney does.
+    gravity: -1.6, drag: 0.15, fadeIn: 0.14,
   });
   // The speed wake.
   //
@@ -394,16 +515,36 @@ export function createFxSystem(ctx: GameContext): GameSystem {
   // read as speed.
   const wakeSpec = makeSpec({
     cell: CELL.puff, mode: MODE.velocity, additive: false,
-    life: 0.42, size0: 0.30, size1: 0.75, alpha: 0.10,
-    gravity: -0.2, drag: 1.1, stretch: 0.035, fadeIn: 0.14,
+    life: 0.42, size0: 0.30, size1: 0.75, alpha: 0.04,
+    gravity: -0.2, drag: 1.1, stretch: 0.055, fadeIn: 0.14,
   });
-  // Tyre scrub. The pale haze that lives *under* the mini-turbo sparks. Wide,
-  // flat and very faint: it is a bed for the sparks to sit on, and the moment
-  // it is dense enough to notice on its own it is competing with them.
-  const scrubSpec = makeSpec({
+  // Tyre smoke. The ribbon that boils off a sliding contact patch.
+  //
+  // This used to be a "scrub haze" at 0.045 alpha and it was the module's
+  // biggest hole: a fully committed slide on tarmac produced coloured light and
+  // no rubber, so the mini-turbo read as an energy effect bolted to a kart
+  // rather than as tyres letting go. A tyre dragged sideways across asphalt at
+  // 130 km/h is *burning*, and burning rubber is the loudest thing a hard
+  // surface can produce.
+  //
+  // Three properties make it a ribbon rather than a row of puffs:
+  //
+  //   low drag. At 2.4 a puff born at 46 m/s stopped dead in the air inside
+  //   half a second while the kart carried on — which is how every continuous
+  //   emitter in this module ended up strewing its output down the road as
+  //   litter. At 0.7 the puff keeps most of its inherited speed for its whole
+  //   life and trails a handful of metres, which is what smoke coming off a
+  //   moving tyre actually does.
+  //
+  //   a long-ish life with a short fade-in, so a puff is at full opacity while
+  //   it is still at the wheel, where the sparks are.
+  //
+  //   growth of about 2.3x. Enough to close the gaps between consecutive puffs
+  //   into one body, not so much that the body becomes fog.
+  const smokeTyreSpec = makeSpec({
     cell: CELL.puff, mode: MODE.billboard, additive: false,
-    life: 0.55, size0: 0.42, size1: 1.5, alpha: 0.13,
-    gravity: -0.35, drag: 2.4, fadeIn: 0.1,
+    life: 0.6, size0: 0.36, size1: 0.83, alpha: 0.34,
+    gravity: -0.5, drag: 0.7, fadeIn: 0.07,
   });
   const ringSpec = makeSpec({
     cell: CELL.ring, mode: MODE.ground, additive: true,
@@ -542,6 +683,28 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     return local(side * (s.halfW * 0.86 + 0.17), -RIDE_HEIGHT + lift, -(s.len * 0.34 + 0.22), out);
   }
 
+  /**
+   * Where the ground answers, as opposed to where the tyre burns.
+   *
+   * Dust used to be born at `sparkPort` — the same point, to the centimetre, as
+   * the mini-turbo sparks. On tarmac that is invisible and harmless; on dirt it
+   * is fatal. A tan cloud emitted from inside the blue sparks, on the alpha
+   * layer *under* an additive one, means every cyan spark is drawn additively
+   * on top of a bright warm cloud, and cyan plus bright tan is white. A fully
+   * committed tier-one drift across the verge photographed as a cream smear,
+   * with the tier — the one thing the effect exists to communicate — nowhere in
+   * the frame.
+   *
+   * Half a metre further back and slightly inboard is enough. The dust is
+   * behind the wheel where the ground has actually been disturbed, the sparks
+   * own the space at the sidewall, and the two read as cause and effect
+   * instead of cancelling each other out.
+   */
+  function dustPort(racer: Racer, side: number, lift: number, out: THREE.Vector3): THREE.Vector3 {
+    const s = sizeOf(racer);
+    return local(side * s.halfW * 0.78, -RIDE_HEIGHT + lift, -(s.len * 0.34 + 0.52), out);
+  }
+
   /** Sideways travel as a fraction of forward travel — how hard the tyres are
    *  actually scrubbing, which is what dust and marks key off. */
   function slipOf(racer: Racer): number {
@@ -592,7 +755,16 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     // Rate rises with the tier and with how deep the chassis is thrown, so a
     // shallow counter-steered drift sizzles and a committed one roars.
     const depth = 0.55 + 0.45 * clamp01(Math.abs(d.angle) / K.drift.maxAngle);
-    const rate = TIER_RATE[tier]! * depth * density * fx.near;
+    // Airborne, the wheels are not touching anything, and a literal reading
+    // says there is nothing to make a spark with. A literal reading is wrong
+    // here: charge keeps accruing over a jump (`airChargeMul`), so switching
+    // the sparks off means the one instrument the player reads their charge
+    // from blinks out every time the machine leaves the ground — and on this
+    // course that is several times a lap, including the crest that leads into
+    // the fastest corner. The meter has to survive the jump. Thinned, not cut:
+    // less of it, so the difference between rubber and air is still felt.
+    const air = racer.grounded ? 1 : 0.45;
+    const rate = TIER_RATE[tier]! * depth * air * density * fx.near;
     fx.spark += rate * dt;
     let n = Math.floor(fx.spark);
     fx.spark -= n;
@@ -615,45 +787,99 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       // point, and at 55 m/s and 20fps that is a dotted line of clumps three
       // metres apart instead of a stream. The review harness renders at 20fps.
       const back = (i + 0.5) * inv * dt;
-      sparkSpec.px = _p.x - racer.vel.x * back + rng.range(-0.09, 0.09);
-      sparkSpec.py = _p.y - racer.vel.y * back + rng.range(-0.03, 0.09);
-      sparkSpec.pz = _p.z - racer.vel.z * back + rng.range(-0.09, 0.09);
+      // A tight cone at the tyre, and the jitter is what defines "tight".
+      // Vertically it is a third of what it was: the birth point sits at wheel
+      // height and nothing may be *born* above the axle, because a spark that
+      // starts above the chassis has already lost the argument about where it
+      // came from before it has moved a centimetre.
+      sparkSpec.px = _p.x - racer.vel.x * back + rng.range(-0.07, 0.07);
+      sparkSpec.py = _p.y - racer.vel.y * back + rng.range(-0.03, 0.03);
+      sparkSpec.pz = _p.z - racer.vel.z * back + rng.range(-0.07, 0.07);
 
       const flier = rng.next() < 0.28;
       const keep = flier ? 0.26 : 0.82;
-      const kick = (flier ? rng.range(8, 17) : rng.range(2.4, 6.2)) * bite;
+      // Halved outward, and the lift roughly quartered.
+      //
+      // Sparks used to be thrown up at as much as 6.8 m/s, which over a jet's
+      // life carries it a metre and a quarter into the air — past the seat, past
+      // the roof on the smaller machines — and out at up to 6.2 m/s, which puts
+      // the spray the better part of a metre outboard of any wheel. Photographed
+      // from the chase camera that reads as a shower coming off the bodywork
+      // rather than off rubber. A tyre throws its sparks *along the road*: hard
+      // back, hard out, and barely up at all.
+      const kick = (flier ? rng.range(5.0, 10.5) : rng.range(1.8, 4.4)) * bite;
       const drop = flier ? rng.range(0.4, 2.6) : rng.range(0.6, 3.4);
+      const lift = flier ? rng.range(0.8, 2.4) : rng.range(0.5, 1.7);
 
       sparkSpec.vx = racer.vel.x * keep + _right.x * outward * kick
-        - _fwd.x * drop + _up.x * rng.range(1.0, 4.2) + rng.range(-1.0, 1.0);
+        - _fwd.x * drop + _up.x * lift + rng.range(-0.7, 0.7);
       sparkSpec.vy = racer.vel.y * keep + _right.y * outward * kick
-        - _fwd.y * drop + _up.y * rng.range(1.0, 4.2) + rng.range(0.6, 2.6);
+        - _fwd.y * drop + _up.y * lift + rng.range(0.2, 1.1);
       sparkSpec.vz = racer.vel.z * keep + _right.z * outward * kick
-        - _fwd.z * drop + _up.z * rng.range(1.0, 4.2) + rng.range(-1.0, 1.0);
+        - _fwd.z * drop + _up.z * lift + rng.range(-0.7, 0.7);
 
-      sparkSpec.life = flier ? rng.range(0.22, 0.38) : rng.range(0.09, 0.19);
-      sparkSpec.size0 = flier ? rng.range(0.13, 0.24) : rng.range(0.17, 0.32);
+      sparkSpec.life = flier ? rng.range(0.22, 0.40) : rng.range(0.10, 0.21);
+      // Small and long, not large and round.
+      //
+      // At the old sizes a jet spark was a third of a metre across against
+      // about a metre and a third of stretch, which is a capsule — and a stream
+      // of capsules six metres from the lens reads as a chain of glowing
+      // lozenges being towed behind the kart, not as sparks. A spark is a
+      // *point* with a trail: narrow enough that the streak is all anyone sees,
+      // and numerous enough that the cluster is what carries the colour. So the
+      // cross-section comes down by a third, the stretch goes up, and the rate
+      // goes up with it — the same light, arranged as a spray instead of as a
+      // string of beads.
+      sparkSpec.size0 = flier ? rng.range(0.10, 0.18) : rng.range(0.13, 0.24);
       sparkSpec.gravity = flier ? 26 : 9;
       sparkSpec.drag = flier ? 0.6 : 1.1;
-      sparkSpec.stretch = flier ? 0.055 : 0.045;
-      // A white-hot head fading to the tier's own hue. Both ends matter: the
-      // head is what makes it read as hot, the tail is what makes it read as
-      // *blue*, and a spark that is only ever one of the two reads as neither.
-      sparkSpec.color0.lerpColors(col, WHITE_HOT, 0.30).multiplyScalar(gain * rng.range(0.85, 1.15));
-      setHdr(sparkSpec.color1, col, gain * 0.30);
+      // Halved. At 0.06 a jet spark leaving at 12 m/s relative to the chase
+      // camera came out one and a half metres long — very nearly a kart width —
+      // and a dozen of those at once is not a spray of sparks, it is a handful
+      // of darts thrown at the road. A spark reads as a spark when the streak is
+      // long enough to have direction and short enough that the cluster, not the
+      // individual, is what the eye picks up.
+      sparkSpec.stretch = flier ? 0.032 : 0.030;
+      // Hue first, heat second.
+      //
+      // Every spark used to be lerped 30% toward white before being multiplied
+      // by the tier gain, which for tier one turns a saturated cyan into
+      // (0.36, 0.71, 1.00) — a pale sky blue that ACES then finishes off. Read
+      // against a warm desert and a black road, that is indistinguishable from
+      // white, which is how a fully committed tier one came to photograph the
+      // same as an uncharged one.
+      //
+      // So the population is split instead of averaged: about a third get the
+      // white-hot head that makes the effect look like it is burning, and the
+      // rest are the tier's own hue at full saturation and a higher gain. The
+      // eye reads the *modal* colour of a cluster, not its mean, so a majority
+      // of pure-hue sparks with a minority of white ones reads as "blue, and
+      // hot" — where the average of the two only ever reads as "bright".
+      // Under a quarter of them, and not as far toward white as before. The
+      // white minority is there so the cluster looks like it is burning; every
+      // percent past that is a percent of the tier's hue traded for a colour
+      // the player already sees everywhere else in the frame.
+      const hot = rng.next() < 0.24;
+      if (hot) {
+        sparkSpec.color0.lerpColors(col, WHITE_HOT, 0.34)
+          .multiplyScalar(gain * rng.range(0.9, 1.15));
+      } else {
+        setHdr(sparkSpec.color0, col, gain * rng.range(1.15, 1.45));
+      }
+      setHdr(sparkSpec.color1, col, gain * 0.38);
       pool.emit(sparkSpec);
 
       // Every few sparks gets a soft companion, purely so the bloom pyramid has
       // something with area to find. Pinpoints alone do not glow. Kept small and
       // brief — at the old size they merged into one wash and swallowed the
       // sparks they were supposed to be flattering.
-      if (tier > 0 && !flier && rng.next() < 0.34) {
+      if (tier > 0 && !flier && rng.next() < 0.26) {
         emberSpec.px = sparkSpec.px; emberSpec.py = sparkSpec.py; emberSpec.pz = sparkSpec.pz;
         emberSpec.vx = sparkSpec.vx * 0.85;
         emberSpec.vy = sparkSpec.vy * 0.85;
         emberSpec.vz = sparkSpec.vz * 0.85;
         emberSpec.life = rng.range(0.08, 0.16);
-        emberSpec.size0 = rng.range(0.22, 0.40);
+        emberSpec.size0 = rng.range(0.16, 0.28);
         setHdr(emberSpec.color0, col, gain * 0.9);
         setHdr(emberSpec.color1, col, 0.15);
         pool.emit(emberSpec);
@@ -662,7 +888,7 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     // Restore the shared preset: every other caller expects the defaults back.
     sparkSpec.gravity = 15;
     sparkSpec.drag = 2.0;
-    sparkSpec.stretch = 0.05;
+    sparkSpec.stretch = 0.035;
   }
 
   /**
@@ -689,6 +915,11 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     // absolute size makes this a bonfire on one and a pilot light on the other.
     const rig = clamp(sizeOf(racer).halfW / 0.85, 0.72, 1.5);
 
+    // The flare grows with the tier. Size is the one channel that can carry
+    // "how much" without touching "which colour", so it is the one the charge
+    // level is allowed to use — the hue stays pinned to the tier and the
+    // silhouette gets bigger underneath it.
+    const flareSize = (0.62 + 0.20 * tier + 0.42 * g * flick) * rig;
     for (let s = -1; s <= 1; s += 2) {
       // At the outer sidewall, at axle height: high enough and wide enough to
       // clear the tyre it is coming off, so the flare reads against the road
@@ -698,31 +929,52 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       // edges to still be a shape when it is forty pixels wide.
       add.push(
         _p.x, _p.y, _p.z, 0, 0, 0,
-        col.r * k * 1.05, col.g * k * 1.05, col.b * k * 1.05, 0.95 * g,
-        (0.80 + 0.55 * g * flick) * rig, 0, spin * s, CELL.flare, MODE.billboard,
+        col.r * k, col.g * k, col.b * k, 0.95 * g,
+        flareSize, 0, spin * s, CELL.flare, MODE.billboard,
       );
       // A tight white core inside it, so "hot" is carried by a handful of white
       // pixels instead of by bleaching the tier's hue out of the whole effect.
+      // It is *small*, and it stays small: the core's job is to be the one
+      // clipped pixel at the middle of a coloured flare, and every time it has
+      // been allowed to grow the tier has stopped being readable.
+      //
+      // Halved again, and the flare and halo around it trimmed with it. Sixteen
+      // sparks a frame are already born at this exact point and each is worth
+      // about three in the blue channel, so the middle of a committed drift
+      // clips to white on the sparks alone — that white heart is correct and it
+      // is what makes the effect look like it is burning. What is not correct
+      // is stacking four more immediate-mode quads on top of it and turning a
+      // heart into a headlamp: measured on a tier-one drift the clipped region
+      // was reaching a twentieth of the frame width, and the only place the
+      // colour survived was the outer fringe.
+      const core = 1.1 * g * flick * (0.5 + 0.18 * tier);
       add.push(
         _p.x, _p.y, _p.z, 0, 0, 0,
-        2.5 * g * flick, 2.45 * g * flick, 2.35 * g * flick, 0.9 * g,
-        (0.20 + 0.10 * g) * rig, 0, 0, CELL.glow, MODE.billboard,
+        core, core * 0.98, core * 0.94, 0.9 * g,
+        (0.10 + 0.05 * g) * rig, 0, 0, CELL.glow, MODE.billboard,
       );
-      // ...inside a soft halo, which is what the bloom pyramid can find.
-      add.push(
-        _p.x, _p.y, _p.z, 0, 0, 0,
-        col.r * k * 0.34, col.g * k * 0.34, col.b * k * 0.34, 0.5 * g,
-        (1.10 + 0.45 * g * flick) * rig, 0, 0, CELL.glow, MODE.billboard,
-      );
+      // ...inside a soft halo, which is what the bloom pyramid can find. Only
+      // once there is a tier worth haloing: at tier zero this was eight extra
+      // multi-metre soft quads per machine, on every kart in the field, for a
+      // state that is meant to be quiet.
+      if (tier > 0) {
+        add.push(
+          _p.x, _p.y, _p.z, 0, 0, 0,
+          col.r * k * 0.30, col.g * k * 0.30, col.b * k * 0.30, 0.5 * g,
+          (0.95 + 0.40 * g * flick) * rig, 0, 0, CELL.glow, MODE.billboard,
+        );
+      }
       // ...and a pool of its own light on the road under it. Contact, again:
       // sparks that do not light the surface they come off read as stickers.
       // Kept tight — wide and soft was reading as spilled paint.
-      rearWheel(racer, s, 0.03, _p);
-      add.push(
-        _p.x, _p.y, _p.z, 0, 0, 0,
-        col.r * k * 0.42, col.g * k * 0.42, col.b * k * 0.42, 0.34 * g,
-        (1.0 + 0.35 * g) * rig, 0, 0, CELL.glow, MODE.ground,
-      );
+      if (racer.grounded) {
+        rearWheel(racer, s, 0.03, _p);
+        add.push(
+          _p.x, _p.y, _p.z, 0, 0, 0,
+          col.r * k * 0.46, col.g * k * 0.46, col.b * k * 0.46, 0.34 * g,
+          (1.0 + 0.35 * g) * rig, 0, 0, CELL.glow, MODE.ground,
+        );
+      }
     }
 
     // ── the climb ─────────────────────────────────────────────────────────
@@ -735,15 +987,23 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     // crowns the roof, and that is what makes a fully charged drift feel like
     // something about to be spent rather than like a wheel that is warm.
     //
-    // So from tier two up, a ladder of licks runs up each flank from the axle
-    // toward the roof, and tier three closes it with a crown over the top. The
-    // ladder is immediate-mode sprites — no pool, no allocation — and the count
-    // is small enough that eight racers all at tier three is under a hundred
-    // extra quads in the one draw call the layer already costs.
-    if (racer.drift.active && tier >= 2) {
+    // So a ladder of licks runs up each flank from the axle toward the roof,
+    // and tier three closes it with a crown over the top. The ladder is
+    // immediate-mode sprites — no pool, no allocation — and the count is small
+    // enough that eight racers all at tier three is under a hundred extra quads
+    // in the one draw call the layer already costs.
+    //
+    // It runs from tier *one*, not from tier two. Every tier has to have the
+    // same silhouette or the colour is not the thing carrying the message: if
+    // blue is two sparks at an axle and purple is a machine wearing a crown,
+    // then the player is reading size, and size is a thing they can confuse
+    // with speed, with camera distance and with which kart they are looking at.
+    // Same shape, three colours, growing mass — the mass is a bonus, the hue is
+    // the meter.
+    if (racer.drift.active && tier >= 1) {
       const s = sizeOf(racer);
-      const climb = (tier - 1) * g;              // 0..1 at tier 2, 0..2 at tier 3
-      const rungs = tier >= 3 ? 4 : 3;
+      const climb = tier * g * 0.85;
+      const rungs = tier >= 3 ? 4 : tier >= 2 ? 3 : 2;
       const roof = s.height - RIDE_HEIGHT;
       for (let side = -1; side <= 1; side += 2) {
         for (let i = 0; i < rungs; i++) {
@@ -851,10 +1111,11 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     // readable from behind, where the flame plume is edge-on.
     const load = clamp01(0.3 + 0.7 * speedFrac + (racer.boost.time > 0 ? 0.9 : 0));
     // Exhaust reads at a distance where a spark does not — it is a silhouette
-    // against the sky rather than a pinpoint — so it keeps far more of its rate
-    // out in the pack than the `near` gate would otherwise give it.
-    const far = 1 - fx.near;
-    const reach = 0.25 + 0.75 * fx.near;
+    // against the sky rather than a pinpoint — so it runs off `reach`, which
+    // holds most of its rate right out to the far end of the pack, rather than
+    // off the `near` gate that now cuts sparks at forty metres.
+    const far = 1 - fx.reach;
+    const reach = 0.25 + 0.75 * fx.reach;
     // Cap per port. Six was fine when a port emitted eight a second; a diesel
     // stack at fifty would be clipped by it at any frame rate below 8fps, and
     // clipping the rate is how a capture at 20fps photographs a thinner effect
@@ -878,21 +1139,27 @@ export function createFxSystem(ctx: GameContext): GameSystem {
         // it, exactly as the sparks and the dust do. Without it a capture at
         // 20fps gets clumps three metres apart instead of a stream.
         _p.addScaledVector(racer.vel, -(i + 0.5) * inv * dt);
+        // Never born in the lens. A puff three metres from the camera covers a
+        // fifth of the frame and there is no angle from which that is exhaust —
+        // it is a smear. The pool dissolves anything that drifts in later; this
+        // stops the ones that would start there, which on a machine the player
+        // has just overtaken is most of them.
+        if (_p.distanceToSquared(ctx.camera.position) < 9) continue;
 
         exhaustSpec.px = _p.x + rng.range(-0.05, 0.05);
         exhaustSpec.py = _p.y + rng.range(-0.03, 0.05);
         exhaustSpec.pz = _p.z + rng.range(-0.05, 0.05);
         // Most of the machine's own velocity, plus the gas leaving the pipe.
-        // The inheritance is what keeps the plume attached: at 0.9 the head of
-        // it is still over the chimney a third of a second later, which is the
+        // The inheritance is what keeps the plume attached: at 0.94 the head of
+        // it is still over the chimney half a second later, which is the
         // difference between steam coming out of a funnel and a cloud parked in
         // the air behind a locomotive.
         const out = p.speed * rng.range(0.6, 1.35) * (0.55 + 0.75 * load);
-        exhaustSpec.vx = racer.vel.x * 0.9
+        exhaustSpec.vx = racer.vel.x * 0.94
           + (_right.x * p.dx + _up.x * p.dy + _fwd.x * p.dz) * out + rng.range(-0.5, 0.5);
-        exhaustSpec.vy = racer.vel.y * 0.9
+        exhaustSpec.vy = racer.vel.y * 0.94
           + (_right.y * p.dx + _up.y * p.dy + _fwd.y * p.dz) * out + rng.range(0.1, 0.9);
-        exhaustSpec.vz = racer.vel.z * 0.9
+        exhaustSpec.vz = racer.vel.z * 0.94
           + (_right.z * p.dx + _up.z * p.dy + _fwd.z * p.dz) * out + rng.range(-0.5, 0.5);
         exhaustSpec.life = p.life * rng.range(0.75, 1.3);
         exhaustSpec.size0 = p.size * rng.range(0.7, 1.25) * (0.8 + 0.4 * load) * (1 + 0.5 * far);
@@ -902,7 +1169,15 @@ export function createFxSystem(ctx: GameContext): GameSystem {
         // through it per pixel genuinely goes up. Without this a plume tuned to
         // be a wisp beside the player is nothing at all on the machine four
         // places ahead, which is where most of the field always is.
-        exhaustSpec.alpha = p.alpha * rng.range(0.7, 1.15) * (1 + 1.8 * far);
+        //
+        // Capped, and the cap matters more than the coefficient. Peak alpha is
+        // multiplied by the fade curve, so anything over 1 does not make a puff
+        // brighter — it makes it *hold full opacity* for the front half of its
+        // life and then fall off a cliff. At the old 1.8 the locomotive's steam
+        // reached 2.6 at the back of the pack, which is a solid white ball that
+        // sits there and then blinks out. Nothing here may ask for more opacity
+        // than a sprite can have.
+        exhaustSpec.alpha = Math.min(0.8, p.alpha * rng.range(0.7, 1.15) * (1 + 0.9 * far));
         exhaustSpec.rot = rng.next() * TAU;
         exhaustSpec.rotVel = rng.range(-1.1, 1.1);
         _tint.setHex(p.color);
@@ -933,63 +1208,129 @@ export function createFxSystem(ctx: GameContext): GameSystem {
   }
 
   /**
-   * The bed the sparks sit on.
+   * One puff of tyre smoke at a rear contact patch. Requires `frameOf`.
    *
-   * A mini-turbo used to emit onto bare asphalt with nothing underneath it, so
-   * tier one read as a floating cyan glow rather than as a wheel scrubbing —
-   * the light was there but the *cause* of it was not. A tyre dragged sideways
-   * across tarmac at 130 km/h boils its own tread off, and that haze is the
-   * thing that makes the sparks look like they came out of rubber.
+   * Born at `sparkPort` — the exact point the mini-turbo sparks come out of, to
+   * the centimetre — because the whole reason this exists is that the sparks
+   * must never appear on bare asphalt. A haze emitted at the contact patch and
+   * sparks emitted outboard of the sidewall are two effects that happen to be
+   * near each other; born at the same port they are one effect, and the read is
+   * "the tyre is burning and the burning is throwing light".
    *
-   * Deliberately faint and deliberately flat. It hugs the deck (almost no
-   * lift), spreads sideways rather than climbing, and dies inside half a second
-   * — anything that rises into the sparks turns the hero effect into fog.
+   * `boost` widens the mouth a little: a machine spinning its wheels up under
+   * thrust smokes from a broader patch than one being dragged sideways.
    */
-  function driftScrub(racer: Racer, fx: RacerFx, dt: number): void {
+  function smokePuff(
+    racer: Racer, side: number, sfx: SurfaceFx, back: number, scale: number, alphaK: number,
+  ): boolean {
+    const col = surfaceColors.get(racer.surface)!;
+    const deep = surfaceDeep.get(racer.surface)!;
+    sparkPort(racer, side, 0.10, _p);
+    _p.addScaledVector(racer.vel, -back);
+    smokeTyreSpec.size0 = sfx.size * rng.range(1.2, 1.7) * scale;
+    smokeTyreSpec.px = _p.x + rng.range(-0.14, 0.14);
+    // Lifted by its own radius so the depth test cannot slice the sprite along
+    // the road plane and leave it with one perfectly straight edge.
+    smokeTyreSpec.py = _p.y + smokeTyreSpec.size0 * 0.42;
+    smokeTyreSpec.pz = _p.z + rng.range(-0.14, 0.14);
+    // Nearly all of the machine's velocity, and very little sideways throw.
+    //
+    // Both numbers are about where the smoke *is* rather than how much of it
+    // there is. At 0.93 with a 2.8 m/s outward kick the ribbon peeled away to
+    // the outside of the slide and left the sparks sitting on clean asphalt —
+    // the two effects were near each other but not on top of each other, which
+    // is the difference between "the tyre is burning" and "there is light at
+    // the wheel and smoke over there". At 0.96 with a metre a second of throw
+    // the head of the ribbon stays inside the spark cone for the first third of
+    // its life and only then falls back and spreads.
+    const out = rng.range(0.35, 1.5);
+    smokeTyreSpec.vx = racer.vel.x * 0.96 + _right.x * side * out - _fwd.x * rng.range(0, 1.4);
+    smokeTyreSpec.vy = rng.range(0.5, 1.7);
+    smokeTyreSpec.vz = racer.vel.z * 0.96 + _right.z * side * out - _fwd.z * rng.range(0, 1.4);
+    smokeTyreSpec.life = rng.range(0.5, 0.7);
+    smokeTyreSpec.size1 = smokeTyreSpec.size0 * rng.range(2.0, 2.5);
+    smokeTyreSpec.rot = rng.next() * TAU;
+    smokeTyreSpec.rotVel = rng.range(-1.4, 1.4);
+    smokeTyreSpec.alpha = sfx.smoke * alphaK * rng.range(0.8, 1.15);
+    // Pale, because burnt rubber suspended in air is lit from the whole sky and
+    // reads *lighter* than the asphalt it is over — the rule the rest of this
+    // module already obeys. It is a shade off the surface's own value so that
+    // the additive sparks drawn on top still land as a hue rather than as
+    // white, but only a shade: a ribbon dark enough to protect the sparks is a
+    // ribbon nobody sees, and then there are no tyres in the effect again.
+    setHdr(smokeTyreSpec.color0, col, 1.20);
+    setHdr(smokeTyreSpec.color1, deep, 1.02);
+    return pool.emit(smokeTyreSpec);
+  }
+
+  /**
+   * The rubber. The thing the module was rejected for not having.
+   *
+   * A held drift now runs a continuous pale ribbon out of both rear contact
+   * patches at every tier, on tarmac as much as on dirt, and the sparks are
+   * born inside it. It is not a "bed" or a "haze" any more — the previous pass
+   * called it that, tuned it to 0.045 alpha so it could never be noticed, and
+   * the result was a fully committed slide over clean road with nothing under
+   * the light at all.
+   *
+   * It also runs without a drift. Any tyre scrubbing hard enough — a spin, a
+   * boost breaking traction, a slide the player did not ask for — smokes,
+   * because the smoke belongs to the contact patch and not to a game state.
+   */
+  function tyreSmoke(racer: Racer, fx: RacerFx, dt: number): void {
+    // The tier step, felt in the rubber. One frame of extra density on the
+    // exact frame the colour changes, so the mini-turbo locking in is a *bang*
+    // in the smoke as well as a new hue in the sparks. Read and cleared before
+    // any guard below can return, so a tier that locks in on a surface with
+    // nothing to give is spent rather than banked for the next corner.
+    const spikeTier = fx.pendSmoke;
+    fx.pendSmoke = 0;
+
     const sfx = SURFACE_FX[racer.surface];
-    if (sfx.sparky) return;
-    const speedFrac = clamp01(Math.abs(racer.speed) / 44);
-    if (speedFrac < 0.12) return;
-    const depth = 0.5 + 0.5 * clamp01(Math.abs(racer.drift.angle) / K.drift.maxAngle);
-    // Backed off on loose ground, where `surfaceDust` is already throwing a
-    // cloud off the same wheels for the same reason. The scrub exists to give
-    // sparks something to sit on where nothing else would be there at all,
-    // which is tarmac.
-    const loose = sfx.rate > 0 ? 0.35 : 1;
-    const rate = (54 + 26 * racer.drift.tier) * depth * speedFrac * loose * density * fx.near;
+    if (sfx.sparky || sfx.smokeRate <= 0) return;
+    const speedFrac = clamp01(Math.abs(racer.speed) / 42);
+    if (speedFrac < 0.14) return;
+
+    const d = racer.drift;
+    // How hard the contact patch is actually working. A drift is worth most of
+    // it on its own — the tyres are unquestionably sliding — and the chassis
+    // angle says how far past the limit they have been taken.
+    const depth = d.active
+      ? 0.62 + 0.38 * clamp01(Math.abs(d.angle) / K.drift.maxAngle)
+      : 0;
+    const slide = clamp01((slipOf(racer) - 0.06) / 0.26);
+    const spin = racer.boost.time > 0 ? 0.34 : 0;
+    const work = clamp01(Math.max(depth, slide * 0.9, spin) + (racer.stunned > 0 ? 0.5 : 0));
+    if (work <= 0.02) return;
+
+    // The tier is felt in the volume of smoke as well as in the colour of the
+    // light: an ultra mini-turbo lays about half as much again as an uncharged
+    // slide does.
+    const tierK = 1 + 0.18 * (d.active ? d.tier : 0);
+    const rate = sfx.smokeRate * work * tierK * speedFrac * density * fx.near;
     fx.scrub += rate * dt;
     let n = Math.floor(fx.scrub);
     fx.scrub -= n;
-    if (n > 10) n = 10;
-    if (n <= 0) return;
+    // Twelve, not six. At 20fps — which is what the review harness renders at —
+    // a cap of six clipped the ribbon down to a dotted line and photographed a
+    // thinner effect than the game has.
+    if (n > 12) n = 12;
 
-    const col = surfaceColors.get(racer.surface)!;
-    const deep = surfaceDeep.get(racer.surface)!;
-    const inv = 1 / n;
+    const spike = spikeTier > 0 ? Math.round((5 + 3 * spikeTier) * density) : 0;
+    if (n + spike <= 0) return;
+
+    const inv = n > 0 ? 1 / n : 0;
     for (let i = 0; i < n; i++) {
-      const side = rng.next() < 0.5 ? -1 : 1;
-      rearWheel(racer, side, 0.10, _p);
-      _p.addScaledVector(racer.vel, -(i + 0.5) * inv * dt);
-      scrubSpec.size0 = sfx.size * rng.range(0.9, 1.5);
-      scrubSpec.px = _p.x + rng.range(-0.14, 0.14);
-      // Lifted by its own radius so the depth test cannot slice the sprite
-      // along the road plane and leave it with one perfectly straight edge.
-      scrubSpec.py = _p.y + scrubSpec.size0 * 0.5;
-      scrubSpec.pz = _p.z + rng.range(-0.14, 0.14);
-      // Nearly all the machine's velocity, thrown outward and barely upward.
-      scrubSpec.vx = racer.vel.x * 0.88 + _right.x * side * rng.range(0.8, 2.6)
-        - _fwd.x * rng.range(0, 1.6);
-      scrubSpec.vy = rng.range(0.25, 0.95);
-      scrubSpec.vz = racer.vel.z * 0.88 + _right.z * side * rng.range(0.8, 2.6)
-        - _fwd.z * rng.range(0, 1.6);
-      scrubSpec.life = rng.range(0.34, 0.62);
-      scrubSpec.size1 = scrubSpec.size0 * 3.0;
-      scrubSpec.rot = rng.next() * TAU;
-      scrubSpec.rotVel = rng.range(-1.4, 1.4);
-      scrubSpec.alpha = (sfx.sparky ? 0 : 0.14) * rng.range(0.75, 1.2);
-      setHdr(scrubSpec.color0, col, 1.0);
-      setHdr(scrubSpec.color1, deep, 0.98);
-      if (!pool.emit(scrubSpec)) break;
+      // Both wheels, alternating rather than randomised: a coin flip leaves
+      // gaps on one side, and a ribbon with holes in it reads as a row of
+      // puffs. Two ribbons, one per contact patch, is the shape.
+      const side = (i & 1) === 0 ? -1 : 1;
+      if (!smokePuff(racer, side, sfx, (i + 0.5) * inv * dt, 1, 1)) return;
+    }
+    for (let i = 0; i < spike; i++) {
+      const side = (i & 1) === 0 ? -1 : 1;
+      // Bigger, fatter, and thrown out of the same port on the same frame.
+      if (!smokePuff(racer, side, sfx, rng.next() * dt, 1.45, 1.15)) return;
     }
   }
 
@@ -1013,7 +1354,7 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     fx.wake += rate * dt;
     let n = Math.floor(fx.wake);
     fx.wake -= n;
-    if (n > 10) n = 10;
+    if (n > 6) n = 6;
     if (n <= 0) return;
 
     const s = sizeOf(racer);
@@ -1037,10 +1378,13 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       wakeSpec.vx = racer.vel.x * 0.52 + rng.range(-0.8, 0.8);
       wakeSpec.vy = racer.vel.y * 0.52 + rng.range(0.1, 1.0) + sfx.lift * rng.range(0.4, 1.6);
       wakeSpec.vz = racer.vel.z * 0.52 + rng.range(-0.8, 0.8);
-      wakeSpec.life = rng.range(0.28, 0.5);
-      wakeSpec.size0 = sfx.size * rng.range(0.55, 0.95);
+      wakeSpec.life = rng.range(0.30, 0.55);
+      // `wakeSize`, not `size` — a wake streak's width is set by how thin it
+      // has to be to read as motion rather than as a mark on the lens, and on
+      // tarmac that is a quarter of what a dust puff wants.
+      wakeSpec.size0 = sfx.wakeSize * rng.range(0.75, 1.2);
       wakeSpec.size1 = wakeSpec.size0 * 2.1;
-      wakeSpec.alpha = sfx.alpha * 1.7 * rng.range(0.7, 1.15);
+      wakeSpec.alpha = sfx.alpha * 1.25 * rng.range(0.7, 1.15);
       setHdr(wakeSpec.color0, col, 1.0);
       setHdr(wakeSpec.color1, deep, 0.98);
       if (!pool.emit(wakeSpec)) break;
@@ -1062,15 +1406,24 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     // Tyres taking forty extra metres a second of thrust smoke, and on a
     // surface with nothing loose to give, that smoke is the only tell the
     // ground gets that the loudest thing in the game just happened.
+    //
+    // But far less of it on tarmac than on gravel, and this is where the number
+    // was wrong. At seventy a second on a hard surface, with dust keeping three
+    // quarters of the machine's velocity and living up to a second, a boost
+    // laid a chain of eight pale blobs fifteen metres down the road behind the
+    // kart — the same "string of beads" the flame plume had, in dust. Tarmac
+    // has nothing to give but a scuff of hot rubber; the fire is the story of a
+    // boost, and the ground's job is to agree with it quietly.
+    const hard = sfx.rate <= 0;
     const rate = (sfx.rate * speedFrac
       + sfx.slip * slip * speedFrac
-      + boosting * 70 * speedFrac) * density * fx.near;
+      + boosting * (hard ? 26 : 70) * speedFrac) * density * fx.near;
     if (rate <= 0) return;
 
     fx.dust += rate * dt;
     let n = Math.floor(fx.dust);
     fx.dust -= n;
-    if (n > 22) n = 22;
+    if (n > 12) n = 12;
     if (n <= 0) return;
 
     const col = surfaceColors.get(racer.surface)!;
@@ -1079,11 +1432,10 @@ export function createFxSystem(ctx: GameContext): GameSystem {
 
     for (let i = 0; i < n; i++) {
       const side = rng.next() < 0.5 ? -1 : 1;
-      // Off the back edge of the tyre and just outboard of it, for the same
-      // reason the sparks are — a puff born under the machine spends the first
-      // third of its life inside the bodywork, and a clod born there is small
-      // enough to spend all of it there.
-      sparkPort(racer, side, 0.14, _p);
+      // Behind the tyre rather than at it — see `dustPort`. A puff born under
+      // the machine spends the first third of its life inside the bodywork, and
+      // a puff born *in* the sparks bleaches them.
+      dustPort(racer, side, 0.14, _p);
       // Same sub-frame spread as the sparks: a dust trail has to be a trail.
       const back = (i + 0.5) * inv * dt;
       _p.addScaledVector(racer.vel, -back);
@@ -1101,7 +1453,10 @@ export function createFxSystem(ctx: GameContext): GameSystem {
         continue;
       }
 
-      dustSpec.size0 = sfx.size * rng.range(0.8, 1.5);
+      // Capped so that even at full growth no single puff crosses `MAX_PUFF`.
+      // A rooster tail off gravel gets its mass from ninety-six emissions a
+      // second, not from any one of them being the size of the kart.
+      dustSpec.size0 = Math.min(sfx.size * rng.range(0.8, 1.5), MAX_PUFF / sfx.grow);
       dustSpec.px = _p.x + rng.range(-0.2, 0.2);
       // Born clear of the road by half its own radius. The sprite layer depth-
       // tests, so a soft ball centred on the tarmac is sliced along the plane
@@ -1135,13 +1490,16 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       dustSpec.vy = rng.range(0.4, 1.4) + sfx.lift * rng.range(1.8, 4.6);
       dustSpec.vz = racer.vel.z * 0.75 - _fwd.z * rng.range(0.5, 3)
         + _right.z * side * rng.range(0.6, 3.0);
-      // Shorter-lived and smaller than they were, and there are more of them.
-      // One puff that grows to five metres across, born four metres from the
-      // lens, *is* the frame — a boost through gravel photographed as a smear
-      // of fog over the bottom third of the screen. A cloud has to be made of
-      // enough pieces to have a silhouette, and each piece has to be small
-      // enough that losing one is not losing the shot.
-      dustSpec.life = rng.range(0.42, 0.88);
+      // Long enough to build a trail behind the machine, short enough that the
+      // cloud has a tail rather than a wall. A puff has to survive long enough
+      // for the next few to be born behind it, or what the frame catches is one
+      // isolated blob per wheel.
+      //
+      // Two thirds of that on a hard surface. Loose ground genuinely hangs in
+      // the air for a second and reads as a rooster tail; hot rubber off tarmac
+      // is gone almost at once, and anything that outlives its own cause ends
+      // up strewn down the road as litter.
+      dustSpec.life = rng.range(0.55, 1.05) * (hard ? 0.62 : 1);
       dustSpec.size1 = dustSpec.size0 * sfx.grow;
       dustSpec.rot = rng.next() * TAU;
       dustSpec.rotVel = rng.range(-1.3, 1.3);
@@ -1164,12 +1522,12 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     fx.grit += gritRate * dt;
     let gn = Math.floor(fx.grit);
     fx.grit -= gn;
-    if (gn > 12) gn = 12;
+    if (gn > 8) gn = 8;
     const ginv = gn > 0 ? 1 / gn : 0;
 
     for (let i = 0; i < gn; i++) {
       const side = rng.next() < 0.5 ? -1 : 1;
-      sparkPort(racer, side, 0.10, _p);
+      dustPort(racer, side, 0.10, _p);
       _p.addScaledVector(racer.vel, -(i + 0.5) * ginv * dt);
       gritSpec.px = _p.x; gritSpec.py = _p.y + 0.05; gritSpec.pz = _p.z;
       // Thrown up and out hard enough to clear the cloud it came out of. A clod
@@ -1228,19 +1586,45 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       local(off, -0.16 + rng.range(0, 0.3), -s.len * (0.45 + rng.range(0, 0.12)), _p);
       _p.addScaledVector(racer.vel, -(i + 0.5) * inv * dt);
       flameSpec.px = _p.x; flameSpec.py = _p.y; flameSpec.pz = _p.z;
-      const back = rng.range(7, 17) * (0.7 + 0.5 * power);
-      flameSpec.vx = racer.vel.x * 0.70 - _fwd.x * back + rng.range(-1.6, 1.6);
-      flameSpec.vy = racer.vel.y * 0.70 + rng.range(0.2, 1.6);
-      flameSpec.vz = racer.vel.z * 0.70 - _fwd.z * back + rng.range(-1.6, 1.6);
-      flameSpec.life = rng.range(0.13, 0.24);
-      flameSpec.size0 = rng.range(0.30, 0.54) * (0.85 + 0.4 * power) * rig;
-      flameSpec.size1 = flameSpec.size0 * rng.range(1.7, 2.5);
-      // The body of the plume burns *hot*, with only a wash of the tier colour
-      // through it. A plume that is purple all the way out reads as a cloud of
-      // magic stuck to the back of the machine rather than as fire; the tier is
-      // carried by the nozzle and the sparks, which are the parts with an edge
-      // on them and therefore the parts a colour can actually be read off.
-      flameSpec.color0.lerpColors(tint, FLAME_HOT, 0.55)
+      // ── how far the fire is allowed to get away ──────────────────────────
+      //
+      // It used to keep 0.70 of the machine's velocity and be shoved back at up
+      // to 17 m/s on top, over a life of nearly a quarter of a second. At 55
+      // m/s that puts the tail of the plume five or six metres behind the kart
+      // — which is where the chase camera is — so every particle in it grew as
+      // it came at the lens and arrived as a great tan sphere. What a
+      // photograph of the loudest moment in the game caught was a line of dough
+      // balls rolling away down the road.
+      //
+      // A jet is short. It keeps almost all of the machine's velocity, because
+      // the gas leaving a nozzle at 8 m/s relative to a vehicle doing 55 is, to
+      // anything watching from behind, still doing 47 — and it dies inside a
+      // sixth of a second. The plume is then about a metre and a half long,
+      // welded to the tail, entirely in front of the camera rather than passing
+      // through it.
+      const back = rng.range(3.5, 8) * (0.7 + 0.5 * power);
+      flameSpec.vx = racer.vel.x * 0.88 - _fwd.x * back + rng.range(-1.2, 1.2);
+      flameSpec.vy = racer.vel.y * 0.88 + rng.range(0.2, 1.4);
+      flameSpec.vz = racer.vel.z * 0.88 - _fwd.z * back + rng.range(-1.2, 1.2);
+      flameSpec.life = rng.range(0.09, 0.17);
+      flameSpec.size0 = rng.range(0.26, 0.46) * (0.85 + 0.4 * power) * rig;
+      flameSpec.size1 = flameSpec.size0 * rng.range(2.0, 2.9);
+      flameSpec.rot = rng.next() * TAU;
+      flameSpec.rotVel = rng.range(-7, 7);
+      // The body burns *orange*, with the tier washed through it.
+      //
+      // It used to be built the other way round — the tier lerped 55% toward a
+      // cream white and then multiplied by the gain — and for an ordinary pad
+      // boost, whose tint is that same cream, that means the entire plume was
+      // cream at 2.6. Through ACES a cream at 2.6 is white, and white behind a
+      // machine over grey tarmac in warm sun is beige. The single loudest
+      // effect in the game had no hue in it at all.
+      //
+      // Fire is orange near the middle and white only where it is thinnest, so
+      // the body starts from `FLAME_MID` and takes the tier as a wash: a pad
+      // boost reads as clean flame, a mini-turbo reads as flame carrying that
+      // tier's colour, and neither reads as fog lit from inside.
+      flameSpec.color0.lerpColors(FLAME_MID, tint, tier > 0 ? 0.72 : 0.26)
         .multiplyScalar(gain * rng.range(0.95, 1.3));
       setHdr(flameSpec.color1, FLAME_END, 1.1);
       pool.emit(flameSpec);
@@ -1250,11 +1634,14 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       // stretch turns into streaks pointing straight down the road behind.
       if (rng.next() < 0.55) {
         sparkSpec.px = _p.x; sparkSpec.py = _p.y; sparkSpec.pz = _p.z;
-        const kick = rng.range(9, 22) * (0.7 + 0.5 * power);
-        sparkSpec.vx = racer.vel.x * 0.80 - _fwd.x * kick + rng.range(-2.2, 2.2);
-        sparkSpec.vy = racer.vel.y * 0.80 + rng.range(0.4, 3.0);
-        sparkSpec.vz = racer.vel.z * 0.80 - _fwd.z * kick + rng.range(-2.2, 2.2);
-        sparkSpec.life = rng.range(0.12, 0.26);
+        // Same reasoning as the flame body: the chase camera sits under eight
+        // metres behind the machine, and a spark leaving at 26 m/s relative to
+        // it for a quarter of a second travels straight through the glass.
+        const kick = rng.range(6, 15) * (0.7 + 0.5 * power);
+        sparkSpec.vx = racer.vel.x * 0.88 - _fwd.x * kick + rng.range(-2.2, 2.2);
+        sparkSpec.vy = racer.vel.y * 0.88 + rng.range(0.4, 3.0);
+        sparkSpec.vz = racer.vel.z * 0.88 - _fwd.z * kick + rng.range(-2.2, 2.2);
+        sparkSpec.life = rng.range(0.12, 0.24);
         sparkSpec.size0 = rng.range(0.13, 0.24);
         sparkSpec.gravity = 8;
         sparkSpec.drag = 0.8;
@@ -1265,18 +1652,20 @@ export function createFxSystem(ctx: GameContext): GameSystem {
         sparkSpec.drag = 2.0;
       }
 
-      // Part of it turns over into smoke, so the plume has a tail and the
-      // frame does not simply go bright behind the kart. More of them and each
-      // far fainter than before: the old one-in-four at a quarter opacity and
-      // two and a half metres across was what left a row of dark discs lying on
-      // the asphalt behind every boost.
-      if (rng.next() < 0.55) {
-        smokeSpec.px = _p.x; smokeSpec.py = _p.y + 0.15; smokeSpec.pz = _p.z;
-        smokeSpec.vx = flameSpec.vx * 0.55;
+      // A little of it turns over into smoke well behind the fire, so the plume
+      // has a tail and does not simply stop. One in five, born a metre and a
+      // half back rather than in the flame itself: smoke sharing the nozzle
+      // with the fire is what put a pale sphere inside every bright one and
+      // gave the whole effect its dough-ball colour.
+      if (rng.next() < 0.2) {
+        smokeSpec.px = _p.x - _fwd.x * 1.4;
+        smokeSpec.py = _p.y + 0.18;
+        smokeSpec.pz = _p.z - _fwd.z * 1.4;
+        smokeSpec.vx = racer.vel.x * 0.62;
         smokeSpec.vy = rng.range(0.4, 1.6);
-        smokeSpec.vz = flameSpec.vz * 0.55;
-        smokeSpec.life = rng.range(0.6, 1.0);
-        smokeSpec.size0 = rng.range(0.26, 0.46);
+        smokeSpec.vz = racer.vel.z * 0.62;
+        smokeSpec.life = rng.range(0.45, 0.8);
+        smokeSpec.size0 = rng.range(0.22, 0.38);
         smokeSpec.size1 = smokeSpec.size0 * 3.0;
         smokeSpec.rot = rng.next() * TAU;
         smokeSpec.rotVel = rng.range(-1, 1);
@@ -1285,6 +1674,8 @@ export function createFxSystem(ctx: GameContext): GameSystem {
         pool.emit(smokeSpec);
       }
     }
+    flameSpec.rot = 0;
+    flameSpec.rotVel = 0;
 
     // The nozzles: hot cores that do not flicker out between particles.
     //
@@ -1367,12 +1758,12 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     const sfx = SURFACE_FX[surface] ?? SURFACE_FX.road;
     const col = surfaceColors.get(surface) ?? surfaceColors.get('road')!;
     const deep = surfaceDeep.get(surface) ?? surfaceDeep.get('road')!;
-    dustSpec.size0 = sfx.size * 1.35 * scale;
+    dustSpec.size0 = Math.min(sfx.size * 1.35 * scale, MAX_PUFF / sfx.grow);
     dustSpec.px = x; dustSpec.py = y + dustSpec.size0 * 0.5; dustSpec.pz = z;
     dustSpec.vx = 0; dustSpec.vy = 1.2 + 2.6 * sfx.lift; dustSpec.vz = 0;
     dustSpec.life = 0.75;
     dustSpec.size1 = dustSpec.size0 * sfx.grow;
-    dustSpec.alpha = Math.max(sfx.alpha, 0.16);
+    dustSpec.alpha = Math.max(sfx.alpha, 0.055);
     dustSpec.rotVel = 0.8;
     setHdr(dustSpec.color0, col, 1.0);
     setHdr(dustSpec.color1, deep, 0.85);
@@ -1393,16 +1784,81 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     }
   }
 
+  /**
+   * A puff of *smoke*, as distinct from a cloud of *ground*.
+   *
+   * `ctx.fx.spawn('smoke', …)` used to be an alias for `dustRing(..., 'dirt')`,
+   * and that was the single worst bug in this module. The item system asks for
+   * smoke at a spin-out, a banana slip and a bob-omb — reasonably, at
+   * `scale: 1.5` to `2.2` — and the alias turned each request into twenty-two
+   * tan puffs of up to seven metres across, born at a racer six metres from the
+   * chase camera. That is the wall of large translucent discs over the sky, the
+   * mountains and the HUD that reviewers kept photographing, and it fired
+   * during ordinary racing because a spin-out is ordinary racing.
+   *
+   * Smoke is now its own thing and obeys the same rules as everything else
+   * airborne here: neutral grey rather than the colour of a surface it never
+   * touched, capped diameter, and its volume carried by the number of wisps
+   * rather than by the size of any one of them.
+   */
+  function smokeBurst(
+    x: number, y: number, z: number, n: number, speed: number, scale: number,
+    vel?: THREE.Vector3,
+  ): void {
+    smokeSpec.px = x; smokeSpec.py = y + 0.25; smokeSpec.pz = z;
+    smokeSpec.vx = (vel?.x ?? 0) * 0.7;
+    smokeSpec.vy = 0.9 + (vel?.y ?? 0) * 0.7;
+    smokeSpec.vz = (vel?.z ?? 0) * 0.7;
+    smokeSpec.life = 0.7;
+    smokeSpec.size0 = Math.min(0.34 * scale, MAX_PUFF / 2.6);
+    smokeSpec.size1 = smokeSpec.size0 * 2.6;
+    smokeSpec.alpha = 0.12;
+    smokeSpec.rotVel = 0.7;
+    setHdr(smokeSpec.color0, SMOKE, 1.0);
+    setHdr(smokeSpec.color1, SMOKE_DEEP, 0.95);
+    pool.burst(smokeSpec, Math.round(n * density), speed, 0.3, rng);
+    smokeSpec.alpha = 0.042;
+    smokeSpec.rotVel = 0;
+  }
+
   function sparkBurst(
     x: number, y: number, z: number, n: number, speed: number, color: THREE.Color, k: number,
+    vel?: THREE.Vector3,
   ): void {
     sparkSpec.px = x; sparkSpec.py = y; sparkSpec.pz = z;
-    sparkSpec.vx = 0; sparkSpec.vy = 0.5; sparkSpec.vz = 0;
+    sparkSpec.vx = (vel?.x ?? 0) * 0.6;
+    sparkSpec.vy = 0.5 + (vel?.y ?? 0) * 0.6;
+    sparkSpec.vz = (vel?.z ?? 0) * 0.6;
     sparkSpec.life = 0.42;
     sparkSpec.size0 = 0.22;
     setHdr(sparkSpec.color0, color, k);
     setHdr(sparkSpec.color1, color, 0.3);
     pool.burst(sparkSpec, Math.round(n * density), speed, 0.75, rng);
+  }
+
+  /**
+   * How fast whatever this effect happened *to* is travelling.
+   *
+   * `ctx.fx.spawn(id, pos)` carries a position and nothing else, which is fine
+   * for an item box coming apart — a box is bolted to the road — and wrong for
+   * everything that happens to a racer. A ring of stars born at rest beside a
+   * machine doing 50 m/s is three kart-lengths behind it a fifth of a second
+   * later, and what a screenshot catches is flat yellow cardboard hanging over
+   * the road with nothing under it. Rather than widen the interface and make
+   * every caller remember, the effect asks the world what was at that point:
+   * the nearest racer inside a kart's reach lends its velocity, and if there is
+   * nobody there the effect stays where it was put, which is correct for the
+   * things that genuinely belong to the ground.
+   */
+  function inheritVel(x: number, y: number, z: number): THREE.Vector3 {
+    _qv.set(0, 0, 0);
+    let best = 16; // 4m, squared
+    for (const racer of ctx.racers) {
+      const dx = racer.pos.x - x, dy = racer.pos.y - y, dz = racer.pos.z - z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 < best) { best = d2; _qv.copy(racer.vel); }
+    }
+    return _qv;
   }
 
   // ── spending impulses ─────────────────────────────────────────────────────
@@ -1431,18 +1887,23 @@ export function createFxSystem(ctx: GameContext): GameSystem {
 
     // The exhaust cone.
     local(0, -0.08, -s.len * 0.46, _p);
-    const n = Math.round((26 + 24 * power) * density);
+    const n = Math.round((34 + 30 * power) * density);
     for (let i = 0; i < n; i++) {
       sparkSpec.px = _p.x + rng.range(-0.25, 0.25);
       sparkSpec.py = _p.y + rng.range(-0.2, 0.25);
       sparkSpec.pz = _p.z + rng.range(-0.25, 0.25);
-      const kick = rng.range(11, 30) * (0.7 + 0.6 * power);
+      const kick = rng.range(9, 24) * (0.7 + 0.6 * power);
       const spread = rng.range(-3.4, 3.4);
-      sparkSpec.vx = racer.vel.x * 0.55 - _fwd.x * kick + _right.x * spread;
-      sparkSpec.vy = racer.vel.y * 0.55 + rng.range(0.5, 4.5);
-      sparkSpec.vz = racer.vel.z * 0.55 - _fwd.z * kick + _right.z * spread;
-      sparkSpec.life = rng.range(0.16, 0.34);
-      sparkSpec.size0 = rng.range(0.15, 0.30);
+      sparkSpec.vx = racer.vel.x * 0.82 - _fwd.x * kick + _right.x * spread;
+      sparkSpec.vy = racer.vel.y * 0.82 + rng.range(0.5, 4.5);
+      sparkSpec.vz = racer.vel.z * 0.82 - _fwd.z * kick + _right.z * spread;
+      // Short and fine. The ignition burst is a *fan* at the tail, not a line
+      // of lights laid down the road: at three tenths of a metre across and a
+      // third of a second of life these travelled eight metres behind the kart
+      // and photographed as a chain of glowing pods being towed home. More of
+      // them, each smaller, is the same brightness arranged as a spray.
+      sparkSpec.life = rng.range(0.12, 0.22);
+      sparkSpec.size0 = rng.range(0.10, 0.20);
       sparkSpec.gravity = 12;
       sparkSpec.drag = 0.7;
       sparkSpec.color0.lerpColors(tint, WHITE_HOT, 0.28).multiplyScalar(gain * 1.2);
@@ -1518,16 +1979,10 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       // rubber on anything: a puff of tarmac smoke under a machine that is
       // three metres in the air is a puff coming out of nowhere.
       if (!racer.grounded) continue;
-      rearWheel(racer, side, 0.06, _p);
-      scrubSpec.size0 = SURFACE_FX[racer.surface].size * 1.5;
-      scrubSpec.px = _p.x; scrubSpec.py = _p.y + scrubSpec.size0 * 0.5; scrubSpec.pz = _p.z;
-      scrubSpec.vx = racer.vel.x * 0.8; scrubSpec.vy = 0.8; scrubSpec.vz = racer.vel.z * 0.8;
-      scrubSpec.life = 0.6;
-      scrubSpec.size1 = scrubSpec.size0 * 3.4;
-      scrubSpec.alpha = 0.13;
-      setHdr(scrubSpec.color0, surfaceColors.get(racer.surface)!, 1.0);
-      setHdr(scrubSpec.color1, surfaceDeep.get(racer.surface)!, 0.98);
-      pool.burst(scrubSpec, Math.round(7 * density), 2.4, 0.35, rng);
+      const sfx = SURFACE_FX[racer.surface];
+      for (let i = 0; i < Math.round(7 * density); i++) {
+        if (!smokePuff(racer, side, sfx, 0, 1.35, 1.0)) break;
+      }
     }
     sparkSpec.gravity = 15;
     sparkSpec.drag = 2.0;
@@ -1554,30 +2009,58 @@ export function createFxSystem(ctx: GameContext): GameSystem {
   function spendLand(racer: Racer, fx: RacerFx): void {
     const impact = clamp01(fx.pendLand);
     if (impact < 0.03) return;
+    // ── how much of a landing this actually was ─────────────────────────────
+    //
+    // The single loudest bug this module had, and it took an instance dump to
+    // find because it does not look like a bug — it looks like the drift being
+    // washed out. A drift hop is 0.42m of air, which comes down at 5.3 m/s and
+    // reports `impact` ≈ 0.41 through the same event a forty-metre jump uses.
+    // A player hops several times a corner. So every corner was firing two
+    // expanding rings up to nine metres across, forty puffs of dust, a burst of
+    // warm rail sparks, a white screen flash and a camera kick — and *all of
+    // that is warm*, right at the wheels, in the exact frames the mini-turbo is
+    // trying to tell the player it has gone blue. Tier one was seventeen small
+    // cyan sparks losing an argument with an eight-metre gold annulus.
+    //
+    // `airTime` is already in the payload and it is the honest discriminator:
+    // a hop is a third of a second, a jump is most of a second. Below the hop
+    // time the landing gets a puff of dust and nothing else — no ring, no
+    // sparks, no flash, no shake.
+    const flight = clamp01((fx.landAir - K.drift.hopTime) / 0.34);
+    const punch = impact * (0.14 + 0.86 * flight);
     const s = sizeOf(racer);
     const rig = clamp(s.halfW / 0.85, 0.75, 1.6);
     local(0, -RIDE_HEIGHT + 0.05, 0, _p);
 
-    // Two rings, fast and slow. One expanding hard edge reads as a shockwave;
-    // a second, wider and softer behind it, reads as the dust it displaced.
-    ring(_p.x, _p.y, _p.z, 1.0, (2.6 + 7.0 * impact) * rig, 0.22 + 0.14 * impact,
-      WARM_WHITE, 2.2 + 1.6 * impact, 0.42 * impact + 0.14);
-    ring(_p.x, _p.y, _p.z, 1.6, (4.5 + 11 * impact) * rig, 0.42 + 0.22 * impact,
-      surfaceColors.get(racer.surface) ?? WARM_WHITE, 1.2 + 0.9 * impact, 0.3 * impact + 0.08);
     // Thrown *outward*, low and flat: dust that climbs on a landing reads as an
     // explosion under the kart, dust that spreads reads as weight arriving.
-    dustRing(_p.x, _p.y, _p.z, 14 + Math.round(30 * impact), 4 + 11 * impact, racer.surface,
-      0.85 + 0.55 * impact);
+    // This is the part a hop keeps, because a wheel hitting the road does move
+    // some air whatever put it there.
+    dustRing(_p.x, _p.y, _p.z, 5 + Math.round(26 * punch), 3 + 11 * punch, racer.surface,
+      0.7 + 0.6 * punch);
 
-    if (impact > 0.4 && (racer.surface === 'road' || racer.surface === 'rail' || racer.surface === 'boost')) {
-      sparkBurst(_p.x, _p.y + 0.05, _p.z, Math.round(14 * impact), 7 * impact, RAIL_SPARK, 2.6);
+    if (punch < 0.10) return;
+
+    // Two rings, fast and slow. One expanding hard edge reads as a shockwave;
+    // a second, wider and softer behind it, reads as the dust it displaced.
+    // Both are capped: an additive annulus lying flat on the road is the single
+    // most expensive thing in the module per unit of usefulness, and past about
+    // six metres it stops reading as a shock and starts reading as the road
+    // being lit from below.
+    ring(_p.x, _p.y, _p.z, 1.0, (1.8 + 4.2 * punch) * rig, 0.20 + 0.14 * punch,
+      WARM_WHITE, 1.9 + 1.2 * punch, 0.34 * punch + 0.06);
+    ring(_p.x, _p.y, _p.z, 1.6, (3.0 + 6.0 * punch) * rig, 0.36 + 0.22 * punch,
+      surfaceColors.get(racer.surface) ?? WARM_WHITE, 1.1 + 0.7 * punch, 0.24 * punch + 0.04);
+
+    if (punch > 0.4 && (racer.surface === 'road' || racer.surface === 'rail' || racer.surface === 'boost')) {
+      sparkBurst(_p.x, _p.y + 0.05, _p.z, Math.round(14 * punch), 7 * punch, RAIL_SPARK, 2.6);
     }
     if (racer.isPlayer) {
-      if (impact > 0.3) screen.flash(0xFFFFFF, 0.04 + 0.09 * impact);
+      if (punch > 0.3) screen.flash(0xFFFFFF, 0.04 + 0.09 * punch);
       // The jolt. A landing with no kick in it is a landing the hands never
       // felt, and the camera module damps its own boom in world space — the
       // only thing this module may move is the lens angle.
-      trauma = clamp01(trauma + 0.10 + 0.34 * impact);
+      trauma = clamp01(trauma + 0.06 + 0.34 * punch);
       traumaDecay = 7.5;
     }
   }
@@ -1591,11 +2074,101 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     if (racer.isPlayer) screen.flash(0xFFE0B0, 0.06 + 0.14 * force);
   }
 
+  /**
+   * Being hit, in four flavours.
+   *
+   * `item:reaction` carries the item module's authoritative reading of *what
+   * the hit looks like*, and the whole point of that contract is that the four
+   * do not look alike. One generic gold starburst for a banana, a red shell and
+   * a lightning bolt tells the player nothing about what just happened to them,
+   * which in a game where the answer changes what you should do next is a
+   * wasted half second.
+   *
+   *   spin    a slip. Rubber, not fire: a low bloom of tyre smoke off all four
+   *           corners and almost nothing bright.
+   *   flip    a smash. Launched — so the burst goes up and out, hard, with a
+   *           shock ring on the road under it and the loudest flash and kick.
+   *   bump    a shove. Sideways, low, brief. It is contact, not damage.
+   *   squish  flattened on the spot. Everything is driven *outward along the
+   *           ground* from under the machine: nothing rises, because nothing
+   *           was thrown — it was pressed.
+   */
   function spendHit(racer: Racer, fx: RacerFx): void {
     const k = clamp01(fx.pendHit);
+    const s = sizeOf(racer);
+    const rig = clamp(s.halfW / 0.85, 0.75, 1.6);
+    const kind = fx.hitKind;
     local(0, 0.1, 0, _p);
-    ring(_p.x, _p.y - RIDE_HEIGHT + 0.06, _p.z, 1.0, 7.0, 0.4, WARM_WHITE, 2.4, 0.8 * k);
-    sparkBurst(_p.x, _p.y, _p.z, 22, 10, GOLD, 3.0);
+    const gx = _p.x, gy = _p.y - RIDE_HEIGHT + 0.06, gz = _p.z;
+
+    if (kind === 1) {
+      // A slip. Smoke off the tyres and a scuff of the surface, no shockwave.
+      for (let side = -1; side <= 1; side += 2) {
+        for (let end = -1; end <= 1; end += 2) {
+          local(side * s.halfW * 0.86, -RIDE_HEIGHT + 0.12, end * s.len * 0.32, _p);
+          smokeSpec.px = _p.x; smokeSpec.py = _p.y + 0.3; smokeSpec.pz = _p.z;
+          smokeSpec.vx = racer.vel.x * 0.5; smokeSpec.vy = 1.0; smokeSpec.vz = racer.vel.z * 0.5;
+          smokeSpec.life = 0.9;
+          smokeSpec.size0 = 0.5 * rig;
+          smokeSpec.size1 = smokeSpec.size0 * 3.0;
+          smokeSpec.alpha = 0.062;
+          smokeSpec.rotVel = rng.range(-1.2, 1.2);
+          setHdr(smokeSpec.color0, SMOKE, 1.05);
+          setHdr(smokeSpec.color1, SMOKE_DEEP, 0.95);
+          pool.burst(smokeSpec, Math.round(7 * density), 2.6, 0.3, rng);
+        }
+      }
+      smokeSpec.alpha = 0.042;
+      dustRing(gx, gy, gz, 8, 4, racer.surface, 1.0 * rig);
+      if (racer.isPlayer) {
+        screen.flash(0xFFE8C0, 0.12);
+        trauma = clamp01(trauma + 0.16);
+        traumaDecay = 4.0;
+      }
+      return;
+    }
+
+    if (kind === 3) {
+      // A shove. Low, sideways, over almost before it started.
+      local(0, -0.05, 0, _p);
+      ring(gx, gy, gz, 0.8, 3.4 * rig, 0.24, WARM_WHITE, 2.0, 0.5 * k);
+      sparkBurst(_p.x, _p.y, _p.z, Math.round(14 * k), 8, WARM_WHITE, 2.6);
+      dustRing(gx, gy, gz, 6, 4, racer.surface, 0.9 * rig);
+      if (racer.isPlayer) {
+        screen.flash(0xFFF0D0, 0.16);
+        trauma = clamp01(trauma + 0.24);
+        traumaDecay = 4.5;
+      }
+      return;
+    }
+
+    if (kind === 4) {
+      // Flattened. Everything travels outward along the deck; nothing climbs.
+      ring(gx, gy, gz, 0.6, 6.5 * rig, 0.34, TIER[1]!, 2.6, 0.9 * k);
+      ring(gx, gy, gz, 0.4, 3.2 * rig, 0.20, WHITE_HOT, 2.4, 0.8);
+      dustSpec.size0 = Math.min(SURFACE_FX[racer.surface].size * 1.5, MAX_PUFF / 2.6);
+      dustSpec.px = gx; dustSpec.py = gy + dustSpec.size0 * 0.5; dustSpec.pz = gz;
+      dustSpec.vx = 0; dustSpec.vy = 0.3; dustSpec.vz = 0;
+      dustSpec.life = 0.7;
+      dustSpec.size1 = dustSpec.size0 * 2.6;
+      dustSpec.alpha = Math.max(SURFACE_FX[racer.surface].alpha, 0.075);
+      setHdr(dustSpec.color0, surfaceColors.get(racer.surface) ?? WARM_WHITE, 1.0);
+      setHdr(dustSpec.color1, surfaceDeep.get(racer.surface) ?? WARM_WHITE, 0.85);
+      // spread 0.06: a disc, not a ball. The kart was pressed, not thrown.
+      pool.burst(dustSpec, Math.round(18 * density), 9, 0.06, rng);
+      if (racer.isPlayer) {
+        screen.flash(0xC9E4FF, 0.34);
+        trauma = clamp01(trauma + 0.5);
+        traumaDecay = 3.2;
+      }
+      return;
+    }
+
+    // flip, and anything physics stunned without an item behind it: a smash.
+    ring(gx, gy, gz, 1.0, 6.0 * rig, 0.4, WARM_WHITE, 2.4, 0.8 * k);
+    sparkBurst(_p.x, _p.y, _p.z, Math.round(26 * k), 11, GOLD, 3.0);
+    sparkBurst(_p.x, _p.y + 0.3, _p.z, Math.round(10 * k), 7, WHITE_HOT, 2.4);
+    dustRing(gx, gy, gz, 10, 5, racer.surface, 1.1 * rig);
 
     // No loose stars here. This used to throw seven pooled ones at five
     // different sizes with no velocity inheritance, and since the kart carries
@@ -1635,7 +2208,7 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       smokeSpec.life = 1.5;
       smokeSpec.size0 = 0.6;
       smokeSpec.size1 = 2.6;
-      smokeSpec.alpha = 0.16;
+      smokeSpec.alpha = 0.055;
       smokeSpec.rotVel = 0.7;
       setHdr(smokeSpec.color0, SMOKE, 1.1);
       setHdr(smokeSpec.color1, SMOKE_DEEP, 1.0);
@@ -1644,7 +2217,7 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       // tyre rather than out of an engine.
       sparkBurst(_p.x, _p.y, _p.z, 5, 4, SMOKE_DEEP, 0.35);
     }
-    smokeSpec.alpha = 0.12;
+    smokeSpec.alpha = 0.042;
     local(0, -RIDE_HEIGHT + 0.04, -s.len * 0.3, _p);
     dustRing(_p.x, _p.y, _p.z, 10, 4, racer.surface, 1.3);
   }
@@ -1866,10 +2439,10 @@ export function createFxSystem(ctx: GameContext): GameSystem {
   let lineCount = 0;
 
   function spawnLines(amount: number, dt: number): void {
-    lineAcc += amount * 260 * density * dt;
+    lineAcc += amount * 300 * density * dt;
     let n = Math.floor(lineAcc);
     lineAcc -= n;
-    if (n > 22) n = 22;
+    if (n > 26) n = 26;
     if (n <= 0) return;
 
     const cam = ctx.camera;
@@ -1880,7 +2453,18 @@ export function createFxSystem(ctx: GameContext): GameSystem {
 
     for (let i = 0; i < n; i++) {
       if (lineCount >= LAYER_RUSH) return;
-      const d = rng.range(9, 26);
+      // Right on the glass.
+      //
+      // A speed line is a *lens* effect, and this used to place it nine to
+      // twenty-six metres out into the world. Everything about it is scaled by
+      // `d`, so the screen-space result is identical either way — but out there
+      // a streak spawned low in the frame is a two-metre object hanging over
+      // the tarmac in front of the kart, and the review shots caught exactly
+      // that: white hairlines lying flat on the road like sticks. At a metre
+      // and a half to three the streak is unambiguously *in front of the
+      // camera*, closer than any geometry it could be mistaken for, and the
+      // depth-test-off rush layer draws it over the world where it belongs.
+      const d = rng.range(1.5, 3.0);
       // A constant fraction of the *frame*, whatever the depth: the streaks form
       // a ring around the edge rather than a cloud in front of the kart.
       //
@@ -1898,7 +2482,20 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       // streak lands in the outer band, no inner tip reaches past 0.70 of the
       // half-frame, and the middle — the part the game is played in — is
       // arithmetically guaranteed to stay clean.
-      const u = rng.range(1.00, 1.55);
+      // Placed by its centre, so where the *body* of a streak lands is what
+      // matters, not where its inner tip reaches. The previous band started at
+      // 1.00 — exactly the edge of the frame — and ran to 1.55, which means
+      // roughly four streaks in five were spawned entirely outside the glass
+      // and the module was paying for a hundred quads to show eight. A
+      // photograph of the game at full speed came back with a scattering of
+      // hairs in one corner.
+      //
+      // 0.92 to 1.32 with the half-length below capped at 0.24 puts the body of
+      // every streak in the outer band where peripheral vision reads speed, and
+      // still guarantees no inner tip reaches past 0.68 of the half-frame — the
+      // middle two thirds, which is the part the game is played in, stays
+      // arithmetically clean.
+      const u = rng.range(0.92, 1.32);
       const a = rng.next() * TAU;
       const hy = d * tanH * u;
       const ox = Math.cos(a) * hy * cam.aspect;
@@ -1913,16 +2510,19 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       lineData[o] = _p.x; lineData[o + 1] = _p.y; lineData[o + 2] = _p.z;
       // A little motion of their own, so the effect still reads if the boost
       // fires before the kart has picked the speed up.
-      lineData[o + 3] = -_camFwd.x * 10;
-      lineData[o + 4] = -_camFwd.y * 10;
-      lineData[o + 5] = -_camFwd.z * 10;
+      // Drifting toward the lens, which at this range is what makes the streak
+      // grow across the frame the way the world does. Slow enough that it
+      // cannot reach the near plane inside its own life.
+      lineData[o + 3] = -_camFwd.x * 2.4;
+      lineData[o + 4] = -_camFwd.y * 2.4;
+      lineData[o + 5] = -_camFwd.z * 2.4;
       lineData[o + 6] = 0;
-      lineData[o + 7] = rng.range(0.20, 0.38);
+      lineData[o + 7] = rng.range(0.18, 0.32);
       // The long axis is the view-space direction out from the vanishing point,
       // which is exactly the path the world takes across the frame.
       lineData[o + 8] = Math.atan2(oy, ox);
       lineData[o + 9] = rng.range(0.16, 0.34) * d * 0.08;
-      lineData[o + 10] = d * tanH * rng.range(0.12, 0.30);
+      lineData[o + 10] = d * tanH * rng.range(0.10, 0.24);
       lineData[o + 11] = rng.range(0.72, 1.15) * amount;
       lineCount++;
     }
@@ -1979,9 +2579,12 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     if (tier > fx.boostTier) fx.boostTier = tier;
   });
 
-  ctx.bus.on<{ racer: Racer; impact: number }>('kart:land', ({ racer, impact }) => {
+  ctx.bus.on<{ racer: Racer; impact: number; airTime?: number }>('kart:land', ({ racer, impact, airTime }) => {
     const fx = fxOf(racer);
-    fx.pendLand = Math.max(fx.pendLand, impact);
+    if (impact >= fx.pendLand) {
+      fx.pendLand = impact;
+      fx.landAir = airTime ?? 1;
+    }
   });
 
   ctx.bus.on<{ racer: Racer }>('kart:hop', ({ racer }) => {
@@ -1998,8 +2601,22 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     fx.grind = Math.max(fx.grind, 0.28);
   });
 
+  // Physics' own three-value vocabulary, and the fallback for anything that
+  // stuns a kart without an item behind it. `item:reaction` lands in the same
+  // fixed step immediately afterwards and overwrites the kind with the item
+  // module's authoritative reading — see ARCHITECTURE §7. Impulses are spent in
+  // `update`, so the later, better-informed event always wins.
   ctx.bus.on<{ racer: Racer }>('kart:hit', ({ racer }) => {
-    fxOf(racer).pendHit = 1;
+    const fx = fxOf(racer);
+    fx.pendHit = 1;
+    fx.hitKind = 0;
+  });
+
+  const HIT_KIND: Record<string, number> = { spin: 1, flip: 2, bump: 3, squish: 4 };
+  ctx.bus.on<{ racer: Racer; kind: string; force: number }>('item:reaction', ({ racer, kind, force }) => {
+    const fx = fxOf(racer);
+    fx.pendHit = Math.max(fx.pendHit, clamp(force, 0.35, 1.4));
+    fx.hitKind = HIT_KIND[kind] ?? 0;
   });
 
   ctx.bus.on<{ racer: Racer }>('kart:trick', ({ racer }) => {
@@ -2150,14 +2767,25 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       const hex = qColor[i]!;
       const col = hex >= 0 ? _tint.setHex(hex) : WARM_WHITE;
 
+      // Everything below that happens *to a racer* travels with them — see
+      // `inheritVel`. Effects that belong to the ground (a box breaking, a
+      // blast crater, a dust ring punched into the surface) deliberately do
+      // not, and are the reason this is per-case rather than global.
+      const v = inheritVel(x, y, z);
+
       switch (id) {
         case 'spark':
         case 'sparks':
-          sparkBurst(x, y, z, 16 * scale, 8 * scale, col, 3.0);
+          sparkBurst(x, y, z, 16 * scale, 8 * scale, col, 3.0, v);
           break;
         case 'dust':
+          // The ground being disturbed. Whatever the player is standing on, not
+          // a hardcoded 'dirt': a dust ring the colour of a surface nobody is on
+          // is the same mistake as smoke the colour of dirt.
+          dustRing(x, y, z, 10 * scale, 4 * scale, ctx.player?.surface ?? 'road', scale);
+          break;
         case 'smoke':
-          dustRing(x, y, z, 10 * scale, 4 * scale, 'dirt', scale);
+          smokeBurst(x, y, z, 12 * scale, 3.2 * scale, scale, v);
           break;
         case 'splash':
           dustRing(x, y, z, 16 * scale, 6 * scale, 'water', scale);
@@ -2165,26 +2793,32 @@ export function createFxSystem(ctx: GameContext): GameSystem {
         case 'explosion':
           ring(x, y, z, 1.5 * scale, 12 * scale, 0.5, FLAME_MID, 3.0, 1);
           sparkBurst(x, y + 0.4, z, 34 * scale, 16 * scale, FLAME_HOT, 4.0);
-          dustRing(x, y, z, 18 * scale, 9 * scale, 'dirt', 1.5 * scale);
+          smokeBurst(x, y + 0.3, z, 16 * scale, 6 * scale, 1.4 * scale);
+          dustRing(x, y, z, 14 * scale, 9 * scale, ctx.player?.surface ?? 'road', 1.2 * scale);
           screen.flash(0xFFC070, 0.34);
           trauma = clamp01(trauma + 0.6);
           traumaDecay = 2.4;
           break;
         case 'boost':
           ring(x, y, z, 1.2 * scale, 7 * scale, 0.4, col, 2.6, 0.9);
-          sparkBurst(x, y, z, 22 * scale, 12 * scale, col, 3.2);
+          sparkBurst(x, y, z, 22 * scale, 12 * scale, col, 3.2, v);
           break;
         case 'impact':
           ring(x, y, z, 0.7 * scale, 4 * scale, 0.3, col, 2.0, 0.7);
-          sparkBurst(x, y, z, 12 * scale, 7 * scale, col, 2.6);
+          sparkBurst(x, y, z, 12 * scale, 7 * scale, col, 2.6, v);
           break;
         case 'ring':
           ring(x, y, z, 0.8 * scale, 8 * scale, 0.45, col, 2.4, 0.9);
           break;
         case 'stars':
           starSpec.px = x; starSpec.py = y; starSpec.pz = z;
-          starSpec.vx = 0; starSpec.vy = 2; starSpec.vz = 0;
-          starSpec.life = 0.8; starSpec.size0 = 0.5;
+          // Thrown *with* whatever they came off. A ring of stars born at rest
+          // beside a machine still doing fifty metres a second is three kart
+          // lengths behind it before the next frame is drawn, and what a
+          // screenshot catches is flat yellow cardboard lying over the road
+          // with nothing under it.
+          starSpec.vx = v.x * 0.85; starSpec.vy = 2 + v.y * 0.85; starSpec.vz = v.z * 0.85;
+          starSpec.life = 0.7; starSpec.size0 = 0.4; starSpec.size1 = 0.08;
           setHdr(starSpec.color0, col, 3.0);
           setHdr(starSpec.color1, col, 0.4);
           pool.burst(starSpec, Math.round(8 * density * scale), 6, 0.6, rng);
@@ -2219,13 +2853,13 @@ export function createFxSystem(ctx: GameContext): GameSystem {
           break;
         case 'shine':
         case 'sparkle':
-          sparkBurst(x, y, z, 10 * scale, 4 * scale, GOLD, 3.2);
+          sparkBurst(x, y, z, 10 * scale, 4 * scale, GOLD, 3.2, v);
           ring(x, y, z, 0.4 * scale, 2.2 * scale, 0.3, GOLD, 2.0, 0.7);
           break;
         default:
           // An unknown id still has to show something: a silent effect is a bug
           // nobody finds until a reviewer asks why the item does nothing.
-          sparkBurst(x, y, z, 10 * scale, 6 * scale, col, 2.6);
+          sparkBurst(x, y, z, 10 * scale, 6 * scale, col, 2.6, v);
           break;
       }
     }
@@ -2338,11 +2972,20 @@ export function createFxSystem(ctx: GameContext): GameSystem {
         // How much this racer's effects are worth. The player always pays full
         // price; everyone else fades out with distance, which is what keeps a
         // pack of eight drifting through a hairpin inside budget.
+        //
+        // The old curve held a CPU machine at 60% of full rate a hundred metres
+        // away and only reached zero at a hundred and sixty. An instance dump
+        // during a player tier-one drift found 581 live sparks on screen, of
+        // which **458 were more than twelve metres away** — three quarters of
+        // the entire spark budget spent on pinpoints one pixel wide, belonging
+        // to machines the player is not looking at, in a warm colour that
+        // actively fights the thing they are. A spark has no silhouette; past
+        // about forty metres it is not an effect, it is a cost.
         const d2 = _pos.distanceToSquared(cam.position);
-        fx.near = racer.isPlayer ? 1
-          : d2 > 26000 ? 0
-          : d2 < 900 ? 1
-          : clamp01(1 - (Math.sqrt(d2) - 30) / 130) * 0.9 + 0.1;
+        const dist = Math.sqrt(d2);
+        fx.near = racer.isPlayer ? 1 : clamp01(1 - (dist - 14) / 32);
+        // Exhaust is the exception — see the note on `reach`.
+        fx.reach = racer.isPlayer ? 1 : clamp01(1 - (dist - 34) / 120);
 
         // ── letting go of a drift ───────────────────────────────────────
         // Physics announces the start of a drift and the tier it reaches, but
@@ -2363,6 +3006,11 @@ export function createFxSystem(ctx: GameContext): GameSystem {
           fx.pendTier = 0;
           fx.pop = 1;
           fx.popTier = tier;
+          // The tier has to be felt in the rubber as well as in the light —
+          // see `tyreSmoke`. Spent on this same frame, by the emitter, so the
+          // extra smoke is born inside the burst of sparks below rather than
+          // arriving a frame after it.
+          fx.pendSmoke = tier;
           const col = TIER[tier]!;
           const gain = TIER_GAIN[tier]!;
           const s = sizeOf(racer);
@@ -2404,7 +3052,7 @@ export function createFxSystem(ctx: GameContext): GameSystem {
           dustRing(_p.x, _p.y, _p.z, 12, 5, racer.surface, 1.2);
         }
         if (fx.pendWall > 0) { spendWall(racer, fx); fx.pendWall = 0; }
-        if (fx.pendHit > 0) { spendHit(racer, fx); fx.pendHit = 0; }
+        if (fx.pendHit > 0) { spendHit(racer, fx); fx.pendHit = 0; fx.hitKind = 0; }
         if (fx.pendBump > 0) { spendBump(racer, fx); fx.pendBump = 0; }
         if (fx.pendTrick > 0) {
           fx.pendTrick = 0;
@@ -2428,7 +3076,11 @@ export function createFxSystem(ctx: GameContext): GameSystem {
         }
 
         // ── continuous ──────────────────────────────────────────────────
-        fx.glow = damp(fx.glow, racer.drift.active && racer.grounded ? 1 : 0,
+        // Held up by the drift alone, not by the drift *and* contact — see the
+        // note in `driftSparks`. The pool of light on the road is still gated
+        // on `grounded` inside `driftGlow`, which is the part that would be a
+        // lie in mid-air; the light at the wheels is not.
+        fx.glow = damp(fx.glow, racer.drift.active ? 1 : 0,
           racer.drift.active ? 0.0004 : 0.0000004, dt);
         fx.pop = Math.max(0, fx.pop - dt * 3.6);
         fx.draftEase = damp(fx.draftEase, fx.draft, 0.02, dt);
@@ -2436,6 +3088,10 @@ export function createFxSystem(ctx: GameContext): GameSystem {
         // they were too far away to draw would otherwise keep the old tier tint
         // and fire their next pad boost in purple.
         if (racer.boost.time <= 0) fx.boostTier = 0;
+        // Same reason, for the same kind of bug: a tier that locked in while
+        // this racer was too far away to draw must be forgotten, not banked
+        // until they come back into range and cough it out mid-straight.
+        if (fx.near <= 0.02) fx.pendSmoke = 0;
         // The boost envelope. Held up by the live boost, and released over
         // about a third of a second once it ends, so the state has a shape of
         // its own instead of vanishing between one rendered frame and the next.
@@ -2443,22 +3099,33 @@ export function createFxSystem(ctx: GameContext): GameSystem {
           ? 1
           : Math.max(0, fx.boostEnv - dt * 3.0);
 
+        // Always on, every machine, player and CPU alike — the layer that makes
+        // the seconds between events look like a race rather than a diorama. It
+        // is the only emitter here that does not need a reason, and the only
+        // one that survives the `near` cut, because it is the only one built out
+        // of silhouettes rather than pinpoints.
+        if (fx.reach > 0.02) {
+          exhaustPuffs(racer, fx, dt);
+          if (fx.near > 0.02) exhaustGlow(racer, fx, add);
+        }
+
         if (fx.near > 0.02) {
-          if (racer.drift.active && racer.grounded) {
-            // Order matters: the haze goes down first so the sparks land on top
-            // of it. Both are in different layers, but the alpha layer draws
-            // under the additive one, and the read is "sparks coming out of
-            // smoke" rather than "sparks in front of smoke".
-            driftScrub(racer, fx, dt);
+          // Order matters: the smoke goes down first so the sparks land inside
+          // it. Both are in different layers, but the alpha layer draws under
+          // the additive one, and the read is "sparks coming out of smoke"
+          // rather than "sparks in front of smoke".
+          //
+          // Outside the drift branch on purpose. The smoke belongs to the
+          // contact patch, not to a game state: a spin, a boost breaking
+          // traction and a slide the player did not ask for all burn rubber,
+          // and gating it on `drift.active` was half of why a slide on tarmac
+          // came out clean.
+          if (racer.grounded) tyreSmoke(racer, fx, dt); else fx.pendSmoke = 0;
+          if (racer.drift.active) {
             driftSparks(racer, fx, dt);
           }
           driftGlow(racer, fx, add);
           if (racer.grounded) surfaceDust(racer, fx, dt);
-          // Always on, every machine, player and CPU alike — the layer that
-          // makes the seconds between events look like a race rather than a
-          // diorama. It is the only emitter here that does not need a reason.
-          exhaustPuffs(racer, fx, dt);
-          exhaustGlow(racer, fx, add);
           if (racer.boost.time > 0) boostFlame(racer, fx, dt, add);
           // Any stun, not only a spin. A squish and a bump leave a kart just as
           // helpless, and a silent one reads as the game having hung.
@@ -2636,9 +3303,6 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       let chargeAmt = 0;
       if (player) {
         const pfx = fxOf(player);
-        const cls = ctx.config.race.classes[ctx.race.engineClass];
-        const refSpeed = Math.max(1, K.maxSpeed * cls.speedMul);
-        const speedFrac = clamp01(Math.abs(player.speed) / refSpeed);
         // Off the envelope, not off `boost.time`. A pad boost, a mushroom, a
         // trick and each mini-turbo tier now light this to exactly the same
         // height and let go at the same rate, which is the difference between a
@@ -2651,16 +3315,24 @@ export function createFxSystem(ctx: GameContext): GameSystem {
         // Streaks only: the warm edge glow belongs to a boost, and lighting it
         // up for a draft would spend the game's loudest signal on its quietest
         // event.
+        // ...and raw speed no longer earns any.
         //
-        // And raw speed earns streaks too. Two hundred and forty km/h with no
-        // cue of any kind on the frame was one of the loudest complaints about
-        // the last pass: the machine and the road were the only things moving,
-        // so a still frame at full chat looked exactly like a still frame at
-        // walking pace. The threshold starts well below the top so it is a
-        // *gradient* the player feels building, and the streaks stay out at the
-        // rim where they cannot cover the driving line.
-        const fast = clamp01((speedFrac - 0.58) / 0.36);
-        lineAmt = clamp01(rushAmt + fast * 0.62 + pfx.draftEase * 0.3);
+        // It used to, from 42% of top speed, and that was wrong in a way a
+        // still frame makes obvious: a racing lap is spent almost entirely
+        // above 42%, so the streaks were on permanently. Something that is
+        // always there is not a cue, it is texture — and it was texture the
+        // player had to read the road through. Worse, an effect that means
+        // "fast" while the player is merely *driving* has nothing left to say
+        // when they actually boost, which is the one moment the whole rush
+        // vocabulary exists for. Speed is carried by the wake, the exhaust, the
+        // camera FOV and the road going past; the streaks are reserved for
+        // thrust the player was given.
+        //
+        // A deep, sustained slipstream still earns a few, because that *is*
+        // free speed — but only once the draft is genuinely established, so an
+        // ordinary lap never lights them.
+        const draft = clamp01((pfx.draftEase - 0.62) / 0.38);
+        lineAmt = clamp01(rushAmt + draft * 0.35);
         // Speed lines are a *lens* effect: they belong to a camera riding on
         // the machine. Spawned around the frustum of a camera parked forty
         // metres overhead they read as scratches drawn across the world, which
@@ -2682,6 +3354,10 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       spawnLines(lineAmt, dt);
       updateLines(dt, rush);
 
+      // Where the lens is, so anything that has drifted into it dissolves
+      // rather than covering the frame. Set after every emitter has run, so a
+      // puff born this frame is judged at the position it was actually born at.
+      pool.setCamera(cam.position.x, cam.position.y, cam.position.z);
       pool.fill(add, alp);
       add.commit();
       alp.commit();

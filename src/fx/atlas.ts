@@ -80,45 +80,76 @@ function drawGlow(c: CanvasRenderingContext2D): void {
 /**
  * The dust / smoke cell.
  *
- * This is the sprite the whole continuous layer is made of, and the last pass
- * got it wrong in the way that matters most: it had a dense middle. Seven lobes
- * at 52% alpha stacked additively saturate to a solid disc within about a third
- * of the radius, so every puff in the game arrived as an opaque soft ball. An
- * opaque soft ball takes whatever colour it is given and holds it — which is
- * how tyre smoke ended up reading as an oil stain on the asphalt, and how one
- * puff over a locomotive funnel ended up looking like a boulder.
+ * This is the sprite the whole continuous layer is made of, and it is the one
+ * cell in the atlas whose shape decides whether the module reads as weather or
+ * as dirt on the lens. Two previous passes each overcorrected the other:
  *
- * Smoke is not opaque. It is a *thin* thing you see the world through, and the
- * only place it approaches solid is where several wisps happen to overlap in
- * depth — which is the pool's job, not the texture's. So: many more lobes, each
- * far fainter, spread out to the rim rather than clustered at the middle, and a
- * ceiling low enough that a single sprite can never be more than a suggestion.
- * The visible density then comes from *count*, which is the axis where it can be
- * traded against distance, quality and budget.
+ *   The first stacked seven lobes at 52% additive, which saturates to a solid
+ *   disc inside a third of the radius. Every puff arrived as an opaque soft
+ *   ball that took whatever colour it was given and held it — tyre smoke read
+ *   as an oil stain, and one puff over the locomotive funnel read as a boulder.
+ *
+ *   The second pushed thirteen much fainter lobes *out toward the rim* to avoid
+ *   that, and in doing so built an annulus. Measured, the profile peaked at 0.20
+ *   alpha around 0.35 of the radius and fell to 0.075 dead centre: a donut with
+ *   a hole in the middle, less than half as dense at its centre as at its edge.
+ *   That is not smoke, it is a smoke *ring*, and at any size big enough to
+ *   notice the eye reads the outline — which is exactly why a screenshot of a
+ *   kart crossing gravel came back covered in soap bubbles, and why the road
+ *   behind a machine at speed came back looking like a windscreen nobody had
+ *   wiped.
+ *
+ * A suspension lit from every direction has its greatest optical depth where
+ * you are looking through the most of it, which is the middle. So the profile
+ * is monotonic from the centre out — no exceptions, that is the whole lesson —
+ * and the raggedness that stops it being a perfect circle is *bitten out* of
+ * the silhouette rather than being what builds it. Sixteen faint lobes cannot
+ * make a cloud; one dense one with chunks missing can.
+ *
+ * The ceiling is about 0.66 rather than 0.20, which is roughly three times the
+ * old cell. Every alpha in the module that feeds this cell was retuned down to
+ * match — the read now comes from a handful of legible sprites instead of from
+ * four hundred invisible ones, which costs a third of the fill rate for more
+ * visible density.
  */
 function drawPuff(c: CanvasRenderingContext2D): void {
   const h = SIZE * 0.5;
-  // Thirteen faint overlapping lobes, added together. Enough of them for a
-  // ragged silhouette, none of them strong enough to be a shape on its own.
-  c.globalCompositeOperation = 'lighter';
-  for (let i = 0; i < 13; i++) {
+  // The body: dense in the middle, gone by the rim, and monotonic in between.
+  c.fillStyle = radial(c, h, h, h * 0.99, [
+    [0.00, 0.72], [0.26, 0.66], [0.50, 0.44], [0.72, 0.18], [0.90, 0.04], [1.00, 0.0],
+  ]);
+  c.fillRect(0, 0, SIZE, SIZE);
+
+  // Bite the silhouette apart. Nine soft notches taken out of the outer half,
+  // so no two puffs in a cloud present the same outline once they are spinning
+  // at different angles — a perfect disc repeated forty times reads as forty
+  // discs, however soft each one is.
+  c.globalCompositeOperation = 'destination-out';
+  for (let i = 0; i < 9; i++) {
     const a = hash(i * 3.1 + 0.7) * Math.PI * 2;
-    // Pushed out toward the rim rather than piled on the centre: the middle
-    // gets its density from overlap, not from every lobe starting there.
-    const d = h * (0.16 + hash(i * 7.3 + 2.1) * 0.40);
-    const r = h * (0.26 + hash(i * 5.9 + 4.4) * 0.22);
+    const d = h * (0.52 + hash(i * 7.3 + 2.1) * 0.42);
+    const r = h * (0.22 + hash(i * 5.9 + 4.4) * 0.26);
     c.fillStyle = radial(c, h + Math.cos(a) * d, h + Math.sin(a) * d, r, [
-      [0.00, 0.20], [0.42, 0.10], [1.00, 0.0],
+      [0.00, 0.85], [0.55, 0.35], [1.00, 0.0],
     ]);
     c.fillRect(0, 0, SIZE, SIZE);
   }
-  // Clip back inside a soft disc — no lobe may leave a hard edge at the cell
-  // boundary — and take the ceiling down at the same time, so the brightest
-  // pixel in the cell is a little over half opaque and the sprite is physically
-  // incapable of covering what is behind it.
+  // ...and four much shallower ones inside it, so the body has some structure
+  // to catch the light on rather than being a flat gradient.
+  for (let i = 0; i < 4; i++) {
+    const a = hash(i * 11.7 + 5.3) * Math.PI * 2;
+    const d = h * (0.10 + hash(i * 4.7 + 1.9) * 0.30);
+    const r = h * (0.16 + hash(i * 9.1 + 3.3) * 0.16);
+    c.fillStyle = radial(c, h + Math.cos(a) * d, h + Math.sin(a) * d, r, [
+      [0.00, 0.34], [0.60, 0.12], [1.00, 0.0],
+    ]);
+    c.fillRect(0, 0, SIZE, SIZE);
+  }
+
+  // No notch may leave a hard edge at the cell boundary.
   c.globalCompositeOperation = 'destination-in';
   c.fillStyle = radial(c, h, h, h * 0.99, [
-    [0.00, 0.72], [0.46, 0.66], [0.76, 0.36], [1.00, 0.0],
+    [0.00, 1.0], [0.70, 1.0], [1.00, 0.0],
   ]);
   c.fillRect(0, 0, SIZE, SIZE);
   c.globalCompositeOperation = 'source-over';
