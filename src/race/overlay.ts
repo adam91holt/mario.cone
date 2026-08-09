@@ -14,8 +14,9 @@
 // would be a different one.
 
 import { U_CSS } from '../ui/theme.ts';
+import type { GameContext } from '../types.ts';
 import { CSS_LETTERS } from './letters.ts';
-import { CSS_MENU } from './menu.ts';
+import { CSS_MENU, type Sfx } from './menu.ts';
 import { CSS_RESULTS, createResults, type Results } from './results.ts';
 import { CSS_PAUSE, createPauseMenu, type PauseMenu } from './pausemenu.ts';
 import {
@@ -102,8 +103,22 @@ export interface RaceOverlay {
  * run or a headless unit test — so the director can carry on being a race
  * director without one.
  */
-export function createOverlay(onPick: (id: string) => void): RaceOverlay | null {
+export function createOverlay(
+  ctx: GameContext, onPick: (id: string) => void,
+): RaceOverlay | null {
   if (typeof document === 'undefined') return null;
+
+  /**
+   * How this layer makes a noise.
+   *
+   * Resolved per call rather than captured: `ctx.audio` is null until the first
+   * user gesture, and an overlay built at boot would otherwise hold a null for
+   * the life of the page. See the note on `Sfx` in `menu.ts` for why any of
+   * this is here at all.
+   */
+  const sfx: Sfx = (id, volume = 1, rate = 1): void => {
+    ctx.audio?.play(id, { volume, rate });
+  };
 
   const style = document.createElement('style');
   style.textContent = CSS_BASE + CSS_LETTERS + CSS_MENU + CSS_STAGE + CSS_RESULTS + CSS_PAUSE;
@@ -118,8 +133,8 @@ export function createOverlay(onPick: (id: string) => void): RaceOverlay | null 
   const note = createNote();
   const ticker = createTicker();
   const wrongWay = createWrongWay();
-  const results = createResults(onPick);
-  const pause = createPauseMenu(onPick);
+  const results = createResults(onPick, sfx);
+  const pause = createPauseMenu(onPick, sfx);
 
   root.appendChild(card.root);
   root.appendChild(lights.root);

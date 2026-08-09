@@ -124,6 +124,60 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
   let introT = 0, introActive = false;
   let celebT = -1;
 
+  // ── the shots the race asks for ──────────────────────────────────────────
+  //
+  // `camera:shot` is the race director's channel for the three moments it can
+  // compose better than a follow rig can, and it went unanswered for the whole
+  // life of the project: `bus.inspect()` listed no subscriber, the only
+  // reference in the repo was the emit, and the comment above that emit said so
+  // outright. Two things a player saw as a result. The opening sweep flew
+  // *through* the item layer at the start line — a coin the size of a sixth of
+  // the frame clipping the lens on the first two seconds of every race — while
+  // reading the grid backwards, because the sweep was authored when the player
+  // was seated on pole and the director has since moved them to the back. And
+  // the results sheet's scrim was deliberately built semi-transparent in the
+  // middle "so the centre stays open enough to read the confetti and the
+  // machine it is falling on", with nothing behind it but empty road.
+  //
+  // Three requests are answered here.
+  //
+  //   `grid`      metres of grid standing in front of the player, used to point
+  //               the sweep's first beat *up* the staggered 2x4 from behind
+  //               them rather than down at them from inside it.
+  //   `countdown` the same number, spent on a little more lens and a little
+  //               more height while the lights are on, so the field the player
+  //               has to get past is in the frame they are staring at.
+  //   `podium`    the winner, orbited slowly behind the results sheet.
+
+  /** Metres of grid ahead of the player, as the director measured it. */
+  let shotBack = 0;
+  /** How much of the grid framing is currently applied, 0..1.
+   *
+   *  Derived from the phase rather than latched by the event, deliberately: the
+   *  director resets at order 70 and emits `camera:shot` from inside that
+   *  reset, so anything this module set from the event would be wiped by its
+   *  own reset at order 80 a moment later. It eases out rather than cutting,
+   *  because the flag must not snap the lens forward on the one frame the
+   *  player is trying to read the first corner. */
+  let gridFrame = 0;
+  /** The machine the results sheet is composed on, and the orbit's own clock. */
+  let podiumRacer: Racer | null = null;
+  let podiumT = 0;
+
+  ctx.bus.on<{ shot: string; back?: number; racerId?: number }>(
+    'camera:shot', ({ shot, back, racerId }) => {
+      if (shot === 'grid' || shot === 'countdown') {
+        shotBack = Math.max(0, back ?? 0);
+        return;
+      }
+      if (shot === 'podium') {
+        podiumRacer = null;
+        for (const r of ctx.racers) if (r.id === racerId) { podiumRacer = r; break; }
+        podiumT = 0;
+      }
+    },
+  );
+
   // Framing derived from the player's vehicle. VehicleDef.size exists for this.
   let baseDist = C.chase.distance;
   let baseHeight = C.chase.height;
@@ -156,6 +210,9 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
     // aim is derived from the camera→kart vector, so the hand-off stays smooth
     // wherever in the sweep it happens.
     if (p === 'countdown' || p === 'racing') introActive = false;
+    // The podium shot belongs to the sheet and to nothing else. Anything that
+    // puts the game back on a circuit gives the lens back to the player.
+    if (p !== 'results' && p !== 'finished') podiumRacer = null;
   });
 
   ctx.bus.on('race:intro', () => { introActive = true; introT = 0; });
@@ -369,18 +426,29 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
     let beatFov = C.fov;
 
     if (t < A) {
-      // Beat 1 — low and ahead of the grid, tracking left across the field.
-      // A gentle ease at each end of an otherwise constant dolly: a camera
-      // operator's move, not a spreadsheet's.
+      // Beat 1 — **the `grid` shot the director has always been asking for**.
+      //
+      // Behind the player and above them, craning down and in while the aim
+      // travels *up* the staggered 2x4 in front. This beat used to be the exact
+      // opposite: 11.5m ahead of the player looking 5.5m *behind* them, which
+      // was right when the field was seated with the human on pole and became
+      // wrong the day the director moved them to the back — every rival was
+      // behind the lens, and the lens itself was parked in the item layer at the
+      // start line, which is why the first two seconds of every race had a coin
+      // the size of a sixth of the frame clipping it.
+      //
+      // `shotBack` is the metres of grid standing in front of the player, so the
+      // aim reaches past the pole-sitter on any field size and on pole — where
+      // it is zero — the beat degrades to a straight hero pass up the road.
       const u = t / A;
       const m = lerp(u, smootherstep(u), 0.45);
       _desired.copy(racer.pos)
-        .addScaledVector(_fwd, 11.5 - 2.6 * m)
-        .addScaledVector(_right, 7.0 - 2.6 * m);
-      _desired.y += 1.65 + 0.7 * m;
-      _anchor.copy(racer.pos).addScaledVector(_fwd, -5.5 + 1.5 * m);
-      _anchor.y += 1.15;
-      beatFov = 42;
+        .addScaledVector(_fwd, -(10.5 - 2.8 * m))
+        .addScaledVector(_right, 2.4 - 0.9 * m);
+      _desired.y += 3.6 - 0.6 * m;
+      _anchor.copy(racer.pos).addScaledVector(_fwd, shotBack * 0.55 + 6 + 2 * m);
+      _anchor.y += 1.1;
+      beatFov = 46;
     } else if (t < B) {
       // Beat 2 — CUT. Crane over the line, descending, reading the road ahead.
       const u = (t - A) / (B - A);
@@ -436,6 +504,59 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
     if (t >= 1) introActive = false;
   }
 
+  // ── the podium ───────────────────────────────────────────────────────────
+
+  /**
+   * The results sheet's backdrop: a slow orbit around whoever won.
+   *
+   * The sheet's scrim was built semi-transparent through the middle on purpose
+   * — "the centre stays open enough to read the confetti and the machine it is
+   * falling on" — and until now what showed through that window was wherever
+   * the chase rig happened to stop, which is empty road with a stationary kart
+   * somewhere off frame. The director has always asked for this shot and named
+   * the winner in the ask.
+   *
+   * Deliberately slow and deliberately low: this is a backdrop behind a table
+   * of numbers, so it must never pull the eye off them. A quarter of a radian a
+   * second is about a lap of the machine every twenty-five seconds, which reads
+   * as *alive* and not as motion.
+   */
+  function updatePodium(dt: number, alpha: number): void {
+    const target = podiumRacer;
+    if (!target) return;
+    podiumT += dt;
+
+    _pos.lerpVectors(target.prevPos, target.pos, clamp01(alpha));
+    // From behind the machine and swinging round to its flank. Eased in, so the
+    // curtain opens onto a lens that is already moving rather than one that
+    // starts on the frame the sheet lands.
+    const a = target.yaw + Math.PI + ease.outCubic(clamp01(podiumT / 2.4)) * 0.5
+      + podiumT * 0.25;
+    const dist = lerp(9.5, 7.2, ease.outCubic(clamp01(podiumT / 3)));
+    const lift = lerp(4.2, 2.9, ease.outCubic(clamp01(podiumT / 3)));
+
+    _desired.set(_pos.x - Math.sin(a) * dist, _pos.y + lift, _pos.z - Math.cos(a) * dist);
+    const surfY = surfaceYAt(_desired.x, _desired.z, _desired.y);
+    if (_desired.y < surfY + 1.1) _desired.y = surfY + 1.1;
+    cam.position.copy(_desired);
+
+    _anchor.copy(_pos);
+    _anchor.y += lookHeight + 0.35;
+    setFov(C.fov - 6);
+    fov = C.fov - 6;
+    frame(_anchor, 0, 0, WORLD_UP, 0);
+
+    // Keep the chase rig primed off the same pose, so anything that hands the
+    // lens back — a reviewer setting a mode, the next race — resumes from where
+    // the orbit left it instead of snapping out of a stale one.
+    rigYaw = target.yaw;
+    distance = baseDist;
+    height = baseHeight;
+    boomX = cam.position.x - _pos.x;
+    boomZ = cam.position.z - _pos.z;
+    camY = cam.position.y;
+  }
+
   // ── main ─────────────────────────────────────────────────────────────────
 
   return {
@@ -455,6 +576,12 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
       lookSnap = 0;
       swingDir = 0; swingNext = 0; swingU = 0; swingHop = 0; swingDepth = 1; swing = 0;
       celebT = -1;
+      podiumRacer = null;
+      podiumT = 0;
+      // `shotBack` is deliberately not cleared here: the director emits
+      // `camera:shot` from inside its own reset at order 70, before this one,
+      // so clearing it would throw away the number that has just arrived.
+      gridFrame = phase === 'intro' || phase === 'countdown' ? 1 : 0;
       // The race director resets first and emits `race:intro` from inside that
       // reset, so the sweep has to be armed from the config rather than from the
       // event — otherwise this line would cancel a sweep that just started.
@@ -488,6 +615,19 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
       if (celebT >= 0) celebT += dt;
 
       if (introActive) { updateIntro(dt, racer); return; }
+
+      // The `podium` shot: the results sheet's backdrop. Only ever while the
+      // sheet is actually up, and only from `chase` — a reviewer who has asked
+      // for `overhead`, or a player holding look-behind, has said what they
+      // want the lens to do.
+      if (podiumRacer && mode === 'chase' && (phase === 'results' || phase === 'finished')) {
+        updatePodium(dt, alpha);
+        return;
+      }
+
+      // How much of the grid framing is on. See `gridFrame`.
+      gridFrame = damp(gridFrame,
+        phase === 'intro' || phase === 'countdown' ? 1 : 0, 0.02, dt);
 
       const track = ctx.track;
       const K = ctx.config.kart;
@@ -589,10 +729,18 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
       const countIn = phase === 'countdown'
         ? C.countdown.pullback * clamp01(ctx.race.countdown / 3) : 0;
 
+      // The `countdown` shot, folded into the rig rather than replacing it: a
+      // little more lens and a little more height while the lights are on, in
+      // proportion to how much grid is standing in front of the player, so the
+      // machines they have to get past are in the frame they spend the count
+      // staring at. Capped, because a player seated last in a twelve-car field
+      // should not spend the countdown in a helicopter.
+      const gridLift = gridFrame * clamp01(shotBack / 26);
       let targetDist = baseDist + speedFrac * C.chase.speedPullback
-        + boostFrac * C.boost.distance + countIn + celeb * C.victory.distance;
+        + boostFrac * C.boost.distance + countIn + celeb * C.victory.distance
+        + gridLift * 2.4;
       let targetHeight = baseHeight - speedFrac * C.chase.speedDrop
-        + celeb * C.victory.height;
+        + celeb * C.victory.height + gridLift * 1.5;
       if (md) {
         targetDist += md.distance;
         targetHeight += md.height;

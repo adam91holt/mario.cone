@@ -251,7 +251,7 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     if (open && paused) togglePause();
   });
 
-  const overlay: RaceOverlay | null = createOverlay(onPick);
+  const overlay: RaceOverlay | null = createOverlay(ctx, onPick);
 
   // ── small helpers ────────────────────────────────────────────────────────
 
@@ -289,14 +289,20 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
    *               behind them shows the whole field. `slot` is the player's
    *               grid index, `total` the field size, `back` the metres of grid
    *               ahead of them.
-   *   `countdown` the three beats. Wanted: back and up over the pole-sitter's
-   *               shoulder. The chase rig's own pull-back is 1.5m against 8m
-   *               rows, so on any grid slot with a machine behind it the lens
-   *               ends up *inside* that machine.
+   *   `countdown` the three beats. Back and up in proportion to the grid
+   *               standing in front of the player, so the machines they have to
+   *               get past are in the frame they spend the count staring at.
    *   `podium`    the results sheet's backdrop. `racerId` is the winner.
+   *   `finish`    the player's own crossing.
    *
-   * Nothing listens yet; an unanswered ask costs one bus dispatch and keeps the
-   * request in the code that needs it rather than in a report nobody re-reads.
+   * **Three of the four are answered now** — `render/camera.ts` subscribes and
+   * composes `grid`, `countdown` and `podium`. They were not, for the whole
+   * life of the project, which is why the opening sweep used to fly through the
+   * item layer reading the grid backwards and why the results sheet's
+   * deliberately transparent centre opened onto empty road.
+   *
+   * `finish` is still unanswered, and the borrow below is what stands in for it
+   * — see the note under it.
    */
   function askCamera(shot: string, extra: Record<string, unknown> = {}): void {
     ctx.bus.emit('camera:shot', { shot, ...extra });
@@ -304,8 +310,9 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
 
   // ── the lens, borrowed ───────────────────────────────────────────────────
   //
-  // `camera:shot` is the right channel and nothing answers it yet, so the flag
-  // would land on the same chase framing the previous three laps were shot on —
+  // `camera:shot` is the right channel and nothing answers the `finish` request
+  // on it yet, so the flag would land on the same chase framing the previous
+  // three laps were shot on —
   // which is the single loudest complaint against this piece. `camera:mode`
   // *is* answered, and it can at least change the lens: `near` pulls two metres
   // in, drops half a metre and shortens the field of view, which against the

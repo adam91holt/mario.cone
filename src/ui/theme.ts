@@ -262,18 +262,25 @@ export function cursorRing(w = 1): string {
     + ` 0 0 calc(var(--u) * ${(1.5 * w).toFixed(2)}) rgba(255,180,40,.62)`;
 }
 
-/** The chevron that hangs off the cursor's leading edge, for one layer. */
-export function cursorChevronCss(scope: string, sel: string): string {
-  return `
-${scope} ${sel}::before {
-  content: ''; position: absolute; top: 50%; left: calc(var(--u) * -1.02);
+/**
+ * The chevron that hangs off the cursor's leading edge.
+ *
+ * The declarations only, so a caller can hang it on a pseudo-element (the
+ * front-end's roving ring) or on a real one (the race's option plate, whose
+ * `::before` is already spent on the plate's hazard header strip).
+ */
+export const CURSOR_CHEVRON = `
+  position: absolute; top: 50%; left: calc(var(--u) * -1.02);
   width: calc(var(--u) * .8); height: calc(var(--u) * 1.15);
   transform: translateY(-50%);
   background: ${hexCss(C.yellow)};
   clip-path: polygon(0 0, 100% 50%, 0 100%, 36% 50%);
   filter: drop-shadow(0 0 calc(var(--u) * .18) rgba(255,190,60,.9));
-}
 `;
+
+/** The chevron on a `::before`, for a caller whose cursor is its own element. */
+export function cursorChevronCss(scope: string, sel: string): string {
+  return `${scope} ${sel}::before { content: '';${CURSOR_CHEVRON}}`;
 }
 
 // ── the prompt rail ────────────────────────────────────────────────────────
