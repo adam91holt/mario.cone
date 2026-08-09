@@ -95,6 +95,61 @@ export interface SoundBank {
 }
 
 /**
+ * The mix desk.
+ *
+ * Every sound above is *designed* — layers, envelopes, glides — and none of
+ * that says anything about how loud it should be next to the others. Left
+ * alone, loudness ends up decided by how many layers a sound happens to have,
+ * and a measured render of this bank said exactly that: a barrier scrape came
+ * out louder than a bob-omb, a red shell fired 20dB below a landing, and the
+ * whole bank spanned 30dB in an order nobody chose. Lightning peaked *over*
+ * full scale on its own.
+ *
+ * So the levels live here, in one table, set against a target curve rather than
+ * per sound:
+ *
+ *   -5 dB   the four things allowed to own the mix: an explosion, a smash,
+ *           the flag, the finish.
+ *   -7 dB   your own big moment — a mini-turbo, a rocket start, a bullet, and
+ *           each machine's signature shout.
+ *   -9 dB   speed you were given: a pad, a boost, the final lap.
+ *   -10 dB  contact. Walls and landings happen every corner of every lap and
+ *           are the single easiest way to make a racing game exhausting.
+ *   -12 dB  firing an item, and being handed one.
+ *   -14 dB  small rewards and state changes.
+ *   -18 dB  texture: a hop, a trick, the first bite of a drift.
+ *
+ * The numbers are ratios measured against that curve by `bench.ts`, not taste.
+ * Re-measure with `__AUDIO.render` after changing any sound above; a sound that
+ * has grown a layer will have moved.
+ */
+const TRIM: Record<string, number> = {
+  // own the mix
+  blast: 0.47, 'item.use.lightning': 0.37, 'hit.flip': 0.46,
+  'countdown.go': 0.73, finish: 0.78, 'finish.back': 0.9,
+  // your own big moment
+  'item.use.horn': 0.41, 'item.use.bullet': 0.59, rocket: 0.60, 'drift.release': 0.60,
+  'sig.truck': 0.61, 'sig.plane': 0.88, 'sig.train': 0.94, 'sig.digger': 1.09,
+  'sig.car': 1.82, 'sig.helicopter': 1.97, 'sig.cone': 1.04,
+  // speed you were given
+  boost: 0.51, pad: 0.51, burnout: 0.55, 'lap.final': 1.04, 'hit.squish': 0.51,
+  // contact
+  wall: 0.35, land: 0.39, splat: 0.55, 'hit.bump': 0.57, 'hit.spin': 0.93,
+  lap: 0.76, countdown: 0.88, 'countdown.set': 0.83, offroad: 0.82,
+  // items
+  'item.use.red': 0.68, 'item.use.shell': 1.76, 'item.use.bomb': 1.85,
+  'item.use.mushroom': 1.24, 'item.use.banana': 1.18, 'item.use.boo': 1.29,
+  'item.use.blooper': 0.66, 'item.use.star': 1.01, 'item.use.coin': 0.84,
+  'item.box': 0.80, 'item.get': 0.88, coin: 0.93, bump: 0.68,
+  // small rewards and state changes
+  bounce: 0.87, draft: 0.89, 'drift.tier': 0.95, grow: 1.07, shrink: 1.34,
+  'coin.lose': 1.32, 'effect.end': 1.25, 'boo.on': 1.38, 'boo.off': 1.09,
+  jump: 1.02,
+  // texture
+  hop: 0.87, trick: 1.45, scrape: 1.5, 'ui.click': 1.67, 'item.reel': 1.2,
+};
+
+/**
  * Minimum seconds between two firings of the same sound.
  *
  * A racing game generates events in bursts — eight karts crossing a boost pad
@@ -116,6 +171,31 @@ const THROTTLE: Record<string, number> = {
   bounce: 0.05,
 };
 const DEFAULT_THROTTLE = 0.03;
+
+/**
+ * Every id the bank answers to.
+ *
+ * Kept next to the bank rather than derived from it because a switch cannot be
+ * enumerated at runtime, and a reviewer — or the bench — needs to be able to
+ * fire all of them without reading this file. An id missing from here still
+ * plays; it is simply invisible to anything walking the list.
+ */
+export const SOUND_IDS: readonly string[] = [
+  'boost', 'pad', 'drift.release', 'drift.tier', 'rocket', 'burnout', 'trick',
+  'hop', 'land', 'wall', 'bump', 'offroad', 'scrape',
+  'hit.spin', 'hit.flip', 'hit.bump', 'hit.squish',
+  'coin', 'coin.lose',
+  'item.box', 'item.reel', 'item.get',
+  'item.use.banana', 'item.use.shell', 'item.use.red', 'item.use.mushroom',
+  'item.use.star', 'item.use.bullet', 'item.use.lightning', 'item.use.blooper',
+  'item.use.boo', 'item.use.bomb', 'item.use.horn', 'item.use.coin',
+  'bounce', 'blast', 'shrink', 'grow', 'splat', 'boo.on', 'boo.off', 'effect.end',
+  'sig.cone', 'sig.plane', 'sig.helicopter', 'sig.digger', 'sig.train',
+  'sig.truck', 'sig.car',
+  'jump', 'draft',
+  'countdown', 'countdown.set', 'countdown.go', 'lap', 'lap.final', 'finish', 'finish.back',
+  'warn.tick', 'ui.click',
+];
 
 /** Ceiling on shots started in one frame, and on the running total. Neither is
  *  reachable by playing the game — they exist so that a module in a runaway
@@ -425,8 +505,17 @@ export function createSoundBank(be: AudioBackend, listener: Listener): SoundBank
         return 0.3;
       }
       case 'scrape': {
+        // The first bite of a drift: the instant the rears let go. A narrow
+        // band is what makes it rubber rather than gravel, and a narrow band
+        // throws away most of its own level — so there are two of them, a
+        // squeal and the scuff underneath it, or the moment the player commits
+        // to a corner arrives silently.
         noise(s, {
-          filter: 'bandpass', f0: 3200, f1: 2000, q: 6, gain: 0.16, attack: 0.01, decay: 0.16,
+          filter: 'bandpass', f0: 3200, f1: 2000, q: 6, gain: 0.5, attack: 0.01, decay: 0.16,
+        });
+        noise(s, {
+          filter: 'bandpass', f0: 1100, f1: 700, q: 1.6, gain: 0.26,
+          attack: 0.006, decay: 0.12, pink: true,
         });
         return 0.2;
       }
@@ -543,14 +632,22 @@ export function createSoundBank(be: AudioBackend, listener: Listener): SoundBank
         return 0.35;
       }
       case 'item.use.red': {
+        // A homing shell, and it must not sound like the green one with a beep
+        // on it — it is the item everyone in the field is afraid of. The lock-on
+        // blips come first, then it *goes*: a launch whoosh with a body under it
+        // that climbs away, so the sound leaves rather than merely happening.
+        tone(s, { wave: 'square', f0: 1500, gain: 0.11, attack: 0.001, decay: 0.04 });
+        tone(s, { wave: 'square', f0: 1900, gain: 0.11, attack: 0.001, decay: 0.055, delay: 0.06 });
         noise(s, {
-          filter: 'bandpass', f0: 900, f1: 4200, q: 3, gain: 0.32, attack: 0.005, decay: 0.17,
+          filter: 'bandpass', f0: 700, f1: 4600, q: 1.4, gain: 0.42,
+          attack: 0.008, decay: 0.26, delay: 0.12,
         });
-        // The lock-on. Two hard blips before it goes — the tell that this one
-        // is following someone.
-        tone(s, { wave: 'square', f0: 1500, gain: 0.09, attack: 0.001, decay: 0.035 });
-        tone(s, { wave: 'square', f0: 1900, gain: 0.09, attack: 0.001, decay: 0.05, delay: 0.07 });
-        return 0.4;
+        tone(s, {
+          wave: 'sawtooth', f0: 260, f1: 900, glide: 0.24, gain: 0.2, attack: 0.006, decay: 0.28,
+          filter: 'lowpass', cut0: 900, cut1: 4000, q: 4, drive: 2.4, delay: 0.12,
+        });
+        tone(s, { wave: 'sine', f0: 150, f1: 70, gain: 0.34, attack: 0.004, decay: 0.2, delay: 0.12 });
+        return 0.5;
       }
       case 'item.use.mushroom': {
         tone(s, {
@@ -694,16 +791,238 @@ export function createSoundBank(be: AudioBackend, listener: Listener): SoundBank
         return 0.3;
       }
 
+      case 'splat': {
+        // Ink across the visor. Wet, dull, and immediately obvious that
+        // something has been done *to* you.
+        noise(s, {
+          filter: 'lowpass', f0: 3200, f1: 240, q: 1.2, gain: 0.5, attack: 0.004, decay: 0.26,
+          pink: true,
+        });
+        tone(s, {
+          wave: 'sine', f0: 260, f1: 70, glide: 0.16, gain: 0.36, attack: 0.003, decay: 0.24,
+        });
+        noise(s, {
+          filter: 'bandpass', f0: 900, f1: 400, q: 1.6, gain: 0.18,
+          attack: 0.01, decay: 0.4, delay: 0.05, pink: true,
+        });
+        return 0.6;
+      }
+      case 'boo.on': {
+        // Vanishing. Everything slides up and thins out.
+        tone(s, {
+          wave: 'sine', f0: 220, f1: 1400, glide: 0.4, gain: 0.2,
+          attack: 0.03, decay: 0.5, vibrato: 55, vibratoRate: 6.5,
+        });
+        noise(s, {
+          filter: 'bandpass', f0: 700, f1: 6000, q: 2.4, gain: 0.16, attack: 0.05, decay: 0.4,
+        });
+        return 0.4;
+      }
+      case 'boo.off': {
+        // Back in the world, and heavier than you left it.
+        tone(s, {
+          wave: 'sine', f0: 1200, f1: 200, glide: 0.28, gain: 0.2,
+          attack: 0.01, decay: 0.34, vibrato: 45, vibratoRate: 7,
+        });
+        noise(s, { filter: 'lowpass', f0: 4000, f1: 700, gain: 0.16, decay: 0.16 });
+        return 0.35;
+      }
+      case 'effect.end': {
+        // A protection running out. Two notes down, quiet, unmistakable — the
+        // player has a second to change their mind about the corner ahead.
+        bell(s, N.A5, 0.13, 0.2, 0);
+        bell(s, N.D5, 0.15, 0.42, 0.07);
+        return 0.25;
+      }
+
+      // ── the machines ──────────────────────────────────────────────────────
+      // One word each, on top of a boost. See `signature` in index.ts for why
+      // these exist: seven machines that sound different at cruise have to stay
+      // different at the moment the player is listening hardest.
+      case 'sig.cone': {
+        // A little two-stroke wound past its limit. Buzzy, comic, brief — and
+        // it needs a body as well as a buzz: the narrow band that makes the
+        // strimmer a strimmer also throws away most of the level, so a second
+        // layer goes through a wide filter to give the machine some size.
+        tone(s, {
+          wave: 'sawtooth', f0: 300, f1: 980, glide: 0.2, gain: 0.3,
+          attack: 0.006, hold: 0.05, decay: 0.16,
+          filter: 'bandpass', cut0: 900, cut1: 2800, q: 3.5, drive: 5,
+          vibrato: 70, vibratoRate: 26,
+        });
+        tone(s, {
+          wave: 'sawtooth', f0: 150, f1: 490, glide: 0.2, gain: 0.28,
+          attack: 0.006, hold: 0.05, decay: 0.18,
+          filter: 'lowpass', cut0: 700, cut1: 2200, q: 1.4, drive: 3,
+          vibrato: 70, vibratoRate: 26,
+        });
+        noise(s, { filter: 'highpass', f0: 3200, gain: 0.1, attack: 0.01, decay: 0.14 });
+        return 0.4;
+      }
+      case 'sig.plane': {
+        // The prop biting. Two saws a few cents apart so the beat is audible,
+        // sweeping up under a rush of air.
+        for (let i = 0; i < 2; i++) {
+          tone(s, {
+            wave: 'sawtooth', f0: 96, f1: 190, glide: 0.34, gain: 0.24, detune: i ? 9 : -9,
+            attack: 0.02, hold: 0.1, decay: 0.24,
+            filter: 'lowpass', cut0: 700, cut1: 2000, q: 2, drive: 1.6,
+          });
+        }
+        noise(s, {
+          filter: 'bandpass', f0: 500, f1: 2600, q: 0.9, gain: 0.26, attack: 0.05, decay: 0.34,
+          pink: true,
+        });
+        return 0.55;
+      }
+      case 'sig.helicopter': {
+        // Collective pulled: the turbine spools and the blades speed up. Six
+        // slaps, accelerating — a modulated gate cannot be scheduled this
+        // precisely, so the one-shot spells them out.
+        for (let i = 0; i < 6; i++) {
+          noise(s, {
+            filter: 'bandpass', f0: 700 - i * 40, q: 1.5, gain: 0.3 - i * 0.02,
+            attack: 0.002, decay: 0.05, delay: i * (0.075 - i * 0.007), pink: true,
+          });
+        }
+        tone(s, {
+          wave: 'sawtooth', f0: 900, f1: 2600, glide: 0.42, gain: 0.1,
+          attack: 0.04, decay: 0.4, filter: 'bandpass', cut0: 1200, cut1: 3000, q: 8,
+        });
+        tone(s, { wave: 'sine', f0: 120, f1: 62, gain: 0.3, attack: 0.01, decay: 0.34 });
+        return 0.6;
+      }
+      case 'sig.digger': {
+        // Hydraulics, then the bucket. A big machine doing something it was
+        // built for, badly, at speed.
+        tone(s, {
+          wave: 'sine', f0: 1500, f1: 2600, glide: 0.26, gain: 0.09,
+          attack: 0.03, decay: 0.28, filter: 'bandpass', cut0: 1800, cut1: 2800, q: 9,
+        });
+        tone(s, {
+          wave: 'sawtooth', f0: 70, f1: 120, glide: 0.2, gain: 0.3, attack: 0.01, decay: 0.3,
+          filter: 'lowpass', cut0: 400, cut1: 900, q: 2, drive: 4,
+        });
+        metal(s, 165, 0.2, 0.4);
+        return 0.7;
+      }
+      case 'sig.train': {
+        // A steam whistle: a chord of open pipes, not one note, with the last
+        // partial slightly out — which is the entire reason a real whistle
+        // sounds like a whistle and a sine sounds like a kettle.
+        const dur = 0.5;
+        const parts = [523, 622, 784, 932];
+        const amps = [0.20, 0.15, 0.13, 0.08];
+        for (let i = 0; i < parts.length; i++) {
+          tone(s, {
+            wave: 'sine', f0: parts[i]! * 0.97, f1: parts[i]!, glide: 0.07, gain: amps[i]!,
+            attack: 0.05, hold: dur, decay: 0.24, vibrato: 12, vibratoRate: 5.5,
+          });
+        }
+        noise(s, {
+          filter: 'bandpass', f0: 2600, q: 1.1, gain: 0.14, attack: 0.04, decay: dur * 0.9,
+        });
+        return 0.85;
+      }
+      case 'sig.truck': {
+        // The air horn, an octave up on the item version and half as long — it
+        // is a punctuation mark here, not a weapon.
+        const dur = 0.24;
+        for (const f of [420, 528]) {
+          for (let i = 0; i < 2; i++) {
+            tone(s, {
+              wave: 'sawtooth', f0: f, gain: 0.2, detune: i ? 8 : -8,
+              attack: 0.01, hold: dur, decay: 0.12,
+              filter: 'lowpass', cut0: 1800, cut1: 3000, q: 1.2, drive: 2.2,
+            });
+          }
+        }
+        noise(s, { filter: 'highpass', f0: 4200, gain: 0.06, attack: 0.008, decay: dur });
+        return 0.7;
+      }
+      case 'sig.car': {
+        // A rev flare and the blow-off valve after it. The one machine in the
+        // cast that is simply fast, and it gets to sound smug about it.
+        tone(s, {
+          wave: 'sawtooth', f0: 180, f1: 620, glide: 0.16, gain: 0.22,
+          attack: 0.008, decay: 0.22, filter: 'lowpass', cut0: 900, cut1: 4200, q: 4, drive: 2.4,
+        });
+        noise(s, {
+          filter: 'bandpass', f0: 5200, f1: 2400, q: 2.6, gain: 0.22,
+          attack: 0.006, decay: 0.16, delay: 0.19,
+        });
+        return 0.5;
+      }
+
+      // ── air ───────────────────────────────────────────────────────────────
+      case 'jump': {
+        // Leaving the ground properly. Air over the body, rising as it goes up.
+        const big = clamp01(lv);
+        noise(s, {
+          filter: 'bandpass', f0: 380, f1: lerp(1400, 2600, big), q: 1.0,
+          gain: 0.18 + 0.2 * big, attack: 0.06, decay: 0.3, pink: true,
+        });
+        tone(s, {
+          wave: 'sine', f0: 170, f1: lerp(300, 460, big), glide: 0.2,
+          gain: 0.12 + 0.14 * big, attack: 0.01, decay: 0.24,
+        });
+        return 0.3;
+      }
+      case 'draft': {
+        // Punching out of a rival's wake. The suck first, then the release —
+        // the shape is what tells the player they have *left* the wake with
+        // something to show for it.
+        noise(s, {
+          filter: 'bandpass', f0: 1900, f1: 420, q: 1.3, gain: 0.3,
+          attack: 0.05, decay: 0.2, pink: true,
+        });
+        noise(s, {
+          filter: 'bandpass', f0: 500, f1: 3400, q: 1.0, gain: 0.34,
+          attack: 0.02, decay: 0.26, delay: 0.13, pink: true,
+        });
+        tone(s, {
+          wave: 'sine', f0: 120, f1: 240, glide: 0.2, gain: 0.3, attack: 0.02, decay: 0.28,
+          delay: 0.1,
+        });
+        return 0.45;
+      }
+
       // ── the race ──────────────────────────────────────────────────────────
       case 'countdown': {
         // Three beats of the same note, so the ear has a tempo to sit on and
-        // the change on GO lands as an event rather than as a fourth beep.
+        // the change on GO lands as an event rather than as a fourth beep. The
+        // *pitch* holds; only the brightness and length climb, which reads as
+        // rising tension without breaking the metronome.
+        const urg = clamp01(lv);
         tone(s, {
-          wave: 'square', f0: midiHz(N.A4), gain: 0.22, attack: 0.004, hold: 0.1, decay: 0.16,
-          filter: 'lowpass', cut0: 2600, q: 2,
+          wave: 'square', f0: midiHz(N.A4), gain: 0.20 + 0.04 * urg,
+          attack: 0.004, hold: 0.09 + 0.03 * urg, decay: 0.16,
+          filter: 'lowpass', cut0: lerp(2000, 3400, urg), q: 2,
         });
         tone(s, { wave: 'sine', f0: midiHz(N.A3), gain: 0.14, attack: 0.004, hold: 0.08, decay: 0.2 });
         return 0.5;
+      }
+      case 'countdown.set': {
+        // The fourth beat. Same voice as the three before it but a fourth up,
+        // onto the tonic of the fanfare that is about to land — so the count
+        // resolves musically instead of merely stopping. Under it, a one-second
+        // riser: the exact length of the gap between this beat and the flag,
+        // swelling to nothing at the moment the flag falls, which is what makes
+        // the rocket-start window feel like a window.
+        tone(s, {
+          wave: 'square', f0: midiHz(N.D5), gain: 0.24, attack: 0.004, hold: 0.1, decay: 0.18,
+          filter: 'lowpass', cut0: 3200, q: 2,
+        });
+        tone(s, { wave: 'sine', f0: midiHz(N.D4), gain: 0.15, attack: 0.004, hold: 0.08, decay: 0.22 });
+        noise(s, {
+          filter: 'bandpass', f0: 260, f1: 3600, q: 1.1,
+          gain: 0.20, attack: 0.92, decay: 0.1, pink: true,
+        });
+        tone(s, {
+          wave: 'sawtooth', f0: midiHz(N.D3), f1: midiHz(N.D4), glide: 0.95, gain: 0.08,
+          attack: 0.9, decay: 0.1, filter: 'lowpass', cut0: 400, cut1: 2200, q: 3, drive: 1.6,
+        });
+        return 0.55;
       }
       case 'countdown.go': {
         for (const m of [N.D5, N.Fs5, N.A5]) brass(s, m, 0.3, 0.34, 0);
@@ -741,6 +1060,24 @@ export function createSoundBank(be: AudioBackend, listener: Listener): SoundBank
           pink: true,
         });
         return 1;
+      }
+      case 'finish.back': {
+        // Off the podium. The same instrument and the same key as `finish` — it
+        // is the same event — but the line falls instead of rising and the
+        // chord it lands on is minor. Deliberately not a joke: the player is
+        // going to hear this more often than the other one, and a game that
+        // laughs at you six times a cup is a game you stop playing.
+        // D - A - F falling, onto a D minor triad. Intervals rather than named
+        // notes, because the minor third this needs is not one the major-key
+        // chart above ever asks for.
+        const line = [N.D5, N.A4, N.D4 + 3];
+        for (let i = 0; i < line.length; i++) brass(s, line[i]!, 0.26, 0.2, i * 0.1);
+        for (const m of [N.D4, N.D4 + 3, N.D4 + 7]) brass(s, m, 0.2, 0.7, 0.34);
+        noise(s, {
+          filter: 'lowpass', f0: 2200, f1: 700, q: 0.8, gain: 0.14,
+          attack: 0.05, decay: 0.6, pink: true, delay: 0.3,
+        });
+        return 0.8;
       }
       case 'warn.tick': {
         tone(s, {
@@ -798,8 +1135,11 @@ export function createSoundBank(be: AudioBackend, listener: Listener): SoundBank
   function sendFor(id: string): number {
     if (id === 'blast' || id.startsWith('hit.') || id === 'wall') return 0.3;
     if (id.startsWith('item.use.') || id === 'item.box') return 0.18;
-    if (id === 'coin' || id === 'item.get' || id.startsWith('lap') || id === 'finish') return 0.22;
-    if (id === 'countdown' || id === 'countdown.go') return 0.3;
+    if (id === 'coin' || id === 'item.get' || id.startsWith('lap') || id.startsWith('finish')) return 0.22;
+    if (id.startsWith('countdown')) return 0.3;
+    // A machine shouting in a canyon gets an answer. It is the one family of
+    // sounds whose whole job is to be *the place*, so it gets the most room.
+    if (id.startsWith('sig.')) return 0.34;
     return 0.1;
   }
 
@@ -813,9 +1153,15 @@ export function createSoundBank(be: AudioBackend, listener: Listener): SoundBank
 
       const send = sendFor(id);
       let dest: AudioNode = be.sfx;
+      let heard = 1;
       if (opts?.pos) {
         const placed = spatialDest(opts.pos.x, opts.pos.y, opts.pos.z, send);
         if (!placed) return;
+        // `spatialDest` has just written the distance gain into `pl`, and the
+        // music duck needs it: a bob-omb a hundred metres up the road is barely
+        // audible, and a mix that drops the bed to 42% for it is a mix that
+        // ducks for things the player cannot hear.
+        heard = pl.gain;
         dest = placed;
       } else {
         if (send > 0) {
@@ -842,12 +1188,18 @@ export function createSoundBank(be: AudioBackend, listener: Listener): SoundBank
       budget--;
       busy++;
 
+      const volume = opts?.volume ?? 1;
       shot.t = now + 0.008; // a hair of lead time, so nothing is scheduled late
       shot.dest = dest;
-      shot.gain = opts?.volume ?? 1;
+      shot.gain = volume * (TRIM[id] ?? 1);
       shot.rate = opts?.rate ?? 1;
       shot.level = opts?.level ?? 1;
-      const weight = build(id, shot);
+      // How hard the mix should get out of the way. Deliberately *not* scaled by
+      // the mix trim: the trim says how loud this sound is allowed to be, and
+      // folding it in here would mean the game ducked least for the sounds it
+      // had decided were most important. The caller's own volume does count,
+      // because that is how far away and how relevant the event was.
+      const weight = build(id, shot) * clamp01(volume) * heard;
       if (weight > loud) loud = weight;
     },
 

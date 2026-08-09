@@ -192,7 +192,24 @@ const SCRUB: Record<Surface, { f: number; q: number; level: number }> = {
  * by. You sit *in* your machine and beside everyone else's, and this is that
  * difference expressed as a number.
  */
-const RIVAL_TRIM = 0.58;
+const RIVAL_TRIM = 0.50;
+
+/**
+ * How loud the whole engine bed sits, over and above the mixer's engine fader.
+ *
+ * Set by measurement, not by ear. A rendered slice of the busiest moment the
+ * game can produce — final lap, four machines close, a bob-omb in the middle of
+ * it — was measured band by band with each layer muted in turn, and the music
+ * bed turned out to be contributing 1.2dB to the 600Hz-2.4kHz band. That is not
+ * a tune playing under a race; that is texture. The engines were three times
+ * that in the same band, and an engine is *broadband and continuous* where a
+ * melody is neither, so it wins every masking contest it enters.
+ *
+ * Three decibels off the bed put the music back in the picture without costing
+ * the engines their authority — they still own everything below 300Hz, which is
+ * where the sense of speed actually lives.
+ */
+const BED_TRIM = 0.70;
 
 export interface RacerVoice {
   /** `p` must already have been filled in by `place()` for this racer. */
@@ -498,7 +515,7 @@ export function createRacerVoice(
       set(pScrubF, sc.f * lerp(0.86, 1.18, clamp01(d.slip)), now);
       set(pScrubQ, sc.q, now);
 
-      set(pMix, spec.vol * audible, now);
+      set(pMix, spec.vol * audible * BED_TRIM, now);
       if (spatial) {
         set(spatial.cut, p.cut, now);
         if (spatial.pan) set(spatial.pan, p.pan, now);

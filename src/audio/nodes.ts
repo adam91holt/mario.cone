@@ -112,6 +112,15 @@ export function place(
 }
 
 /**
+ * How far the engine bed steps back for a given bank loudness.
+ *
+ * One function rather than a constant in the frame loop, because the bench has
+ * to apply exactly the same rule — a measurement of a mix the game does not
+ * actually play is worth nothing.
+ */
+export const engineDuckFor = (loudness: number): number => 1 - 0.42 * clamp01(loudness);
+
+/**
  * An AudioParam with the last value we asked for remembered next to it.
  *
  * Every voice in this module is driven from the render loop, sixty times a

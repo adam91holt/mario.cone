@@ -58,7 +58,7 @@ export const ARCHETYPES: readonly DriverProfile[] = [
   {
     key: 'metronome',
     blurb: 'never off the road, never off the line, never quite quick enough',
-    aggression: 0.32, consistency: 0.98, bravery: 0.60, driftLove: 0.50,
+    aggression: 0.32, consistency: 0.98, bravery: 0.60, driftLove: 0.62,
     apexShift: -3, lineGain: 0.94, patience: 0.85, greed: 0.55,
   },
   {
@@ -70,7 +70,7 @@ export const ARCHETYPES: readonly DriverProfile[] = [
   {
     key: 'bulldozer',
     blurb: 'owns the inside line and will not be asked to give it back',
-    aggression: 0.96, consistency: 0.72, bravery: 0.78, driftLove: 0.42,
+    aggression: 0.96, consistency: 0.72, bravery: 0.78, driftLove: 0.56,
     apexShift: -7, lineGain: 0.80, patience: 0.18, greed: 0.42,
   },
   {
@@ -88,13 +88,13 @@ export const ARCHETYPES: readonly DriverProfile[] = [
   {
     key: 'nervous',
     blurb: 'brakes early, weaves under pressure, occasionally lifts for nothing',
-    aggression: 0.20, consistency: 0.42, bravery: 0.40, driftLove: 0.28,
+    aggression: 0.20, consistency: 0.42, bravery: 0.40, driftLove: 0.44,
     apexShift: -9, lineGain: 0.86, patience: 0.92, greed: 0.28,
   },
   {
     key: 'cruiser',
     blurb: 'immense down the straights, careful and wide through the corners',
-    aggression: 0.44, consistency: 0.90, bravery: 0.54, driftLove: 0.34,
+    aggression: 0.44, consistency: 0.90, bravery: 0.54, driftLove: 0.48,
     apexShift: 5, lineGain: 1.10, patience: 0.78, greed: 0.50,
   },
   {
@@ -163,7 +163,7 @@ export function temper(base: DriverProfile, skill: number, rng: Rng): DriverProf
     // most directly — it is what "worse" actually looks like from outside.
     consistency: jitter(lerp(base.consistency * 0.62, base.consistency, s), 0.04),
     bravery: jitter(lerp(base.bravery * 0.70, base.bravery, s), 0.05),
-    driftLove: jitter(base.driftLove * lerp(0.55, 1, s), 0.05),
+    driftLove: jitter(base.driftLove * lerp(0.72, 1, s), 0.05),
     apexShift: base.apexShift + rng.gauss() * 1.6,
     lineGain: clamp(base.lineGain + rng.gauss() * 0.04, 0.7, 1.2),
     patience: jitter(base.patience, 0.06),

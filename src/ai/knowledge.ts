@@ -43,18 +43,30 @@ import type { SplineSample, Track, VehicleStats } from '../types.ts';
 
 /** Station pitch, metres. Fine enough for a 28m hairpin, cheap enough to be free. */
 const STEP = 4;
-/** How close to the barrier a plan is willing to put the kart. */
-const EDGE_MARGIN = 2.6;
+/**
+ * How close to the barrier a plan is willing to put the kart.
+ *
+ * A kart is a little over two metres wide and the line is authored to its
+ * centre, so this is roughly "outside wheel on the kerb". The driver tightens
+ * it further at speed (driver.ts, `laneLimit`) — a plan that runs to the paint
+ * at 25 m/s is racing, the same plan at 75 m/s is a kart in the gravel.
+ */
+const EDGE_MARGIN = 2.8;
 /** Curvature above which a station counts as "in a corner" (R ≈ 200m). */
 const CORNER_K = 0.005;
 /** A flat patch shorter than this, inside a corner, is still the corner. */
 const CORNER_MERGE = 18;
 /** Shorter than this and there is nothing to plan for. */
 const CORNER_MIN = 16;
+/**
+ * The steepest angle, as a gradient, at which a line may cross the road.
+ * 0.16 is a shade over nine degrees — about what a kart can actually hold
+ * against the tarmac while still pointing down the circuit.
+ */
+const MAX_LINE_SLOPE = 0.16;
 
 const _p0 = new THREE.Vector3();
 const _p1 = new THREE.Vector3();
-const _p2 = new THREE.Vector3();
 const _probe = new THREE.Vector3();
 const _sample: SplineSample = blankSample();
 
@@ -104,6 +116,22 @@ export interface CutSeg {
   save: number;
 }
 
+/**
+ * The circuit's geometry, flattened into plain arrays.
+ *
+ * Every line this module builds is `centre(d) + right(d) * lat(d)`, and the
+ * relaxation below evaluates that a few thousand times. Going through
+ * `spline.pointAt` for each of those means a binary search per sample; caching
+ * the station positions and their right vectors turns the whole thing into
+ * arithmetic, which is what makes it affordable to iterate.
+ */
+interface LineGeom {
+  px: Float32Array;
+  pz: Float32Array;
+  rx: Float32Array;
+  rz: Float32Array;
+}
+
 export interface TrackKnowledge {
   readonly id: string;
   readonly length: number;
@@ -115,6 +143,9 @@ export interface TrackKnowledge {
   readonly half: Float32Array;
   /** Curvature of the worn line, per station, signed. */
   readonly baseK: Float32Array;
+  /** Curvature of the road's own centreline, same sign convention. */
+  readonly roadK: Float32Array;
+  readonly geom: LineGeom;
   readonly corners: readonly CornerSeg[];
   readonly pads: readonly PadSeg[];
   readonly cuts: readonly CutSeg[];
@@ -137,7 +168,7 @@ function readTable(table: Float32Array, d: number, L: number, n: number): number
   return table[i0] + (table[i1] - table[i0]) * f;
 }
 
-function smooth(src: Float32Array, half: number): Float32Array {
+function smooth(src: Float32Array, half: number, into?: Float32Array): Float32Array {
   const n = src.length;
   const out = new Float32Array(n);
   for (let i = 0; i < n; i++) {
@@ -149,7 +180,9 @@ function smooth(src: Float32Array, half: number): Float32Array {
     }
     out[i] = sum / weight;
   }
-  return out;
+  if (!into) return out;
+  into.set(out);
+  return into;
 }
 
 /**
@@ -161,26 +194,103 @@ function smooth(src: Float32Array, half: number): Float32Array {
  * brake for a corner they were never going to take. Three consecutive points on
  * the line, the signed curvature of the circle through them, negated so the
  * sign matches the spline's own convention.
+ *
+ * The stencil is two stations wide rather than one: at a 4m pitch the spline's
+ * own sampling noise is the same size as the bend being measured, and a plan
+ * built on noisy curvature brakes for corners that are not there.
  */
-function pathCurvature(track: Track, lat: Float32Array, step: number, n: number): Float32Array {
-  const raw = new Float32Array(n);
-  const spline = track.spline;
+function pathCurvature(g: LineGeom, lat: Float32Array, n: number, out?: Float32Array): Float32Array {
+  const raw = out ?? new Float32Array(n);
   for (let i = 0; i < n; i++) {
-    const a = wrapIndex(i - 1, n);
-    const c = wrapIndex(i + 1, n);
-    spline.pointAt(a * step, lat[a], 0, _p0);
-    spline.pointAt(i * step, lat[i], 0, _p1);
-    spline.pointAt(c * step, lat[c], 0, _p2);
-    const ax = _p1.x - _p0.x, az = _p1.z - _p0.z;
-    const bx = _p2.x - _p1.x, bz = _p2.z - _p1.z;
+    const a = wrapIndex(i - 2, n);
+    const c = wrapIndex(i + 2, n);
+    const p0x = g.px[a] + g.rx[a] * lat[a], p0z = g.pz[a] + g.rz[a] * lat[a];
+    const p1x = g.px[i] + g.rx[i] * lat[i], p1z = g.pz[i] + g.rz[i] * lat[i];
+    const p2x = g.px[c] + g.rx[c] * lat[c], p2z = g.pz[c] + g.rz[c] * lat[c];
+    const ax = p1x - p0x, az = p1z - p0z;
+    const bx = p2x - p1x, bz = p2z - p1z;
     const la = Math.hypot(ax, az), lb = Math.hypot(bx, bz);
-    const lc = Math.hypot(_p2.x - _p0.x, _p2.z - _p0.z);
+    const lc = Math.hypot(p2x - p0x, p2z - p0z);
     const denom = la * lb * lc;
     raw[i] = denom < 1e-6 ? 0 : -(2 * (ax * bz - az * bx)) / denom;
   }
-  // The spline's own sample noise shows up as curvature chatter, and chatter in
-  // the plan becomes chatter on the throttle.
-  return smooth(raw, 3);
+  // Chatter in the plan becomes chatter on the throttle.
+  return smooth(raw, 2, raw);
+}
+
+/**
+ * Straight-line the chicane.
+ *
+ * The worn line is built by an unsharp mask, which is right for a corner and
+ * badly wrong for a quick esse: it swings the full width of the road for every
+ * bend, and through three bends in ninety metres that swing demands a radius no
+ * kart owns. A plan built on it brakes to 27 m/s for a section that can be
+ * taken at 55, and the driver chasing it ends up in the gravel on the way out.
+ *
+ * So: wherever the *line* bends appreciably harder than the road it is drawn
+ * on, relax it toward its neighbours. A hairpin is untouched — there the road
+ * is already the tightest thing about the corner — while an esse collapses
+ * toward a straight, which is exactly what a driver does with one.
+ */
+function relaxLine(
+  g: LineGeom, lat: Float32Array, roadK: Float32Array, half: Float32Array,
+  n: number, step: number,
+): void {
+  const k = new Float32Array(n);
+  const next = new Float32Array(n);
+  // The stencil is deliberately wide. What has to go is a swing forty metres
+  // long, and a three-point Laplacian only reaches a couple of stations however
+  // many times it is applied — it rounds the corners off the swing and leaves
+  // the swing.
+  const REACH = 4;
+  for (let pass = 0; pass < 14; pass++) {
+    pathCurvature(g, lat, n, k);
+    let moved = 0;
+    for (let i = 0; i < n; i++) {
+      const limit = Math.abs(roadK[i]) * 1.3 + 0.0032;
+      const excess = Math.abs(k[i]) - limit;
+      if (excess <= 0) { next[i] = lat[i]; continue; }
+      const a = lat[wrapIndex(i - REACH, n)];
+      const c = lat[wrapIndex(i + REACH, n)];
+      const w = clamp01(excess / (limit + 0.004)) * 0.5;
+      next[i] = lerp(lat[i], (a + c) * 0.5, w);
+      moved++;
+    }
+    for (let i = 0; i < n; i++) {
+      const lim = Math.max(1.2, half[i] - EDGE_MARGIN);
+      lat[i] = clamp(next[i], -lim, lim);
+    }
+    limitSlope(lat, n, step);
+    if (moved === 0) break;
+  }
+  limitSlope(lat, n, step);
+}
+
+/**
+ * How fast the line is allowed to cross the road.
+ *
+ * Curvature alone does not catch the thing that actually hurts: a line that
+ * slides sixteen metres across the road in forty is asking the kart to travel
+ * at twenty degrees to the tarmac, and no amount of steering makes that happen
+ * at seventy metres a second. The driver simply lags it, and the lag *is* the
+ * kart running wide. A racing line moves across the road at a shallow angle;
+ * this is that angle, swept forwards and then backwards so neither end of a
+ * swing survives it.
+ */
+function limitSlope(lat: Float32Array, n: number, step: number): void {
+  const maxStep = MAX_LINE_SLOPE * step;
+  for (let pass = 0; pass < 2; pass++) {
+    for (let i = 0; i < n; i++) {
+      const a = wrapIndex(i - 1, n);
+      if (lat[i] - lat[a] > maxStep) lat[i] = lat[a] + maxStep;
+      else if (lat[a] - lat[i] > maxStep) lat[i] = lat[a] - maxStep;
+    }
+    for (let i = n - 1; i >= 0; i--) {
+      const c = wrapIndex(i + 1, n);
+      if (lat[i] - lat[c] > maxStep) lat[i] = lat[c] + maxStep;
+      else if (lat[c] - lat[i] > maxStep) lat[i] = lat[c] - maxStep;
+    }
+  }
 }
 
 /**
@@ -291,10 +401,11 @@ function findCuts(track: Track, L: number): CutSeg[] {
     const d0 = (((start + sc.from * L) % L) + L) % L;
     const span = (sc.to - sc.from) * L;
     track.spline.atDistance(d0 + span * 0.5, _sample);
-    // The worn cut runs from 0.12 to 0.95 of the verge; its middle is where a
-    // kart sits without either brushing the tarmac or falling off the far edge
-    // into the sand.
-    const lat = sc.side * (_sample.width * 0.5 + verge * 0.52);
+    // The worn cut runs from 0.12 to 0.95 of the verge, and the kart wants to
+    // sit inside its own width of the middle: brushing the tarmac wastes the
+    // shortcut, and a metre too far the other way is the sand, which is half
+    // again as slow as the gravel and ends at a barrier.
+    const lat = sc.side * (_sample.width * 0.5 + verge * 0.42);
     // Chord against arc: the cut travels a straighter path across the same
     // corner, and the saving is what that straightening is worth.
     track.spline.pointAt(d0, lat, 0, _p0);
@@ -333,19 +444,35 @@ function buildKnowledge(track: Track): TrackKnowledge {
   const n = Math.max(16, Math.round(L / STEP));
   const step = L / n;
 
-  const line = buildRacingLine(spline as unknown as TrackSpline, EDGE_MARGIN + 0.5);
+  const line = buildRacingLine(spline as unknown as TrackSpline, EDGE_MARGIN + 0.4);
   const baseLat = new Float32Array(n);
   const half = new Float32Array(n);
+  const geom: LineGeom = {
+    px: new Float32Array(n), pz: new Float32Array(n),
+    rx: new Float32Array(n), rz: new Float32Array(n),
+  };
+  /** All zeros: the centreline is the line with no lateral offset at all. */
+  const centre = new Float32Array(n);
 
   for (let i = 0; i < n; i++) {
     const d = i * step;
     spline.atDistance(d, _sample);
     half[i] = _sample.width * 0.5;
+    geom.px[i] = _sample.pos.x; geom.pz[i] = _sample.pos.z;
+    geom.rx[i] = _sample.right.x; geom.rz[i] = _sample.right.z;
     const lim = Math.max(1, half[i] - EDGE_MARGIN);
     baseLat[i] = clamp(line.lateralAt(d), -lim, lim);
   }
+  // The road's own curvature, measured the same way and at the same scale as
+  // every line curvature here. `SplineSample.curvature` is available and would
+  // be free, but the spline measures it over a much longer baseline, so it
+  // under-reports a tight corner by a factor of two — and every rule below
+  // compares a line against the road, so the two have to be measured with the
+  // same ruler or the comparison is meaningless.
+  const roadK = pathCurvature(geom, centre, n);
 
-  const baseK = pathCurvature(track, baseLat, step, n);
+  relaxLine(geom, baseLat, roadK, half, n, step);
+  const baseK = pathCurvature(geom, baseLat, n);
   const corners = segmentCorners(baseK, step, n);
   const cornerOf = new Int16Array(n).fill(-1);
   for (let c = 0; c < corners.length; c++) {
@@ -363,6 +490,8 @@ function buildKnowledge(track: Track): TrackKnowledge {
     baseLat,
     half,
     baseK,
+    roadK,
+    geom,
     corners,
     cornerOf,
     line,
@@ -402,6 +531,8 @@ export interface DriverPlan {
   readonly tier: Uint8Array;
   /** Fraction of full lock this driver holds in reserve for corrections. */
   readonly authority: number;
+  /** Per boost strip: is leaving the line for it actually worth it here? */
+  readonly padWorth: readonly boolean[];
   latAt(d: number): number;
   vAt(d: number): number;
   kAt(d: number): number;
@@ -416,6 +547,18 @@ export function turnRateAt(cfg: Config, speed: number, handling: number): number
   const h = lerp(0.85, 1.18, handling);
   const frac = clamp01(Math.abs(speed) / Math.max(1, K.maxSpeed));
   return K.steerRate * h * (1 - K.steerSpeedFalloff * Math.pow(frac, K.steerFalloffCurve));
+}
+
+/**
+ * The tightest path curvature the kart can hold at `speed`.
+ *
+ * The inverse of `speedForCurvature`, and the number a driver needs when the
+ * question is "can I still make this" rather than "how fast may I arrive".
+ */
+export function curvatureLimit(
+  cfg: Config, speed: number, handling: number, authority = 1,
+): number {
+  return (authority * turnRateAt(cfg, speed, handling)) / Math.max(4, Math.abs(speed));
 }
 
 /**
@@ -469,8 +612,12 @@ export function buildPlan(
     lat[i] = clamp(
       know.line.lateralAt(d - p.apexShift) * p.lineGain + p.linePreference, -lim, lim);
   }
+  // `apexShift` and `lineGain` can re-break a line the shared pass already
+  // straightened — shifting a swing along the road puts its steepest part
+  // somewhere new — so each driver's own line gets the same treatment.
+  relaxLine(know.geom, lat, know.roadK, know.half, n, step);
 
-  const k = pathCurvature(track, lat, step, n);
+  const k = pathCurvature(know.geom, lat, n);
 
   // ── where this driver drifts ──────────────────────────────────────────
   const handling = p.stats.handling;
@@ -478,21 +625,45 @@ export function buildPlan(
   // Authority the driver leaves for corrections. Brave drivers leave almost
   // none, which is why they are the ones who run wide when something goes
   // slightly wrong.
-  const authority = clamp(lerp(0.70, 0.95, p.bravery) * lerp(0.90, 1, p.skill), 0.55, 0.96);
+  const authority = clamp(lerp(0.70, 0.94, p.bravery) * lerp(0.88, 1, p.skill), 0.56, 0.94);
   const chargeRate = K.drift.chargeRate * lerp(0.8, 1.2, handling);
   const tier = new Uint8Array(know.corners.length);
   const drifting = new Uint8Array(n);
 
   for (let c = 0; c < know.corners.length; c++) {
     const seg = know.corners[c];
-    const gripV = speedForCurvature(cfg, seg.k, handling, authority, topSpeed);
+    // The curvature *this* driver's line asks for through the corner, not the
+    // worn line's: an early-apex driver and a late-apex one are on different
+    // radii and one of them may need a drift where the other does not.
+    const kNeed = Math.max(Math.abs(readTable(k, seg.apex, L, n)), seg.k * 0.6);
+    const gripV = speedForCurvature(cfg, kNeed, handling, authority, topSpeed);
     // How much charge this corner is actually good for, at the speed it will be
     // taken. A corner that cannot bank a tier is not worth going sideways in.
     const charge = chargeRate * (seg.len / Math.max(8, gripV)) * 0.85;
     let want = 0;
     for (let t = 0; t < K.drift.tiers.length; t++) if (charge >= K.drift.tiers[t].at) want = t + 1;
     const appetite = p.driftLove > 0.8 ? 3 : p.driftLove > 0.5 ? 2 : 1;
-    const worth = seg.k > lerp(0.017, 0.006, p.driftLove);
+
+    // Is a drift even the right shape for this corner?
+    //
+    // A committed drift cannot be driven straight: steering all the way *out*
+    // of it still holds `counterSteer * yawBonus` of the kart's turn rate, and
+    // that arc is the widest one on offer. Through a 116m kink at 62 m/s the
+    // widest drift available is a 82m radius — so a driver who commits there is
+    // choosing to turn a third harder than the corner asks, and the only way
+    // out of the resulting arc is to stop drifting. Measured, that one kink was
+    // enough to put the whole field on the dirt for the next two hundred
+    // metres. So: only where the corner is genuinely tighter than a drift's
+    // widest arc, which is the same thing as saying only where a drift is a
+    // tool rather than a decoration.
+    const widest = K.drift.counterSteer * K.drift.yawBonus
+      * turnRateAt(cfg, gripV, handling) / Math.max(8, gripV);
+    // Margin on top, so the stick lands inside the band rather than pinned to
+    // the wide end of it, where a kart has no answer left if it arrives a
+    // fraction hot. And nothing that can be taken flat: a drift through a
+    // corner that did not need one is a slide, a scrub and a lost second.
+    const worth = kNeed > widest * lerp(1.14, 0.96, p.driftLove)
+      && gripV < topSpeed * 0.97;
     if (!worth || want === 0 || gripV < K.drift.minSpeed * 1.25) continue;
     tier[c] = Math.min(want, appetite);
     for (let d = seg.d0; d < seg.d1; d += step) drifting[wrapIndex(Math.round(d / step), n)] = 1;
@@ -504,11 +675,36 @@ export function buildPlan(
   // a straight, and must not be told to brake for that.
   const ceiling = topSpeed * 1.45;
   for (let i = 0; i < n; i++) {
-    // A committed drift rotates the chassis faster than the tyres alone can, so
-    // it carries more curvature — but it also throws away most of the lateral
-    // grip, so the gain is nothing like the raw 1.7x yaw bonus.
-    v[i] = speedForCurvature(
-      cfg, Math.abs(k[i]), handling, authority * (drifting[i] ? 1.28 : 1), ceiling);
+    // A speed plan may never *depend* on a drift.
+    //
+    // A committed drift does rotate the chassis faster than the tyres alone
+    // can, and pricing the corner at that speed is tempting. But the drift is
+    // the one part of this plan the driver is allowed to decide against at the
+    // last moment — because the road is busy, because it is already fighting
+    // for grip, because it arrived at the wrong angle — and a plan that has
+    // already spent the drift's curvature sends it into the corner ten m/s too
+    // fast with no way of paying. Measured, that mismatch alone was most of the
+    // remaining off-road time. So the drift is a bonus the driver banks, never
+    // a promise the plan makes.
+    //
+    // The tighter the corner, the more of the limit is held back: the same
+    // metre of tracking error is a much larger fraction of a 40m radius than of
+    // a 130m one, and a hairpin is where an optimistic plan gets found out.
+    const kHere = Math.abs(k[i]);
+    const margin = 1 - 0.26 * clamp01(kHere / 0.028);
+    v[i] = speedForCurvature(cfg, kHere, handling, authority * margin, ceiling);
+    // ...but a line is a promise the kart has to keep, and no kart keeps one
+    // exactly. Swinging out-in-out genuinely opens a corner up — that is the
+    // whole point of a racing line — yet the plan reads that opening off a
+    // geometric ideal the driver is never precisely on, and every metre it is
+    // off puts the real radius back toward the road's own. A corner may
+    // therefore be planned as up to a third wider than the tarmac it is cut
+    // into, and no wider. Without this ceiling the plan arrives at a 66m bend
+    // believing it is a 91m one, and is a car's width into the gravel before it
+    // finds out otherwise.
+    const roadCap = speedForCurvature(
+      cfg, Math.abs(know.roadK[i]) * 0.72, handling, 0.98, ceiling);
+    if (v[i] > roadCap) v[i] = roadCap;
   }
 
   // Braking. Walk the lap backwards twice — twice because the limit set by the
@@ -530,6 +726,23 @@ export function buildPlan(
 
   const cornerIndexAt = (d: number): number => know.cornerOf[know.station(d)];
 
+  // ── which boost strips are worth having ───────────────────────────────
+  // A pad is 0.9s of held speed, and `boost.pull` drags the kart *up* to that
+  // speed whether or not the brake is down. Sixteen metres before a hairpin
+  // that is not a reward, it is a trap: the strip carries the kart through its
+  // own braking zone at full noise and deposits it in the gravel on the far
+  // side. So a driver checks what the road does with the boost before deciding
+  // to leave the line for it — the same call a player makes on lap two.
+  const padWorth = know.pads.map((pad) => {
+    const here = readTable(v, pad.d0, L, n);
+    let low = Infinity;
+    for (let i = 0; i <= 7; i++) {
+      const vi = readTable(v, pad.d1 + i * 10, L, n);
+      if (vi < low) low = vi;
+    }
+    return low > here * 0.6;
+  });
+
   return {
     know,
     lat,
@@ -537,6 +750,7 @@ export function buildPlan(
     v,
     tier,
     authority,
+    padWorth,
     latAt: (d) => readTable(lat, d, L, n),
     vAt: (d) => readTable(v, d, L, n),
     kAt: (d) => readTable(k, d, L, n),

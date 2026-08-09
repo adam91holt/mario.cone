@@ -39,18 +39,20 @@ import * as THREE from 'three';
 import { clamp, clamp01, damp } from '../core/math.ts';
 import { createBackend } from './context.ts';
 import { createRacerVoice, createDrive } from './engines.ts';
-import { createSoundBank } from './sfx.ts';
+import { createSoundBank, SOUND_IDS } from './sfx.ts';
 import { createCues } from './cues.ts';
 import { createMusic } from './music.ts';
-import { createListener, createPlacement, place } from './nodes.ts';
+import { createListener, createPlacement, place, engineDuckFor } from './nodes.ts';
+import { renderAudio } from './bench.ts';
 import type {
-  AudioSystem, GameContext, GameSystem, ItemId, RaceConfig, Racer, Surface,
+  AudioSystem, GameContext, GameSystem, ItemId, RaceConfig, Racer, Surface, VehicleId,
 } from '../types.ts';
 import type { AudioBackend } from './context.ts';
 import type { RacerVoice } from './engines.ts';
 import type { SoundBank, PlayOpts } from './sfx.ts';
 import type { Cues, CueState } from './cues.ts';
 import type { Music, MusicMode } from './music.ts';
+import type { RenderSpec } from './bench.ts';
 
 /** What an item sounds like when it is fired. */
 const USE_SOUND: Record<ItemId, string> = {
@@ -67,6 +69,18 @@ const USE_SOUND: Record<ItemId, string> = {
   bomb: 'item.use.bomb',
   coin: 'item.use.coin',
   horn: 'item.use.horn',
+};
+
+/** Each machine's own one-word shout, laid out rather than built from the
+ *  vehicle id — a table cannot produce an id the bank has never heard of. */
+const SIGNATURE: Record<VehicleId, string> = {
+  cone: 'sig.cone',
+  plane: 'sig.plane',
+  helicopter: 'sig.helicopter',
+  digger: 'sig.digger',
+  train: 'sig.train',
+  truck: 'sig.truck',
+  car: 'sig.car',
 };
 
 const OFFROAD: Record<Surface, number> = {
@@ -136,6 +150,7 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
   let threatPan = 0;
   let threat = 0;
   let engineTrim = -1;
+  let engineDuck = 1;
 
   // ── impulses ──────────────────────────────────────────────────────────────
 
@@ -194,54 +209,100 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
   // ── the bus ───────────────────────────────────────────────────────────────
 
   const bus = ctx.bus;
+  /** Subscriptions, kept so `dispose` can actually let go of them. A system
+   *  that is torn down and rebuilt — which is what a page with a menu does —
+   *  would otherwise leave a dead handler on every event in the game. */
+  const unsubs: Array<() => void> = [];
+  function on<T = unknown>(event: string, fn: (payload: T) => void): void {
+    unsubs.push(bus.on<T>(event, fn));
+  }
 
-  bus.on<{ n: number }>('race:countdown', ({ n }) => {
-    if (n >= 1) cue('countdown', 1, n);
+  // The lights.
+  //
+  // The director counts 3, 2, 1 and then shows GO one beat *before* the flag
+  // actually falls, so the last thing the player hears before being allowed to
+  // move must not be two seconds of nothing. Three beats on the same note give
+  // the ear a tempo; the fourth lifts a fourth to D — the key the GO fanfare is
+  // in — and a riser underneath it carries the last second into the flag. That
+  // is the whole rocket-start window, and it is now audible rather than merely
+  // documented.
+  on<{ n: number }>('race:countdown', ({ n }) => {
+    if (n >= 1) cue('countdown', 1, clamp01((3 - n) / 2));
+    else if (ctx.race.phase === 'countdown') cue('countdown.set');
   });
-  bus.on('race:racing', () => { cue('countdown.go'); });
-  bus.on<{ racer: Racer; lap: number }>('race:lap', ({ racer, lap }) => {
+  on('race:racing', () => { cue('countdown.go'); });
+  on<{ racer: Racer; lap: number }>('race:lap', ({ racer, lap }) => {
     if (!racer.isPlayer) return;
     if (lap >= ctx.race.totalLaps - 1) cue('lap.final');
     else cue('lap');
   });
-  bus.on<{ racer: Racer }>('race:finish', ({ racer }) => {
-    if (racer.isPlayer) cue('finish');
+  // Crossing the line, and it must not sound the same in sixth as it does in
+  // first. The results music is identical either way — the flag is the one
+  // moment the game gets to tell the player what just happened to them, and a
+  // fanfare that plays regardless is a fanfare that means nothing.
+  on<{ racer: Racer; place: number }>('race:finish', ({ racer, place }) => {
+    if (racer.isPlayer) cue(place <= 3 ? 'finish' : 'finish.back');
   });
-  bus.on<{ racer: Racer }>('race:rocketStart', ({ racer }) => {
+  on<{ racer: Racer }>('race:rocketStart', ({ racer }) => {
     cue('rocket', racer.isPlayer ? 1 : 0.5, 1, at(racer));
   });
-  bus.on<{ racer: Racer }>('race:burnout', ({ racer }) => {
+  on<{ racer: Racer }>('race:burnout', ({ racer }) => {
     cue('burnout', racer.isPlayer ? 1 : 0.5, 1, at(racer));
   });
 
-  bus.on<{ racer: Racer; source: string; power: number }>('kart:boost', ({ racer, source, power }) => {
+  /**
+   * The machine's own voice, on top of the boost it just took.
+   *
+   * Every kart in this game takes the same mini-turbo and the same pad, and if
+   * they all shout about it with the same sound then seven machines that were
+   * carefully made to sound different at cruise become identical at the exact
+   * moment the player is paying most attention. So a boost is the boost *plus*
+   * a one-word signature: the train's whistle, the truck's air horn, the
+   * helicopter's turbine surge. Player only — eight of these going off across a
+   * lap would stop being character and start being clutter.
+   */
+  function signature(racer: Racer, strength: number): void {
+    if (!racer.isPlayer) return;
+    cue(SIGNATURE[racer.vehicleId], strength);
+  }
+
+  on<{ racer: Racer; source: string; power: number }>('kart:boost', ({ racer, source, power }) => {
     const lv = clamp01(power / 46);
     const far = racer.isPlayer ? 1 : 0.7;
     if (source === 'drift1' || source === 'drift2' || source === 'drift3') {
-      const tier = Number(source.slice(-1)) / 3;
-      cue('drift.release', far, tier, at(racer));
+      const tier = Number(source.slice(-1));
+      cue('drift.release', far, tier / 3, at(racer));
+      // Only the top two tiers earn a shout. A blue spark every other corner
+      // would wear the joke out inside a lap.
+      if (tier >= 2) signature(racer, tier >= 3 ? 0.9 : 0.62);
     } else if (source === 'rocketStart') {
       cue('rocket', far, lv, at(racer));
+      signature(racer, 1);
     } else if (source === 'pad') {
       cue('pad', far * 0.85, lv, at(racer));
     } else if (source === 'star' || source === 'bullet') {
       // Those two announce themselves through `item:use`; a second whoosh every
       // time the effect re-arms is just noise.
+    } else if (source === 'slipstream') {
+      // The draft pays out as a shove rather than as a fanfare: the wake itself
+      // is already audible on the wind bed, and this is its release.
+      cue('draft', far * 0.8, lv, at(racer));
     } else {
       cue('boost', far, lv, at(racer));
+      if (source === 'mushroom') signature(racer, 0.7);
     }
   });
 
-  bus.on<{ racer: Racer }>('kart:hop', ({ racer }) => {
+  on<{ racer: Racer }>('kart:hop', ({ racer }) => {
     if (racer.isPlayer) cue('hop', 0.8);
   });
-  bus.on<{ racer: Racer; dir: number }>('kart:drift:start', ({ racer }) => {
+  on<{ racer: Racer; dir: number }>('kart:drift:start', ({ racer }) => {
     if (racer.isPlayer) cue('scrape', 0.7);
   });
-  bus.on<{ racer: Racer; tier: number }>('kart:drift:charge', ({ racer, tier }) => {
+  on<{ racer: Racer; tier: number }>('kart:drift:charge', ({ racer, tier }) => {
     if (racer.isPlayer && tier > 0) cue('drift.tier', 1, tier / 3);
   });
-  bus.on<{ racer: Racer; impact: number; tricked: boolean; airTime: number }>(
+  on<{ racer: Racer; impact: number; tricked: boolean; airTime: number }>(
     'kart:land', ({ racer, impact, tricked, airTime }) => {
       // A drift hop lands several times a corner. Only a real drop gets the
       // full treatment, or the game develops a stutter.
@@ -250,68 +311,90 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
       if (tricked && racer.isPlayer) cue('trick', 0.9);
     },
   );
-  bus.on<{ racer: Racer }>('kart:trick:start', ({ racer }) => {
+  on<{ racer: Racer }>('kart:trick:start', ({ racer }) => {
     if (racer.isPlayer) cue('trick', 0.7);
+  });
+  // Real air, as opposed to a drift hop. Physics only emits this above its own
+  // launch threshold, so it is already the rare event it sounds like.
+  on<{ racer: Racer; power: number }>('kart:launch', ({ racer, power }) => {
+    cue('jump', racer.isPlayer ? 0.85 : 0.4, clamp01(power / 9), at(racer));
   });
   // Leaving the tarmac costs speed, so it has to be *announced*, not merely
   // implied by the tyre bed changing colour underneath the engine. Player only:
   // seven CPU machines clipping the verge would put a crunch under every corner
   // of the race.
-  bus.on<{ racer: Racer }>('kart:offroad', ({ racer }) => {
+  on<{ racer: Racer }>('kart:offroad', ({ racer }) => {
     if (racer.isPlayer) cue('offroad', 0.85);
   });
-  bus.on<{ racer: Racer; force: number }>('kart:wall', ({ racer, force }) => {
+  on<{ racer: Racer; force: number }>('kart:wall', ({ racer, force }) => {
     cue('wall', racer.isPlayer ? 1 : 0.6, clamp01(force), at(racer));
   });
-  bus.on<{ a: Racer; b: Racer; force: number }>('kart:bump', ({ a, b }) => {
+  on<{ a: Racer; b: Racer; force: number }>('kart:bump', ({ a, b }) => {
     const who = a.isPlayer ? a : b;
     cue('bump', who.isPlayer ? 0.9 : 0.5, 1, at(who) ?? at(a));
   });
 
-  bus.on<{ racer: Racer }>('item:box', ({ racer }) => {
+  on<{ racer: Racer }>('item:box', ({ racer }) => {
     cue('item.box', racer.isPlayer ? 1 : 0.45, 1, at(racer));
   });
-  bus.on<{ racer: Racer; remaining: number; total: number }>(
+  on<{ racer: Racer; remaining: number; total: number }>(
     'item:reel', ({ racer, remaining, total }) => {
       if (!racer.isPlayer) return;
       cue('item.reel', 1, 1 - clamp01(total > 0 ? remaining / total : 0));
     },
   );
-  bus.on<{ racer: Racer }>('item:get', ({ racer }) => {
+  on<{ racer: Racer }>('item:get', ({ racer }) => {
     if (racer.isPlayer) cue('item.get');
   });
-  bus.on<{ racer: Racer; item: ItemId }>('item:use', ({ racer, item }) => {
+  on<{ racer: Racer; item: ItemId }>('item:use', ({ racer, item }) => {
     const id = USE_SOUND[item];
     if (id) cue(id, racer.isPlayer ? 1 : 0.7, 1, at(racer));
   });
-  bus.on<{ racer: Racer; kind: string }>('item:strike', ({ racer, kind }) => {
+  on<{ racer: Racer; kind: string }>('item:strike', ({ racer, kind }) => {
     const id = kind === 'flip' ? 'hit.flip'
       : kind === 'squish' ? 'hit.squish'
         : kind === 'bump' ? 'hit.bump' : 'hit.spin';
     cue(id, racer.isPlayer ? 1 : 0.6, 1, at(racer));
   });
-  bus.on<{ racer: Racer }>('item:block', ({ racer }) => {
+  on<{ racer: Racer }>('item:block', ({ racer }) => {
     cue('bounce', racer.isPlayer ? 1 : 0.6, 0.2, at(racer));
   });
-  bus.on<{ pos: THREE.Vector3 }>('item:blast', ({ pos }) => {
+  on<{ pos: THREE.Vector3 }>('item:blast', ({ pos }) => {
     cue('blast', 1, 1, pos);
   });
-  bus.on<{ kind: string; pos: THREE.Vector3; bounces: number }>(
+  on<{ kind: string; pos: THREE.Vector3; bounces: number }>(
     'item:bounce', ({ pos, bounces }) => {
       cue('bounce', 0.8, clamp01(bounces / 4), pos);
     },
   );
-  bus.on<{ racer: Racer; effect: string; on: boolean }>('item:effect', ({ racer, effect, on }) => {
+  // What is *happening to* the player, as distinct from what they fired. Each
+  // of these changes how the game is played for several seconds, and a state
+  // change the player cannot hear is a state change they will blame the game
+  // for. The `off` edges matter as much as the `on` ones: "it has worn off" is
+  // the information you steer by on the corner after.
+  on<{ racer: Racer; effect: string; on: boolean }>('item:effect', ({ racer, effect, on: active }) => {
     if (!racer.isPlayer) return;
-    if (effect === 'shrunk') cue(on ? 'shrink' : 'grow', 0.9);
+    switch (effect) {
+      case 'shrunk': cue(active ? 'shrink' : 'grow', 0.9); break;
+      case 'inked': if (active) cue('splat', 1); break;
+      case 'boo': cue(active ? 'boo.on' : 'boo.off', 0.85); break;
+      case 'star': if (!active) cue('effect.end', 0.7); break;
+      case 'bullet': if (!active) cue('effect.end', 0.7); break;
+      default: break;
+    }
   });
-  bus.on<{ racer: Racer }>('item:steal', ({ racer }) => {
+  on<{ racer: Racer }>('item:steal', ({ racer }) => {
     if (racer.isPlayer) cue('item.get', 0.8);
   });
-  bus.on<{ racer: Racer }>('coin:get', ({ racer }) => {
-    if (racer.isPlayer) cue('coin');
+  // The chime climbs with the purse, the way every game that has ever had a
+  // collectable does it — because a run of coins that all sound the same is a
+  // repeated noise, and a run that climbs is a *streak*. It tops out at ten,
+  // which is where the coin's speed bonus tops out too, so the ear is told the
+  // same thing the physics knows.
+  on<{ racer: Racer; total: number }>('coin:get', ({ racer, total }) => {
+    if (racer.isPlayer) cue('coin', 1, 1, null, 1 + 0.03 * clamp(total, 0, 10));
   });
-  bus.on<{ racer: Racer; count: number }>('coin:lose', ({ racer }) => {
+  on<{ racer: Racer; count: number }>('coin:lose', ({ racer }) => {
     if (racer.isPlayer) cue('coin.lose');
   });
 
@@ -319,7 +402,7 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
   // "something will hit you inside 1.6 seconds", carrying where it is in the
   // player's own frame. The siren is started here and driven to impact in
   // `update`, so there is no polling and no timeout of our own.
-  bus.on<{ on: boolean; level: number; bearing: number }>(
+  on<{ on: boolean; level: number; bearing: number }>(
     'item:warn', ({ on, level, bearing }) => {
       threatActive = on;
       if (on) {
@@ -478,7 +561,7 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
 
   const onGesture = (): void => {
     boot();
-    if (be && be.ac.state !== 'running') void be.ac.resume().catch(() => { /* blocked */ });
+    if (be?.live && be.ac.state !== 'running') void be.live.resume().catch(() => { /* blocked */ });
   };
 
   let gesturesAttached = false;
@@ -535,8 +618,8 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
 
     async unlock() {
       boot();
-      if (be && be.ac.state !== 'running') {
-        try { await be.ac.resume(); } catch { /* still blocked; try again next gesture */ }
+      if (be?.live && be.ac.state !== 'running') {
+        try { await be.live.resume(); } catch { /* still blocked; try again next gesture */ }
       }
     },
   };
@@ -552,6 +635,12 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
    * alone that a shell whooshing past is panned to the correct side. Nothing in
    * the simulation reads any of it and none of it draws from `ctx.rng`.
    *
+   * `render` is the important one. It builds this exact mixer inside an
+   * OfflineAudioContext and hands back the samples, so audio can be reviewed
+   * the way every other module in this repo is reviewed — by looking at what it
+   * actually produced. Every level in `sfx.ts`, the engine bed's trim and the
+   * tilt across it were set from measurements taken through it, not by ear.
+   *
    * `unlock()` needs a real gesture behind it in a normal browser; a test
    * driver that clicks the page first will find everything here live.
    */
@@ -562,6 +651,12 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
       play: (id: string, opts?: PlayOpts) => { if (bank) bank.play(id, opts); },
       /** Force a track: 'race' | 'final' | 'star' | 'victory' | 'auto' | null. */
       music: (id: string | null) => api.setMusic(id),
+      /** Render a slice of this game's audio offline and hand back the samples.
+       *  The one way to review sound the way every other module is reviewed:
+       *  by looking at what it actually produced. See `bench.ts`. */
+      render: (spec: RenderSpec) => renderAudio(spec),
+      /** Every id the one-shot bank answers to, for a reviewer enumerating them. */
+      ids: () => SOUND_IDS.slice(),
       /** Everything a critic might want to assert on, as plain JSON. */
       probe: () => ({
         unlocked: be !== null,
@@ -610,9 +705,17 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
       for (const s of racerAudio.values()) s.voice?.dispose();
       racerAudio.clear();
       pend.clear();
+      // Cut the bed. Every other change of track waits for a bar line, which is
+      // right for a lift and wrong for a new race: a measured run that reset out
+      // of the results screen kept the victory fanfare playing over the new
+      // grid for the rest of its bar. Dropping to silence here means the next
+      // frame finds `mode === 'none'` and cold-starts the correct track on its
+      // own downbeat, which is also the only way a race ever begins in time.
+      music?.setMode('none', 0.08);
       threat = 0;
       threatActive = false;
       engineTrim = -1;
+      engineDuck = 1;
       camPrimed = false;
     },
 
@@ -648,17 +751,39 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
       music.duck(bank.loudness);
       music.update(step, now);
 
+      // The engine bed steps aside for anything loud. Down fast enough that a
+      // bob-omb arrives *into* a hole rather than on top of a wall, back up
+      // slowly enough that the bed does not audibly breathe on every coin.
+      //
+      // An incoming item counts as loud even before it arrives. That is the
+      // point: the siren is only a warning if the player can hear it over their
+      // own machine, and the cheapest decibels in any mix are the ones you take
+      // away from something else.
+      const wantDuck = engineDuckFor(Math.max(bank.loudness, threat * 0.85));
+      if (Math.abs(wantDuck - engineDuck) > 0.004) {
+        const falling = wantDuck < engineDuck;
+        engineDuck = wantDuck;
+        be.engineDuck.gain.setTargetAtTime(wantDuck, now, falling ? 0.012 : 0.13);
+      }
+
       // The field steps back for the results music, so the fanfare is not
-      // fighting eight machines still driving around behind it.
-      const trim = cfgAudio.engine * (phase === 'results' || phase === 'finished' ? 0.45 : 1);
+      // fighting eight machines still driving around behind it. A paused game
+      // steps back further still: the engines are the sound of the race being
+      // run, and a race that is not being run should not be roaring.
+      const paused = ctx.time.scale === 0;
+      const trim = cfgAudio.engine
+        * (phase === 'results' || phase === 'finished' ? 0.45 : 1)
+        * (paused ? 0.12 : 1);
       if (trim !== engineTrim) {
         engineTrim = trim;
-        be.engine.gain.setTargetAtTime(trim, now, 0.25);
+        be.engine.gain.setTargetAtTime(trim, now, paused ? 0.08 : 0.25);
       }
     },
 
     dispose(): void {
       detachGestures();
+      for (const u of unsubs) u();
+      unsubs.length = 0;
       for (const s of racerAudio.values()) s.voice?.dispose();
       racerAudio.clear();
       cues?.dispose();

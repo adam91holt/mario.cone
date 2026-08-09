@@ -181,8 +181,15 @@ export function createCues(be: AudioBackend): Cues {
       // this is the one cue that has to beat eight engines, a music bed and
       // whatever is exploding at the time, and a warning that is polite about
       // it is not a warning.
+      //
+      // It was polite. Measured against a rendered slice of the busiest moment
+      // the game can produce, the siren sat 16dB *under* the mix in its own
+      // band — inaudible exactly when it matters. It is now six decibels louder
+      // and the engine bed steps back underneath it (see `index.ts`), which is
+      // the other half of the same decision: a warning is a hole in the mix
+      // with a tone in it, not a tone on top of a wall.
       const th = clamp01(s.threat);
-      set(pWDepth, th > 0.01 ? lerp(0.16, 0.46, th) : 0, now);
+      set(pWDepth, th > 0.01 ? lerp(0.32, 0.92, th) : 0, now);
       set(pWRate, lerp(3.2, 12, th * th), now);
       set(pWFreq, lerp(760, 1180, th), now);
       if (pWPan) set(pWPan, clamp(s.threatPan, -1, 1), now);

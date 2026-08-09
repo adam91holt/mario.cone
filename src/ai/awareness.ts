@@ -20,9 +20,17 @@ import * as THREE from 'three';
 import type { GameContext, ItemId, Racer, SplineSample } from '../types.ts';
 
 /** Bananas outlive most of a lap; the pool never needs to be big. */
-const MAX_HAZARDS = 32;
+const MAX_HAZARDS = 40;
 /** Seconds a dropped banana is assumed to sit there (items uses `life: 26`). */
 const BANANA_LIFE = 26;
+/** A bomb sits on its fuse, then owns a wide circle for a moment. */
+const BOMB_LIFE = 3.4;
+/** How long a shell laid behind stays a thing worth going round. */
+const SHELL_LIFE = 7;
+/** Item boxes come back four seconds after somebody takes one (items/boxes.ts). */
+const BOX_RESPAWN = 4.0;
+/** Distinct box positions worth remembering. Cone Canyon lays 25. */
+const MAX_BOXES = 48;
 
 interface Hazard {
   active: boolean;
@@ -34,6 +42,22 @@ interface Hazard {
   ownerId: number;
 }
 
+/**
+ * An item box, at a place the field has watched somebody take one.
+ *
+ * Nothing here reaches into the item system's box list. A box announces itself
+ * the first time anybody breaks it (`item:box`), and boxes come back in the
+ * same place, so by the end of the opening lap the field knows the row it drove
+ * through — which is exactly how a player learns a circuit too.
+ */
+interface BoxNote {
+  active: boolean;
+  d: number;
+  lat: number;
+  /** Seconds until it is back, 0 if it is there now. */
+  gone: number;
+}
+
 export interface World {
   /** Lap distance of each racer, indexed the same as `ctx.racers`. */
   readonly dist: Float64Array;
@@ -42,6 +66,7 @@ export interface World {
   /** Road half-width where each racer is. */
   readonly half: Float64Array;
   readonly hazards: readonly Hazard[];
+  readonly boxes: readonly BoxNote[];
   /** Step counter, so a driver can tell whether the scan is fresh. */
   readonly frame: number;
   scan(): void;
@@ -90,6 +115,8 @@ function createWorld(ctx: GameContext): World {
   for (let i = 0; i < MAX_HAZARDS; i++) {
     hazards.push({ active: false, d: 0, lat: 0, life: 0, radius: 0, ownerId: -1 });
   }
+  const boxes: BoxNote[] = [];
+  for (let i = 0; i < MAX_BOXES; i++) boxes.push({ active: false, d: 0, lat: 0, gone: 0 });
 
   function grow(nRacers: number): void {
     if (dist.length >= nRacers) return;
@@ -126,7 +153,18 @@ function createWorld(ctx: GameContext): World {
    */
   const offUse = ctx.bus.on<{ racer: Racer; item: ItemId; forward: boolean }>(
     'item:use', ({ racer, item, forward }) => {
-      if (item !== 'banana' || !ctx.track) return;
+      if (!ctx.track) return;
+      // Only the things that stop and *stay* in the road are worth logging. A
+      // shell thrown forward is a moving threat somebody else has to deal with;
+      // one laid behind is a rock, and so is a banana, and so is a bomb until
+      // its fuse runs out.
+      let life = 0;
+      let radius = 2.6;
+      if (item === 'banana') life = BANANA_LIFE;
+      else if (item === 'bomb') { life = BOMB_LIFE; radius = 5.2; }
+      else if (item === 'greenShell' && !forward) { life = SHELL_LIFE; radius = 2.4; }
+      if (life === 0) return;
+
       const s = ctx.track.spline.nearest(racer.pos, sample);
       let d = s.distance;
       let l = s.lateral ?? 0;
@@ -137,7 +175,48 @@ function createWorld(ctx: GameContext): World {
         d += _fwd.dot(s.tangent) * 8.5;
         l += _fwd.dot(s.right) * 8.5;
       }
-      addHazard(d, l, 2.6, BANANA_LIFE, racer.id);
+      addHazard(d, l, radius, life, racer.id);
+    });
+
+  /**
+   * A bomb has gone off. Whatever it was is no longer in the road, and the
+   * karts that were about to steer round it should stop steering round it.
+   */
+  const offBlast = ctx.bus.on<{ pos: THREE.Vector3 }>('item:blast', ({ pos }) => {
+    if (!ctx.track) return;
+    const s = ctx.track.spline.nearest(pos, sample);
+    for (let i = 0; i < hazards.length; i++) {
+      const h = hazards[i];
+      if (!h.active || h.radius < 4) continue;
+      if (Math.abs(ctx.track.spline.signedDistance(h.d, s.distance)) < 14) h.active = false;
+    }
+  });
+
+  /**
+   * Somebody has just taken a box. Remember where it was.
+   *
+   * Matching on position rather than identity keeps this independent of the
+   * item module's internals: two pickups within a couple of metres of each
+   * other are the same box, and the note simply starts its respawn clock again.
+   */
+  const offBox = ctx.bus.on<{ racer: Racer; pos: THREE.Vector3 }>(
+    'item:box', ({ pos }) => {
+      if (!ctx.track) return;
+      const s = ctx.track.spline.nearest(pos, sample);
+      const d = s.distance;
+      const l = s.lateral ?? 0;
+      let slot = -1;
+      for (let i = 0; i < boxes.length; i++) {
+        const b = boxes[i];
+        if (!b.active) { if (slot < 0) slot = i; continue; }
+        if (Math.abs(ctx.track.spline.signedDistance(b.d, d)) < 3 && Math.abs(b.lat - l) < 2.2) {
+          b.gone = BOX_RESPAWN;
+          return;
+        }
+      }
+      if (slot < 0) return;
+      const b = boxes[slot];
+      b.active = true; b.d = d; b.lat = l; b.gone = BOX_RESPAWN;
     });
 
   /**
@@ -166,6 +245,7 @@ function createWorld(ctx: GameContext): World {
     get lat() { return lat; },
     get half() { return half; },
     hazards,
+    boxes,
     get frame() { return frame; },
 
     scan(): void {
@@ -189,11 +269,18 @@ function createWorld(ctx: GameContext): World {
         h.life -= dt;
         if (h.life <= 0) h.active = false;
       }
+      for (let i = 0; i < boxes.length; i++) {
+        const b = boxes[i];
+        if (b.active && b.gone > 0) b.gone = Math.max(0, b.gone - dt);
+      }
       frame++;
     },
 
     clear(): void {
       for (let i = 0; i < hazards.length; i++) hazards[i].active = false;
+      // The box map survives a reset only if the circuit did. A different
+      // course means every note is in the wrong place.
+      for (let i = 0; i < boxes.length; i++) boxes[i].active = false;
       index.clear();
       frame = 0;
     },
@@ -206,6 +293,8 @@ function createWorld(ctx: GameContext): World {
     dispose(): void {
       offUse();
       offStrike();
+      offBlast();
+      offBox();
     },
   };
 }
