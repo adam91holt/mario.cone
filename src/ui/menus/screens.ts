@@ -36,13 +36,18 @@ import { listCourses } from '../../track/courses/index.ts';
 import { glyphRun } from '../glyphs.ts';
 import { vehicleMark, wordmark } from './art.ts';
 import {
-  bind, courseMap, cupEmblem, fromHtml, hexCss, plannedMap, q, title, unitPx, type Bound,
+  bind, courseMap, cupEmblem, fromHtml, hexCss, q, title, unitPx, type Bound,
 } from './chrome.ts';
 import type { CourseDef, EngineClass, GameContext, VehicleId } from '../../types.ts';
 
 export const CSS_SCREENS = `
 #menu .scr-course .cups { transform: translateX(-50%); }
 #menu .scr-course .cards { top: calc(var(--ey) + var(--u) * 9.2); }
+/* One cup means no tab row, so the circuits move up into the space it was
+   holding rather than leaving a strip of empty road where a control used to
+   be advertised. */
+#menu .scr-course.onecup .cups { display: none; }
+#menu .scr-course.onecup .cards { top: calc(var(--ey) + var(--u) * 5.6); }
 #menu .scr-class .cards { top: calc(var(--ey) + var(--u) * 6.6); }
 
 /* The call to action. It used to be bare orange display text with no plate,
@@ -68,17 +73,34 @@ export const CSS_SCREENS = `
   pointer-events: none;
 }
 
-/* A closed cup is dimmed by dimming its *contents*. Filtering the tab itself
-   dims the selection ring with it, and a highlight you cannot see is a cursor
-   the player has lost. */
-#menu .cupTab.locked .t { color: rgba(255,248,240,.44); }
-#menu .cupTab.locked .em { opacity: .3; }
 #menu .card .mapbox { display: block; }
 #menu .scr-racer .roster .tile.rnd .mark {
   display: flex; align-items: center; justify-content: center;
   font-size: calc(var(--u) * 3.4); font-weight: 900; color: var(--yellow);
   text-shadow: 0 calc(var(--u) * .1) 0 #0A0D13, 0 calc(var(--u) * .22) calc(var(--u) * .3) rgba(0,0,0,.7);
 }
+
+/* An unknown stat. The random slot cannot honestly print a number, so it prints
+   the absence of one: the whole track hatched, no fill, and a question mark
+   where the change arrow goes. */
+#menu .stat .unk {
+  position: absolute; inset: 0; border-radius: calc(var(--u) * .16);
+  background: repeating-linear-gradient(114deg,
+    rgba(95,200,245,.5) 0 calc(var(--u) * .17),
+    rgba(95,200,245,.14) calc(var(--u) * .17) calc(var(--u) * .34));
+  opacity: 0; pointer-events: none;
+}
+#menu .stat .arrow.unk { color: var(--cyan); }
+
+/* What the bars are being read against. The comparison is the reason this
+   panel exists, so it says out loud which machine it is comparing with. */
+#menu .dossier .vs {
+  margin-top: calc(var(--u) * .5);
+  font-size: calc(var(--u) * .6); font-weight: 800; letter-spacing: .16em;
+  text-transform: uppercase; color: rgba(255,248,240,.52);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#menu .dossier .vs b { color: rgba(255,195,0,.92); }
 
 /* The circuit screen's lower-right corner: which round of the cup the
    highlighted circuit is. The corner used to be bare road. */
@@ -214,8 +236,20 @@ const head = (text: string, step: number): string => {
 
 export interface Screen {
   readonly root: HTMLElement;
+  /**
+   * Which way this screen travels while it is not fully present, in per cent of
+   * the frame's width, signed.
+   *
+   * The flow sets it on every transition so a push has a *direction*: the
+   * incoming screen comes in from the side the player is heading toward and the
+   * outgoing one leaves the other way. Both screens are on the frame at once
+   * for the length of the push, which is the whole point — a screen change you
+   * can see the far side of is a screen change, and one hidden behind a closed
+   * board is a cut.
+   */
+  dx: number;
   update(dt: number, show: number): void;
-  /** Restart this screen's arrival. Called the frame the board swings clear. */
+  /** Restart this screen's arrival. Called the frame the push starts. */
   enter?(): void;
   dispose?(): void;
 }
@@ -223,7 +257,9 @@ export interface Screen {
 /** Slide-and-fade, shared by every screen so they all leave the same way. */
 function present(root: Bound, show: number, dx: number): void {
   const e = ease.outQuart(clamp01(show));
-  root.set('opacity', e.toFixed(3));
+  // Opacity leads the slide: a screen at 40% travel should already be most of
+  // the way readable, or a 180ms push is 180ms of two half-transparent screens.
+  root.set('opacity', ease.outQuad(clamp01(show * 1.35)).toFixed(3));
   root.set('transform', `translateX(${((1 - e) * dx).toFixed(2)}%)`);
 }
 
@@ -275,8 +311,9 @@ export function createTitleScreen(): TitleScreen {
   let t = 0;
   let clock = 0;
 
-  return {
+  const api: TitleScreen = {
     root,
+    dx: 7,
 
     enter(): void { t = 0; },
 
@@ -287,7 +324,7 @@ export function createTitleScreen(): TitleScreen {
       t += dt;
 
       const e = ease.outQuart(clamp01(show));
-      b.set('opacity', e.toFixed(3));
+      present(b, show, api.dx);
 
       // The mark assembles: one letter every 55ms, each arriving on an
       // overshoot from above. It is nine tenths of a second in total, which is
@@ -333,6 +370,7 @@ export function createTitleScreen(): TitleScreen {
       startInk.set('color', pulse > 0.55 ? hexCss(0xFFF8F0) : hexCss(0xFFC300));
     },
   };
+  return api;
 }
 
 // ── character select ───────────────────────────────────────────────────────
@@ -342,8 +380,19 @@ const STAT_ROWS = [
   ['handling', 'Handling'], ['traction', 'Traction'],
 ] as const;
 
-/** How long the change segment stands on a bar after a swap. */
-const DELTA_HOLD = 1.15;
+/**
+ * How the comparison behaves.
+ *
+ * It used to be a 1.15s decay off every swap, which measured as a blink: the
+ * hatched segments were legible at +33ms, half gone by +200ms and absent by the
+ * time a player had finished reading the name above them. The comparison is the
+ * only reason this panel has bars at all, so it is no longer a transient — the
+ * delta is a *state*. It stands for exactly as long as the machine under the
+ * cursor differs from the machine the player last committed to, and it goes
+ * away the moment they come back to it. `DELTA_RISE` is only how quickly the
+ * segment appears, not how long it lasts.
+ */
+const DELTA_RISE = 0.0000005;
 
 export interface RacerScreen extends Screen {
   /** The random slot is the last index; it resolves to a real machine on pick. */
@@ -351,6 +400,9 @@ export interface RacerScreen extends Screen {
   index: number;
   vehicleAt(i: number): VehicleId | null;
   setIndex(i: number): void;
+  /** The machine the bars are compared against — the last one committed to.
+   *  Null clears the comparison. */
+  setBaseline(id: VehicleId | null): void;
   onHover: ((i: number) => void) | null;
   onPick: ((i: number) => void) | null;
 }
@@ -372,7 +424,8 @@ export function createRacerScreen(): RacerScreen {
   let rows = '';
   for (const [, label] of STAT_ROWS) {
     rows += `<div class="stat"><span class="sname">${label}</span>`
-      + `<span class="track"><i></i><span class="fill"></span><span class="delta"></span></span>`
+      + `<span class="track"><i></i><span class="fill"></span><span class="delta"></span>`
+      + `<span class="unk"></span></span>`
       + `<b class="arrow"></b></div>`;
   }
 
@@ -384,6 +437,7 @@ export function createRacerScreen(): RacerScreen {
         ${title('', 'who')}
         <div class="p blurb"></div>
         <div class="stats">${rows}</div>
+        <div class="vs"></div>
       </div>
       <div class="roster">${tiles}</div>
     </div>`);
@@ -395,6 +449,7 @@ export function createRacerScreen(): RacerScreen {
   const name = q<HTMLElement>(root, '.who > i');
   const blurb = bind(q(root, '.blurb'));
   const nameB = bind(name);
+  const vs = bind(q(root, '.vs'));
   const rosterEl = q<HTMLElement>(root, '.roster');
 
   const tileNodes = Array.from(root.querySelectorAll<HTMLElement>('.tile'));
@@ -408,21 +463,27 @@ export function createRacerScreen(): RacerScreen {
   const bars = Array.from(root.querySelectorAll<HTMLElement>('.stat')).map((el) => ({
     fill: bind(q(el, '.fill')),
     delta: bind(q(el, '.delta')),
+    unk: bind(q(el, '.unk')),
     arrow: bind(q(el, '.arrow')),
     /** Target, and where the bar has actually travelled to. */
     v: 0,
     shown: 0,
-    /** The segment between the old value and the new one, and its clock. */
-    from: 0,
-    to: 0,
-    hold: 0,
+    /** The last committed machine's reading — what the delta is measured from. */
+    base: 0,
+    /** How present the comparison is, 0..1. A state, not a decay. */
+    fade: 0,
+    /** ...and the same for the unknown hatch on the random slot. */
+    hazy: 0,
   }));
 
   let clock = 0;
   let tIn = 99;
+  /** The machine the bars are read against, and its name for the caption. */
+  let baseline: VehicleId | null = null;
 
   const api: RacerScreen = {
     root,
+    dx: 7,
     randomIndex: defs.length,
     index: 0,
     onHover: null,
@@ -435,13 +496,21 @@ export function createRacerScreen(): RacerScreen {
       api.index = next;
       paint();
     },
+    setBaseline(id): void {
+      baseline = id;
+      const def = id ? defs.find((d) => d.id === id) : null;
+      for (let i = 0; i < bars.length; i++) {
+        bars[i]!.base = def ? clamp01(def.stats[STAT_ROWS[i]![0]]) : bars[i]!.v;
+      }
+      paintVs();
+    },
     enter(): void { tIn = 0; },
     update(dt, show): void {
       if (show <= 0) { b.set('display', 'none'); return; }
       b.set('display', 'block');
       clock += dt;
       tIn += dt;
-      present(b, show, 3.5);
+      present(b, show, api.dx);
       const e = ease.outQuart(clamp01(show));
 
       // ── the arrival ────────────────────────────────────────────────────
@@ -481,71 +550,96 @@ export function createRacerScreen(): RacerScreen {
         show * stagger(tIn, 0.2, 0.3), 0.13, 0.22);
 
       // ── the stat bars ──────────────────────────────────────────────────
+      // The bar travels to its new value rather than jumping, and the trade is
+      // drawn *over* the fill as a hatched segment between the committed
+      // machine's reading and this one's.
+      //
+      // Two things this used to get wrong, both of which made the comparison
+      // unreadable. It was a ghost of the old value drawn *behind* the fill, so
+      // every improvement was hidden underneath the very bar that had just
+      // grown past it. And it decayed over a second, so the segments were gone
+      // by the time anyone had read the name above them. It is a state now: it
+      // stands while the cursor is on something other than the machine the
+      // player last committed to, and it clears when they come back to it.
+      const unknown = api.index >= api.randomIndex;
+      let anyDelta = 0;
       for (const bar of bars) {
-        // The bar travels to its new value rather than jumping, and the change
-        // itself is drawn *over* the fill as a hatched segment between the old
-        // reading and the new one.
-        //
-        // It used to be a ghost of the old value drawn *behind* the fill, which
-        // meant every improvement was hidden underneath the very bar that had
-        // just grown past it: swapping the cone for the sedan gains 27 points
-        // of speed and 119 of weight and the player saw neither, because the
-        // only visible segments were the two stats that got worse.
         bar.shown = damp(bar.shown, bar.v, 0.00004, dt);
+        bar.hazy = damp(bar.hazy, unknown ? 1 : 0, DELTA_RISE, dt);
         bar.fill.set('width', `${(bar.shown * 100).toFixed(2)}%`);
-        if (bar.hold > 0) {
-          bar.hold = Math.max(0, bar.hold - dt / DELTA_HOLD);
-          const lo = Math.min(bar.from, bar.to);
-          const hi = Math.max(bar.from, bar.to);
-          const up = bar.to >= bar.from;
-          const a = ease.inQuad(clamp01(bar.hold / 0.75));
+        bar.unk.set('opacity', bar.hazy.toFixed(3));
+
+        const diff = bar.v - bar.base;
+        const want = !unknown && Math.abs(diff) > 0.004 ? 1 : 0;
+        bar.fade = damp(bar.fade, want, DELTA_RISE, dt);
+        if (bar.fade > anyDelta) anyDelta = bar.fade;
+        if (bar.fade > 0.004) {
+          // Measured off the bar's *travelled* edge, so the hatch grows with
+          // the fill instead of standing where the fill is going to be.
+          const lo = Math.min(bar.base, bar.shown);
+          const hi = Math.max(bar.base, bar.shown);
+          const up = diff >= 0;
           bar.delta.set('left', `${(lo * 100).toFixed(2)}%`);
           bar.delta.set('width', `${((hi - lo) * 100).toFixed(2)}%`);
-          bar.delta.set('opacity', a.toFixed(3));
-          bar.arrow.set('opacity', a.toFixed(3));
+          bar.delta.set('opacity', bar.fade.toFixed(3));
           bar.delta.cls('up', up);
           bar.arrow.cls('up', up);
+          bar.arrow.cls('unk', false);
           bar.arrow.text(up ? '▲' : '▼');
+          bar.arrow.set('opacity', bar.fade.toFixed(3));
         } else {
           bar.delta.set('opacity', '0');
-          bar.arrow.set('opacity', '0');
+          if (bar.hazy > 0.004) {
+            bar.arrow.cls('unk', true);
+            bar.arrow.cls('up', false);
+            bar.arrow.text('?');
+            bar.arrow.set('opacity', bar.hazy.toFixed(3));
+          } else {
+            bar.arrow.set('opacity', '0');
+          }
         }
       }
+      vs.set('opacity', (unknown ? 0 : clamp01(anyDelta * 1.4)).toFixed(3));
     },
   };
 
   function setBars(get: (key: (typeof STAT_ROWS)[number][0]) => number): void {
     for (let i = 0; i < bars.length; i++) {
-      const bar = bars[i]!;
-      const next = clamp01(get(STAT_ROWS[i]![0]));
-      // Only claim a change when there is one. A repaint that reports a delta
-      // of zero puts a hatched sliver of nothing on five bars at once.
-      if (Math.abs(next - bar.v) > 0.004) {
-        bar.from = bar.v;
-        bar.to = next;
-        bar.hold = 1;
-      }
-      bar.v = next;
+      bars[i]!.v = clamp01(get(STAT_ROWS[i]![0]));
     }
+  }
+
+  function paintVs(): void {
+    const def = baseline ? defs.find((d) => d.id === baseline) : null;
+    vs.el.innerHTML = def ? `Compared with <b>${def.name}</b>` : '';
   }
 
   function paint(): void {
     const def = defs[api.index];
     if (!def) {
-      kind.text('Racer 8 of 8');
+      // The random slot is not the eighth racer — it is the absence of a
+      // choice, and it says so. A slot that reports "8 of 8" against every
+      // other slot's "of 7" is a roster that cannot count, and one that prints
+      // concrete bars with concrete change arrows for a pick nobody has made
+      // yet is a roster that is guessing on the player's behalf.
+      kind.text('Any machine');
       nameB.text('Surprise Me');
-      blurb.text('Let the site pick. It has opinions.');
-      setBars(() => 0.5);
+      blurb.text('Let the yard decide. It has opinions, and it is not telling.');
+      setBars(() => 0);
+      paintVs();
       return;
     }
-    kind.text(`Racer ${api.index + 1} of ${defs.length}`);
+    kind.text(`Machine ${api.index + 1} of ${defs.length}`);
     nameB.text(def.name);
     blurb.text(def.blurb);
     setBars((key) => def.stats[key]);
+    paintVs();
   }
   paint();
-  // Nothing was traded on the very first paint — there is no previous machine.
-  for (const bar of bars) { bar.hold = 0; bar.shown = bar.v; }
+  // Nothing has been traded on the very first paint — the machine under the
+  // cursor *is* the committed one.
+  api.setBaseline(defs[0]?.id ?? null);
+  for (const bar of bars) { bar.shown = bar.v; bar.fade = 0; bar.hazy = 0; }
 
   const hit = (ev: Event): number => {
     const el = (ev.target as HTMLElement | null)?.closest?.('[data-i]') as HTMLElement | null;
@@ -571,16 +665,33 @@ export interface CupDef {
   color: number;
 }
 
-/** The cups, and the order they are presented in. A cup with no courses in it
- *  yet is still shown — this is a game about roadworks, and a circuit that is
- *  not open yet is the most on-brand thing in the product. It cannot be
- *  entered, and it says so on its face. */
-export const CUPS: CupDef[] = [
+/** Every cup this front-end knows how to present. Which of them a player is
+ *  actually shown is decided below, by whether the track registry has put any
+ *  circuits in them. */
+const ALL_CUPS: CupDef[] = [
   { id: 'hazard', name: 'Hazard Cup', color: 0xFFC300 },
   { id: 'detour', name: 'Detour Cup', color: 0xFF6B1A },
   { id: 'gravel', name: 'Gravel Cup', color: 0x6FE04A },
   { id: 'summit', name: 'Summit Cup', color: 0x5FC8F5 },
 ];
+
+/**
+ * The cups a player can actually reach.
+ *
+ * This used to be all four regardless, three of them empty and drawn greyed
+ * out with tape across a placeholder card — the roadworks joke, and the
+ * critique was right that it does not survive contact with a player. Three tabs
+ * that can never be entered and a prompt rail advertising a key to reach them
+ * is a screen that is broken in exactly the way a screen with a dead control is
+ * broken: the player concludes the game is unfinished rather than that the
+ * gag landed. So the row is derived from the registry. One cup with circuits in
+ * it means no tab row at all; a second cup filled in later brings the row, the
+ * key and the legend entry back without a line changing here.
+ */
+export const CUPS: CupDef[] = (() => {
+  const filled = ALL_CUPS.filter((c) => listCourses().some((k) => k.cup === c.id));
+  return filled.length > 0 ? filled : [ALL_CUPS[0]!];
+})();
 
 /** Metres, measured along the control points the track is actually built from. */
 function courseLength(c: CourseDef): number {
@@ -599,6 +710,10 @@ export interface CourseScreen extends Screen {
   cupIndex: number;
   courseIndex: number;
   readonly cupCount: number;
+  /** Is there more than one cup to choose between? When there is not, this
+   *  screen has one row, and nothing on it advertises a key that would move
+   *  between two. */
+  readonly hasCupRow: boolean;
   courseCount(): number;
   coursesOf(cupIndex: number): CourseDef[];
   setCup(i: number): void;
@@ -613,16 +728,20 @@ export function createCourseScreen(): CourseScreen {
   const byCup = new Map<string, CourseDef[]>();
   for (const cup of CUPS) byCup.set(cup.id, all.filter((c) => c.cup === cup.id));
   /** The widest cup decides how many card slots exist. */
-  const SLOTS = Math.max(4, ...CUPS.map((c) => (byCup.get(c.id) ?? []).length));
+  const SLOTS = Math.max(1, ...CUPS.map((c) => (byCup.get(c.id) ?? []).length));
+  /** With one cup there is nothing to choose between, so there is no row to
+   *  choose it on — and nothing on this screen advertises a key that would. */
+  const MULTI = CUPS.length > 1;
 
   let tabs = '';
-  for (let i = 0; i < CUPS.length; i++) {
-    const cup = CUPS[i]!;
-    const open = (byCup.get(cup.id) ?? []).length > 0;
-    tabs += `<div class="plate vis cupTab${open ? '' : ' locked'}" data-row="0" data-i="${i}">`
-      + cupEmblem(cup.color, !open)
-      + title(cup.name)
-      + `<div class="held"></div></div>`;
+  if (MULTI) {
+    for (let i = 0; i < CUPS.length; i++) {
+      const cup = CUPS[i]!;
+      tabs += `<div class="plate vis cupTab" data-row="0" data-i="${i}">`
+        + cupEmblem(cup.color)
+        + title(cup.name)
+        + `<div class="held"></div></div>`;
+    }
   }
 
   // Card slots. Built once and shown or hidden, so adding a course to the
@@ -636,11 +755,11 @@ export function createCourseScreen(): CourseScreen {
       + `<div><span class="v len"></span><span class="k">Metres</span></div>`
       + `<div><span class="v lap"></span><span class="k">Laps</span></div>`
       + `<div><span class="v tot"></span><span class="k">Total km</span></div>`
-      + `</div><div class="shut"><span>In construction</span></div><div class="held"></div></div>`;
+      + `</div><div class="held"></div></div>`;
   }
 
   const root = fromHtml(`
-    <div class="scr scr-course">
+    <div class="scr scr-course${MULTI ? '' : ' onecup'}">
       ${head('Choose a circuit', 1)}
       <div class="cups">${tabs}</div>
       <div class="cards">${cards}</div>
@@ -670,7 +789,6 @@ export function createCourseScreen(): CourseScreen {
     el,
     box: bind(el),
     held: bind(q(el, '.held')),
-    shut: bind(q(el, '.shut')),
     mapbox: q<HTMLElement>(el, '.mapbox'),
     nm: bind(q(el, '.nm > i')),
     len: bind(q(el, '.len')),
@@ -688,10 +806,12 @@ export function createCourseScreen(): CourseScreen {
 
   const api: CourseScreen = {
     root,
+    dx: 7,
     row: 1,
     cupIndex: 0,
     courseIndex: 0,
     cupCount: CUPS.length,
+    hasCupRow: MULTI,
     coursesOf(i): CourseDef[] { return byCup.get(CUPS[i]?.id ?? '') ?? []; },
     courseCount(): number { return api.coursesOf(api.cupIndex).length; },
     onHover: null,
@@ -711,14 +831,14 @@ export function createCourseScreen(): CourseScreen {
       api.courseIndex = next;
       paintBrief();
     },
-    setRow(r): void { api.row = r; },
+    setRow(r): void { api.row = MULTI ? r : 1; },
     enter(): void { tIn = 0; },
     update(dt, show): void {
       if (show <= 0) { b.set('display', 'none'); return; }
       b.set('display', 'block');
       clock += dt;
       tIn += dt;
-      present(b, show, 3.5);
+      present(b, show, api.dx);
       const e = ease.outQuart(clamp01(show));
       const breathe = 1 + BREATHE_AMP * Math.sin(clock * Math.PI * 2 * BREATHE_HZ);
 
@@ -744,7 +864,7 @@ export function createCourseScreen(): CourseScreen {
       // thin cream keyline with no glow and no lift, its plates are dimmed, and
       // the roving gold cursor is only ever on the row that is live.
       const live = api.courseCount();
-      const cupsHot = api.row === 0;
+      const cupsHot = MULTI && api.row === 0;
 
       for (let i = 0; i < tabEls.length; i++) {
         const t = tabEls[i]!;
@@ -765,7 +885,7 @@ export function createCourseScreen(): CourseScreen {
 
       for (let i = 0; i < cardEls.length; i++) {
         const c = cardEls[i]!;
-        if (i >= Math.max(1, live)) { c.box.set('display', 'none'); continue; }
+        if (i >= live) { c.box.set('display', 'none'); continue; }
         c.box.set('display', 'flex');
         const on = !cupsHot && i === api.courseIndex && live > 0;
         const k = Math.max(-0.12, springTo(c.s, on ? 1 : 0, SEL_K, SEL_C, dt));
@@ -779,7 +899,6 @@ export function createCourseScreen(): CourseScreen {
         c.box.set('opacity', cell.toFixed(3));
         c.box.set('filter', `brightness(${(cupsHot ? 0.7 : 0.72 + clamp01(k) * 0.28).toFixed(3)})`);
         c.box.cls('hot', on);
-        c.shut.set('opacity', live > 0 ? '0' : '1');
       }
       cardRover.update(dt, api.courseIndex,
         !cupsHot && live > 0 ? Math.max(-0.12, cardEls[api.courseIndex]?.s.v ?? 0) * breathe : 0,
@@ -790,13 +909,12 @@ export function createCourseScreen(): CourseScreen {
   function paintBrief(): void {
     const cup = CUPS[api.cupIndex]!;
     const list = api.coursesOf(api.cupIndex);
-    briefEm.innerHTML = cupEmblem(cup.color, list.length === 0);
+    briefEm.innerHTML = cupEmblem(cup.color);
     briefCup.text(cup.name);
-    briefRound.text(list.length === 0
-      ? 'Surveying' : `Round ${api.courseIndex + 1} of ${list.length}`);
+    briefRound.text(`Round ${api.courseIndex + 1} of ${list.length}`);
     let pips = '';
-    for (let i = 0; i < Math.max(1, list.length); i++) {
-      pips += `<b class="${list.length > 0 && i === api.courseIndex ? 'on' : ''}"></b>`;
+    for (let i = 0; i < list.length; i++) {
+      pips += `<b class="${i === api.courseIndex ? 'on' : ''}"></b>`;
     }
     briefPips.innerHTML = pips;
   }
@@ -806,22 +924,14 @@ export function createCourseScreen(): CourseScreen {
     for (let i = 0; i < cardEls.length; i++) {
       const c = cardEls[i]!;
       const course = list[i];
-      if (course) {
-        c.mapbox.innerHTML = courseMap(course.points);
-        c.nm.text(course.name);
-        const len = Math.round(courseLength(course));
-        const laps = course.laps ?? 3;
-        c.len.text(String(len));
-        c.lap.text(String(laps));
-        c.tot.text(((len * laps) / 1000).toFixed(1));
-      } else if (i === 0) {
-        // The placeholder a closed cup shows: the card stays, wearing tape.
-        c.mapbox.innerHTML = plannedMap();
-        c.nm.text('Surveying');
-        c.len.text('—');
-        c.lap.text('—');
-        c.tot.text('—');
-      }
+      if (!course) continue;
+      c.mapbox.innerHTML = courseMap(course.points);
+      c.nm.text(course.name);
+      const len = Math.round(courseLength(course));
+      const laps = course.laps ?? 3;
+      c.len.text(String(len));
+      c.lap.text(String(laps));
+      c.tot.text(((len * laps) / 1000).toFixed(1));
     }
     paintBrief();
   }
@@ -912,6 +1022,7 @@ export function createClassScreen(ctx: GameContext): ClassScreen {
 
   const api: ClassScreen = {
     root,
+    dx: 7,
     classes,
     index: Math.max(0, classes.indexOf(ctx.config.race.defaultClass as EngineClass)),
     onHover: null,
@@ -926,7 +1037,7 @@ export function createClassScreen(ctx: GameContext): ClassScreen {
       b.set('display', 'block');
       clock += dt;
       tIn += dt;
-      present(b, show, 3.5);
+      present(b, show, api.dx);
       const e = ease.outQuart(clamp01(show));
       const breathe = 1 + BREATHE_AMP * Math.sin(clock * Math.PI * 2 * BREATHE_HZ);
 

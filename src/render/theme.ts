@@ -48,8 +48,12 @@ export type FlagKey = (typeof FLAG_KEYS)[number];
 export const MACHINERY_LEVELS = ['none', 'light', 'heavy'] as const;
 export type MachineryLevel = (typeof MACHINERY_LEVELS)[number];
 
-/** Every key a course theme is allowed to write under `props`. */
-export const PROP_KEYS: readonly string[] = [...LAND_KEYS, ...FLAG_KEYS, 'machinery'];
+// (There was a `PROP_KEYS` export here — the union of the three lists above,
+// declared as "every key a course may write" and read by nothing, including
+// `resolveTheme` twelve lines below it. In a file whose entire subject is that
+// a field which lies about being read is worse than no field, that is not an
+// oversight to leave in place. The three lists are the contract; `fail()`
+// prints all three.)
 
 export interface ResolvedTheme {
   land: LandKey;
@@ -164,15 +168,33 @@ export interface GroundSurface {
 
 const c = (hex: number): THREE.Color => new THREE.Color(hex);
 
-/** Low-frequency mottle so a 24m terrain cell is not one flat facet. */
+/**
+ * Low-frequency mottle so a 24m terrain cell is not one flat facet.
+ *
+ * The wavelength is deliberately long relative to the coarse field mesh. That
+ * mesh is 176 cells across a four-kilometre square, so a cell is 23m wide and
+ * anything with a period under about 120m is sampled below Nyquist: the noise
+ * stops being mottle and starts being *facets*, which is exactly what the
+ * overhead camera photographed — angular tonal patches following the ground
+ * triangulation. Grain finer than this belongs in the detail map, which is
+ * sampled per pixel and does not care how big a triangle is.
+ */
 const mottle = (x: number, z: number, m: number): number =>
-  1 + (noise2(x / 96 + 4.2, z / 96 - 1.7) - 0.5) * m;
+  1 + (noise2(x / 230 + 4.2, z / 230 - 1.7) - 0.5) * m;
 
 // ── canyon ────────────────────────────────────────────────────────────────
 // Warm sandstone country: dust on the flats, terracotta where the ground has
 // been cut into, bleached tops, and horizontal strata banding the buttes so
 // they read as sedimentary rock rather than as lumps.
-const CANYON_SHOULDER = c(0x9c7746);
+//
+// The shoulder is the single most-photographed colour in the game — from a
+// chase camera the first thirty metres beyond the barrier is most of the lower
+// third of the frame — so it carries the course's whole identity, and it is
+// pushed properly red. Round two of the cup is a working pit whose floor is
+// cold grey; if this one is merely brown the two read as one place at two
+// times of day, which is what a critic measured them as (24 RGB apart, where
+// 40 is where a player sees two places).
+const CANYON_SHOULDER = c(0xa76f38);
 const CANYON_ROCK = c(0xb2683f);
 const CANYON_HIGH = c(0xdcbb85);
 const CANYON_SCRUB = c(0x7f8a4a);
@@ -195,28 +217,43 @@ const canyon: GroundSurface = {
 };
 
 // ── quarry ────────────────────────────────────────────────────────────────
-// A working pit. The floor is tan crusher dust because that is what a haul road
-// is made of, but *everything that stands up is grey* — the benched faces are
-// freshly blasted rock, and they are banded hard on a tight vertical pitch
-// because a quarry wall is cut in ten-metre lifts. That grey-over-tan split is
-// the whole difference from the canyon, which is warm all the way up.
-const QUARRY_SHOULDER = c(0x8d7346);
+// A working pit, and the pit is **grey**.
+//
+// The first cut of this made the floor tan on the reasoning that a haul road is
+// crusher dust, and kept the grey for the benched faces above it. From the
+// overhead camera that was right and from the chase camera — the one a player
+// actually races in — it was a disaster: the only ground in frame is the first
+// forty metres beyond the barrier, that band never gets more than a couple of
+// metres above the road, and so a critic measured the quarry at #8C7347 against
+// Cone Canyon's #93785D. Twenty-four points apart, when forty is where two
+// courses stop being one course at two times of day. Rounds one and two of the
+// cup were the same place.
+//
+// So the anchor is the rock the dust was crushed out of — `themes.ts` calls it
+// QUARRY.rock, 0x8b8d92 — and the course's declared `theme.ground` is mixed
+// into it as what it actually is: a *film* of fines over the floor, thickest
+// out on the untrafficked flat and walked away to nothing where the plant
+// runs. Change `theme.ground` and the pit still shifts; it just shifts as a
+// dusting on grey rock rather than as a desert.
+const QUARRY_FLOOR = c(0x77797f);
 const QUARRY_ROCK = c(0x77787e);
 const QUARRY_FACE = c(0x9ea0a6);
-const QUARRY_FINES = c(0xc6bda8);
-const QUARRY_WET = c(0x5b5f66);
+const QUARRY_FINES = c(0xb6b1a4);
+const QUARRY_WET = c(0x4f545c);
 const QUARRY_BAND = c(0x5f6068);
 
 const quarry: GroundSurface = {
   tile: 28,
-  // Crusher run, scoured grey by the plant that made it.
-  verge: '#8A7B5C',
+  // Crusher run: the rock, crushed. Not the desert it was dug out of.
+  verge: '#83858A',
   paint(a, out) {
-    out.copy(QUARRY_SHOULDER).lerp(a.base, smoothstep(2, 26, a.d));
+    // Grey first, dust second. The mix is capped low and thins toward the road,
+    // because that is where the machines are and dust does not survive them.
+    out.copy(QUARRY_FLOOR).lerp(a.base, 0.10 + 0.16 * smoothstep(3, 46, a.d));
     // Spillage of pale fines across the floor, so the flat is not one tone.
-    out.lerp(QUARRY_FINES, smoothstep(0.42, 0.72, noise2(a.x / 78 + 2, a.z / 78 + 9)) * 0.32);
+    out.lerp(QUARRY_FINES, smoothstep(0.42, 0.72, noise2(a.x / 78 + 2, a.z / 78 + 9)) * 0.34);
     // Sumps and shadowed cuts.
-    out.lerp(QUARRY_WET, smoothstep(-6, -22, a.rel) * 0.55);
+    out.lerp(QUARRY_WET, smoothstep(-6, -22, a.rel) * 0.6);
     // The faces. Grey arrives fast and completely: 18 metres up a quarry wall
     // there is no dust left at all.
     out.lerp(QUARRY_ROCK, smoothstep(3, 26, a.rel));
@@ -235,7 +272,15 @@ const quarry: GroundSurface = {
 // has been over it — and then, because the course's three landmarks are buttes
 // standing *on* the pan, anything that gets more than a few metres above the
 // crust turns to warm rock. White floor, tan skyline: that is the photograph.
-const SALT_SHOULDER = c(0xbfb6a0);
+//
+// The salt has to start **at the kerb**. The course declares 0xE0DCCC and calls
+// it "the highest road-to-ground contrast in the game", and the first cut of
+// this ramped a warm shoulder into it over twenty-two metres — which put tan
+// across the entire band a chase camera can see and left the salt for a camera
+// players never use. Measured: neutral #BABBB8 from overhead, warm beige
+// #C1B2A9 from the chase. So the shoulder is now salt-bound gravel rather than
+// dirt, and the ramp is finished inside eight metres.
+const SALT_SHOULDER = c(0xd4d2ca);
 const SALT_CRUST = c(0xf2efe6);
 const SALT_BRINE = c(0xa9bcbd);
 const SALT_ROCK = c(0xc09a6d);
@@ -245,14 +290,17 @@ const SALT_STRATA = c(0x9c6f47);
 const saltpan: GroundSurface = {
   tile: 48,
   // Salt-bound gravel. Pale, because the run-off on a lake bed is the lake bed.
-  verge: '#CFC6AE',
+  verge: '#D9D6CC',
   paint(a, out) {
-    out.copy(SALT_SHOULDER).lerp(a.base, smoothstep(1.5, 22, a.d));
+    out.copy(SALT_SHOULDER).lerp(a.base, smoothstep(0.5, 8, a.d));
     // Fresh crust in broad polygonal fields, damp margins between them.
     const wet = noise2(a.x / 210 - 6, a.z / 210 + 3);
     out.lerp(SALT_CRUST, smoothstep(0.44, 0.78, wet) * 0.85);
     out.lerp(SALT_BRINE, smoothstep(0.40, 0.16, wet) * 0.42);
-    out.lerp(SALT_BRINE, smoothstep(-1.5, -7, a.rel) * 0.5);
+    // Brine sits in the *low ground*, not in the run-off ditch beside the road
+    // — which is where the old threshold put it, dragging a blue-grey stain
+    // across the one band the chase camera can see.
+    out.lerp(SALT_BRINE, smoothstep(-9, -24, a.rel) * 0.5);
     // The buttes. Warm rock, and it arrives quickly so the pan stays a pan.
     const up = smoothstep(4, 34, a.rel);
     out.lerp(SALT_ROCK, up);
@@ -269,7 +317,7 @@ const saltpan: GroundSurface = {
 // two kilometres away — *snow above the line*. The road is ploughed, so the
 // snow starts well clear of it and arrives with a broken, noisy edge rather
 // than a contour ring.
-const ALPINE_SHOULDER = c(0x7d7a68);
+const ALPINE_SHOULDER = c(0x7c7d72);
 const ALPINE_WET = c(0x585a52);
 const ALPINE_TURF = c(0x67704a);
 const ALPINE_SCREE = c(0xa5a294);

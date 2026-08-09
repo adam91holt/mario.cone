@@ -79,6 +79,7 @@ import * as P from './props.ts';
 import * as LP from './landprops.ts';
 import { LAND_PALETTES } from './themes.ts';
 import { resolveTheme } from '../render/theme.ts';
+import type { LandKey } from '../render/theme.ts';
 import { clusterCrowdGeo, deckCrowdGeo, standCrowdGeo, terraceCrowdGeo } from './crowd.ts';
 import {
   createBirds, createBridge, createRailway, createTipper, createWreckingCrane,
@@ -101,6 +102,18 @@ interface Corner {
 }
 
 interface Claim { x: number; z: number; r: number }
+
+/**
+ * The outline the land takes in each landscape.
+ *
+ * Sandstone stands in flat-topped terraces, blasted rock breaks into angular
+ * blocks, a lake bed swells into low domes and a mountain comes to a point. At
+ * the distance the middle-distance band is seen from, that outline separates
+ * four courses further than any colour does.
+ */
+const MASS_SHAPE: Record<LandKey, LP.MassShape> = {
+  canyon: 'butte', quarry: 'block', saltpan: 'dome', alpine: 'peak',
+};
 
 const _camPos = new THREE.Vector3();
 
@@ -215,6 +228,13 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
     def('boulder', P.boulderGeo(pal), 800);
     def('scrub', P.scrubGeo(pal), 420);
 
+    // The land itself, in the band the player is actually looking at. See §5c.
+    // Four silhouettes rather than one, because at two hundred metres a
+    // terracotta lump and a grey lump are the same lump.
+    const shape = MASS_SHAPE[T.land];
+    for (let i = 0; i < 3; i++) def(`landRidge${i}`, LP.landRidgeGeo(i, pal, shape), 1900);
+    for (let i = 0; i < 4; i++) def(`landMass${i}`, LP.landMassGeo(i, pal, shape), 2100);
+
     // The middle distance — see §5b. Everything here is either large or tall,
     // because forty to a hundred and fifty metres out is five metres below the
     // road and hidden to about four metres by the barrier.
@@ -272,7 +292,18 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       def('snowDrift2', LP.snowDriftGeo(1, pal), 900);
     }
     if (T.pines) {
-      for (let i = 0; i < 3; i++) def(`pines${i}`, LP.pineStandGeo(i, pal), 1250);
+      // Two levels of detail with two draw distances. The full stand is four
+      // trees with trunks, four skirts and a snow line, and it is only ever
+      // submitted inside 460m — past that a conifer is a dark triangle with a
+      // pale top, so the far stand is three five-sided silhouettes at a third
+      // of the cost and carries the hillside out to the fog. Two hundred and
+      // ten of the detailed article was seventy-seven thousand triangles on its
+      // own, and most of why this course loaded at 914k against Cone Canyon's
+      // 757k.
+      for (let i = 0; i < 3; i++) def(`pines${i}`, LP.pineStandGeo(i, pal), 460);
+      for (let i = 0; i < 3; i++) {
+        def(`pinesFar${i}`, LP.pineStandGeo(i + 7, pal, { far: true }), 1400);
+      }
     }
     if (T.snowPoles) def('snowPole', LP.snowPoleGeo(), 340);
     if (T.avalancheFence) def('avFence', LP.avalancheFenceGeo(), 1300);
@@ -1015,7 +1046,16 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       for (let k = 0; k < 8; k++) {
         const dd = d + (k % 2 ? -1 : 1) * Math.ceil(k / 2) * 21;
         const off = near + ((far - near) * k) / 7;
-        const s = at(dd, side, off);
+        // Past the skirt's last ring `at()` has nothing left to interpolate and
+        // clamps — every offset over 150m comes back as *the same point*, so a
+        // search asking for 130-250m was really asking for 130, 147 and then
+        // 150 six times, and the sixth one had already been claimed by the
+        // first. That is why eight salt heaps, sixteen brine pools and three
+        // crushers were declared by their courses and photographed by nobody:
+        // they were not culled or hidden, they were never placed. Past the
+        // rings the ground is the field mesh, and `farAt` is how you stand on
+        // it.
+        const s = off > 145 ? farAt(dd, side, off) : at(dd, side, off);
         if (s && free(s.x, s.z, r)) { claim(s.x, s.z, r * 0.9); return { s, d: dd, off }; }
       }
       return null;
@@ -1075,24 +1115,22 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
     }
 
     // Scrub and boulders, weighted outward so they never crowd the run-off.
-    for (let i = 0, n = many(340); i < n; i++) {
+    // Thinner than it was: a metre-and-a-half boulder sixty metres out is below
+    // the barrier's sight line from the road and below a pixel from anywhere
+    // else, so a third of this budget has moved into §5c, where the same
+    // triangles buy landforms that actually stand up.
+    for (let i = 0, n = many(215); i < n; i++) {
       const d = rng.range(0, L);
       const side = (rng.bool() ? 1 : -1) as -1 | 1;
       const off = 18 + rng.next() * rng.next() * 125;
       const s = at(d, side, off);
       if (!s) continue;
-      if (rng.bool(0.6)) drop('scrub', s, rng.range(0, 6.28), rng.range(0.7, 1.6), d, 0);
-      else drop('boulder', s, rng.range(0, 6.28), rng.range(0.5, 1.7), d, 0);
-    }
-    for (let i = 0, n = many(150); i < n; i++) {
-      const d = rng.range(0, L);
-      const side = (rng.bool() ? 1 : -1) as -1 | 1;
-      const s = farAt(d, side, rng.range(165, 540));
-      if (!s) continue;
-      drop('boulder', s, rng.range(0, 6.28), rng.range(1.5, 4.8), d, 0);
+      if (rng.bool(0.6)) drop('scrub', s, rng.range(0, 6.28), rng.range(0.8, 1.8), d, 0);
+      else drop('boulder', s, rng.range(0, 6.28), rng.range(0.6, 2.0), d, 0);
     }
 
     landscape();
+    midGround();
 
     // Steam vents, where a pipe would plausibly come out of the bank.
     for (let i = 0; i < 5; i++) {
@@ -1153,9 +1191,13 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       // moved or shrunk goes down before the things that can. Placed after the
       // benches instead, a crusher found room exactly zero times.
       if (T.machinery === 'heavy') {
-        for (let i = 0; i < 3; i++) {
-          const d = frac(0.14 + i * 0.33);
-          const f = room(d, roomier(d, 130), 92, 172, 24);
+        // Six rather than three, and starting sixty metres out rather than
+        // ninety. Eighteen metres of crusher is the tallest thing a working pit
+        // has and it was declared by the course, so a lap that shows none of
+        // them has not read `machinery: 'heavy'` in any sense a player can see.
+        for (let i = 0; i < 6; i++) {
+          const d = frac(0.09 + i * 0.166);
+          const f = room(d, roomier(d, 130), 62, 168, 24);
           if (f) drop('crusher', f.s, f.s.face + 0.4, 1, f.d, 0);
         }
       }
@@ -1198,21 +1240,30 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       // ── the pan ──────────────────────────────────────────────────────────
       if (T.land === 'saltpan') {
         // Harvest piles: the only genuinely tall thing on a dry lake, and
-        // brilliant white against a merely bright ground.
-        for (let i = 0; i < 8; i++) {
+        // brilliant white against a merely bright ground. Eighteen of them
+        // rather than eight, and starting at ninety metres rather than a
+        // hundred and thirty — eight objects on a two-and-a-half-kilometre lap
+        // is a one-in-six chance of any given frame containing one, which is
+        // why a critic photographed the course three times and saw none.
+        for (let i = 0; i < 18; i++) {
           const side = (i % 2 === 0 ? 1 : -1) as -1 | 1;
-          const f = room(frac(i / 8 + 0.055), side, 130, 250, 26);
+          const f = room(frac(i / 18 + 0.055), side, 92, 260, 26);
           if (f) drop(i % 2 ? 'saltHeap' : 'saltHeap2', f.s, rng.range(0, 6.28), 1, f.d, 0);
         }
-        // Evaporation ponds. The one cool colour on the whole course.
-        for (let i = 0; i < 16; i++) {
+        // Evaporation ponds. The one cool colour on the whole course — and it
+        // has to be laid where the sight line reaches the *ground*, which is
+        // past about a hundred and twenty metres. Inside that the barrier hides
+        // anything this flat, which is exactly what happened to the first
+        // sixteen of them.
+        for (let i = 0; i < 22; i++) {
           const side = (rng.bool() ? 1 : -1) as -1 | 1;
-          const f = room(frac(i / 16 + 0.03), side, 58, 190, 22);
+          const f = room(frac(i / 22 + 0.03), side, 124, 300, 22);
           if (f) drop(i % 2 ? 'brinePool' : 'brinePool2', f.s, rng.range(0, 6.28), 1, f.d, 0);
         }
         // Pressure ridges: the only relief a lake bed has. Without them the pan
-        // reads as a painted plane rather than as a surface.
-        for (let i = 0; i < 54; i++) {
+        // reads as a painted plane rather than as a surface. Sub-metre, so this
+        // is honestly for the overhead and the pulled-back cameras.
+        for (let i = 0; i < 46; i++) {
           const d = rng.range(0, L);
           const side = (rng.bool() ? 1 : -1) as -1 | 1;
           const s = at(d, side, 14 + rng.next() * 150);
@@ -1224,7 +1275,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
 
       // ── the mountain ─────────────────────────────────────────────────────
       if (T.land === 'alpine') {
-        for (let i = 0; i < 44; i++) {
+        for (let i = 0; i < 32; i++) {
           const d = rng.range(0, L);
           const side = (rng.bool() ? 1 : -1) as -1 | 1;
           const s = at(d, side, 22 + rng.next() * 130);
@@ -1238,37 +1289,51 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       // sixty metres over the nearest road and a forest growing through it
       // would undo the one cue that makes a mountain read as a mountain.
       if (T.pines) {
-        for (let i = 0; i < 210; i++) {
+        for (let i = 0; i < 230; i++) {
           const d = rng.range(0, L);
           const side = (rng.bool() ? 1 : -1) as -1 | 1;
-          const off = 18 + rng.next() * 170;
+          const off = 18 + rng.next() * 190;
           const s = at(d, side, off);
           if (!s || s.y - ground.roadY(wrap(d)) > 26) continue;
           if (!free(s.x, s.z, 4.6)) continue;
           claim(s.x, s.z, 4);
-          drop(`pines${i % 3}`, s, rng.range(0, 6.28), rng.range(0.72, 1.25), d, 0);
+          // Detail is chosen by where the stand *is*, not by where the camera
+          // is, because a batch is switched whole. Everything past sixty metres
+          // takes the silhouette build — that is the distance at which the
+          // trunk, the fourth skirt and the snow line all stop existing — and
+          // it is roughly three quarters of the forest.
+          const kind = off < 60 ? `pines${i % 3}` : `pinesFar${i % 3}`;
+          drop(kind, s, rng.range(0, 6.28), rng.range(0.72, 1.25), d, 0);
         }
       }
 
-      // Snow poles: both shoulders, every twenty metres, the whole lap. A line
-      // of them running away down a traverse is the cheapest possible
+      // Snow poles: both shoulders, every twenty-four metres, the whole lap. A
+      // line of them running away down a traverse is the cheapest possible
       // statement of "mountain road", and it doubles as a rhythm marker for
       // the corner it is running into.
+      //
+      // Pulled in to 1.8m off the shoulder and standing 3.9m, because at 2.6m
+      // out the ground has already dropped half a metre and the old 2.5m pole
+      // finished level with the top of the barrier — two hundred and sixty of
+      // them and a critic could not find one in any player-facing shot.
       if (T.snowPoles) {
-        for (let d = 0; d < L; d += 20) {
+        for (let d = 0; d < L; d += 24) {
           for (const side of [-1, 1] as const) {
-            const s = at(d, side, 2.6);
+            const s = at(d, side, 1.8);
             if (s) drop('snowPole', s, s.face, 1, d, 0.55);
           }
         }
       }
 
       // Avalanche fences, in stepped rows up the open faces above the road.
+      // Brought in to fifty metres: a 4.4m fence is above the barrier's sight
+      // line from there, and out at a hundred and forty it was a grey line on a
+      // grey hill that no player-facing shot ever found.
       if (T.avalancheFence) {
-        for (let i = 0; i < 12; i++) {
-          const d0 = frac(i / 12 + 0.045);
+        for (let i = 0; i < 14; i++) {
+          const d0 = frac(i / 14 + 0.045);
           const side = roomier(d0, 100);
-          const f = room(d0, side, 62, 140, 18);
+          const f = room(d0, side, 50, 128, 18);
           if (!f) continue;
           for (let row = 0; row < 3; row++) {
             const s = at(f.d + (row - 1) * 19, side, f.off + row * 15);
@@ -1355,6 +1420,116 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
           // than running away from it — a mirage is something you look at edge
           // on, and edge on it is nothing.
           batcher.placeAt('shimmer', s.x, s.y + 0.9, s.z, s.face, 1, wrap(d));
+        }
+      }
+    }
+
+    /**
+     * ── 5c. the land itself ──────────────────────────────────────────────
+     *
+     * Everything above this line is *things people put there*: barriers, yards,
+     * stands, plant, spoil. What was missing is the ground they were put on.
+     *
+     * A critic measured it exactly. The far scatter was a hundred and fifty
+     * boulders over a 165-540m ring, both sides, on a 2.6km lap — one object
+     * per 114-metre square — and the band from the barrier out to the backdrop,
+     * which is most of a chase camera's screen, was bare dirt on all four
+     * courses. Each course's declared landscape lived in its fog colour and in
+     * an overhead texture nobody races in.
+     *
+     * Two tiers, and the split is a sight-line calculation rather than a taste
+     * one. From a chase camera three metres up, over a barrier 1.9m tall about
+     * fourteen metres away, the lowest thing still visible at distance D beyond
+     * the shoulder sits at roughly `1.9 - 0.079·D` metres above road level,
+     * while the ground out there has already fallen 5.7m. So:
+     *
+     *   **Spurs, 70-140m.** Long ridges lying along the track's own frame,
+     *   five to eleven metres of relief. They *occlude* — the plain behind them
+     *   stops existing — and because they are a hundred metres long they slide
+     *   past slowly while the barrier posts strobe, which is the parallax that
+     *   makes sixty metres a second read as sixty metres a second. Both ends
+     *   are checked clear of the road, not just the anchor: this is a hundred
+     *   metres of geometry laid along a curve.
+     *
+     *   **Masses, 52-620m.** The compact unit, filling between the spurs and
+     *   carrying the whole distance out to the rim. Scaled up with range, so a
+     *   knoll at sixty metres and a hill at four hundred are one geometry.
+     *
+     * Both are fifty to a hundred triangles — at this distance a landform wants
+     * a silhouette, not a surface — so the pair of them together costs less
+     * than one grandstand's crowd, and they replace scatter that cost more and
+     * showed nothing.
+     */
+    function midGround(): void {
+      // The near shoulder, 30-55m. This is the band the run-off ditch lives in
+      // and it is the hardest one to use: the ground there is five metres below
+      // the road and the barrier hides everything under about four, so only
+      // something with real relief in it registers at all. Sparse on purpose —
+      // one every ninety metres or so, sides alternating with whatever has room
+      // — because a continuous line of it turns the circuit into a corridor,
+      // which is the mistake the hoarding run already had to be rescued from.
+      for (let i = 0, n = many(30); i < n; i++) {
+        const d = wrap((i / n) * L + rng.range(-30, 30));
+        const side = roomier(d, 60);
+        const s = at(d, side, rng.range(30, 52));
+        if (!s || !free(s.x, s.z, 21)) continue;
+        claim(s.x, s.z, 17);
+        drop(`landMass${i % 4}`, s, rng.range(0, 6.28), rng.range(0.85, 1.35), d, 0);
+      }
+
+      // Spurs: they are the occluders, and they need the most room.
+      const HALF = 52;
+      for (let i = 0, n = Math.round(38 * (0.5 + 0.5 * pal.scatter)); i < n; i++) {
+        const d = wrap((i / n) * L + rng.range(-22, 22));
+        const side = roomier(d, 120);
+        let placed = false;
+        for (let k = 0; k < 4 && !placed; k++) {
+          const off = 72 + k * 21 + rng.range(-6, 6);
+          const s = at(d, side, off);
+          // A ridge is not a point. Refuse it unless the ground holds under
+          // both ends as well, or a spur laid on a bend swings into the run-off.
+          if (!s || !at(d - HALF, side, off) || !at(d + HALF, side, off)) continue;
+          if (!free(s.x, s.z, 30)) continue;
+          claim(s.x, s.z, 26);
+          drop(`landRidge${i % 3}`, s, s.along, rng.range(0.85, 1.25), d, 0);
+          placed = true;
+        }
+      }
+
+      // The near mass tier, inside the skirt, where `at()` still reconstructs
+      // the drawn triangle rather than the function behind it.
+      for (let i = 0, n = many(165); i < n; i++) {
+        const d = rng.range(0, L);
+        const side = (rng.bool() ? 1 : -1) as -1 | 1;
+        const off = 52 + rng.next() * 96;
+        const s = at(d, side, off);
+        if (!s || !free(s.x, s.z, 13)) continue;
+        drop(`landMass${i % 4}`, s, rng.range(0, 6.28),
+          rng.range(0.55, 1.15) * (0.75 + off / 190), d, 0);
+      }
+
+      // The far tier — the one the critic counted at one object per 114-metre
+      // square. Four times the density, and built out of landforms rather than
+      // boulders, because a two-metre rock at three hundred metres is not an
+      // object.
+      //
+      // The distance is drawn *flat* across the whole 150-620m band rather than
+      // weighted toward the near end. The first cut used a squared roll, which
+      // piled four fifths of them into the first hundred metres of the band and
+      // laid a visible ring of identical hills round the circuit — a fence, not
+      // a landscape. Scale climbs with range on top of that, so the far ones
+      // stay legible without the near ones becoming walls.
+      for (let i = 0, n = many(430); i < n; i++) {
+        const d = rng.range(0, L);
+        const side = (rng.bool() ? 1 : -1) as -1 | 1;
+        const off = rng.range(150, 620);
+        const s = farAt(d, side, off);
+        if (!s) continue;
+        if (rng.bool(0.82)) {
+          drop(`landMass${(i + rng.int(0, 3)) % 4}`, s, rng.range(0, 6.28),
+            rng.range(0.8, 1.5) * (0.75 + off / 380), d, 0);
+        } else {
+          drop('boulder', s, rng.range(0, 6.28), rng.range(2.0, 5.4), d, 0);
         }
       }
     }

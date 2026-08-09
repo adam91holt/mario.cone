@@ -31,7 +31,7 @@
 // — whose first act is always `reset()` — from ever having to know this module
 // exists.
 
-import { clamp01, damp, ease, makeRng } from '../../core/math.ts';
+import { clamp01, ease, makeRng } from '../../core/math.ts';
 import { getVehicle, listVehicles } from '../../vehicles/registry.ts';
 import { bind, CSS_MENU, fromHtml, hintKey, q, title } from './chrome.ts';
 import { createLaunchCard, CSS_LAUNCH } from './launch.ts';
@@ -53,30 +53,25 @@ const SHOT: Record<ScreenName, ShotName> = {
 /**
  * What the prompt rail says, given where the cursor actually is.
  *
- * The circuit screen has two rows and the rail used to advertise both of them
- * at once — "▲▼ CUP / CIRCUIT" and "◀▶ CHOOSE" — while saying nothing about
- * which one the arrow keys were currently driving. A rail that names the row
- * you are on is also the cheapest possible confirmation that ▲ and ▼ did
- * anything at all.
+ * The rail states *only* keys that do something from where the player is
+ * standing. That is not a nicety: this rail used to advertise "▲ CUPS" beside
+ * four cup tabs, three of which had no circuits in them and could never be
+ * entered, and a legend naming a key that does not do what it says is worse
+ * than no legend at all — the player concludes the game is broken rather than
+ * that the control was aspirational. The circuit screen now has a cup row only
+ * when there is more than one cup with circuits in it, and the rail says so.
  *
- * The class screen no longer offers "↵ Start race" either: the call to action
- * on that screen is a plate with the key printed on it, and a rail repeating it
+ * The class screen does not offer "↵ Start race" either: the call to action on
+ * that screen is a plate with the key printed on it, and a rail repeating it
  * forty pixels below was the same instruction twice.
  */
-function hintsFor(screen: ScreenName, courseRow: 0 | 1, courses: number): string {
+function hintsFor(screen: ScreenName, courseRow: 0 | 1, cupRow: boolean): string {
   switch (screen) {
     case 'racer':
       return hintKey('◀ ▶', 'Choose') + hintKey('↵', 'Select') + hintKey('Esc', 'Back');
     case 'course':
-      // A cup with nothing in it advertises nothing. The rail used to offer
-      // "▼ Circuits" and "◀ ▶ Circuit" on a closed cup, where ▼ lands on a
-      // single card wearing tape and ◀ ▶ cannot move: a legend that names keys
-      // which do not do what it says is worse than no legend, because the
-      // player concludes the screen is broken rather than that the cup is shut.
-      if (courses === 0) {
-        return courseRow === 0
-          ? hintKey('◀ ▶', 'Cup') + hintKey('Esc', 'Back')
-          : hintKey('▲', 'Cups') + hintKey('Esc', 'Back');
+      if (!cupRow) {
+        return hintKey('◀ ▶', 'Circuit') + hintKey('↵', 'Select') + hintKey('Esc', 'Back');
       }
       return courseRow === 0
         ? hintKey('◀ ▶', 'Cup') + hintKey('▼', 'Circuits')
@@ -109,6 +104,41 @@ const PAD_BUTTONS: Array<[number, string]> = [
 /** How long a held direction waits before it starts repeating, and how fast. */
 const REPEAT_DELAY = 0.36;
 const REPEAT_RATE = 0.11;
+/** Directions repeat when held. Confirm and back never do — holding A through a
+ *  transition must not enter three screens. */
+const REPEATS = new Set(['menu.up', 'menu.down', 'menu.left', 'menu.right']);
+
+/**
+ * The push between two screens.
+ *
+ * The board wipe used to run on *every* navigation, which is why no screen in
+ * this front-end had an entrance: the whole screen change happened behind a
+ * closed curtain and what opened onto was already settled. A 0.8s curtain is
+ * also a very expensive way to move one step down a four-step flow. It is
+ * reserved now for the one moment it was built for — the commit into a race —
+ * and everything else is a push: the outgoing screen leaves one way, the
+ * incoming one arrives the other, both on the frame at once, and the incoming
+ * screen's own staggered arrival plays out in front of the player rather than
+ * behind a panel.
+ */
+const PUSH_OUT = 0.11;
+const PUSH_LEAD = 0.045;
+const PUSH_IN = 0.185;
+const PUSH_TOTAL = PUSH_LEAD + PUSH_IN;
+/** How far a screen travels while it is arriving or leaving, in per cent. */
+const PUSH_DX = 7;
+
+/** One tick of a held direction. Returns the new held time. */
+function tickRepeat(held: number, dt: number, fire: () => void): number {
+  const next = held + dt;
+  if (held < REPEAT_DELAY) {
+    if (next >= REPEAT_DELAY) fire();
+  } else if (Math.floor((held - REPEAT_DELAY) / REPEAT_RATE)
+    !== Math.floor((next - REPEAT_DELAY) / REPEAT_RATE)) {
+    fire();
+  }
+  return next;
+}
 
 export interface CellProbe { scale: number; opacity: number; shown: boolean }
 export interface RingProbe { opacity: number; x: number; y: number; w: number; h: number }
@@ -131,10 +161,18 @@ export interface MenuProbe {
   open: boolean;
   screen: ScreenName;
   vehicleId: VehicleId;
+  /** True while the cursor is on the random slot — nothing has been picked. */
+  random: boolean;
   courseId: string;
   cup: string;
   engineClass: EngineClass;
+  /** How much of the frame the hand-off board covers, 0..1. Only ever non-zero
+   *  for the commit into a race; menu-to-menu navigation is a push. */
   wipe: number;
+  /** The push between two screens, 0..1. -1 when nothing is in flight. */
+  push: number;
+  /** How much of the launch card is on the board, 0..1. */
+  card: number;
   /** The hand-off, so a reviewer can photograph it without guessing at it. */
   launch: { active: boolean; built: boolean; t: number; hold: number; outro: number };
 }
@@ -214,10 +252,16 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
   let screen: ScreenName = 'title';
   const show: Record<ScreenName, number> = { title: 0, racer: 0, course: 0, class: 0 };
 
-  /** The wipe's own clock. -1 when nothing is in flight. */
-  let wipeT = -1;
+  /** The push's own clock. -1 when nothing is in flight. */
+  let pushT = -1;
+  /** The screen being pushed off, while it is still on the frame. */
+  let pushFrom: ScreenName | null = null;
+  /** Has the launch board finished closing? */
   let wipeSwapped = false;
-  let pending: ScreenName | null = null;
+  /** How much of the frame the board covers right now, 0..1. */
+  let cover = 0;
+  /** How much of the launch card is on the board, 0..1. */
+  let cardShow = 0;
 
   // ── the hand-off ────────────────────────────────────────────────────────
   //
@@ -274,10 +318,18 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
 
   // ── the tray ────────────────────────────────────────────────────────────
 
+  /** Is the cursor sitting on the roster's random slot? Nothing is chosen while
+   *  it is, and every part of the front-end that names the machine has to say
+   *  so — the breadcrumb used to keep reporting whichever machine had last been
+   *  hovered, so the tray said CHOPPER over a slot that had not decided. */
+  function onRandom(): boolean {
+    return screen === 'racer' && screens.racer.index >= screens.racer.randomIndex;
+  }
+
   function paintTray(): void {
     const m = traySlots.get('machine');
     if (m) {
-      m.text.text(getVehicle(choice.vehicleId).name);
+      m.text.text(onRandom() ? 'Surprise Me' : getVehicle(choice.vehicleId).name);
       m.box.classList.remove('empty');
     }
     traySlots.get('cup')?.text.text(CUPS.find((c) => c.id === choice.cup)?.name ?? '—');
@@ -290,7 +342,7 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
   /** The rail follows the cursor, not just the screen — so it is repainted from
    *  `update` rather than only when a screen changes. */
   function paintHint(): void {
-    const want = hintsFor(screen, screens.course.row, screens.course.courseCount());
+    const want = hintsFor(screen, screens.course.row, screens.course.hasCupRow);
     if (want === hintText) return;
     hintText = want;
     hintBox.el.innerHTML = want;
@@ -298,29 +350,43 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
 
   // ── flow ────────────────────────────────────────────────────────────────
 
-  function goTo(next: ScreenName): void {
-    if (next === screen && wipeT < 0) return;
-    pending = next;
-    wipeT = 0;
-    wipeSwapped = false;
+  /** Put the set into whatever pose the current screen and cursor want. */
+  function syncStage(): void {
+    if (!stage) return;
+    if (screen === 'title') {
+      stage.setShuffle(false);
+      stage.setParade(true);
+      stage.setHero(null);
+      return;
+    }
+    stage.setParade(false);
+    const random = onRandom();
+    stage.setShuffle(random);
+    if (!random) stage.setHero(choice.vehicleId);
   }
 
-  /** The moment the board is fully across the frame: swap everything at once. */
-  function swap(): void {
-    const next = pending ?? screen;
-    pending = null;
+  /**
+   * Move to another screen.
+   *
+   * `dir` is which way the player is travelling through the flow — forward
+   * through the four steps, or back up them — and it is the whole difference
+   * between a push and a slide: the incoming screen enters from the side the
+   * player is heading toward and the outgoing one leaves the other way, so the
+   * direction of the transition and the direction of the journey agree.
+   */
+  function goTo(next: ScreenName, dir: 1 | -1): void {
+    if (next === screen && pushT < 0) return;
+    pushFrom = next === screen ? null : screen;
     screen = next;
-    if (next === 'title') {
-      stage?.setParade(true);
-      stage?.setHero(null);
-    } else {
-      stage?.setParade(false);
-      stage?.setHero(choice.vehicleId);
-    }
-    // Every screen restarts its own arrival on the frame the board swings
-    // clear, so the panels, the roster and the dossier stagger in behind the
-    // wipe instead of being fully formed the instant it opens.
+    pushT = 0;
+    screens[next].dx = PUSH_DX * dir;
+    if (pushFrom) screens[pushFrom].dx = -PUSH_DX * dir;
+    // The incoming screen restarts its own arrival on the frame the push
+    // starts, so its head, roster and dossier cascade in *in front of* the
+    // player rather than behind a panel that then opens onto them settled.
     screens[next].enter?.();
+    if (next === 'racer') screens.racer.setBaseline(choice.vehicleId);
+    syncStage();
     stage?.go(SHOT[next]);
     paintHint();
     paintTray();
@@ -331,18 +397,25 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
   }
 
   function chooseVehicle(index: number, commit: boolean): void {
-    const id = index >= screens.racer.randomIndex
-      ? (commit ? pickRandomVehicle() : null)
-      : screens.racer.vehicleAt(index);
+    const random = index >= screens.racer.randomIndex;
+    if (random && !commit) {
+      // Nothing has been chosen, so nothing stands on the mark: the set runs
+      // the whole cast past instead, and the dossier says "???" rather than
+      // printing five made-up numbers with change arrows on them.
+      stage?.setShuffle(true);
+      sfx('ui.click', 0.5, 1.5);
+      paintTray();
+      return;
+    }
+    const id = random ? pickRandomVehicle() : screens.racer.vehicleAt(index);
     if (id) {
       choice.vehicleId = id;
+      stage?.setShuffle(false);
       stage?.setHero(id);
       // The machine says its own name. `sig.*` is the one sound in the bank
       // that belongs to a *character* rather than to an event, which is exactly
       // what a roster is for.
       sfx(`sig.${id}`, 0.85);
-    } else {
-      sfx('ui.click', 0.5, 1.5);
     }
     paintTray();
   }
@@ -355,9 +428,15 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
     holdWanted = 0;
     sfx('boost', 0.95);
     ctx.audio?.setMusic('auto');
-    // The card the closed board carries, painted before the board is across it
-    // rather than after — a card that appears a frame late is a card that
-    // appears.
+    // **The card is painted from `choice` at the moment the board starts to
+    // close, and from nothing else.** It used to be filled once and then shown
+    // on every navigation for as long as the board was across the frame, which
+    // meant the first full-screen statement a new player ever saw was a card
+    // reading CONE CANYON SPEEDWAY / ROAD CONE with three empty unit labels
+    // under an empty map — while they had actually chosen Jackhammer Quarry and
+    // the tipper truck. A card that is on screen for a second and is wrong is
+    // worse than no card, so it is built here, once, from the four choices this
+    // module exists to collect, and it is the only thing that ever shows it.
     const list = screens.course.coursesOf(screens.course.cupIndex);
     const cup = CUPS.find((c) => c.id === choice.cup) ?? CUPS[0]!;
     card.set({
@@ -384,9 +463,9 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
         holdWanted = Math.min(HOLD_CAP, Math.max(holdWanted, seconds));
       },
     });
-    wipeT = 0;
     wipeSwapped = false;
-    pending = null;
+    pushT = -1;
+    pushFrom = null;
   }
 
   function doLaunch(): void {
@@ -407,7 +486,7 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
     if (v === 'menu.ok') {
       sfx('item.get', 0.9);
       ctx.audio?.setMusic('grid');
-      goTo('racer');
+      goTo('racer', 1);
     }
   }
 
@@ -419,18 +498,33 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
       sfx('ui.click', 0.55, 1.08);
     } else if (v === 'menu.ok') {
       chooseVehicle(r.index, true);
+      // A random pick resolves *here*, so the roster lands on the machine the
+      // player has actually been given rather than leaving the cursor on a
+      // question mark and the tray on the last thing hovered.
+      const i = vehicleIds.indexOf(choice.vehicleId);
+      if (i >= 0) r.setIndex(i);
+      r.setBaseline(choice.vehicleId);
       sfx('ui.click', 0.9, 1.4);
-      goTo('course');
+      goTo('course', 1);
     } else if (v === 'menu.back') {
       sfx('ui.click', 0.6, 0.72);
-      goTo('title');
+      goTo('title', -1);
     }
   }
 
   function navCourse(v: string): void {
     const c = screens.course;
-    if (v === 'menu.up') { c.setRow(0); sfx('ui.click', 0.5, 1.15); return; }
-    if (v === 'menu.down') { c.setRow(1); sfx('ui.click', 0.5, 0.95); return; }
+    // With one cup there is no cup row, nothing advertises a key to reach one,
+    // and ▲/▼ are inert rather than making a noise about a row that is not
+    // there.
+    if (v === 'menu.up') {
+      if (c.hasCupRow) { c.setRow(0); sfx('ui.click', 0.5, 1.15); }
+      return;
+    }
+    if (v === 'menu.down') {
+      if (c.hasCupRow) { c.setRow(1); sfx('ui.click', 0.5, 0.95); }
+      return;
+    }
     if (v === 'menu.left' || v === 'menu.right') {
       const d = v === 'menu.right' ? 1 : -1;
       if (c.row === 0) c.setCup(c.cupIndex + d);
@@ -444,24 +538,17 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
     }
     if (v === 'menu.ok') {
       const list = c.coursesOf(c.cupIndex);
-      if (list.length === 0) {
-        // A cup with nothing in it yet. Say no out loud rather than silently
-        // doing nothing — an unresponsive button reads as a broken one.
-        sfx('coin.lose', 0.7);
-        c.setRow(0);
-        return;
-      }
       if (c.row === 0) { c.setRow(1); sfx('ui.click', 0.7, 1.2); return; }
       choice.cup = CUPS[c.cupIndex]!.id;
-      choice.courseId = list[c.courseIndex]!.id;
+      choice.courseId = list[c.courseIndex]?.id ?? choice.courseId;
       paintTray();
       sfx('ui.click', 0.9, 1.4);
-      goTo('class');
+      goTo('class', 1);
       return;
     }
     if (v === 'menu.back') {
       sfx('ui.click', 0.6, 0.72);
-      goTo('racer');
+      goTo('racer', -1);
     }
   }
 
@@ -472,15 +559,13 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
       choice.engineClass = k.classes[k.index]!;
       paintTray();
       sfx('ui.click', 0.55, 1.08);
-    } else if (v === 'menu.up' || v === 'menu.down') {
-      sfx('ui.click', 0.4, 1);
     } else if (v === 'menu.ok') {
       choice.engineClass = k.classes[k.index]!;
       paintTray();
       launch();
     } else if (v === 'menu.back') {
       sfx('ui.click', 0.6, 0.72);
-      goTo('course');
+      goTo('course', -1);
     }
   }
 
@@ -559,14 +644,41 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
     if (queued.length < 4) queued.push(verb);
   }
 
+  /**
+   * The direction currently held on the keyboard, and how long for.
+   *
+   * The browser's own key repeat is deliberately not used. Two reasons, and the
+   * second is the one that matters: its rate is an OS preference this product
+   * has no say in, and the automated critics hold a key through the debug
+   * protocol, which does not auto-repeat at all — two seconds of held ArrowRight
+   * used to advance the roster by exactly one slot. A repeat this front-end
+   * integrates itself from `dt` is the same repeat for a player, a pad and a
+   * reviewer.
+   */
+  let heldCode: string | null = null;
+  let heldVerb: string | null = null;
+  let heldT = 0;
+
   const onKeyDown = (e: KeyboardEvent): void => {
     if (!live) return;
     const verb = KEYS[e.code];
     if (!verb) return;
     e.preventDefault();
+    if (e.repeat) return;
     raise(verb);
+    if (REPEATS.has(verb)) { heldCode = e.code; heldVerb = verb; heldT = 0; }
+  };
+  const onKeyUp = (e: KeyboardEvent): void => {
+    if (e.code === heldCode) { heldCode = null; heldVerb = null; }
+  };
+  const onBlur = (): void => {
+    heldCode = null;
+    heldVerb = null;
+    padHeld.clear();
   };
   window.addEventListener('keydown', onKeyDown, { passive: false });
+  window.addEventListener('keyup', onKeyUp);
+  window.addEventListener('blur', onBlur);
 
   /** Held state per pad verb, for the repeat. */
   const padHeld = new Map<string, number>();
@@ -592,16 +704,10 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
       if (held === undefined) {
         padHeld.set(verb, 0);
         raise(verb);
+      } else if (REPEATS.has(verb)) {
+        padHeld.set(verb, tickRepeat(held, dt, () => raise(verb)));
       } else {
-        // Directions repeat when held; confirm and back never do — holding A
-        // through a transition must not enter three screens.
-        const repeats = verb !== 'menu.ok' && verb !== 'menu.back';
-        const next = held + dt;
-        if (repeats && held < REPEAT_DELAY && next >= REPEAT_DELAY) raise(verb);
-        else if (repeats && held >= REPEAT_DELAY
-          && Math.floor((held - REPEAT_DELAY) / REPEAT_RATE)
-             !== Math.floor((next - REPEAT_DELAY) / REPEAT_RATE)) raise(verb);
-        padHeld.set(verb, next);
+        padHeld.set(verb, held + dt);
       }
     }
     for (const verb of Array.from(padHeld.keys())) if (!down.has(verb)) padHeld.delete(verb);
@@ -610,26 +716,30 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
   // ── open / close ────────────────────────────────────────────────────────
 
   function open(at: ScreenName = 'title'): void {
-    if (visible && live) { goTo(at); return; }
+    if (visible && live) { goTo(at, 1); return; }
     visible = true;
     live = true;
     launching = false;
     raceBuilt = false;
     outro = -1;
-    wipeT = -1;
-    pending = null;
+    pushT = -1;
+    pushFrom = null;
+    cover = 0;
+    cardShow = 0;
+    wipeSwapped = false;
     screen = at;
     for (const k of Object.keys(show) as ScreenName[]) show[k] = k === at ? 1 : 0;
+    screens[at].dx = PUSH_DX;
     root.classList.add('on');
     // The bed the whole front-end runs on. Stated rather than inherited: with
     // no override the music follows the race behind the menus, so a front-end
     // opened over a finished race would come up to a victory fanfare.
     ctx.audio?.setMusic('grid');
     screens[at].enter?.();
+    if (at === 'racer') screens.racer.setBaseline(choice.vehicleId);
     stage?.cut(SHOT[at]);
     stage?.setLevel(1);
-    stage?.setParade(at === 'title');
-    stage?.setHero(at === 'title' ? null : choice.vehicleId);
+    syncStage();
     paintHint();
     paintTray();
     ctx.bus.emit('ui:menu', { open: true, screen: at });
@@ -638,13 +748,17 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
   function close(immediate: boolean): void {
     if (!visible) return;
     live = false;
+    heldCode = null;
+    heldVerb = null;
     if (immediate) {
       visible = false;
       root.classList.remove('on');
+      stage?.setShuffle(false);
       stage?.setParade(false);
       stage?.setHero(null);
       // `update` returns early once this is gone, so anything still on screen
       // has to be taken off here or it is on screen for ever.
+      cardShow = 0;
       card.update(0, 0);
     }
     ctx.bus.emit('ui:menu', { open: false, screen });
@@ -719,6 +833,10 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
       clock += dt;
 
       pollPad(dt);
+      if (live && heldVerb) {
+        const verb = heldVerb;
+        heldT = tickRepeat(heldT, dt, () => raise(verb));
+      }
 
       // No fixed step ran under this frame — the simulation behind us is
       // paused or stopped. Drive the nav from the queue instead, so the front
@@ -728,33 +846,31 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
         queued.length = 0;
       }
 
-      // ── the wipe ──────────────────────────────────────────────────────────
-      let cover = 0;
-      if (wipeT >= 0) {
-        wipeT += dt;
-        // Closes fast and opens slower: the arrival is the part worth watching.
-        cover = wipeT < 0.34
-          ? ease.outQuart(wipeT / 0.34)
-          : 1 - ease.inOutCubic(clamp01((wipeT - 0.34) / 0.46));
-        if (!wipeSwapped && wipeT >= 0.34) {
-          wipeSwapped = true;
-          if (launching) {
-            doLaunch();
-            // The machine says its own name once more as the card lands on the
-            // board. It is the last thing heard before the engines, and it is
-            // the only sound in the bank that belongs to the machine the player
-            // is about to be handed.
-            sfx(`sig.${choice.vehicleId}`, 0.9);
-          } else swap();
-        }
-        if (wipeT >= 0.8) { wipeT = -1; cover = 0; }
+      // ── the push ──────────────────────────────────────────────────────────
+      if (pushT >= 0) {
+        pushT += dt;
+        if (pushT >= PUSH_TOTAL && pushT >= PUSH_OUT) { pushT = -1; pushFrom = null; }
       }
-      // A race takes a moment to build. The board stays across the frame until
-      // it is ready rather than opening onto the menus we are about to leave,
-      // and then for as long again as the card on it needs to be read.
+
+      // ── the hand-off board ────────────────────────────────────────────────
+      // The only thing left that draws the curtain, and the only thing that
+      // ever shows the card.
+      cover = 0;
       if (launching) {
         launchT += dt;
-        if (wipeSwapped) cover = 1;
+        cover = ease.outQuart(clamp01(launchT / 0.34));
+        if (!wipeSwapped && launchT >= 0.34) {
+          wipeSwapped = true;
+          doLaunch();
+          // The machine says its own name once more as the card lands on the
+          // board. It is the last thing heard before the engines, and it is
+          // the only sound in the bank that belongs to the machine the player
+          // is about to be handed.
+          sfx(`sig.${choice.vehicleId}`, 0.9);
+        }
+        // A race takes a moment to build. The board stays across the frame
+        // until it is ready rather than opening onto the menus we are about to
+        // leave, and then for as long again as the card on it needs to be read.
         const until = 0.34 + CARD_HOLD + holdWanted;
         // ...and a floor under it: a `hold` whose owner never comes back, or a
         // race that never finishes building, must not leave a player looking at
@@ -777,8 +893,12 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
 
       // The card rides the closed board: it arrives as the last of the board
       // lands and leaves with the first of it moving, so it is never seen
-      // hanging over an open frame.
-      card.update(dt, clamp01((cover - 0.86) / 0.14));
+      // hanging over an open frame. It exists only for the commit into a race,
+      // which is why the show is gated on the hand-off and not merely on the
+      // board's coverage — a card is a promise about what is about to happen,
+      // and one that fires on every arrow key is a promise about nothing.
+      cardShow = launching || outro >= 0 ? clamp01((cover - 0.86) / 0.14) : 0;
+      card.update(dt, cardShow);
       // Per cent of the panel's own width, and the panel is 78% of the frame
       // hung 10% outside it: 108% of 78% is 84% of the frame, which clears a
       // panel whose far edge sits at 68%.
@@ -792,10 +912,19 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
       // Once the board is fully across for a launch, the screens behind it are
       // done: they must not be there to be revealed when it swings away.
       const hidden = handing;
+      // Both screens in a push are on the frame at once, on one clock. The
+      // outgoing one clears in a tenth of a second and the incoming one takes
+      // the rest, which is what puts the arriving screen's own cascade in front
+      // of the player instead of behind a panel.
       for (const k of Object.keys(show) as ScreenName[]) {
-        const want = !hidden && k === screen ? 1 : 0;
-        show[k] = damp(show[k], want, 0.00002, dt);
-        if (show[k] < 0.004 && want === 0) show[k] = 0;
+        let want: number;
+        if (hidden) want = 0;
+        else if (pushT >= 0) {
+          if (k === screen) want = ease.outQuart(clamp01((pushT - PUSH_LEAD) / PUSH_IN));
+          else if (k === pushFrom) want = 1 - ease.inQuad(clamp01(pushT / PUSH_OUT));
+          else want = 0;
+        } else want = k === screen ? 1 : 0;
+        show[k] = want;
         screens[k].update(dt, show[k]);
         screens[k].root.classList.toggle('live', live && k === screen && show[k] > 0.6);
       }
@@ -829,6 +958,8 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
 
     dispose(): void {
       window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
       stage?.dispose();
       for (const s of Object.values(screens)) s.dispose?.();
       root.remove();
@@ -924,10 +1055,13 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
       open: visible,
       screen,
       vehicleId: choice.vehicleId,
+      random: onRandom(),
       courseId: choice.courseId,
       cup: choice.cup,
       engineClass: choice.engineClass,
-      wipe: wipeT < 0 ? 0 : +wipeT.toFixed(3),
+      wipe: +cover.toFixed(3),
+      push: pushT < 0 ? -1 : +clamp01(pushT / PUSH_TOTAL).toFixed(3),
+      card: +cardShow.toFixed(3),
       launch: {
         active: launching,
         built: raceBuilt,

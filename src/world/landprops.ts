@@ -37,8 +37,21 @@ import { makeRng } from '../core/math.ts';
  * that has settled on each tier drawn as a slightly wider, slightly flatter
  * cone just under it. That white line under every skirt is what makes them read
  * as snow-laden rather than as green traffic cones.
+ *
+ * **Two levels of detail, and this one is load-bearing.** Two hundred and ten
+ * stands of the full article is seventy-seven thousand triangles, which is on
+ * its own most of why Switchback Summit loaded at 914k against Cone Canyon's
+ * 757k and why a repeat reset into it took the page down. Past about a hundred
+ * metres a conifer is a dark triangle with a pale top and nothing else survives
+ * — no trunk, no skirt count, no snow line — so `far` builds three trees out of
+ * three five-sided cones each and costs a third as much. The near stands keep
+ * everything and are given a short draw distance to match, so the detailed
+ * geometry is only ever submitted where it can be seen.
  */
-export function pineStandGeo(seed: number, pal: LandPalette, count = 4): THREE.BufferGeometry {
+export function pineStandGeo(
+  seed: number, pal: LandPalette, opts: { count?: number; far?: boolean } = {},
+): THREE.BufferGeometry {
+  const count = opts.count ?? (opts.far ? 3 : 4);
   const r = makeRng(0x9f10 + seed * 733);
   const dark = 0x2f4a33;
   const mid = 0x3d5c3c;
@@ -50,6 +63,19 @@ export function pineStandGeo(seed: number, pal: LandPalette, count = 4): THREE.B
       const w = h * r.range(0.20, 0.26);
       k.push();
       k.move(Math.cos(a) * rad, 0, Math.sin(a) * rad).rotY(r.range(0, 6.28));
+      if (opts.far) {
+        // Silhouette only. Three tiers, five-sided, one cap on the crown.
+        for (let t = 0; t < 3; t++) {
+          const f = t / 3;
+          k.cone(0, h * (0.14 + f * 0.62), 0, w * (1 - f * 0.6), h * (0.40 - f * 0.07), 5,
+            t % 2 ? mid : dark, { ao: 0.42, aoHeight: h * 0.7, shade: 1 - f * 0.08 });
+        }
+        if (pal.cap !== null) {
+          k.cone(0, h * 0.70, 0, w * 0.46, h * 0.16, 5, pal.cap, { noAo: true });
+        }
+        k.pop();
+        continue;
+      }
       k.cyl(0, h * 0.13, 0, 0.17, 0.30, h * 0.26, 5, 0x4a3a2c, { ao: 0.5, aoHeight: 2 });
       // Four tiers, six-sided, and snow on the top two only. A stand is four of
       // these and a hillside is a hundred and fifty stands, so every segment
@@ -77,21 +103,30 @@ export function pineStandGeo(seed: number, pal: LandPalette, count = 4): THREE.B
 /**
  * A snow pole.
  *
- * The one object on a mountain road that is allowed to be loud: two and a half
- * metres of white pole with a hazard-orange head, planted every twenty metres
- * down both shoulders so a plough driver can find the edge of the carriageway
- * under a metre of snow. A line of them running away down a traverse is the
- * cheapest possible statement of "alpine road", and it doubles as a rhythm
- * marker for the corner the traverse is running into.
+ * The one object on a mountain road that is allowed to be loud: a white pole
+ * with a hazard-orange head, planted down both shoulders so a plough driver can
+ * find the edge of the carriageway under a metre of snow. A line of them
+ * running away down a traverse is the cheapest possible statement of "alpine
+ * road", and it doubles as a rhythm marker for the corner the traverse is
+ * running into.
+ *
+ * It is **3.9 metres** tall, and that number is the whole point of this
+ * revision. The first cut stood 2.5m at 2.6m off the shoulder, where the ground
+ * has already fallen half a metre — so the orange head sat at road+2.0m against
+ * a barrier 1.9m tall, and a critic reported, correctly, that a course placing
+ * two hundred and sixty of these showed not one of them in any player-facing
+ * shot. It was twenty-eight thousand triangles of nothing. A real marker pole
+ * in snow country is this tall for the same reason: it has to be found above
+ * what is in the way. The segment counts came down at the same time, so the
+ * pole that is now visible costs a third less than the one that was not.
  */
 export function snowPoleGeo(): THREE.BufferGeometry {
   return buildProp('snowPole', (k) => {
-    k.cyl(0, 0.06, 0, 0.16, 0.20, 0.12, 6, C.concreteDark, { ao: 0.5 });
-    k.cyl(0, 1.25, 0, 0.055, 0.065, 2.3, 6, C.white, { ao: 0.28, aoHeight: 1.6 });
-    k.cyl(0, 2.30, 0, 0.075, 0.075, 0.34, 6, C.orange, { noAo: true });
-    k.cyl(0, 2.52, 0, 0.05, 0.075, 0.14, 6, C.ink, { noAo: true });
+    k.cyl(0, 0.07, 0, 0.17, 0.22, 0.14, 4, C.concreteDark, { ao: 0.5 });
+    k.cyl(0, 1.85, 0, 0.062, 0.075, 3.5, 5, C.white, { ao: 0.26, aoHeight: 2.2 });
+    k.cyl(0, 3.72, 0, 0.088, 0.088, 0.42, 5, C.orange, { noAo: true });
     // The reflector, turned to face the road.
-    k.box(0, 1.95, 0.06, 0.11, 0.20, 0.03, C.yellow, { noAo: true });
+    k.box(0, 2.55, 0.07, 0.13, 0.26, 0.03, C.yellow, { noAo: true });
   }, 0.4);
 }
 
@@ -106,24 +141,28 @@ export function snowPoleGeo(): THREE.BufferGeometry {
  */
 export function avalancheFenceGeo(): THREE.BufferGeometry {
   return buildProp('avalancheFence', (k) => {
-    const L = 16, H = 3.4, bays = 6;
+    // Taller and coarser than the first cut. 3.4m of fence sixty metres out sat
+    // under the barrier's sight line from the road, so it was paying for itself
+    // in triangles and returning nothing; 4.4m clears it, and dropping a bay and
+    // a strut segment pays for the extra height twice over.
+    const L = 17, H = 4.4, bays = 5;
     for (let i = 0; i <= bays; i++) {
       const z = -L / 2 + (i * L) / bays;
       // Raked upright plus a back stay into the hill.
-      k.strut(0, 0, z, -0.55, H, z, 0.075, C.galv, { ao: 0.45, aoHeight: 3 }, 4);
-      k.strut(0, 0, z, 1.6, H * 0.42, z, 0.055, C.galv, { ao: 0.45, aoHeight: 3 }, 4);
-      k.box(1.62, 0.14, z, 0.5, 0.28, 0.5, C.concreteDark, { ao: 0.5 });
+      k.strut(0, 0, z, -0.7, H, z, 0.085, C.galv, { ao: 0.45, aoHeight: 3 }, 3);
+      k.strut(0, 0, z, 1.9, H * 0.42, z, 0.06, C.galv, { ao: 0.45, aoHeight: 3 }, 3);
+      k.box(1.92, 0.15, z, 0.5, 0.3, 0.5, C.concreteDark, { ao: 0.5 });
     }
     for (let j = 0; j < 4; j++) {
       const f = 0.2 + j * 0.26;
-      k.strut(-0.55 * f, H * f, -L / 2, -0.55 * f, H * f, L / 2, 0.055, C.steel,
-        { ao: 0.35, aoHeight: 3 }, 4);
+      k.strut(-0.7 * f, H * f, -L / 2, -0.7 * f, H * f, L / 2, 0.06, C.steel,
+        { ao: 0.35, aoHeight: 3 }, 3);
     }
     for (let i = 0; i < bays; i++) {
       const z0 = -L / 2 + (i * L) / bays, z1 = z0 + L / bays;
       const f = i % 2 ? 1 : -1;
-      k.strut(f < 0 ? 0 : -0.55, f < 0 ? 0 : H, z0, f < 0 ? -0.55 : 0, f < 0 ? H : 0, z1,
-        0.04, C.steel, { ao: 0.3, aoHeight: 3 }, 4);
+      k.strut(f < 0 ? 0 : -0.7, f < 0 ? 0 : H, z0, f < 0 ? -0.7 : 0, f < 0 ? H : 0, z1,
+        0.045, C.steel, { ao: 0.3, aoHeight: 3 }, 3);
     }
   }, 0.45);
 }
@@ -592,6 +631,175 @@ export function shimmerGeo(): THREE.BufferGeometry {
       k.pop();
     }
   }, 0);
+}
+
+// ── the middle distance, per landscape ─────────────────────────────────────
+//
+// The band from sixty to a hundred and fifty metres beyond the barrier is most
+// of a chase camera's screen, and on all four courses it was **empty ground**.
+// A critic put a number on it: the far scatter was a hundred and fifty boulders
+// spread over a 165-540m ring on both sides of a 2.6km lap — one object per
+// 114m square — which from the road reads as nothing at all. Every course's
+// declared landscape lived in its fog colour and in an overhead texture the
+// player never sees.
+//
+// The fix is not more boulders. Two things separate this band from the rest of
+// the module and both of them are about the sight line:
+//
+//   * It has to **occlude**. From a chase camera three metres up, over a
+//     barrier 1.9m tall, the visible cut-off falls to about three metres above
+//     the ground by sixty metres out and to ground level by a hundred and
+//     twenty. A landform that stands five to eleven metres therefore *hides
+//     what is behind it*, which is what turns a flat plain into a place with
+//     depth. A two-metre boulder at the same distance does not.
+//   * It has to be **long**. A scatter of compact objects at this range reads
+//     as litter; a ridge lying across the view reads as terrain. So the primary
+//     unit here is a spur a hundred metres long, laid along the track's own
+//     frame, and the compact masses fill in between them.
+//
+// Both are built at about fifty to a hundred triangles — a landform seen from
+// sixty metres wants a silhouette, not a surface — so a couple of hundred of
+// them across a lap costs less than one grandstand's crowd.
+
+/**
+ * The shape language of a landscape's own rock.
+ *
+ * Colour alone does not separate four landscapes at two hundred metres: a
+ * terracotta lump and a grey lump are one lump in two colours. Sandstone stands
+ * in flat-topped terraces, blasted rock breaks into angular blocks, a lake bed
+ * swells into low domes and a mountain comes to a point — and those four
+ * outlines are legible from further away than any hue is.
+ */
+export type MassShape = 'butte' | 'block' | 'dome' | 'peak';
+
+/**
+ * One landform: the compact unit of the middle distance. Authored on its base.
+ *
+ * `seed % 4` picks a sub-form as well as re-rolling the dice, and that is
+ * deliberate rather than incidental. The first cut of this rolled proportions
+ * from one recipe, and four hundred instances of one recipe scattered across a
+ * plain read — exactly, unmistakably — as four hundred copies of one object.
+ * The eye finds a repeat long before it finds a shape. So the four variants are
+ * a *squat* one, a *tall* one, a *twinned* one and a *broken* one, and a lap's
+ * worth of them mixes to something that reads as country rather than as a
+ * texture atlas.
+ */
+export function landMassGeo(
+  seed: number, pal: LandPalette, shape: MassShape,
+): THREE.BufferGeometry {
+  const v = ((seed % 4) + 4) % 4;
+  const r = makeRng(0x51a3 + seed * 761);
+  // squat / tall / twinned / broken
+  const w = r.range(7, 11) * [1.5, 0.78, 1.15, 1.3][v]!;
+  const h = r.range(5, 9) * [0.62, 1.85, 1.0, 0.8][v]!;
+  const twin = v === 2;
+  const broken = v === 3;
+
+  return buildProp('landMass', (k) => {
+    k.push();
+    k.rotY(r.range(0, 6.28));
+
+    /** One mass of the landscape's own rock, built on its own base. */
+    const form = (sx: number, sz: number, fw: number, fh: number, tint: number): void => {
+      k.push();
+      k.move(sx, 0, sz).rotY(r.range(0, 6.28));
+      if (shape === 'butte') {
+        // Sedimentary: a low talus skirt, two banded lifts with near-vertical
+        // walls, and a flat cap that overhangs. The walls are what say
+        // "sandstone" — a sloped one is a hill, and a hill is not a butte.
+        k.cone(0, 0, 0, fw * 1.16, fh * 0.20, 6, pal.soilDark, { noAo: true, shade: 0.9 });
+        k.cyl(0, fh * 0.30, 0, fw * 0.94, fw * 1.02, fh * 0.60, 6, tint,
+          { ao: 0.3, aoHeight: fh * 0.8 });
+        k.cyl(0, fh * 0.74, 0, fw * 0.84, fw * 0.90, fh * 0.28, 6, pal.rockDark,
+          { noAo: true, shade: 1.04 });
+        k.cyl(0, fh * 0.94, 0, fw * 0.80, fw * 0.86, fh * 0.12, 6, pal.crest,
+          { noAo: true, shade: 1.1 });
+      } else if (shape === 'block') {
+        // Blasted rock: slabs shoved together, nothing rounded anywhere.
+        for (let i = 0; i < (broken ? 4 : 2); i++) {
+          k.push();
+          k.move(r.range(-fw * 0.5, fw * 0.5), 0, r.range(-fw * 0.5, fw * 0.5))
+            .rotY(r.range(0, 6.28)).rotZ(r.range(-0.18, 0.18));
+          k.post(0, 0, 0, fw * r.range(0.8, 1.3), fh * r.range(0.5, 1.05),
+            fw * r.range(0.7, 1.1), i % 2 ? pal.rockDark : tint,
+            { ao: 0.34, aoHeight: fh * 0.8 });
+          k.pop();
+        }
+        k.box(0, fh * 1.02, 0, fw * 0.8, fh * 0.07, fw * 0.7, pal.crest,
+          { noAo: true, shade: 1.08 });
+      } else if (shape === 'dome') {
+        // A lake bed does not have mountains on it. Low, wide, soft.
+        k.push();
+        k.scale(1, 0.4, 1);
+        k.cone(0, 0, 0, fw * 1.6, fh, 7, tint, { noAo: true, shade: 0.98 });
+        k.pop();
+        k.push();
+        k.move(fw * 0.6, 0, -fw * 0.35).scale(1, 0.3, 1);
+        k.cone(0, 0, 0, fw * 0.95, fh * 0.75, 6, pal.soilDark, { noAo: true, shade: 1.04 });
+        k.pop();
+      } else {
+        // A peak, and the reason it is a mountain: the snow on it.
+        k.cone(0, 0, 0, fw, fh, 6, tint, { ao: 0.28, aoHeight: fh * 0.7 });
+        k.push();
+        k.move(fw * 0.62, 0, fw * 0.34).rotY(0.8);
+        k.cone(0, 0, 0, fw * 0.62, fh * 0.58, 5, pal.rockDark,
+          { ao: 0.28, aoHeight: fh * 0.7 });
+        k.pop();
+      }
+      if (pal.cap !== null && shape !== 'dome') {
+        // The snow line. Held proud of the rock's own profile the whole way up
+        // rather than matched to it — a cap that starts exactly on the
+        // silhouette is a cap *inside* the mountain, and draws nothing.
+        k.cone(0, fh * (shape === 'peak' ? 0.40 : 0.86),
+          0, fw * (shape === 'peak' ? 0.63 : 0.92), fh * 0.62, 6, pal.cap, { noAo: true });
+      }
+      k.pop();
+    };
+
+    form(0, 0, w, h, pal.rock);
+    if (twin) form(w * r.range(1.1, 1.6), w * r.range(-0.7, 0.7), w * 0.62, h * 0.66, pal.rockDark);
+    k.pop();
+  }, 0.34);
+}
+
+/**
+ * A spur: a hundred metres of ridge, laid along the track's own frame.
+ *
+ * This is the piece that actually fixes the bald mid-field. One of these across
+ * the view at eighty metres hides the plain behind it, gives the eye a
+ * horizontal to measure the road against, and — because it is long — it moves
+ * *slowly* past a kart at sixty metres a second while the barrier posts strobe,
+ * which is the parallax that makes speed read.
+ */
+export function landRidgeGeo(
+  seed: number, pal: LandPalette, shape: MassShape,
+): THREE.BufferGeometry {
+  const r = makeRng(0x3f8d + seed * 619);
+  const flat = shape === 'dome';
+  return buildProp('landRidge', (k) => {
+    const n = 5;
+    let z = -52;
+    for (let i = 0; i < n; i++) {
+      const len = r.range(22, 32);
+      const w = r.range(11, 19);
+      const h = flat ? r.range(1.8, 3.4) : r.range(5.0, 10.5);
+      k.push();
+      k.move(r.range(-6, 6), 0, z + len * 0.5).rotY(r.range(-0.22, 0.22));
+      k.scale(w * 0.5, h, len * 0.62);
+      // `aoHeight` is in world metres after the transform, so it is set from
+      // the segment's own height rather than from the unit cube it is authored
+      // in — a ten-metre ridge with a 1.6m default fades its contact shading
+      // inside the bottom sixth of itself and reads as a cut-out.
+      const opt = { ao: 0.32, aoHeight: h * 0.8 };
+      if (shape === 'block') k.post(0, 0, 0, 1.5, 1, 1.4, i % 2 ? pal.rock : pal.rockDark, opt);
+      else k.cone(0, 0, 0, 1, 1, 6, i % 2 ? pal.rock : pal.rockDark, opt);
+      // The crest, a shade paler, so the ridge has a lit edge against the sky.
+      if (pal.cap !== null) k.cone(0, 0.5, 0, 0.6, 0.55, 6, pal.cap, { noAo: true });
+      else if (!flat) k.cone(0, 0.62, 0, 0.5, 0.42, 5, pal.crest, { noAo: true, shade: 1.05 });
+      k.pop();
+      z += len * r.range(0.78, 0.98);
+    }
+  }, 0.32);
 }
 
 // ── shared, palette-driven ─────────────────────────────────────────────────

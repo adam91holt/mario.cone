@@ -226,6 +226,15 @@ export interface Stage {
   go(shot: ShotName): void;
   /** Which machine stands on the mark. Null clears it. */
   setHero(id: VehicleId | null): void;
+  /**
+   * Cycle the whole cast on the mark instead of standing one machine on it.
+   *
+   * What the roster's random slot puts on the stage. It used to leave whichever
+   * machine had last been hovered standing there, which is the one thing a slot
+   * called SURPRISE ME must not do: the screen showed a helicopter, the
+   * breadcrumb said CHOPPER, and the pick was going to be something else.
+   */
+  setShuffle(on: boolean): void;
   /** Fade the cast parade in or out — the title has one, the choosers do not. */
   setParade(on: boolean): void;
   /** How lit the set is, 0..1. Driven down while a wipe is across the frame. */
@@ -697,10 +706,31 @@ export function createStage(ctx: GameContext): Stage | null {
   const laneOf = new Map<VehicleId, { lane: number; slot: number; of: number }>();
 
   let heroId: VehicleId | null = null;
-  /** 0..1 clock for the one full revolution a machine makes as it arrives. */
-  let arriveT = 1;
-  let heroSpin = 0;
+  /**
+   * 0..1 clock for the arrival of a newly chosen machine.
+   *
+   * It used to drive a full revolution, which is why flicking the roster
+   * regularly showed a vehicle's back: the machine arrived on the running
+   * turntable angle and then spun through 360° from wherever that was, so the
+   * frame after a keypress could be — and measurably was — rear-on. A character
+   * select exists to show a player a face. So the machine now *snaps* to a
+   * fixed three-quarter presentation, turns the last twelfth of a turn into it
+   * and scales up off the ground, which is a swap you can read at a glance and
+   * an angle that is the same in every screenshot ever taken of it.
+   */
+  let swapT = 1;
+  /** The presenting angle. Three-quarter front, camera-left shoulder forward. */
+  const PRESENT_YAW = 0.62;
+  let heroSpin = PRESENT_YAW;
   let heroLevel = 0;
+  /** Where the mark sits for the current machine, and where it is heading —
+   *  damped, so a swap between a cone and a locomotive is a move rather than a
+   *  jump. */
+  let pushZ = 0;
+  let pushTarget = 0;
+  /** The random slot: the whole cast, cycled on the mark. */
+  let shuffling = false;
+  const shuffleIds = listVehicles().map((v) => v.id);
 
   function clearParade(): void {
     for (const e of parade) paradeGroup.remove(e.d.model.root);
@@ -790,6 +820,50 @@ export function createStage(ctx: GameContext): Stage | null {
     if (!mascot) return;
     mascotGroup.remove(mascot.model.root);
     mascot = null;
+  }
+
+  /**
+   * Stand a machine on the mark.
+   *
+   * `pop` is the difference between a player choosing something — which gets
+   * the snap, the turn-in and the scale-up — and the reel cycling underneath a
+   * random pick, which must not restart that flourish forty times a second.
+   */
+  function mount(id: VehicleId | null, pop: boolean): void {
+    if (heroId === id) return;
+    heroId = id;
+    // Out of the parade first. The same model instance serves both, and the
+    // parade drives its transform every frame — a machine left in that list
+    // is a machine that quietly drives off the character select.
+    if (id) {
+      const i = parade.findIndex((e) => e.d.id === id);
+      if (i >= 0) { paradeGroup.remove(parade[i]!.d.model.root); parade.splice(i, 1); }
+      if (id === MASCOT) releaseMascot();
+    }
+    for (let i = heroGroup.children.length - 1; i >= 0; i--) {
+      heroGroup.remove(heroGroup.children[i]!);
+    }
+    if (id) {
+      const d = displayOf(id);
+      if (d.model.root.parent) d.model.root.parent.remove(d.model.root);
+      // **Put it back on the mark.** The same model instance is re-parented
+      // between the parade and the pedestal, and the parade drives its
+      // position every frame — without this the machine arrives on the
+      // character select wherever it happened to be driving past, which is
+      // usually somewhere off the side of the frame.
+      d.model.root.position.set(0, 0, 0);
+      d.model.root.rotation.set(0, heroSpin, 0);
+      heroGroup.add(d.model.root);
+      // Framing follows the machine's own size, exactly as the chase camera
+      // does: a 4.8m locomotive and a 1.9m cone cannot share a distance. Small
+      // machines come *forward*, or the cone this game is named after is a
+      // thumbnail on its own character select.
+      const size = getVehicle(id).size;
+      const span = Math.max(size.length, size.width);
+      pushTarget = -Math.max(-0.4, Math.min(2.8, (span - 2.6) * 0.85));
+      if (pop) swapT = 0;
+    }
+    if (paradeWant) { clearParade(); enqueueParade(); }
   }
 
   // ── shot ────────────────────────────────────────────────────────────────
@@ -1015,44 +1089,12 @@ export function createStage(ctx: GameContext): Stage | null {
       shotT = 0;
     },
 
-    setHero(id): void {
-      if (heroId === id) return;
-      heroId = id;
-      // Out of the parade first. The same model instance serves both, and the
-      // parade drives its transform every frame — a machine left in that list
-      // is a machine that quietly drives off the character select.
-      if (id) {
-        const i = parade.findIndex((e) => e.d.id === id);
-        if (i >= 0) { paradeGroup.remove(parade[i]!.d.model.root); parade.splice(i, 1); }
-        if (id === MASCOT) releaseMascot();
-      }
-      for (let i = heroGroup.children.length - 1; i >= 0; i--) {
-        heroGroup.remove(heroGroup.children[i]!);
-      }
-      if (id) {
-        const d = displayOf(id);
-        if (d.model.root.parent) d.model.root.parent.remove(d.model.root);
-        // **Put it back on the mark.** The same model instance is re-parented
-        // between the parade and the pedestal, and the parade drives its
-        // position every frame — without this the machine arrives on the
-        // character select wherever it happened to be driving past, which is
-        // usually somewhere off the side of the frame.
-        d.model.root.position.set(0, 0, 0);
-        d.model.root.rotation.set(0, heroSpin, 0);
-        heroGroup.add(d.model.root);
-        // Framing follows the machine's own size, exactly as the chase camera
-        // does: a 4.8m locomotive and a 1.9m cone cannot share a distance. Small
-        // machines come *forward*, or the cone this game is named after is a
-        // thumbnail on its own character select.
-        const size = getVehicle(id).size;
-        const span = Math.max(size.length, size.width);
-        const push = (span - 2.6) * 0.85;
-        heroGroup.position.set(0, 0, -Math.max(-0.4, Math.min(2.8, push)));
-        // A full turn on arrival, decaying onto the presenting angle: the
-        // machine *shows itself off* and then holds still enough to be read.
-        arriveT = 0;
-      }
-      if (paradeWant) { clearParade(); enqueueParade(); }
+    setHero(id): void { mount(id, true); },
+
+    setShuffle(on): void {
+      if (shuffling === on) return;
+      shuffling = on;
+      if (on) swapT = 1;
     },
 
     setParade(on): void {
@@ -1115,26 +1157,43 @@ export function createStage(ctx: GameContext): Stage | null {
       }
 
       // ── the machine on the mark ──────────────────────────────────────────
+      // The reel, when the cursor is on the random slot: the whole cast cycled
+      // on the mark, six a second, spinning. Off the stage's own clock, so it
+      // is the same reel in every screenshot at the same moment.
+      if (shuffling) {
+        const i = Math.floor(clock / 0.16) % shuffleIds.length;
+        mount(shuffleIds[i]!, false);
+      }
       if (heroId) {
         const d = displayOf(heroId);
         // **A sweep, not a turntable.** Every machine in this cast has a face,
         // and the face is the character — a continuous spin means that half the
         // time the thing a player is choosing has its back to them, and every
         // screenshot ever taken of this screen lands on an arbitrary angle. So
-        // the machine rocks through the front three-quarters instead, and only
-        // *arrives* on a full revolution.
-        if (arriveT < 1) arriveT = Math.min(1, arriveT + dt / 0.85);
-        const extra = (1 - ease.outCubic(arriveT)) * Math.PI * 2;
-        heroSpin = 0.55 + Math.sin(clock * 0.46) * 0.62 + extra;
+        // the machine holds the presenting three-quarter and rocks a third of a
+        // radian either side of it, and a swap *snaps* to that angle rather than
+        // inheriting whatever the last machine happened to be showing.
+        if (swapT < 1) swapT = Math.min(1, swapT + dt / 0.3);
+        const turnIn = (1 - ease.outCubic(swapT)) * 0.95;
+        heroSpin = shuffling
+          ? clock * 7.4
+          : PRESENT_YAW + Math.sin(clock * 0.46) * 0.34 - turnIn;
+        // ...and it grows onto the mark. A machine that is simply *there* one
+        // frame after the keypress reads as a texture swap; one that comes up
+        // off the ground reads as a machine being presented.
+        const grow = shuffling ? 1 : lerp(0.68, 1, ease.outBack(swapT));
+        heroGroup.scale.setScalar(grow);
+        pushZ = damp(pushZ, shuffling ? -1.1 : pushTarget, 0.0004, dt);
+        heroGroup.position.set(0, 0, pushZ);
         d.model.root.position.set(0, 0, 0);
         d.model.root.rotation.set(0, heroSpin, 0);
         d.model.root.visible = heroLevel > 0.02;
-        d.patchMat.opacity = PATCH_MAX * heroLevel * level;
+        d.patchMat.opacity = PATCH_MAX * heroLevel * level * clamp01(swapT * 2.6);
         // Idling, not parked: enough rolling speed that wheels turn, rotors
         // spin and the plane's prop blurs, with a slow weave so the rigs' lean
         // and the cone's tip have something to answer.
         const r = d.racer;
-        r.speed = 7 + (1 - arriveT) * 12;
+        r.speed = shuffling ? 16 : 7 + (1 - swapT) * 7;
         r.steerAngle = Math.sin(clock * 0.8) * 0.16;
         d.model.update?.(r, dt, 1);
       }

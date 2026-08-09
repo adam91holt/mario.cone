@@ -33,6 +33,7 @@
 
 import * as THREE from 'three';
 import { clamp } from '../core/math.ts';
+import { smoothstep } from '../track/geom.ts';
 import { groundTexture } from './groundtex.ts';
 import { GROUND_SURFACES, resolveTheme } from './theme.ts';
 import { makeGravelTexture } from '../track/textures.ts';
@@ -169,12 +170,27 @@ export function createGroundSystem(ctx: GameContext): GameSystem {
       const key = Math.max(0, nx * rig.sx + ny * rig.sy + nz * rig.sz);
       const rimAmt = Math.max(0, nx * rig.rx + ny * rig.ry + nz * rig.rz) * RIM_I;
       const hemi = 0.5 + 0.5 * ny;
+      // A landform shades *itself*, and a hemisphere fill does not know that.
+      // Both flanks of a butte have the same up-vector, so both get the same
+      // fill; the sun term alone was not enough of a difference and the big
+      // masses photographed as flat cut-outs — ARCHITECTURE §12's "warm key,
+      // cool fill" reading on the karts and not on the landscape.
+      //
+      // So the fill is scaled by how much sky a face can actually see, which is
+      // a function of two things: how steep it is, and whether it is turned
+      // away from the light. A flat is untouched — `slope` is zero there, which
+      // is most of the ground in the game — and a hundred-metre face turned
+      // from the sun loses two fifths of its ambient, which is what puts a
+      // terminator on a mesa.
+      const slope = Math.sqrt(nx * nx + nz * nz);
+      const away = 1 - smoothstep(-0.35, 0.30, nx * rig.sx + nz * rig.sz);
+      const fill = 1 - 0.42 * slope * away;
       // `hemiSky`/`hemiGround` already carry the fill strength and the bounce.
-      const lr = rig.hemiGround.r + (rig.hemiSky.r - rig.hemiGround.r) * hemi
+      const lr = (rig.hemiGround.r + (rig.hemiSky.r - rig.hemiGround.r) * hemi) * fill
         + rig.sun.r * key + rig.rim.r * rimAmt;
-      const lg = rig.hemiGround.g + (rig.hemiSky.g - rig.hemiGround.g) * hemi
+      const lg = (rig.hemiGround.g + (rig.hemiSky.g - rig.hemiGround.g) * hemi) * fill
         + rig.sun.g * key + rig.rim.g * rimAmt;
-      const lb = rig.hemiGround.b + (rig.hemiSky.b - rig.hemiGround.b) * hemi
+      const lb = (rig.hemiGround.b + (rig.hemiSky.b - rig.hemiGround.b) * hemi) * fill
         + rig.sun.b * key + rig.rim.b * rimAmt;
 
       col.setXYZ(i, out.r * lr * INV_PI, out.g * lg * INV_PI, out.b * lb * INV_PI);
