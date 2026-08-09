@@ -261,8 +261,8 @@
   // ── board state ──────────────────────────────────────────────────────
   // Updated as the build progresses. Everything below renders from this.
   const STATE = {
-  "phase": "Wave 3 landed",
-  "phaseNote": "AI, audio and world dressing all exist and run. All three failed their critics; the reviews are now measuring the game in its own units — percent of race spent in gravel, decibels in a named frequency band, pixels that change between two frames.",
+  "phase": "Wave 4 — race flow, menus, course roster",
+  "phaseNote": "Three builders in flight. Next: the coherence pass — one fresh agent plays the whole game front to back and closes the seams between pieces — then performance.",
   "pieces": [
     {
       "id": "feel",
@@ -367,27 +367,27 @@
       "id": "flow",
       "name": "Race flow & results",
       "scope": "src/race",
-      "state": "queued",
-      "rounds": 0,
-      "verdict": "",
+      "state": "build",
+      "rounds": 1,
+      "verdict": "Wave 4, round 1 in flight — builder working now.",
       "gap": ""
     },
     {
       "id": "menus",
       "name": "Front-end & menus",
       "scope": "src/ui/menus",
-      "state": "queued",
-      "rounds": 0,
-      "verdict": "",
+      "state": "build",
+      "rounds": 1,
+      "verdict": "Wave 4, round 1 in flight — builder working now.",
       "gap": ""
     },
     {
       "id": "courses",
       "name": "Course roster",
       "scope": "src/track/courses",
-      "state": "queued",
-      "rounds": 0,
-      "verdict": "",
+      "state": "build",
+      "rounds": 1,
+      "verdict": "Wave 4, round 1 in flight — builder working now.",
       "gap": ""
     },
     {
@@ -398,9 +398,22 @@
       "rounds": 0,
       "verdict": "",
       "gap": ""
+    },
+    {
+      "id": "coherence",
+      "name": "Whole-game coherence",
+      "scope": "everything",
+      "state": "queued",
+      "rounds": 0,
+      "verdict": "",
+      "gap": "Never run. Every piece so far was judged alone; nobody has yet played the game end to end and asked whether it feels like one work."
     }
   ],
   "log": [
+    {
+      "when": "2026-08-09 10:19 UTC",
+      "text": "Wave 4 building: race flow & results, front-end menus, three more courses. Added the perf brief and the coherence pass to the roster."
+    },
     {
       "at": "Wave 3",
       "text": "<b>AI 5.5, audio 6.5, world 6.5 — all fail, all merged.</b> The AI critic ran two full 120s races at 10Hz and found the field spends 17.5% of the race in the gravel, falling off at the same two named corners every lap. The audio critic measured a 0.09 dB difference in the drift-scrub band between no slip and full slip, against a 6 dB pass bar. The world critic parked the kart and advanced 1.4 seconds of visual time: nothing in the bottom 60% of frame changed."
@@ -501,7 +514,7 @@
       "caption": " Countdown beat. HUD punch and the pre-race camera."
     }
   ],
-  "updated": "2026-08-09 09:35 UTC"
+  "updated": "2026-08-09 10:19 UTC"
 };
 
   const LABEL = { queued: "Queued", build: "Building", review: "In review", fail: "Sent back", pass: "Passed" };

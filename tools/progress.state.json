@@ -1,6 +1,6 @@
 {
-  "phase": "Wave 3 landed",
-  "phaseNote": "AI, audio and world dressing all exist and run. All three failed their critics; the reviews are now measuring the game in its own units \u2014 percent of race spent in gravel, decibels in a named frequency band, pixels that change between two frames.",
+  "phase": "Wave 4 — race flow, menus, course roster",
+  "phaseNote": "Three builders in flight. Next: the coherence pass — one fresh agent plays the whole game front to back and closes the seams between pieces — then performance.",
   "pieces": [
     {
       "id": "feel",
@@ -9,7 +9,7 @@
       "state": "review",
       "rounds": 2,
       "verdict": "Merged. Drift, three mini-turbo tiers, slipstream and tricks landed; top speed doubled to ~60 m/s.",
-      "gap": "Not yet signed off \u2014 wave 1 stalled before its closing verdicts were recorded. Queued for re-judging."
+      "gap": "Not yet signed off — wave 1 stalled before its closing verdicts were recorded. Queued for re-judging."
     },
     {
       "id": "camera",
@@ -18,7 +18,7 @@
       "state": "review",
       "rounds": 2,
       "verdict": "Merged. Trails travel direction rather than chassis yaw, and derives framing from the camera-to-kart vector.",
-      "gap": "Not yet signed off \u2014 wave 1 stalled before its closing verdicts were recorded. Queued for re-judging."
+      "gap": "Not yet signed off — wave 1 stalled before its closing verdicts were recorded. Queued for re-judging."
     },
     {
       "id": "track",
@@ -26,8 +26,8 @@
       "scope": "src/track",
       "state": "review",
       "rounds": 2,
-      "verdict": "Merged. Nine named corners; width follows speed \u2014 30m on the start straight, 17m at the hairpin apex.",
-      "gap": "Not yet signed off \u2014 wave 1 stalled before its closing verdicts were recorded. Queued for re-judging."
+      "verdict": "Merged. Nine named corners; width follows speed — 30m on the start straight, 17m at the hairpin apex.",
+      "gap": "Not yet signed off — wave 1 stalled before its closing verdicts were recorded. Queued for re-judging."
     },
     {
       "id": "look",
@@ -36,7 +36,7 @@
       "state": "review",
       "rounds": 2,
       "verdict": "Merged. Fill cut to a fifth of key, so the game finally has a light side and a dark side.",
-      "gap": "Not yet signed off \u2014 wave 1 stalled before its closing verdicts were recorded. Queued for re-judging."
+      "gap": "Not yet signed off — wave 1 stalled before its closing verdicts were recorded. Queued for re-judging."
     },
     {
       "id": "cast",
@@ -45,7 +45,7 @@
       "state": "review",
       "rounds": 2,
       "verdict": "Merged. All seven rebuilt as root/chassis/shell with faces and rigs, ~4 draw calls each.",
-      "gap": "Not yet signed off \u2014 wave 1 stalled before its closing verdicts were recorded. Queued for re-judging."
+      "gap": "Not yet signed off — wave 1 stalled before its closing verdicts were recorded. Queued for re-judging."
     },
     {
       "id": "fx",
@@ -54,7 +54,7 @@
       "state": "fail",
       "rounds": 6,
       "verdict": "6.5/10 after three rounds. Sparks, tyre smoke, boost flames, marks and impacts all firing off the right events.",
-      "gap": "Every smoke puff is a flat-alpha polygon with a hard cookie-cutter rim \u2014 at 9x zoom you can count a 16-gon silhouette \u2014 so the one particle on screen in every frame reads as a cutout disc rather than smoke."
+      "gap": "Every smoke puff is a flat-alpha polygon with a hard cookie-cutter rim — at 9x zoom you can count a 16-gon silhouette — so the one particle on screen in every frame reads as a cutout disc rather than smoke."
     },
     {
       "id": "items",
@@ -62,7 +62,7 @@
       "scope": "src/items",
       "state": "fail",
       "rounds": 6,
-      "verdict": "7/10 after three rounds. Boxes, roulette, full item set, coins, and a genuinely strong hit vocabulary \u2014 banana spins you 1.00 rotation in 0.73s and drops you 53 to 23 m/s; a green shell flips you 1.08 rotations in 1.02s and launches you.",
+      "verdict": "7/10 after three rounds. Boxes, roulette, full item set, coins, and a genuinely strong hit vocabulary — banana spins you 1.00 rotation in 0.73s and drops you 53 to 23 m/s; a green shell flips you 1.08 rotations in 1.02s and launches you.",
       "gap": "The blooper blacks out ~66% of the central play area at up to 0.97 opacity for six seconds. Mario Kart ink is a nuisance you race through; this one is a blindfold."
     },
     {
@@ -72,7 +72,7 @@
       "state": "fail",
       "rounds": 2,
       "verdict": "5.5/10 after two rounds. Rebuilt with awareness, knowledge and personality. CPUs now plan corners, use items and differ from each other.",
-      "gap": "The field spends ~17.5% of every race unintentionally in the gravel, falling off at the same two corners every lap. And every drift is released the instant tier 1 lands \u2014 a whole 8-kart race produces 128 blue mini-turbos, 1 orange and 0 purple."
+      "gap": "The field spends ~17.5% of every race unintentionally in the gravel, falling off at the same two corners every lap. And every drift is released the instant tier 1 lands — a whole 8-kart race produces 128 blue mini-turbos, 1 orange and 0 purple."
     },
     {
       "id": "hud",
@@ -99,33 +99,33 @@
       "state": "fail",
       "rounds": 2,
       "verdict": "6.5/10 after two rounds. A full synthesized stack: per-vehicle engines, drift, impacts, items, music, positional audio. No audio files.",
-      "gap": "A two-second drift has no tyre scrub at all \u2014 0.09 dB difference across the module own documented 1900 Hz band between slip 0 and slip 1. The corner the player lives in is silent apart from one 80ms tick."
+      "gap": "A two-second drift has no tyre scrub at all — 0.09 dB difference across the module own documented 1900 Hz band between slip 0 and slip 1. The corner the player lives in is silent apart from one 80ms tick."
     },
     {
       "id": "flow",
       "name": "Race flow & results",
       "scope": "src/race",
-      "state": "queued",
-      "rounds": 0,
-      "verdict": "",
+      "state": "build",
+      "rounds": 1,
+      "verdict": "Wave 4, round 1 in flight — builder working now.",
       "gap": ""
     },
     {
       "id": "menus",
       "name": "Front-end & menus",
       "scope": "src/ui/menus",
-      "state": "queued",
-      "rounds": 0,
-      "verdict": "",
+      "state": "build",
+      "rounds": 1,
+      "verdict": "Wave 4, round 1 in flight — builder working now.",
       "gap": ""
     },
     {
       "id": "courses",
       "name": "Course roster",
       "scope": "src/track/courses",
-      "state": "queued",
-      "rounds": 0,
-      "verdict": "",
+      "state": "build",
+      "rounds": 1,
+      "verdict": "Wave 4, round 1 in flight — builder working now.",
       "gap": ""
     },
     {
@@ -136,24 +136,37 @@
       "rounds": 0,
       "verdict": "",
       "gap": ""
+    },
+    {
+      "id": "coherence",
+      "name": "Whole-game coherence",
+      "scope": "everything",
+      "state": "queued",
+      "rounds": 0,
+      "verdict": "",
+      "gap": "Never run. Every piece so far was judged alone; nobody has yet played the game end to end and asked whether it feels like one work."
     }
   ],
   "log": [
     {
-      "at": "Wave 3",
-      "text": "<b>AI 5.5, audio 6.5, world 6.5 \u2014 all fail, all merged.</b> The AI critic ran two full 120s races at 10Hz and found the field spends 17.5% of the race in the gravel, falling off at the same two named corners every lap. The audio critic measured a 0.09 dB difference in the drift-scrub band between no slip and full slip, against a 6 dB pass bar. The world critic parked the kart and advanced 1.4 seconds of visual time: nothing in the bottom 60% of frame changed."
+      "when": "2026-08-09 10:19 UTC",
+      "text": "Wave 4 building: race flow & results, front-end menus, three more courses. Added the perf brief and the coherence pass to the roster."
     },
     {
       "at": "Wave 3",
-      "text": "<b>AI, audio and world dressing dispatched.</b> Items, effects and HUD carry their directives to a later polish wave \u2014 they are at 6.5-7 and improving, while these three do not exist at all."
+      "text": "<b>AI 5.5, audio 6.5, world 6.5 — all fail, all merged.</b> The AI critic ran two full 120s races at 10Hz and found the field spends 17.5% of the race in the gravel, falling off at the same two named corners every lap. The audio critic measured a 0.09 dB difference in the drift-scrub band between no slip and full slip, against a 6 dB pass bar. The world critic parked the kart and advanced 1.4 seconds of visual time: nothing in the bottom 60% of frame changed."
+    },
+    {
+      "at": "Wave 3",
+      "text": "<b>AI, audio and world dressing dispatched.</b> Items, effects and HUD carry their directives to a later polish wave — they are at 6.5-7 and improving, while these three do not exist at all."
     },
     {
       "at": "Wave 2 r3",
-      "text": "<b>Six critics, three rounds, still no pass \u2014 and the reviews are getting better.</b> The blooper critique came with a numeric pass condition: re-run the same crop and require fraction-below-luminance-60 under 0.40. The particle critique came with an acceptance test: re-shoot the train funnel at 9x zoom, no straight edge traceable. This is what a review loop looks like when it stops guessing."
+      "text": "<b>Six critics, three rounds, still no pass — and the reviews are getting better.</b> The blooper critique came with a numeric pass condition: re-run the same crop and require fraction-below-luminance-60 under 0.40. The particle critique came with an acceptance test: re-shoot the train funnel at 9x zoom, no straight edge traceable. This is what a review loop looks like when it stops guessing."
     },
     {
       "at": "Wave 2",
-      "text": "<b>All three pieces failed and go back.</b> Items 7/10, HUD 6.5/10, effects 5.5/10 \u2014 every blind A/B went to Mario Kart. The critics measured rather than eyeballed: CSS opacity sampled every four fixed steps across 40s, particle-atlas alpha peaks read off the live texture, spark streak length computed in metres against the length of the kart."
+      "text": "<b>All three pieces failed and go back.</b> Items 7/10, HUD 6.5/10, effects 5.5/10 — every blind A/B went to Mario Kart. The critics measured rather than eyeballed: CSS opacity sampled every four fixed steps across 40s, particle-atlas alpha peaks read off the live texture, spark streak length computed in metres against the length of the kart."
     },
     {
       "at": "Recovered",
@@ -161,7 +174,7 @@
     },
     {
       "at": "Wave 2",
-      "text": "<b>Items, effects and HUD dispatched.</b> The item system does not exist yet, and without it this is a time trial rather than a kart racer. Effects are equally absent \u2014 a drift currently looks identical to driving straight."
+      "text": "<b>Items, effects and HUD dispatched.</b> The item system does not exist yet, and without it this is a time trial rather than a kart racer. Effects are equally absent — a drift currently looks identical to driving straight."
     },
     {
       "at": "Merged",
@@ -173,7 +186,7 @@
     },
     {
       "at": "Fixed",
-      "text": "<b>Karts were vanishing from their own chase camera.</b> The engine derived the frame-blend factor from an accumulator the harness bypasses, producing an alpha of -438 \u2014 every interpolation became an extrapolation and drew each kart two hundred metres behind itself. Clamped where the number is handed out."
+      "text": "<b>Karts were vanishing from their own chase camera.</b> The engine derived the frame-blend factor from an accumulator the harness bypasses, producing an alpha of -438 — every interpolation became an extrapolation and drew each kart two hundred metres behind itself. Clamped where the number is handed out."
     },
     {
       "at": "Wave 1",
@@ -181,11 +194,11 @@
     },
     {
       "at": "Scaffold",
-      "text": "<b>Capture harness made practical.</b> Shots now fast-forward the simulation without drawing and render only the settling moment. The nine-shot review sheet went from timing out at 290s to 99s \u2014 which is what makes repeated review affordable."
+      "text": "<b>Capture harness made practical.</b> Shots now fast-forward the simulation without drawing and render only the settling moment. The nine-shot review sheet went from timing out at 290s to 99s — which is what makes repeated review affordable."
     },
     {
       "at": "Scaffold",
-      "text": "<b>Four defects found by looking, not reading.</b> The road mesh was wound backwards and was being discarded entirely by backface culling \u2014 karts appeared to float over bare ground. The camera inherited stale state between races, and un-rendered landing impulses accumulated until the camera launched 350m into the air."
+      "text": "<b>Four defects found by looking, not reading.</b> The road mesh was wound backwards and was being discarded entirely by backface culling — karts appeared to float over bare ground. The camera inherited stale state between races, and un-rendered landing impulses accumulated until the camera launched 350m into the air."
     },
     {
       "at": "Scaffold",
