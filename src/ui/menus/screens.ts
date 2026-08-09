@@ -517,7 +517,7 @@ export function createRacerScreen(): RacerScreen {
       const hIn = stagger(tIn, 0);
       headBox.set('transform', `translateX(${((1 - hIn) * -16).toFixed(1)}%)`);
       headBox.set('opacity', hIn.toFixed(3));
-      const dIn = stagger(tIn, 0.1, 0.42);
+      const dIn = stagger(tIn, 0.04, 0.34);
       dossier.set('transform',
         `translate(${(((1 - e) * 24) + (1 - dIn) * 26).toFixed(1)}%, -50%)`);
       dossier.set('opacity', dIn.toFixed(3));
@@ -536,7 +536,7 @@ export function createRacerScreen(): RacerScreen {
         // released from 1 undershoots by a third of its travel, and a tile
         // that dips 8% reads as a fault rather than as recoil.
         const k = raw < -0.12 ? -0.12 : raw;
-        const cell = stagger(tIn, 0.16 + i * 0.038, 0.4);
+        const cell = stagger(tIn, 0.05 + i * 0.034, 0.32);
         const scale = (1 + k * 0.22) * (on ? lerp(1, breathe, clamp01(k)) : 1) * lerp(0.8, 1, cell);
         t.box.set('transform',
           `translateY(${(-k * 13 + (1 - cell) * 46).toFixed(2)}%) scale(${scale.toFixed(4)})`);
@@ -547,7 +547,7 @@ export function createRacerScreen(): RacerScreen {
       const selK = clamp01(tileEls[api.index]?.s.v ?? 0);
       rover.update(dt, api.index,
         Math.max(-0.12, tileEls[api.index]?.s.v ?? 0) * (selK > 0 ? breathe : 1),
-        show * stagger(tIn, 0.2, 0.3), 0.13, 0.22);
+        show * stagger(tIn, 0.08, 0.24), 0.13, 0.22);
 
       // ── the stat bars ──────────────────────────────────────────────────
       // The bar travels to its new value rather than jumping, and the trade is
@@ -847,14 +847,14 @@ export function createCourseScreen(): CourseScreen {
       const hIn = stagger(tIn, 0);
       headBox.set('transform', `translateX(${((1 - hIn) * -16).toFixed(1)}%)`);
       headBox.set('opacity', hIn.toFixed(3));
-      const cupIn = stagger(tIn, 0.08, 0.34);
-      const cardIn = stagger(tIn, 0.2, 0.42);
+      const cupIn = stagger(tIn, 0.03, 0.3);
+      const cardIn = stagger(tIn, 0.05, 0.34);
       cupsBox.set('transform',
         `translate(-50%, ${((1 - e) * -90 + (1 - cupIn) * -50).toFixed(1)}%)`);
       cupsBox.set('opacity', cupIn.toFixed(3));
       cardsBox.set('transform',
         `translate(-50%, ${((1 - e) * 40 + (1 - cardIn) * 22).toFixed(1)}%)`);
-      const briefIn = stagger(tIn, 0.34, 0.4);
+      const briefIn = stagger(tIn, 0.15, 0.34);
       briefBox.set('opacity', briefIn.toFixed(3));
       briefBox.set('transform', `translateY(${((1 - briefIn) * 60).toFixed(1)}%)`);
 
@@ -894,7 +894,7 @@ export function createCourseScreen(): CourseScreen {
         const held = i === api.courseIndex && cupsHot && live > 0 ? 1 : 0;
         c.held01 = damp(c.held01, held, 0.00004, dt);
         c.held.set('opacity', c.held01.toFixed(3));
-        const cell = stagger(tIn, 0.22 + i * 0.05, 0.4);
+        const cell = stagger(tIn, 0.06 + i * 0.045, 0.32);
         const sc = (1 + k * 0.05) * (on ? lerp(1, breathe, clamp01(k)) : 1) * lerp(0.9, 1, cell);
         c.box.set('transform',
           `translateY(${(-k * 4 + (1 - cell) * 30).toFixed(2)}%) scale(${sc.toFixed(4)})`);
@@ -1047,7 +1047,7 @@ export function createClassScreen(ctx: GameContext): ClassScreen {
       const hIn = stagger(tIn, 0);
       headBox.set('transform', `translateX(${((1 - hIn) * -16).toFixed(1)}%)`);
       headBox.set('opacity', hIn.toFixed(3));
-      const cardIn = stagger(tIn, 0.1, 0.4);
+      const cardIn = stagger(tIn, 0.04, 0.32);
       cardsBox.set('transform',
         `translate(-50%, ${((1 - e) * 30 + (1 - cardIn) * 20).toFixed(1)}%)`);
 
@@ -1055,7 +1055,7 @@ export function createClassScreen(ctx: GameContext): ClassScreen {
         const c = cardEls[i]!;
         const on = i === api.index;
         const k = Math.max(-0.12, springTo(c.s, on ? 1 : 0, SEL_K, SEL_C, dt));
-        const cell = stagger(tIn, 0.14 + i * 0.05, 0.4);
+        const cell = stagger(tIn, 0.05 + i * 0.045, 0.32);
         const sc = (1 + k * 0.075) * (on ? lerp(1, breathe, clamp01(k)) : 1) * lerp(0.9, 1, cell);
         c.box.set('transform',
           `translateY(${(-k * 5 + (1 - cell) * 26).toFixed(2)}%) scale(${sc.toFixed(4)})`);
@@ -1072,7 +1072,7 @@ export function createClassScreen(ctx: GameContext): ClassScreen {
       // because a word that changes colour twice a second is a word nobody can
       // read at the moment they are meant to read it.
       const pulse = 0.5 + 0.5 * Math.sin(clock * 3.2);
-      const goIn = stagger(tIn, 0.3, 0.4);
+      const goIn = stagger(tIn, 0.14, 0.34);
       go.set('opacity', (e * goIn).toFixed(3));
       go.set('transform',
         `translateY(${((1 - goIn) * 70).toFixed(1)}%) scale(${(1 + pulse * 0.022).toFixed(4)})`);

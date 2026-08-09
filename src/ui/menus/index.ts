@@ -303,7 +303,7 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
   let clock = 0;
   let railScroll = 0;
   let booted = false;
-  let hintText = ' ';
+  let hintText = '\u0000';
 
   const choice = {
     vehicleId: 'cone' as VehicleId,
