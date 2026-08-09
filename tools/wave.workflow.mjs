@@ -301,8 +301,27 @@ gap a player would notice, it fails.`;
 
 // ── run ────────────────────────────────────────────────────────────────────
 
-const ids = (args && args.pieces) || ['items', 'fx', 'hud'];
-const MAX_ROUNDS = (args && args.rounds) || 2;
+/**
+ * `args` can arrive as an object or as a JSON string depending on how the
+ * workflow was invoked. Parsing both matters more than it looks: when this read
+ * `args.pieces` directly, a stringified payload silently produced `undefined`,
+ * the script fell through to its defaults, and a wave launched for ai/audio/world
+ * spent ninety minutes rebuilding the pieces it already had — while every
+ * `carry` directive was dropped on the floor. A misrouted wave should be a loud
+ * failure, so anything unparseable throws rather than defaulting.
+ */
+const input = (() => {
+  if (!args) return {};
+  if (typeof args !== 'string') return args;
+  try {
+    return JSON.parse(args);
+  } catch (err) {
+    throw new Error(`workflow args were a string but not valid JSON: ${String(err)}`);
+  }
+})();
+
+const ids = input.pieces || ['items', 'fx', 'hud'];
+const MAX_ROUNDS = input.rounds || 2;
 const PASS_SCORE = 8.5;
 
 /**
@@ -312,7 +331,7 @@ const PASS_SCORE = 8.5;
  * critic's measured directive — and that has to survive into the next run.
  * Without this, round 3 opens by rediscovering what round 2 already proved.
  */
-const CARRY = (args && args.carry) || {};
+const CARRY = input.carry || {};
 
 const selected = ids.map((id) => ({ id, ...PIECES[id] })).filter((p) => p.name);
 log(`Wave: ${selected.map((p) => p.id).join(', ')} — up to ${MAX_ROUNDS} rounds each.`);
