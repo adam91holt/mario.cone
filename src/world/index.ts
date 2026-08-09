@@ -76,6 +76,9 @@ import { makeRng } from '../core/math.ts';
 import { Batcher, Ground, type Batch, type Spot } from './place.ts';
 import { C, createMaterials, type WorldClock, type WorldMaterials } from './look.ts';
 import * as P from './props.ts';
+import * as LP from './landprops.ts';
+import { LAND_PALETTES } from './themes.ts';
+import { resolveTheme } from '../render/theme.ts';
 import { clusterCrowdGeo, deckCrowdGeo, standCrowdGeo, terraceCrowdGeo } from './crowd.ts';
 import {
   createBirds, createBridge, createRailway, createTipper, createWreckingCrane,
@@ -131,6 +134,15 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
   function build(track: Track): void {
     const M = mats;
     if (!M) return;
+
+    // The theme first, and *before* anything is torn down. `resolveTheme`
+    // throws by name on a props key nothing in src/ reads, which is the whole
+    // point of it: thirteen dead keys shipped once because an unknown key was
+    // a silent no-op. Reading it here means a course with a typo fails with
+    // nothing half-built rather than quietly losing its landscape.
+    const T = resolveTheme(track.theme);
+    const pal = LAND_PALETTES[T.land];
+
     teardown();
     builtFor = track.id;
 
@@ -178,8 +190,8 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
     def('hoarding', P.hoardingGeo(0), 400);
     def('hoarding2', P.hoardingGeo(1), 400);
     def('hoarding3', P.hoardingGeo(2), 400);
-    def('pad', P.padGeo(32, 26), 900);
-    def('padSmall', P.padGeo(21, 17), 720);
+    def('pad', P.padGeo(32, 26, pal), 900);
+    def('padSmall', P.padGeo(21, 17, pal), 720);
 
     def('portaloo', P.portalooGeo(), 560);
     def('container', P.containerGeo(), 1000);
@@ -196,38 +208,89 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
     def('ventPipe', P.ventPipeGeo(), 560);
     def('steam', P.steamGeo(), 820, M.puff);
 
-    def('spoil', P.spoilHeapGeo(), 950);
-    def('boulder', P.boulderGeo(), 800);
-    def('scrub', P.scrubGeo(), 420);
+    // The natural scatter is the landscape's, not the roadworks'. Same
+    // geometry, the landscape's own rock, soil and vegetation — a terracotta
+    // boulder on a salt lake is a bug, and it was one on three courses.
+    def('spoil', P.spoilHeapGeo(pal), 950);
+    def('boulder', P.boulderGeo(pal), 800);
+    def('scrub', P.scrubGeo(pal), 420);
 
     // The middle distance — see §5b. Everything here is either large or tall,
     // because forty to a hundred and fifty metres out is five metres below the
     // road and hidden to about four metres by the barrier.
-    def('hardstand', P.hardstandGeo(34, 48), 1500);
-    def('hardstandS', P.hardstandGeo(22, 22), 1200);
+    def('hardstand', P.hardstandGeo(34, 48, pal), 1500);
+    def('hardstandS', P.hardstandGeo(22, 22, pal), 1200);
     def('vanRow', P.vanRowGeo(11), 700);
     def('vanRow2', P.vanRowGeo(29), 700);
     def('vanRow3', P.vanRowGeo(47), 700);
     def('marquee', P.marqueeGeo(5), 1300);
     def('marquee2', P.marqueeGeo(23), 1300);
-    def('berm', P.bermGeo(), 1400);
+    def('berm', P.bermGeo(pal), 1400);
     def('stockpile', P.stockpileGeo(), 1600);
     def('floodTower', P.floodTowerGeo(), 2000);
 
-    def('grandstand', P.grandstandGeo(8), 1600);
-    def('standCrowd', standCrowdGeo(8, 21), 1600, M.crowd);
-    def('grandstandS', P.grandstandGeo(5), 1300);
-    def('standCrowdS', standCrowdGeo(5, 33), 1300, M.crowd);
-    def('terrace', P.terraceGeo(), 900);
-    def('terraceCrowd', terraceCrowdGeo(41), 740, M.crowd);
-    // Spectator banks. Fifty-odd of these carry the lap, so they are also the
-    // module's largest triangle bill — the draw distance is set where a bank
-    // stops being people and starts being a coloured smudge, not where it stops
-    // being visible.
-    for (let i = 0; i < 3; i++) {
-      def(`crowd${i}`, clusterCrowdGeo(101 + i * 17), 560, M.crowd);
+    if (T.crowds) {
+      def('grandstand', P.grandstandGeo(8), 1600);
+      def('standCrowd', standCrowdGeo(8, 21), 1600, M.crowd);
+      def('grandstandS', P.grandstandGeo(5), 1300);
+      def('standCrowdS', standCrowdGeo(5, 33), 1300, M.crowd);
+      def('terrace', P.terraceGeo(), 900);
+      def('terraceCrowd', terraceCrowdGeo(41), 740, M.crowd);
+      // Spectator banks. Fifty-odd of these carry the lap, so they are also the
+      // module's largest triangle bill — the draw distance is set where a bank
+      // stops being people and starts being a coloured smudge, not where it
+      // stops being visible.
+      for (let i = 0; i < 3; i++) {
+        def(`crowd${i}`, clusterCrowdGeo(101 + i * 17), 560, M.crowd);
+      }
+      def('deckCrowd', deckCrowdGeo(63, 3.4, 2, 0.85), 620, M.crowd);
     }
-    def('deckCrowd', deckCrowdGeo(63, 3.4, 2, 0.85), 620, M.crowd);
+
+    // ── the landscape's own kit ────────────────────────────────────────────
+    //
+    // Every one of these is gated on a key the course actually declares, and
+    // the gate covers the geometry *and* the placement together: defining a
+    // kind nobody places, or placing a kind nobody defined, are the two ways
+    // this silently does nothing, and `Batcher.place` ignores an unknown id
+    // without a word.
+    if (T.land === 'quarry') {
+      def('bench', LP.benchGeo(pal, 0), 2000);
+      def('bench2', LP.benchGeo(pal, 1), 2000);
+      def('rubble', LP.rubbleGeo(pal, 0), 760);
+      def('rubble2', LP.rubbleGeo(pal, 1), 760);
+    }
+    if (T.land === 'saltpan') {
+      def('saltHeap', LP.saltHeapGeo(pal, 0), 2400);
+      def('saltHeap2', LP.saltHeapGeo(pal, 1), 2400);
+      def('brinePool', LP.brinePoolGeo(0), 1400);
+      def('brinePool2', LP.brinePoolGeo(1), 1400);
+      def('saltRidge', LP.saltRidgeGeo(0), 620);
+      def('saltRidge2', LP.saltRidgeGeo(1), 620);
+    }
+    if (T.land === 'alpine') {
+      def('snowDrift', LP.snowDriftGeo(0, pal), 900);
+      def('snowDrift2', LP.snowDriftGeo(1, pal), 900);
+    }
+    if (T.pines) {
+      for (let i = 0; i < 3; i++) def(`pines${i}`, LP.pineStandGeo(i, pal), 1250);
+    }
+    if (T.snowPoles) def('snowPole', LP.snowPoleGeo(), 340);
+    if (T.avalancheFence) def('avFence', LP.avalancheFenceGeo(), 1300);
+    if (T.windsocks) {
+      def('windsockMast', LP.windsockMastGeo(), 620);
+      def('windsock', LP.windsockGeo(), 620, M.cloth);
+    }
+    if (T.surveyPegs) def('surveyPeg', LP.surveyPegGeo(), 280);
+    if (T.machinery !== 'none') {
+      def('haulTruck', LP.haulTruckGeo(), 1300);
+    }
+    if (T.machinery === 'heavy') {
+      def('crusher', LP.crusherGeo(pal), 2400);
+      def('drillRig', LP.drillRigGeo(), 1500);
+    }
+    if (T.conveyors) def('groundConveyor', LP.groundConveyorGeo(), 1600);
+    if (T.dust) def('dustVeil', LP.dustVeilGeo(), 1500, M.drift);
+    if (T.heatShimmer) def('shimmer', LP.shimmerGeo(), 2600, M.shimmer);
 
     def('flagPole', P.flagPoleGeo(8.5), 820);
     def('flagA', P.flagGeo(2.45, 1.55, C.orange, C.white, 0), 780, M.cloth);
@@ -474,10 +537,12 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       // overhead cameras — down at ground level the barrier hides it from the
       // chase — but it is what stops the run-off reading as bare dirt from
       // anywhere else on the circuit.
-      for (let i = 0; i < 20; i++) {
-        const d = c.from + ((c.to - c.from) * i) / 20;
-        const s = at(d, c.outer, 11 + (i % 5) * 1.7);
-        if (s) drop('cone', s, s.along, 1.05, d, 0.9);
+      if (T.cones) {
+        for (let i = 0; i < 20; i++) {
+          const d = c.from + ((c.to - c.from) * i) / 20;
+          const s = at(d, c.outer, 11 + (i % 5) * 1.7);
+          if (s) drop('cone', s, s.along, 1.05, d, 0.9);
+        }
       }
 
       // The marshal apron: a levelled platform at road height on the outside of
@@ -499,6 +564,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
         const board = on(-7, 1.5);
         if (board && big) drop('arrowBoard', board, board.face + c.outer * 0.2, 1, mid, 3.0);
         for (let i = 0; i < 9; i++) {
+          if (!T.cones && i !== 4) continue;
           const s = on(-7 + i * 1.8, -7.4 + (i % 2) * 0.4);
           if (!s) continue;
           if (i === 4) {
@@ -516,7 +582,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
 
       // Spectators, on their own banking, behind and above the apron.
       const bankOff = big ? 30 : 27;
-      const s = atRoad(mid, c.outer, bankOff);
+      const s = T.crowds ? atRoad(mid, c.outer, bankOff) : null;
       if (s && free(s.x, s.z, 16)) {
         claim(s.x, s.z, 15);
         if (big) {
@@ -536,7 +602,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       }
       // Two more knots either side of it, so the corner is populated along its
       // length rather than at one point.
-      for (const [dd, oo] of [[-26, 24], [22, 26]] as const) {
+      for (const [dd, oo] of (T.crowds ? [[-26, 24], [22, 26]] : []) as ReadonlyArray<readonly [number, number]>) {
         const s2 = atRoad(mid + dd, c.outer, oo);
         if (!s2 || !free(s2.x, s2.z, 13)) continue;
         claim(s2.x, s2.z, 12);
@@ -635,10 +701,13 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       if (sc) {
         drop('scaffold', sc, sc.face, 1, d0, 4.6);
         // Site staff who have found the best view on the circuit.
-        batcher.placeAt('deckCrowd', sc.x, sc.y + 5.47, sc.z, sc.face, 1, wrap(d0));
+        if (T.crowds) {
+          batcher.placeAt('deckCrowd', sc.x, sc.y + 5.47, sc.z, sc.face, 1, wrap(d0));
+        }
       }
       // Cones and drums along the front lip of the pad, marking it off.
       for (let i = 0; i < 11; i++) {
+        if (!T.cones && i % 5 !== 2) continue;
         const s = on(-16 + i * 3.3, -12.6 + r.range(-0.5, 0.5));
         if (!s) continue;
         if (i % 5 === 2) {
@@ -681,27 +750,27 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       // the frame when the lights are on — and the lights are exactly when the
       // player is looking hardest.
       const mainD = start + 58;
-      const main = atRoad(mainD, OUT, 12);
+      const main = T.crowds ? atRoad(mainD, OUT, 12) : null;
       if (main) {
         claim(main.x, main.z, 22);
         drop('grandstand', main, main.face, 1, mainD, 0);
         drop('standCrowd', main, main.face, 1, mainD, 0);
       }
       const main2D = start - 54;
-      const main2 = atRoad(main2D, OUT, 12);
+      const main2 = T.crowds ? atRoad(main2D, OUT, 12) : null;
       if (main2) {
         claim(main2.x, main2.z, 19);
         drop('grandstandS', main2, main2.face, 1, main2D, 0);
         drop('standCrowdS', main2, main2.face, 1, main2D, 0);
       }
       const oppD = start + 24;
-      const opp = atRoad(oppD, IN, 12);
+      const opp = T.crowds ? atRoad(oppD, IN, 12) : null;
       if (opp) {
         claim(opp.x, opp.z, 19);
         drop('grandstandS', opp, opp.face, 1, oppD, 0);
         drop('standCrowdS', opp, opp.face, 1, oppD, 0);
       }
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; T.crowds && i < 3; i++) {
         const d = start - 106 + i * 30;
         const s = atRoad(d, IN, 12);
         if (s && free(s.x, s.z, 9)) {
@@ -711,7 +780,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
         }
       }
       // Standing crowd banked against the fence, both sides of the line.
-      for (let i = 0; i < 11; i++) {
+      for (let i = 0; T.crowds && i < 11; i++) {
         const d = start - 150 + i * 26;
         for (const side of [-1, 1] as const) {
           const s = atRoad(d, side, 8.5);
@@ -776,7 +845,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
         if (s) drop('marshalPost', s, s.face, 1, d, 2.6);
       }
       // A cone apron on the pit-side, laid out in a proper taper.
-      for (let i = 0; i < 26; i++) {
+      for (let i = 0; T.cones && i < 26; i++) {
         const d = start - 30 + i * 3.6;
         const s = at(d, IN, 4.0 + i * 0.34);
         if (s) drop(i % 6 === 0 ? 'coneStack' : 'cone', s, s.along, 1.05, d, 0.95);
@@ -792,7 +861,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       if (hero) {
         claim(hero.x, hero.z, 26);
         drop('giantCone', hero, rng.range(0, 6.28), 1, heroD, 0);
-        for (let i = 0; i < 12; i++) {
+        for (let i = 0; T.cones && i < 12; i++) {
           const a = (i / 12) * Math.PI * 2;
           const s = at(heroD + Math.cos(a) * 19, heroSide, 62 + Math.sin(a) * 19);
           if (s) drop('cone', s, a, 1.6, heroD, 1.4);
@@ -802,15 +871,16 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
 
     // ── 5. the horizon ─────────────────────────────────────────────────────
 
+    // Seven anchors around the lap, and *what* stands at each one is the
+    // landscape's call: a quarry gets conveyors and silos, a mountain gets
+    // masts, a dry lake gets almost nothing standing up at all. The lap
+    // fractions stay fixed — this is a navigation aid before it is scenery, and
+    // a driver learns where things are, not what they are made of.
     const HERO: Array<{ f: number; off: number; kind: string }> = [
-      { f: 0.12, off: 240, kind: 'towerCrane' },
-      { f: 0.275, off: 310, kind: 'silo' },
-      { f: 0.41, off: 290, kind: 'mast' },
-      { f: 0.525, off: 250, kind: 'conveyor' },
-      { f: 0.64, off: 270, kind: 'towerCrane' },
-      { f: 0.78, off: 330, kind: 'mast' },
-      { f: 0.905, off: 290, kind: 'silo' },
-    ];
+      { f: 0.12, off: 240 }, { f: 0.275, off: 310 }, { f: 0.41, off: 290 },
+      { f: 0.525, off: 250 }, { f: 0.64, off: 270 }, { f: 0.78, off: 330 },
+      { f: 0.905, off: 290 },
+    ].map((h, i) => ({ ...h, kind: pal.skyline[i % pal.skyline.length]! }));
     for (const h of HERO) {
       const d = frac(h.f);
       const side = roomier(d, 150);
@@ -895,7 +965,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       }
 
       // Overflow spectators along the lip facing the circuit.
-      const lip = on(r.range(-8, 8), -24);
+      const lip = T.crowds ? on(r.range(-8, 8), -24) : null;
       if (lip) drop(`crowd${seed % 3}`, lip, lip.face, 1, d0, 0);
     }
 
@@ -986,11 +1056,17 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       }
     }
 
+    // How much natural scatter this landscape carries. A dry lake is famously
+    // featureless — that is why land-speed records are set on one — so the
+    // saltpan runs at a third of the canyon's density and its emptiness is a
+    // deliberate part of what the course feels like, not a shortfall.
+    const many = (n: number): number => Math.round(n * pal.scatter);
+
     // Mid-distance heaps, so the ground between the circuit and the canyon rim
     // is not a bald plain. Deliberately large: at a hundred metres out a spoil
     // heap has to be the size of a house before it is anything at all.
-    for (let i = 0; i < 46; i++) {
-      const d = (i / 46) * L + rng.range(-26, 26);
+    for (let i = 0, n = many(46); i < n; i++) {
+      const d = (i / n) * L + rng.range(-26, 26);
       const side = (rng.bool() ? 1 : -1) as -1 | 1;
       const s = at(d, side, rng.range(60, 145));
       if (!s || !free(s.x, s.z, 20)) continue;
@@ -999,7 +1075,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
     }
 
     // Scrub and boulders, weighted outward so they never crowd the run-off.
-    for (let i = 0; i < 340; i++) {
+    for (let i = 0, n = many(340); i < n; i++) {
       const d = rng.range(0, L);
       const side = (rng.bool() ? 1 : -1) as -1 | 1;
       const off = 18 + rng.next() * rng.next() * 125;
@@ -1008,13 +1084,15 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       if (rng.bool(0.6)) drop('scrub', s, rng.range(0, 6.28), rng.range(0.7, 1.6), d, 0);
       else drop('boulder', s, rng.range(0, 6.28), rng.range(0.5, 1.7), d, 0);
     }
-    for (let i = 0; i < 150; i++) {
+    for (let i = 0, n = many(150); i < n; i++) {
       const d = rng.range(0, L);
       const side = (rng.bool() ? 1 : -1) as -1 | 1;
       const s = farAt(d, side, rng.range(165, 540));
       if (!s) continue;
       drop('boulder', s, rng.range(0, 6.28), rng.range(1.5, 4.8), d, 0);
     }
+
+    landscape();
 
     // Steam vents, where a pipe would plausibly come out of the bank.
     for (let i = 0; i < 5; i++) {
@@ -1036,7 +1114,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       const side = (rng.bool() ? 1 : -1) as -1 | 1;
       const n = rng.int(4, 8);
       const off0 = rng.range(4.4, 7.0);
-      for (let i = 0; i < n; i++) {
+      for (let i = 0; T.cones && i < n; i++) {
         const s = at(d + i * 2.5 + rng.range(-0.4, 0.4), side,
           off0 + i * rng.range(0.3, 0.7));
         if (s) drop('cone', s, s.along + rng.range(-0.4, 0.4), rng.range(0.94, 1.1), d, 0.9);
@@ -1051,6 +1129,233 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
         drop('trestle', s2, s2.along + rng.range(-0.2, 0.2), 1, d, 1.4);
       } else {
         drop('tyres', s2, s2.along, rng.range(0.85, 1.1), d, 1.5);
+      }
+    }
+
+    /**
+     * Everything the course's own theme asked for.
+     *
+     * This is the section that did not exist. Thirteen `theme.props` keys were
+     * declared across four courses and not one of them was read anywhere in
+     * `src/` — so Jackhammer Quarry could not contain a quarry, Saltpan Bypass
+     * had no salt on it, and Switchback Summit's pines, snow poles and
+     * avalanche fences were three strings in an object literal.
+     *
+     * Everything below runs *after* the corners, the compounds, the event
+     * fields and the scatter have taken their ground, so it lays into what is
+     * left rather than fighting for the same spots — and every placement goes
+     * through `at()`/`farAt()`, which start outside the barrier footing.
+     * Nothing here can reach the racing line.
+     */
+    function landscape(): void {
+      // Biggest first. Everything in here competes for the same band of ground
+      // and the claim book is first-come — so the one object that cannot be
+      // moved or shrunk goes down before the things that can. Placed after the
+      // benches instead, a crusher found room exactly zero times.
+      if (T.machinery === 'heavy') {
+        for (let i = 0; i < 3; i++) {
+          const d = frac(0.14 + i * 0.33);
+          const f = room(d, roomier(d, 130), 92, 172, 24);
+          if (f) drop('crusher', f.s, f.s.face + 0.4, 1, f.d, 0);
+        }
+      }
+
+      // ── the pit ──────────────────────────────────────────────────────────
+      if (T.land === 'quarry') {
+        // Benches. Three hard horizontal lines stacked into the slope, laid
+        // along the track's own frame so they read as cut faces rather than as
+        // boxes dropped on a hill. These carry the whole middle distance.
+        for (let i = 0; i < 24; i++) {
+          const d0 = frac(i / 24 + 0.02);
+          // Ask the ground which hand has room rather than alternating. A pit
+          // circuit turns the same way for most of a lap, so a strict alternation
+          // spends half its attempts on the inside of the loop — where a hundred
+          // and fifty metres out is the far barrier — and the first cut of this
+          // placed nine benches from twenty-four tries, all of them on one side.
+          const side = roomier(d0, 120);
+          const f = room(d0, side, 72, 156, 24);
+          // The bench steps back and up along its own -X. Turned end for end on
+          // the far side, so the *cut* always looks at the circuit and the
+          // ground always rises away from it, on both hands.
+          if (f) {
+            drop(i % 2 ? 'bench' : 'bench2', f.s,
+              f.s.along + (side < 0 ? Math.PI : 0), 1, f.d, 0);
+          }
+        }
+        // Muck piles, in close where a shot would have been fired. No claim: a
+        // two-metre heap of rock does not need its own patch of ground, and
+        // asking for one is how the first cut of this got eight of forty.
+        for (let i = 0, n = many(44); i < n; i++) {
+          const d = rng.range(0, L);
+          const side = (rng.bool() ? 1 : -1) as -1 | 1;
+          const s = at(d, side, 16 + rng.next() * rng.next() * 96);
+          if (!s) continue;
+          drop(rng.bool() ? 'rubble' : 'rubble2', s, rng.range(0, 6.28),
+            rng.range(0.8, 1.9), d, 0);
+        }
+      }
+
+      // ── the pan ──────────────────────────────────────────────────────────
+      if (T.land === 'saltpan') {
+        // Harvest piles: the only genuinely tall thing on a dry lake, and
+        // brilliant white against a merely bright ground.
+        for (let i = 0; i < 8; i++) {
+          const side = (i % 2 === 0 ? 1 : -1) as -1 | 1;
+          const f = room(frac(i / 8 + 0.055), side, 130, 250, 26);
+          if (f) drop(i % 2 ? 'saltHeap' : 'saltHeap2', f.s, rng.range(0, 6.28), 1, f.d, 0);
+        }
+        // Evaporation ponds. The one cool colour on the whole course.
+        for (let i = 0; i < 16; i++) {
+          const side = (rng.bool() ? 1 : -1) as -1 | 1;
+          const f = room(frac(i / 16 + 0.03), side, 58, 190, 22);
+          if (f) drop(i % 2 ? 'brinePool' : 'brinePool2', f.s, rng.range(0, 6.28), 1, f.d, 0);
+        }
+        // Pressure ridges: the only relief a lake bed has. Without them the pan
+        // reads as a painted plane rather than as a surface.
+        for (let i = 0; i < 54; i++) {
+          const d = rng.range(0, L);
+          const side = (rng.bool() ? 1 : -1) as -1 | 1;
+          const s = at(d, side, 14 + rng.next() * 150);
+          if (!s) continue;
+          drop(rng.bool() ? 'saltRidge' : 'saltRidge2', s,
+            s.along + rng.range(-0.5, 0.5), rng.range(0.8, 1.5), d, 0);
+        }
+      }
+
+      // ── the mountain ─────────────────────────────────────────────────────
+      if (T.land === 'alpine') {
+        for (let i = 0; i < 44; i++) {
+          const d = rng.range(0, L);
+          const side = (rng.bool() ? 1 : -1) as -1 | 1;
+          const s = at(d, side, 22 + rng.next() * 130);
+          if (!s) continue;
+          drop(rng.bool() ? 'snowDrift' : 'snowDrift2', s,
+            s.along + rng.range(-0.4, 0.4), rng.range(0.8, 1.6), d, 0);
+        }
+      }
+
+      // Conifers. Below the treeline only — the terrain's snowline sits about
+      // sixty metres over the nearest road and a forest growing through it
+      // would undo the one cue that makes a mountain read as a mountain.
+      if (T.pines) {
+        for (let i = 0; i < 260; i++) {
+          const d = rng.range(0, L);
+          const side = (rng.bool() ? 1 : -1) as -1 | 1;
+          const off = 18 + rng.next() * 170;
+          const s = at(d, side, off);
+          if (!s || s.y - ground.roadY(wrap(d)) > 26) continue;
+          if (!free(s.x, s.z, 4.6)) continue;
+          claim(s.x, s.z, 4);
+          drop(`pines${i % 3}`, s, rng.range(0, 6.28), rng.range(0.72, 1.25), d, 0);
+        }
+      }
+
+      // Snow poles: both shoulders, every twenty metres, the whole lap. A line
+      // of them running away down a traverse is the cheapest possible
+      // statement of "mountain road", and it doubles as a rhythm marker for
+      // the corner it is running into.
+      if (T.snowPoles) {
+        for (let d = 0; d < L; d += 20) {
+          for (const side of [-1, 1] as const) {
+            const s = at(d, side, 2.6);
+            if (s) drop('snowPole', s, s.face, 1, d, 0.55);
+          }
+        }
+      }
+
+      // Avalanche fences, in stepped rows up the open faces above the road.
+      if (T.avalancheFence) {
+        for (let i = 0; i < 12; i++) {
+          const d0 = frac(i / 12 + 0.045);
+          const side = roomier(d0, 100);
+          const f = room(d0, side, 62, 140, 18);
+          if (!f) continue;
+          for (let row = 0; row < 3; row++) {
+            const s = at(f.d + (row - 1) * 19, side, f.off + row * 15);
+            if (s) drop('avFence', s, s.along, 1, f.d, 0);
+          }
+        }
+      }
+
+      // ── declared switches ────────────────────────────────────────────────
+
+      if (T.windsocks) {
+        for (let i = 0; i < 7; i++) {
+          const d = frac(i / 7 + 0.02);
+          const side = roomier(d, 26);
+          const s = at(d, side, rng.range(11, 22));
+          if (!s) continue;
+          drop('windsockMast', s, s.face, 1, d, 1.2);
+          batcher.placeAt('windsock', s.x, s.y + 6.75, s.z, s.along + 0.5, 1, wrap(d));
+        }
+      }
+
+      // Survey pegs, in the lines a surveyor would actually set them out in.
+      if (T.surveyPegs) {
+        for (let i = 0; i < 14; i++) {
+          const d0 = frac(i / 14 + 0.017);
+          const side = (i % 2 === 0 ? 1 : -1) as -1 | 1;
+          const off0 = rng.range(9, 20);
+          for (let j = 0; j < 7; j++) {
+            const s = at(d0 + j * 5.5, side, off0 + j * 2.2);
+            if (s) drop('surveyPeg', s, s.along, 1, d0, 0.45);
+          }
+        }
+      }
+
+      // Parked plant. `heavy` is the quarry fleet — a haul truck five metres
+      // tall is the scale reference that makes a bench read as a hundred
+      // metres of rock rather than as ten.
+      if (T.machinery !== 'none') {
+        const trucks = T.machinery === 'heavy' ? 11 : 3;
+        for (let i = 0; i < trucks; i++) {
+          const d0 = frac(i / trucks + 0.06);
+          const f = room(d0, roomier(d0, 80), 50, 118, 13);
+          if (f) drop('haulTruck', f.s, f.s.along + rng.range(-0.5, 0.5), 1, f.d, 7.5);
+        }
+      }
+      if (T.machinery === 'heavy') {
+        for (let i = 0; i < 8; i++) {
+          const d0 = frac(i / 8 + 0.11);
+          const f = room(d0, roomier(d0, 90), 56, 132, 11);
+          if (f) drop('drillRig', f.s, f.s.face + rng.range(-0.4, 0.4), 1, f.d, 5.0);
+        }
+      }
+
+      if (T.conveyors) {
+        for (let i = 0; i < 8; i++) {
+          const d0 = frac(i / 8 + 0.085);
+          const f = room(d0, roomier(d0, 110), 64, 144, 20);
+          if (f) drop('groundConveyor', f.s, f.s.along + rng.range(-0.3, 0.3), 1, f.d, 0);
+        }
+      }
+
+      // Airborne dust, well out in the band. Across the racing line it would
+      // be a readability problem dressed up as atmosphere; hanging over the far
+      // benches it is the reason a working pit reads as one.
+      if (T.dust) {
+        for (let i = 0; i < 18; i++) {
+          const d = frac(i / 18 + 0.04);
+          const side = (i % 2 === 0 ? 1 : -1) as -1 | 1;
+          const s = farAt(d, side, rng.range(110, 260)) ?? at(d, side, 90);
+          if (!s) continue;
+          batcher.placeAt('dustVeil', s.x, s.y + rng.range(6, 16), s.z,
+            rng.range(0, 6.28), rng.range(0.8, 1.5), wrap(d));
+        }
+      }
+
+      // The mirage. Held past a hundred and seventy metres for the same reason.
+      if (T.heatShimmer) {
+        for (let i = 0; i < 12; i++) {
+          const d = frac(i / 12 + 0.03);
+          const side = (i % 2 === 0 ? 1 : -1) as -1 | 1;
+          const s = farAt(d, side, rng.range(175, 340));
+          if (!s) continue;
+          // Turned to face the circuit, so the band lies across the view rather
+          // than running away from it — a mirage is something you look at edge
+          // on, and edge on it is nothing.
+          batcher.placeAt('shimmer', s.x, s.y + 0.9, s.z, s.face, 1, wrap(d));
+        }
       }
     }
 
@@ -1139,7 +1444,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
         }
         const piece = createBridge(
           M, spline, ground.verge, bestD,
-          deckCrowdGeo(701 + i * 29, 26, 2, 0.92), `bridge${i}`);
+          T.crowds ? deckCrowdGeo(701 + i * 29, 26, 2, 0.92) : null, `bridge${i}`);
         group.add(piece.root);
         pieces.push(piece);
       }

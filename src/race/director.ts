@@ -171,6 +171,12 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
 
   const seats: Seat[] = [];
   const startHeld = new Map<number, number>();
+  /** The player's last start, for the reviewer's bench. The one mechanic in the
+   *  countdown is a *timing* rule, and a screenshot cannot show a timing rule —
+   *  so the number the rule was applied to is published rather than inferred
+   *  from how far the kart got. */
+  const lastStart: { held: number; verdict: 'none' | 'ordinary' | 'rocket' | 'burnout' } =
+    { held: 0, verdict: 'none' };
   let sample: SplineSample | null = null;
 
   /** True while the front-end (`src/ui/menus`) has a screen up. It publishes
@@ -477,10 +483,13 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
    */
   function evaluateStart(racer: Racer): void {
     const held = racer.isPlayer ? (startHeld.get(racer.id) ?? 0) : cpuHold(racer);
+    if (racer.isPlayer) { lastStart.held = held; lastStart.verdict = 'ordinary'; }
     if (held > 0 && held <= ROCKET_WINDOW) {
+      if (racer.isPlayer) lastStart.verdict = 'rocket';
       boostRacer(ctx, racer, 'rocketStart', R.rocketStart.boost.time, R.rocketStart.boost.power);
       ctx.bus.emit('race:rocketStart', { racer, held });
     } else if (held > BOG_HOLD) {
+      if (racer.isPlayer) lastStart.verdict = 'burnout';
       // On the power since before the "2": the engine bogs, exactly like the
       // real thing. `duration` is published so the smoke and the strangled
       // engine note can last as long as the penalty does instead of guessing.
@@ -946,6 +955,10 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
         time: +ctx.race.time.toFixed(3),
         totalLaps: ctx.race.totalLaps,
         forming: formT >= 0,
+        /** The player's start: seconds the throttle was held into the flag, and
+         *  what that bought. `held` is in countdown beats — 1 beat or less is
+         *  the rocket window, over two is a burnout. */
+        start: { held: +lastStart.held.toFixed(3), verdict: lastStart.verdict },
         flag: +flagT.toFixed(2),
         timeScale: +ctx.time.scale.toFixed(3),
         finished: book.finishedCount(),
@@ -972,6 +985,17 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
         if (id) onPick(id);
       },
       cup: () => cup.state,
+      /**
+       * Put the championship on a given round, so the *last* results sheet — the
+       * one that crowns a cup — is reachable without driving four Grands Prix.
+       * A round at or past the last one makes the next sheet the final one.
+       * Pure presentation: the cup has no effect on the simulation.
+       */
+      cupRound: (n: number): number => {
+        ensureCup();
+        cup.state.round = Math.max(0, Math.min(cup.state.rounds - 1, Math.floor(n)));
+        return cup.state.round;
+      },
     };
   }
 
@@ -1010,6 +1034,8 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
       winnerTime = 0;
       lastFinishTime = 0;
       startHeld.clear();
+      lastStart.held = 0;
+      lastStart.verdict = 'none';
       held.clear();
       ctx.time.scale = 1;
       book.reset(ctx.racers);

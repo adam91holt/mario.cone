@@ -17,6 +17,7 @@ import { createItemSystem } from './items/index.ts';
 import { createRaceDirector } from './race/director.ts';
 import { createCameraSystem } from './render/camera.ts';
 import { createLightingSystem } from './render/lighting.ts';
+import { createGroundSystem } from './render/ground.ts';
 import { createVehicleSystem } from './vehicles/index.ts';
 import { createWorldSystem } from './world/index.ts';
 import { createFxSystem } from './fx/index.ts';
@@ -83,6 +84,7 @@ async function boot(): Promise<void> {
 
   const track = createTrackSystem(ctx);
   engine.add(track);
+  engine.add(createGroundSystem(ctx));
   engine.add(createWorldSystem(ctx));
   engine.add(createLightingSystem(ctx));
   engine.add(createAiSystem(ctx));

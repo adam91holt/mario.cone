@@ -172,6 +172,10 @@ export interface WorldMaterials {
   crowd: THREE.MeshLambertMaterial;
   cloth: THREE.MeshLambertMaterial;
   puff: THREE.MeshLambertMaterial;
+  /** Airborne quarry dust. Drifts sideways rather than rising. */
+  drift: THREE.MeshLambertMaterial;
+  /** The mirage over a salt lake. Unlit, because it is air, not a surface. */
+  shimmer: THREE.MeshBasicMaterial;
   shadow: THREE.MeshBasicMaterial;
   dispose(): void;
 }
@@ -312,6 +316,51 @@ export function createMaterials(clock: WorldClock): WorldMaterials {
     transformed.z += cos(aPhase * 19.3) * f * f * 1.1;
   }`);
 
+  // ── drifting dust ────────────────────────────────────────────────────────
+  // A working pit has its own weather, and the tell is not a particle system —
+  // it is that the air fifty metres away is never quite clear. Same trick as
+  // the steam: every card is authored at the origin and the program walks it
+  // downwind, swelling it and pinching it out at both ends of the cycle, so a
+  // veil is geometry and costs nothing per frame. Slow — a third of the steam's
+  // rate — because dust hangs, and anything faster reads as smoke.
+  const drift = new THREE.MeshLambertMaterial({
+    vertexColors: true, transparent: true, opacity: 0.30,
+    depthWrite: false, side: THREE.DoubleSide,
+  });
+  drift.name = 'worldDrift';
+  vertexProgram(drift, clock, 'mc-world-drift',
+    'attribute float aAmp;\nattribute float aPhase;',
+    `
+  {
+    float f = fract(uWorldTime * 0.048 + aPhase);
+    float fade = sin(3.14159 * f);
+    transformed = position * (aAmp * (0.55 + f * 0.75) * fade);
+    transformed.x += (f - 0.5) * 46.0;
+    transformed.y += f * 4.5 + sin(aPhase * 23.1) * 2.0;
+    transformed.z += cos(aPhase * 11.7) * f * 9.0;
+  }`);
+
+  // ── the mirage ───────────────────────────────────────────────────────────
+  // Heat shimmer over a dry lake. Unlit and barely there: it is a band of the
+  // sky's own colour lying on the far crust, rippling, so the horizon detaches
+  // the way it does over hot salt. Any more opacity than this and it stops
+  // being air and becomes a fence.
+  const shimmer = new THREE.MeshBasicMaterial({
+    vertexColors: true, transparent: true, opacity: 0.30,
+    depthWrite: false, side: THREE.DoubleSide, fog: true,
+  });
+  shimmer.name = 'worldShimmer';
+  vertexProgram(shimmer, clock, 'mc-world-shimmer',
+    'attribute float aAmp;\nattribute float aPhase;',
+    `
+  {
+    float ph = aPhase * 6.28318;
+    float w = sin(position.x * 0.22 + uWorldTime * 1.35 + ph)
+            + 0.6 * sin(position.x * 0.61 - uWorldTime * 2.1 + ph * 1.7);
+    transformed.y += w * aAmp * 0.55;
+    transformed.x += w * aAmp * 0.22;
+  }`);
+
   // ── contact ──────────────────────────────────────────────────────────────
   const shadow = new THREE.MeshBasicMaterial({
     map: makeBlobTexture(),
@@ -324,10 +373,12 @@ export function createMaterials(clock: WorldClock): WorldMaterials {
   shadow.name = 'worldContact';
 
   return {
-    prop, metal, glow, glowRed, crowd, cloth, puff, shadow,
+    prop, metal, glow, glowRed, crowd, cloth, puff, drift, shimmer, shadow,
     dispose(): void {
       shadow.map?.dispose();
-      for (const m of [prop, metal, glow, glowRed, crowd, cloth, puff, shadow]) m.dispose();
+      for (const m of [
+        prop, metal, glow, glowRed, crowd, cloth, puff, drift, shimmer, shadow,
+      ]) m.dispose();
     },
   };
 }

@@ -136,8 +136,14 @@ export const CSS_RESULTS = `
 #race .cup .cup-head { display: flex; align-items: center; gap: calc(var(--u) * .5);
   margin-bottom: calc(var(--u) * .45); }
 #race .cup .cup-head .word { height: calc(var(--u) * 1.3); color: #FFC300; }
+/* **The rows share the panel rather than sitting in the top of it.** Eight rows
+   of a fixed 2.45u filled a little over half a panel that is as tall as the
+   results table beside it, and the bottom third of the championship — the half
+   of the screen that is supposed to be the reason to play the next race — was
+   blank plate. Same rule the table on the left already runs to. */
+#race .cup .crows { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 #race .cup .crow { display: flex; align-items: center; gap: calc(var(--u) * .5);
-  height: calc(var(--u) * 2.45); opacity: 0; }
+  flex: 1 1 0; min-height: 0; max-height: calc(var(--u) * 3.3); opacity: 0; }
 #race .cup .crow .cpos { height: calc(var(--u) * 1.25); color: #9FB0C6; width: calc(var(--u) * 2.1); }
 #race .cup .crow .chip { width: calc(var(--u) * .55); height: calc(var(--u) * 1.7);
   transform: skewX(-9deg); border-radius: calc(var(--u) * .08);
@@ -147,6 +153,25 @@ export const CSS_RESULTS = `
 #race .cup .crow .cpt { height: calc(var(--u) * 1.55); color: #FFF8F0; }
 #race .cup .crow.you .cnm, #race .cup .crow.you .cpt { color: #FFD84D; }
 #race .cup .crow.lead .cpt { color: #FFD84D; }
+
+/* The end of a cup.
+   Four races decide a championship and, until this line existed, the screen
+   that settled it differed from the screen after race one by a single word in
+   the panel header. A Grand Prix has a winner and the game has to say so. */
+#race .cup .champ { display: none; }
+#race .cup.done .champ {
+  display: flex; align-items: center; gap: calc(var(--u) * .55);
+  margin: calc(var(--u) * -.1) 0 calc(var(--u) * .5);
+  padding: calc(var(--u) * .3) calc(var(--u) * .8) calc(var(--u) * .38);
+  border-radius: calc(var(--u) * .4);
+  background: linear-gradient(178deg, rgba(120,86,20,.96), rgba(58,38,8,.96));
+  box-shadow: inset 0 calc(var(--u) * .1) 0 rgba(255,232,150,.4),
+              0 0 0 calc(var(--u) * .1) rgba(9,11,15,.9);
+}
+#race .cup .champ .lbl { height: calc(var(--u) * .95); color: #FFC300; }
+#race .cup .champ .who { height: calc(var(--u) * 1.45); color: #FFF8F0; }
+#race .cup.done.mine .champ .who { color: #FFE9A8;
+  filter: drop-shadow(0 0 calc(var(--u) * .5) rgba(255,200,60,.7)); }
 
 /* ── footer ──────────────────────────────────────────────────────────────── */
 #race .rs-foot { display: flex; align-items: flex-end; gap: calc(var(--u) * 1.2); opacity: 0; }
@@ -225,6 +250,7 @@ export function createResults(onPick: (id: string) => void): Results {
           <div class="table"></div>
           <div class="cup plate">
             <div class="cup-head"><div class="word"></div></div>
+            <div class="champ"><span class="lbl word"></span><span class="who word"></span></div>
             <div class="crows"></div>
           </div>
         </div>
@@ -254,6 +280,8 @@ export function createResults(onPick: (id: string) => void): Results {
   const table = q(root, '.table');
   const cupPanel = bind(q(root, '.cup'));
   const cupTitle = signBox(q(root, '.cup-head .word'));
+  const champLbl = signBox(q(root, '.champ .lbl'));
+  const champWho = signBox(q(root, '.champ .who'));
   const cupRows = q(root, '.crows');
   const foot = bind(q(root, '.rs-foot'));
   const best = bind(q(root, '.best'));
@@ -357,6 +385,12 @@ export function createResults(onPick: (id: string) => void): Results {
       cupName.set(meta.cupName);
       courseName.set(meta.courseName);
       cupTitle.set(meta.cupComplete ? 'FINAL STANDINGS' : 'CHAMPIONSHIP');
+      // Who won the cup, said once, on the only screen that can say it.
+      const champ = meta.cupComplete ? standings[0] : undefined;
+      cupPanel.cls('done', !!champ);
+      cupPanel.cls('mine', !!champ?.isPlayer);
+      champLbl.set(champ ? (champ.isPlayer ? 'YOU WIN THE' : 'CHAMPION') : '');
+      champWho.set(champ ? (champ.isPlayer ? meta.cupName : champ.name) : '');
       clear(splitRow);
       const mine = meta.playerSplits.filter((s) => s > 0);
       laps.cls('none', mine.length < 2);

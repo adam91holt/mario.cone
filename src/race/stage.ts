@@ -52,7 +52,21 @@ export const CSS_STAGE = `
 
 /* ── the start lights ────────────────────────────────────────────────────── */
 /* Between the item socket and the countdown numeral — the one clear strip of
-   sky in the middle of the frame on a start grid.
+   sky in the middle of the frame on a start grid. It is a narrow strip, and the
+   board is sized to *fit inside it* rather than to be as loud as possible:
+
+     top of frame  ..  1.05u   the HUD's own edge inset
+     1.05u .. 7.85u            the item socket (6.8u tall, 0.62u of collar)
+     ~21%  .. ~27%             the banner band — "ROCKET START" lands here
+     35%   ..                  the countdown numeral, 14.2u tall
+
+   The socket's underside is 7.85u down, which is 11% of the frame's height on a
+   4:3 window and 15.3% on a 21:9 one, so a board hung at 12.5% was *inside* it
+   on every ordinary display: photographed at 1280x720 the plate's lit top edge
+   was 16px underneath the socket's rim, and the two dark plates read as one
+   object with a bite taken out of it. 16.5% clears the socket at every aspect
+   the unit supports and still leaves the banner band free — and the board is
+   2.4u tall rather than 2.85u so that clearance is real at both ends.
 
    **Above the banner band, not on it.** This used to sit at 21%, which is the
    exact line the HUD prints its interrupt banners on, and the race overlay is
@@ -62,16 +76,16 @@ export const CSS_STAGE = `
    the countdown read "R...KET ST...T". The board now clears that band, and it
    leaves faster than the banner arrives (see go()). */
 #race .lights {
-  position: absolute; left: 50%; top: 12.5%;
+  position: absolute; left: 50%; top: 16.5%;
   transform: translateX(-50%); opacity: 0;
 }
 #race .lights .board {
-  display: flex; align-items: center; gap: calc(var(--u) * .62);
-  padding: calc(var(--u) * .55) calc(var(--u) * 1.6) calc(var(--u) * .6);
+  display: flex; align-items: center; gap: calc(var(--u) * .56);
+  padding: calc(var(--u) * .44) calc(var(--u) * 1.35) calc(var(--u) * .48);
 }
 #race .lights .board::after { content: none; }
 #race .lights i {
-  display: block; width: calc(var(--u) * 1.7); height: calc(var(--u) * 1.7);
+  display: block; width: calc(var(--u) * 1.5); height: calc(var(--u) * 1.5);
   border-radius: 50%;
   background: radial-gradient(circle at 38% 32%, #3A404E, #14171F 70%);
   box-shadow: inset 0 0 0 calc(var(--u) * .12) rgba(6,8,12,.9),
@@ -95,11 +109,16 @@ export const CSS_STAGE = `
    line — the same strip of frame a good start's "ROCKET START" lands on, so the
    two possible answers to "what was my start worth" arrive in one place — and it
    holds for as long as the machine is actually stuck. */
+/* Sized against the thing it is the opposite of. The good answer is the HUD's
+   own gold banner, whose word is 1.9u of cap height on a plate 2.6u wide at the
+   ends; a 2.35u headline with a 0.92u footnote under it read, photographed
+   beside it, as the smaller of the two — the reward shouting and the penalty
+   muttering. Both answers to "what was my start worth" are now the same size. */
 #race .verdict {
   position: absolute; left: 50%; top: 21%;
   display: flex; flex-direction: column; align-items: center;
-  gap: calc(var(--u) * .12);
-  padding: calc(var(--u) * .46) calc(var(--u) * 2.2) calc(var(--u) * .56);
+  gap: calc(var(--u) * .1);
+  padding: calc(var(--u) * .48) calc(var(--u) * 2.5) calc(var(--u) * .58);
   transform: translateX(-50%); opacity: 0;
 }
 /* Smoke and hot metal: a dark, sooty plate with a hazard-red top edge, against
@@ -108,8 +127,11 @@ export const CSS_STAGE = `
   background: linear-gradient(178deg, rgba(70,44,34,.95) 0%, rgba(36,22,18,.96) 50%, rgba(16,10,9,.97) 100%);
 }
 #race .verdict.plate::before { background: linear-gradient(90deg, #FF3A1E, #FF8A2B 50%, #FF3A1E); }
-#race .verdict .big { height: calc(var(--u) * 2.35); color: #FF9E5E; }
-#race .verdict .sub { height: calc(var(--u) * .92); color: #C9A79A; opacity: .95; }
+#race .verdict .big {
+  height: calc(var(--u) * 2.9); color: #FFB07A;
+  filter: drop-shadow(0 0 calc(var(--u) * .55) rgba(255,90,30,.55));
+}
+#race .verdict .sub { height: calc(var(--u) * 1.05); color: #D8B4A4; opacity: .95; }
 
 /* ── the note ────────────────────────────────────────────────────────────── */
 /* One line, left edge, above where the ticker will later stack. Small on
@@ -543,41 +565,69 @@ export interface Ticker {
   clear(): void;
 }
 
+/** Seconds between two lines of a *batch*. Anything arriving on its own — a CPU
+ *  crossing the line behind the player — is already spaced by the race. */
+const TICK_GAP = 0.17;
+
 export function createTicker(): Ticker {
   const root = fromHtml('<div class="ticker"></div>');
   interface Chip { box: Bound; el: HTMLElement; t: number }
   let chips: Chip[] = [];
+  /**
+   * Lines waiting their turn.
+   *
+   * A player who takes the flag in seventh has six results *already decided*,
+   * and `beginFlag` hands all six over in one call — so the whole order landed
+   * on a single frame as one block of plates, which is a table appearing, not a
+   * field being read home. They are released one at a time instead. The gap is
+   * short enough that a full field is in within a second and a half — well
+   * inside the two seconds the flag holds before the sheet is allowed to start
+   * — and long enough that each line is its own event.
+   */
+  let queue: TickerEntry[] = [];
+  let gap = 0;
+
+  function mount(entry: TickerEntry): void {
+    const el = fromHtml(`
+      <div class="tick plate">
+        <span class="pl"><span class="tp num"></span><span class="ts num"></span></span>
+        <div class="chip"></div>
+        <div class="tn word"></div>
+        <div class="tg num"></div>
+      </div>
+    `);
+    glyphBox(q(el, '.tp'), String(entry.place));
+    glyphBox(q(el, '.ts'), entry.suffix);
+    signBox(q(el, '.tn'), entry.name);
+    glyphBox(q(el, '.tg'), entry.gap);
+    bind(q(el, '.chip')).set('background',
+      `linear-gradient(160deg, ${rgba(entry.color, 1)}, ${rgba(entry.color, 0.55)})`);
+    const b = bind(el);
+    b.cls('you', entry.isPlayer);
+    root.appendChild(el);
+    chips.push({ box: b, el, t: 0 });
+  }
 
   return {
     root,
 
     add(entry): void {
-      const el = fromHtml(`
-        <div class="tick plate">
-          <span class="pl"><span class="tp num"></span><span class="ts num"></span></span>
-          <div class="chip"></div>
-          <div class="tn word"></div>
-          <div class="tg num"></div>
-        </div>
-      `);
-      glyphBox(q(el, '.tp'), String(entry.place));
-      glyphBox(q(el, '.ts'), entry.suffix);
-      signBox(q(el, '.tn'), entry.name);
-      glyphBox(q(el, '.tg'), entry.gap);
-      bind(q(el, '.chip')).set('background',
-        `linear-gradient(160deg, ${rgba(entry.color, 1)}, ${rgba(entry.color, 0.55)})`);
-      const b = bind(el);
-      b.cls('you', entry.isPlayer);
-      root.appendChild(el);
-      chips.push({ box: b, el, t: 0 });
+      // Straight on if nothing is waiting and nothing landed a moment ago;
+      // otherwise it takes its place in the queue.
+      if (gap <= 0 && !queue.length) { mount(entry); gap = TICK_GAP; return; }
+      queue.push(entry);
     },
 
     clear(): void {
       for (const c of chips) c.el.remove();
       chips = [];
+      queue = [];
+      gap = 0;
     },
 
     update(dt): void {
+      if (gap > 0) gap = Math.max(0, gap - dt);
+      if (gap <= 0 && queue.length) { mount(queue.shift()!); gap = TICK_GAP; }
       for (const c of chips) {
         c.t += dt;
         const u = clamp01(c.t / 0.34);

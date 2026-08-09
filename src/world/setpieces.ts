@@ -455,9 +455,15 @@ export function createRailway(
  * or climbing. The deck clears ten metres, well above anything a kart can reach
  * on a course with no ramps.
  */
+/**
+ * `crowdGeo` is nullable because a course can decline the crowd set outright
+ * (`theme.props.crowds`). Handing this an empty geometry instead would put a
+ * NaN bounding sphere on the console, which the review harness counts as an
+ * error — so "no spectators" is expressed as no mesh at all.
+ */
 export function createBridge(
   mats: WorldMaterials, spline: TrackSplineLike, verge: number,
-  d: number, crowdGeo: THREE.BufferGeometry, name: string,
+  d: number, crowdGeo: THREE.BufferGeometry | null, name: string,
 ): SetPiece {
   const root = new THREE.Group();
   root.name = 'footbridge';
@@ -528,10 +534,12 @@ export function createBridge(
   mesh.castShadow = true;
   root.add(mesh);
 
-  const crowd = new THREE.Mesh(crowdGeo, mats.crowd);
-  crowd.position.set(0, H + 0.07, 0.4);
-  crowd.rotation.y = Math.PI;
-  root.add(crowd);
+  if (crowdGeo) {
+    const crowd = new THREE.Mesh(crowdGeo, mats.crowd);
+    crowd.position.set(0, H + 0.07, 0.4);
+    crowd.rotation.y = Math.PI;
+    root.add(crowd);
+  }
 
   return { root, update(): void {}, dispose: disposer(root) };
 }

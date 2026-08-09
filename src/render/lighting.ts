@@ -76,6 +76,8 @@ const SUN_ELEVATION = { min: 0.50, max: 0.60 };
 const AZIMUTH_TRIM = Math.PI * 0.5;
 
 const WHITE = new THREE.Color(0xffffff);
+/** Scratch for the fallback fog colour — no allocation on a quality change. */
+const _fogColour = new THREE.Color();
 
 /** Defaults for a course whose theme leaves the sky out. */
 const DEFAULT_SKY = { top: 0x2e86d6, bottom: 0xbfe7ff, horizon: 0xffe2b0 };
@@ -179,9 +181,24 @@ export function createLightingSystem(ctx: GameContext): GameSystem {
     // Distance. `far` is treated as a visibility hint rather than a hard plane:
     // the atmosphere is exponential, so there is no wall for things to pop
     // through, only air getting thicker.
+    //
+    // `near` and `far` are the *span* the air thickens over, not two ways of
+    // saying the same thing. Reading the difference is what finally makes
+    // `fog.near` a control instead of a comment — it had no consumer anywhere
+    // in src/ — and it lands within a few percent of the hand-tuned constant it
+    // replaces on all four courses, so nothing that was signed off moves.
     const f = theme.fog;
-    atmos.uFogDistance.value = f ? Math.max(300, (f.far ?? 1600) * 0.78) : 1250;
+    atmos.uFogDistance.value = f
+      ? Math.max(300, (f.far ?? 1600) - (f.near ?? 0))
+      : 1250;
     atmos.uFogHeight.value = 165;
+
+    // The colour of the air, normalised to unit luminance so it shifts hue
+    // without touching exposure. See `uAirTint` in sky.ts — `fog.color` is
+    // declared by every course in the cup and, until this line, read by none.
+    const air = atmos.uAirTint.value.setHex(f?.color ?? 0xffffff);
+    const lum = air.r * 0.2126 + air.g * 0.7152 + air.b * 0.0722;
+    air.multiplyScalar(lum > 1e-4 ? 1 / lum : 1);
 
     // Postfx owns the atmosphere when it is on (depth-driven, directional, sun
     // aware). With it off, three's own fog stands in — same colour, so the
@@ -194,7 +211,9 @@ export function createLightingSystem(ctx: GameContext): GameSystem {
       if (ctx.scene.fog) ctx.scene.fog = null;
       return;
     }
-    const colour = atmos.uHaze.value;
+    // Same haze the composite fades into, through the same air tint — turning
+    // effects off must change how much is going on, never what colour it is.
+    const colour = _fogColour.copy(atmos.uHaze.value).multiply(atmos.uAirTint.value);
     // FogExp2 falls off as exp(-(d*density)^2), so it needs a tighter constant
     // than the postfx path to reach the same "gone by the far ridge" point.
     const density = 1 / Math.max(atmos.uFogDistance.value * 0.78, 1);
