@@ -23,6 +23,7 @@ import { createFxSystem } from './fx/index.ts';
 import { createAudioSystem } from './audio/index.ts';
 import { getVehicle, listVehicles } from './vehicles/registry.ts';
 import { createHudSystem } from './ui/hud.ts';
+import { createMenuSystem } from './ui/menus/index.ts';
 import type {
   GameContext, QualitySettings, RaceConfig, VehicleId,
 } from './types.ts';
@@ -93,6 +94,7 @@ async function boot(): Promise<void> {
   engine.add(createFxSystem(ctx));
   engine.add(createAudioSystem(ctx));
   engine.add(createHudSystem(ctx));
+  engine.add(createMenuSystem(ctx));
 
   /** Tear down the previous field and build a fresh one. */
   function buildField(cfg: RaceConfig): void {

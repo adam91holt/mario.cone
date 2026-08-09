@@ -34,6 +34,14 @@ server and it plays.
    times. No per-frame allocation in hot paths — reuse scratch vectors.
 6. **Leave it running.** Every commit must leave the game playable. Verify with
    `node tools/capture.mjs --smoke` before you finish.
+7. **No backticks inside a CSS template literal — not even in a comment.** Most of
+   the UI in this codebase is a several-hundred-line `` const CSS_X = `…` ``. A
+   backtick inside one *closes* it, and because these are written in prose-commented
+   style the offender is usually a pair of them quoting a property name inside a
+   `/* … */`. The literal reopens on the second one, so the count stays even and
+   the file looks balanced — meanwhile the text between them is parsed as
+   TypeScript. `#race .row { flex: 1 1 0 }` quoted that way cost a green build and
+   read as three unrelated syntax errors on one line. Quote with `"` inside CSS.
 
 ---
 
