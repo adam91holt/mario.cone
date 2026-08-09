@@ -27,8 +27,7 @@
 import * as THREE from 'three';
 import { fbm, noise2, smoothstep } from '../track/geom.ts';
 import { features } from '../track/courses/types.ts';
-import type { CourseDef, SplineSample } from '../types.ts';
-import type { TrackSpline } from '../track/spline.ts';
+import type { CourseDef, SplineSample, TrackSplineLike } from '../types.ts';
 
 /** Ring offsets of the embankment skirt. Must match terrain.ts. */
 const RINGS = [0, 2, 5, 11, 20, 34, 58, 95, 150] as const;
@@ -72,7 +71,7 @@ export class Ground {
   private readonly minGZ: number;
   private readonly s: SplineSample;
 
-  constructor(private readonly spline: TrackSpline, course: CourseDef) {
+  constructor(private readonly spline: TrackSplineLike, course: CourseDef) {
     this.verge = course.vergeWidth ?? 5;
     const t = features(course).terrain ?? {};
     this.groundY = course.groundY ?? -8;
@@ -187,6 +186,44 @@ export class Ground {
   }
 
   /**
+   * The road's own elevation at a lap distance.
+   *
+   * The embankment falls 5.75m away from the shoulder inside thirty metres,
+   * which means the whole run-off is a ditch: from a chase camera 3m up, a
+   * barrier 1.9m tall hides everything under about six metres of height out to
+   * fifty metres off the road. So anything that has to be *seen* — a stand, a
+   * crowd, a works compound, a line of cones — is built at road level on its own
+   * plinth rather than sitting in the hole. This is the datum for that.
+   */
+  roadY(d: number): number {
+    return this.spline.atDistance(d, this.s).pos.y;
+  }
+
+  /**
+   * A spot out past the skirt, on the open field.
+   *
+   * The skirt only reaches 150m; beyond that the visible surface is the coarse
+   * field mesh, so the position comes straight off the spline's horizontal
+   * frame and the height comes from the field. Use this for anything on the
+   * horizon — cranes, silos, masts.
+   */
+  farSpot(d: number, side: -1 | 1, off: number, out?: Spot): Spot {
+    const r: Spot = out ?? { ok: false, x: 0, y: 0, z: 0, face: 0, along: 0 };
+    const s = this.spline.atDistance(d, this.s);
+    const edge = s.width * 0.5 + this.verge;
+    const inv = 1 / Math.max(1e-6, Math.hypot(s.tangent.x, s.tangent.z));
+    const frx = -s.tangent.z * inv * side;
+    const frz = s.tangent.x * inv * side;
+    r.x = s.pos.x + frx * (edge + off);
+    r.z = s.pos.z + frz * (edge + off);
+    r.face = Math.atan2(-frx, -frz);
+    r.along = Math.atan2(s.tangent.x, s.tangent.z);
+    r.y = this.fieldY(r.x, r.z);
+    r.ok = true;
+    return r;
+  }
+
+  /**
    * Height of the far field at a world position, bilinear across the same grid
    * cell the mesh is made of — so a silo two hundred metres out still has its
    * feet in the dirt.
@@ -230,10 +267,23 @@ export class Ground {
 
 // ── batching ───────────────────────────────────────────────────────────────
 
-/** How many lap sectors a high-count kind is split across. */
+/** Lap sectors a kind's instances are bucketed into before batching. */
 const SECTORS = 8;
-/** Kinds with fewer instances than this stay as one batch. */
-const MERGE_BELOW = 40;
+/**
+ * Instances a batch wants to carry.
+ *
+ * This is the whole trade. Split too coarsely and a batch spans the circuit, so
+ * its bounding sphere never leaves the frustum and its draw distance never
+ * trips — every cone on the course is drawn every frame. Split too finely and
+ * nine hundred cones become sixty-four draw calls of fourteen instances each,
+ * which is worse in the other direction: the first version of this file did
+ * exactly that and put the whole module at four hundred and seventy draws.
+ *
+ * So sectors are merged back down until each batch is worth submitting. Kinds
+ * with a handful of instances end up whole; the ones that carpet the lap end up
+ * with one batch per sector, which is exactly where the culling pays.
+ */
+const PER_BATCH = 70;
 
 export interface KindOptions {
   material: THREE.Material;
@@ -306,10 +356,21 @@ export class Batcher {
 
   build(parent: THREE.Object3D): Batch[] {
     for (const k of this.kinds.values()) {
-      if (k.total === 0) continue;
-      const groups: THREE.Matrix4[][] = k.total < MERGE_BELOW
-        ? [k.buckets.flat()]
-        : k.buckets.filter((b) => b.length > 0);
+      // A kind the placement program never used still built its geometry.
+      // Nothing else will ever hold it, so let it go here.
+      if (k.total === 0) { k.geo.dispose(); continue; }
+
+      const want = Math.max(1, Math.min(SECTORS, Math.ceil(k.total / PER_BATCH)));
+      const per = Math.ceil(SECTORS / want);
+      const groups: THREE.Matrix4[][] = [];
+      for (let i = 0; i < SECTORS; i += per) {
+        const merged: THREE.Matrix4[] = [];
+        for (let j = i; j < Math.min(SECTORS, i + per); j++) {
+          const b = k.buckets[j]!;
+          for (let n = 0; n < b.length; n++) merged.push(b[n]!);
+        }
+        if (merged.length) groups.push(merged);
+      }
 
       for (const list of groups) {
         if (!list.length) continue;

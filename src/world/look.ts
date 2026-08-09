@@ -66,7 +66,10 @@ export interface WorldClock { value: number }
 export interface WorldMaterials {
   prop: THREE.MeshStandardMaterial;
   metal: THREE.MeshStandardMaterial;
+  /** Amber hazard beacons. Pulsed by the world system every frame. */
   glow: THREE.MeshStandardMaterial;
+  /** Level-crossing lamps. Steady; the flash is done by visibility. */
+  glowRed: THREE.MeshStandardMaterial;
   crowd: THREE.MeshLambertMaterial;
   cloth: THREE.MeshLambertMaterial;
   puff: THREE.MeshLambertMaterial;
@@ -128,13 +131,19 @@ export function createMaterials(clock: WorldClock): WorldMaterials {
   });
   metal.name = 'worldMetal';
 
-  // Lamps, beacons and crossing lights. Emissive is uniform across the mesh, so
-  // anything using this must be *only* lenses.
+  // Lamps and beacons. Emissive is uniform across the mesh, so anything using
+  // one of these must be *only* lenses.
   const glow = new THREE.MeshStandardMaterial({
     vertexColors: true, roughness: 0.2, metalness: 0,
-    emissive: 0xffffff, emissiveIntensity: 0.85,
+    emissive: 0xffb020, emissiveIntensity: 0.9,
   });
   glow.name = 'worldGlow';
+
+  const glowRed = new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.2, metalness: 0,
+    emissive: 0xff2a1a, emissiveIntensity: 1.4,
+  });
+  glowRed.name = 'worldGlowRed';
 
   // ── crowd ────────────────────────────────────────────────────────────────
   // Bob, sway, and a slower second harmonic so the stand never pulses as one
@@ -159,8 +168,10 @@ export function createMaterials(clock: WorldClock): WorldMaterials {
   }`);
 
   // ── cloth ────────────────────────────────────────────────────────────────
-  // Flags and bunting. The ripple travels along local x, and `aAmp` ramps from
-  // 0 at the pole to 1 at the free edge, so nothing detaches from its mast.
+  // Flags and bunting. `aAmp` ramps from 0 at the pole to 1 at the free edge,
+  // so nothing ever detaches from its mast, and the displacement is along the
+  // surface normal rather than a fixed axis — a flag hung across the track and
+  // a string of bunting hung along it are the same program.
   const cloth = new THREE.MeshLambertMaterial({
     vertexColors: true, side: THREE.DoubleSide,
   });
@@ -170,8 +181,8 @@ export function createMaterials(clock: WorldClock): WorldMaterials {
     `
   {
     float ph = aPhase * 6.28318;
-    float w = sin(position.x * 3.1 + position.y * 1.3 - uWorldTime * 6.2 + ph);
-    transformed.z += w * aAmp * 0.34;
+    float w = sin((position.x + position.z) * 3.1 + position.y * 1.3 - uWorldTime * 6.2 + ph);
+    transformed += normal * (w * aAmp * 0.36);
     transformed.y -= (1.0 - cos(w)) * aAmp * 0.09;
   }`);
 
@@ -207,10 +218,10 @@ export function createMaterials(clock: WorldClock): WorldMaterials {
   shadow.name = 'worldContact';
 
   return {
-    prop, metal, glow, crowd, cloth, puff, shadow,
+    prop, metal, glow, glowRed, crowd, cloth, puff, shadow,
     dispose(): void {
       shadow.map?.dispose();
-      for (const m of [prop, metal, glow, crowd, cloth, puff, shadow]) m.dispose();
+      for (const m of [prop, metal, glow, glowRed, crowd, cloth, puff, shadow]) m.dispose();
     },
   };
 }

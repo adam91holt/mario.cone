@@ -18,6 +18,7 @@ import { createRaceDirector } from './race/director.ts';
 import { createCameraSystem } from './render/camera.ts';
 import { createLightingSystem } from './render/lighting.ts';
 import { createVehicleSystem } from './vehicles/index.ts';
+import { createWorldSystem } from './world/index.ts';
 import { createFxSystem } from './fx/index.ts';
 import { createAudioSystem } from './audio/index.ts';
 import { getVehicle, listVehicles } from './vehicles/registry.ts';
@@ -81,6 +82,7 @@ async function boot(): Promise<void> {
 
   const track = createTrackSystem(ctx);
   engine.add(track);
+  engine.add(createWorldSystem(ctx));
   engine.add(createLightingSystem(ctx));
   engine.add(createAiSystem(ctx));
   engine.add(createKartPhysics(ctx));

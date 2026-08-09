@@ -26,12 +26,13 @@ import { C } from './look.ts';
 
 /** One traffic cone. The game's mascot, standing in the run-off in its hundreds. */
 export function coneGeo(): THREE.BufferGeometry {
+  // Ninety triangles. There are the better part of a thousand of these on the
+  // course, so every segment here is paid for eight hundred times over.
   return buildProp('cone', (k) => {
-    k.box(0, 0.03, 0, 0.46, 0.06, 0.46, C.ink, { ao: 0.3 });
-    k.box(0, 0.085, 0, 0.34, 0.06, 0.34, C.ink, { ao: 0.3 });
-    k.cone(0, 0.1, 0, 0.175, 0.8, 9, C.orange, { aoHeight: 0.5 });
-    k.cyl(0, 0.38, 0, 0.118, 0.135, 0.14, 9, C.white, { ao: 0.12 });
-    k.cyl(0, 0.58, 0, 0.068, 0.085, 0.10, 9, C.white, { ao: 0.08 });
+    k.box(0, 0.05, 0, 0.46, 0.1, 0.46, C.ink, { ao: 0.3 });
+    k.cone(0, 0.1, 0, 0.175, 0.8, 8, C.orange, { aoHeight: 0.5 });
+    k.cyl(0, 0.38, 0, 0.118, 0.135, 0.14, 8, C.white, { ao: 0.12 });
+    k.cyl(0, 0.58, 0, 0.068, 0.085, 0.10, 8, C.white, { ao: 0.08 });
   }, 0.5);
 }
 
@@ -97,16 +98,11 @@ export function trestleGeo(): THREE.BufferGeometry {
  *  object there is, and it costs eight cylinders. */
 export function tyreStackGeo(): THREE.BufferGeometry {
   return buildProp('tyreStack', (k) => {
-    const cap = [C.white, C.orange, C.yellow];
     for (let i = 0; i < 4; i++) {
-      k.push();
-      k.rotY(i * 0.5);
-      k.cyl(0, 0.16 + i * 0.3, 0, 0.52, 0.52, 0.3, 12, i === 3 ? cap[0]! : C.ink,
+      k.cyl(0, 0.16 + i * 0.3, 0, 0.52, 0.52, 0.3, 9, i === 3 ? C.white : C.ink,
         { ao: 0.35, aoHeight: 1.3 });
-      k.cyl(0, 0.16 + i * 0.3, 0, 0.34, 0.34, 0.33, 10, C.steelDark, { ao: 0.4 });
-      k.pop();
     }
-    k.cyl(0, 1.32, 0, 0.5, 0.5, 0.08, 12, cap[1]!, { ao: 0.1 });
+    k.cyl(0, 1.32, 0, 0.5, 0.5, 0.08, 9, C.orange, { ao: 0.1 });
   }, 0.5);
 }
 
@@ -377,30 +373,105 @@ export function spoilHeapGeo(): THREE.BufferGeometry {
   }, 0.45);
 }
 
+/**
+ * An outcrop of broken rock.
+ *
+ * Built from tilted slabs rather than blobs: a smooth low-poly sphere at this
+ * scale reads as a flying saucer parked on the hillside, which is exactly what
+ * the first pass looked like. Flat faces at odd angles read as stone.
+ */
 export function boulderGeo(): THREE.BufferGeometry {
   return buildProp('boulder', (k) => {
-    k.push();
-    k.scale(1, 0.72, 0.88);
-    k.sph(0, 0.55, 0, 1.0, C.rust, 6, { ao: 0.4, aoHeight: 1.4, shade: 0.92 });
-    k.pop();
-    k.push();
-    k.move(0.7, 0.2, 0.4).rotY(0.9).scale(0.9, 0.6, 0.7);
-    k.sph(0, 0.4, 0, 0.7, C.dirtDark, 6, { ao: 0.4, aoHeight: 1.4 });
-    k.pop();
-  }, 0.45);
+    const slabs: Array<[number, number, number, number, number, number, number, number]> = [
+      // x, y, z, w, h, d, yaw, tilt
+      [0, 0.42, 0, 2.0, 0.9, 1.7, 0.2, 0.10],
+      [0.55, 0.95, -0.3, 1.4, 0.8, 1.2, 0.9, -0.16],
+      [-0.6, 0.72, 0.45, 1.2, 0.62, 1.0, 1.9, 0.22],
+      [0.15, 1.42, 0.1, 0.9, 0.6, 0.8, 2.6, 0.12],
+      [-1.15, 0.3, -0.5, 0.9, 0.5, 0.8, 0.5, -0.24],
+    ];
+    for (let i = 0; i < slabs.length; i++) {
+      const s = slabs[i]!;
+      k.push();
+      k.move(s[0]!, s[1]!, s[2]!).rotY(s[6]!).rotZ(s[7]!).rotX(s[7]! * 0.6);
+      k.box(0, 0, 0, s[3]!, s[4]!, s[5]!,
+        i % 2 ? C.rust : 0xa9713f, { ao: 0.42, aoHeight: 1.8, shade: 1 - i * 0.045 });
+      k.pop();
+    }
+  }, 0.42);
+}
+
+/**
+ * Twelve metres of trackside hoarding.
+ *
+ * This is the piece that fixes the emptiest part of the frame. The barrier is
+ * 1.9m tall and the ground falls away behind it, so from a chase camera the
+ * entire near run-off is dead space — but a board standing four metres tall two
+ * metres behind the barrier shows a metre and a half of itself *above* the rail
+ * all the way round the lap. Deliberately dark with only a band of colour: the
+ * red-and-white barrier has to stay the highest-contrast thing at the edge of
+ * the road, so this reads as depth behind it rather than as a second edge.
+ */
+export function hoardingGeo(variant = 0): THREE.BufferGeometry {
+  const H = 4.0;
+  /** Board colours, and the mark that goes on each. Saturated and full-bleed:
+   *  a small motif on a dark panel is invisible at 60 m/s, and there is no such
+   *  thing as reading a trackside board — you register its colour or nothing.
+   *  `variant` rotates the sequence, so alternating two kinds along the lap
+   *  stops a straight reading as one repeated tile. */
+  const all: Array<[number, number]> = [
+    [C.orange, C.white],
+    [C.navy, C.cyan],
+    [C.white, C.orangeDeep],
+    [C.cyan, C.navy],
+    [C.yellow, C.navy],
+    [C.navy, C.orange],
+  ];
+  const boards = [0, 1, 2, 3].map((i) => all[(i + variant * 2) % all.length]!);
+  return buildProp('hoarding', (k) => {
+    for (let i = 0; i <= 4; i++) {
+      const z = -6 + i * 3;
+      k.strut(0, 0, z, 0, H + 0.2, z, 0.09, C.steelDark, { ao: 0.5, aoHeight: 2.6 }, 4);
+      if (i % 2 === 0) {
+        k.strut(0, 0.2, z, -0.55, 2.4, z, 0.06, C.steelDark, { ao: 0.5, aoHeight: 2.6 }, 4);
+      }
+    }
+    for (let i = 0; i < 4; i++) {
+      const z = -4.4 + i * 3;
+      const [base, mark] = boards[i % boards.length]!;
+      // The lower two metres live behind the barrier and are never seen; they
+      // stay dark so the visible band is the only thing carrying colour.
+      k.box(0, 1.0, z, 0.13, 2.0, 2.96, C.ink, { ao: 0.6, aoHeight: 2.4 });
+      k.box(0, 3.0, z, 0.15, 2.0, 2.96, base!, { ao: 0.16, aoHeight: 3.6 });
+      // One bold mark per board, alternating between a pair of slashes and a
+      // block-and-bar. Two motifs is enough to stop a run of them reading as
+      // wallpaper, and few enough that neither becomes noise.
+      if (i % 2 === 0) {
+        for (let j = 0; j < 2; j++) {
+          k.push();
+          k.move(-0.09, 3.0, z - 0.55 + j * 1.1).rotX(Math.PI * 0.32);
+          k.box(0, 0, 0, 0.05, 2.6, 0.42, mark!, { ao: 0.16, aoHeight: 3.6 });
+          k.pop();
+        }
+      } else {
+        k.box(-0.09, 3.0, z - 0.78, 0.05, 1.35, 1.05, mark!, { ao: 0.16, aoHeight: 3.6 });
+        k.box(-0.09, 3.32, z + 0.42, 0.05, 0.4, 1.5, mark!, { ao: 0.16, aoHeight: 3.6 });
+        k.box(-0.09, 2.72, z + 0.28, 0.05, 0.4, 1.2, mark!, { ao: 0.16, aoHeight: 3.6 });
+      }
+    }
+    k.box(0, H + 0.14, 0, 0.24, 0.24, 12, C.orange, { ao: 0.1, aoHeight: 4 });
+    k.box(0, 1.98, 0, 0.2, 0.16, 12, C.steelDark, { ao: 0.4, aoHeight: 3 });
+    k.box(0, 0.16, 0, 0.32, 0.32, 12, C.concreteDark, { ao: 0.6, aoHeight: 1.6 });
+  }, 0.5);
 }
 
 export function scrubGeo(): THREE.BufferGeometry {
   return buildProp('scrub', (k) => {
-    const sage = 0x7d8a4e;
     k.push(); k.scale(1, 0.62, 1);
-    k.sph(0, 0.62, 0, 0.72, sage, 6, { ao: 0.45, aoHeight: 1.0 });
+    k.sph(0, 0.62, 0, 0.74, 0x7d8a4e, 5, { ao: 0.45, aoHeight: 1.0 });
     k.pop();
-    k.push(); k.move(0.62, 0, 0.3).scale(1, 0.55, 1);
-    k.sph(0, 0.46, 0, 0.5, 0x6d7a42, 6, { ao: 0.45, aoHeight: 1.0 });
-    k.pop();
-    k.push(); k.move(-0.5, 0, -0.42).scale(1, 0.5, 1);
-    k.sph(0, 0.4, 0, 0.44, 0x8b975a, 5, { ao: 0.45, aoHeight: 1.0 });
+    k.push(); k.move(0.6, 0, 0.32).scale(1, 0.55, 1);
+    k.sph(0, 0.46, 0, 0.52, 0x6d7a42, 5, { ao: 0.45, aoHeight: 1.0 });
     k.pop();
   }, 0.45);
 }
@@ -634,15 +705,54 @@ export function conveyorGeo(): THREE.BufferGeometry {
 // ── the start/finish event ─────────────────────────────────────────────────
 
 /**
+ * A levelled works pad.
+ *
+ * The embankment falls away from the shoulder fast enough that anything
+ * standing in it disappears behind the barrier from a chase camera. Real sites
+ * solve this the same way: they cut a flat platform. Everything in a compound
+ * stands on one of these, which puts it back at road level where it can be seen
+ * — and a squared-off pad with a battered edge reads as somebody's yard rather
+ * than as props floating on a slope.
+ *
+ * The plinth runs eight metres down so it always meets the ground it is cut
+ * into, however far the embankment has dropped by.
+ */
+export function padGeo(w = 34, d = 26): THREE.BufferGeometry {
+  return buildProp('pad', (k) => {
+    // Battered sides: a slab with vertical faces reads as a floating box.
+    for (let i = 0; i < 4; i++) {
+      const t = i / 3;
+      const y = -0.1 - t * 8;
+      const g = 1 + t * 0.55;
+      k.box(0, y, 0, w * g, 0.1, d * g, i === 0 ? C.dirt : C.dirtDark,
+        { noAo: true, shade: 1 - t * 0.32 });
+    }
+    k.box(0, -4.1, 0, w * 1.3, 8.2, d * 1.3, C.dirtDark, { noAo: true, shade: 0.72 });
+    k.box(0, 0.02, 0, w, 0.16, d, C.concrete, { noAo: true, shade: 0.96 });
+    // A kerb of scalped hardcore around the rim, so the edge has a line.
+    for (const sx of [-1, 1]) k.box(sx * w * 0.5, 0.1, 0, 0.7, 0.3, d, C.dirtDark, { noAo: true });
+    for (const sz of [-1, 1]) k.box(0, 0.1, sz * d * 0.5, w, 0.3, 0.7, C.dirtDark, { noAo: true });
+  }, 0);
+}
+
+/**
  * A grandstand: raked terraces, a roof on trusses, a sponsor fascia.
  *
  * Built in its own frame with the seats facing +Z, so it can be dropped beside
- * any straight and simply turned to face the road.
+ * any straight and simply turned to face the road, and standing on a plinth
+ * that runs well below its feet — it is placed at *road* level, not at ground
+ * level, or the front row would be looking at the back of a barrier.
  */
 export function grandstandGeo(bays = 7): THREE.BufferGeometry {
   return buildProp('grandstand', (k) => {
     const W = bays * 3.4, ROWS = 9, RISE = 0.52, TREAD = 0.95;
     const backZ = -ROWS * TREAD - 1.4;
+
+    // Plinth.
+    k.box(0, -4.4, backZ * 0.5 + 0.8, W + 2.4, 9, Math.abs(backZ) + 3.6, C.concreteDark,
+      { noAo: true, shade: 0.74 });
+    k.box(0, 0.1, backZ * 0.5 + 0.8, W + 2.8, 0.5, Math.abs(backZ) + 4.0, C.concrete,
+      { noAo: true, shade: 0.9 });
 
     // Deck: one step per row, each one a slab you can see the edge of.
     for (let r = 0; r < ROWS; r++) {
@@ -688,10 +798,13 @@ export function grandstandGeo(bays = 7): THREE.BufferGeometry {
   }, 0.4);
 }
 
-/** A stepped viewing bank of scaffolding — the cheap seats at a corner. */
+/** A stepped viewing bank of scaffolding — the cheap seats at a corner. Also
+ *  placed at road level, on its own cut platform. */
 export function terraceGeo(): THREE.BufferGeometry {
   return buildProp('terrace', (k) => {
     const W = 13, ROWS = 5;
+    k.box(0, -4.2, -2.4, W + 3, 8.6, 12, C.dirtDark, { noAo: true, shade: 0.72 });
+    k.box(0, 0.06, -2.4, W + 3.4, 0.3, 12.6, C.dirt, { noAo: true, shade: 0.9 });
     for (let r = 0; r < ROWS; r++) {
       const y = 0.5 + r * 0.55, z = -r * 1.05;
       for (let i = 0; i < 5; i++) {
@@ -742,7 +855,9 @@ export function flagPoleGeo(h = 7): THREE.BufferGeometry {
 
 /** A flag on a mast. Authored in the XY plane so the ripple travels along x,
  *  with the weight ramping away from the pole. */
-export function flagGeo(w = 2.6, h = 1.7, color = C.orange, accent = C.white): THREE.BufferGeometry {
+export function flagGeo(
+  w = 2.6, h = 1.7, color: number = C.orange, accent: number = C.white,
+): THREE.BufferGeometry {
   return buildProp('flag', (k) => {
     const amp = (x: number): number => {
       const t = (x + 0.5);
@@ -795,28 +910,30 @@ export function ventPipeGeo(): THREE.BufferGeometry {
   }, 0.5);
 }
 
+/** Seven puffs, all sitting on the origin. The vertex program lifts, grows and
+ *  pinches each one out on its own phase, so the column is continuous. */
 export function steamGeo(): THREE.BufferGeometry {
   return buildProp('steam', (k) => {
     for (let i = 0; i < 7; i++) {
-      k.push();
-      k.move(0, 1.7, 0);
       k.sph(0, 0, 0, 1, 0xf2f6fa, 7,
         { noAo: true, amp: 0.55 + (i % 3) * 0.16, phase: i / 7 });
-      k.pop();
     }
   }, 0);
 }
 
-/** A bird. Two wings and a body; the flap is in the vertex program. */
+/** A soaring bird. Rides the crowd material: `aAmp` is the wing-tip weight, so
+ *  the "bob" becomes a slow flap. */
 export function birdGeo(): THREE.BufferGeometry {
   return buildProp('bird', (k) => {
-    const amp = (x: number): number => Math.abs(x) * 2;
-    k.box(0, 0, 0, 0.16, 0.14, 0.62, 0x3a3630, { noAo: true, phase: 0 });
-    k.push(); k.move(0, 0.02, 0.02).rotZ(0.22);
-    k.box(0.42, 0, 0, 0.8, 0.05, 0.34, 0x2e2a26, { noAo: true, amp, phase: 0 });
+    k.box(0, 0, 0, 0.18, 0.15, 0.7, 0x3a3630, { noAo: true, phase: 0.5 });
+    k.box(0, 0.04, 0.42, 0.12, 0.1, 0.22, 0x2e2a26, { noAo: true, phase: 0.5 });
+    k.push(); k.move(0, 0.03, 0).rotZ(0.16);
+    k.box(0.52, 0, 0, 0.94, 0.05, 0.36, 0x2e2a26,
+      { noAo: true, amp: (x) => x + 0.5, phase: 0.5 });
     k.pop();
-    k.push(); k.move(0, 0.02, 0.02).rotZ(-0.22);
-    k.box(-0.42, 0, 0, 0.8, 0.05, 0.34, 0x2e2a26, { noAo: true, amp, phase: 0 });
+    k.push(); k.move(0, 0.03, 0).rotZ(-0.16);
+    k.box(-0.52, 0, 0, 0.94, 0.05, 0.36, 0x2e2a26,
+      { noAo: true, amp: (x) => 0.5 - x, phase: 0.5 });
     k.pop();
   }, 0);
 }
@@ -824,8 +941,7 @@ export function birdGeo(): THREE.BufferGeometry {
 /** A rotating-beacon lens, on the glow material. */
 export function beaconGeo(): THREE.BufferGeometry {
   return buildProp('beacon', (k) => {
-    k.cyl(0, 0.1, 0, 0.13, 0.15, 0.2, 8, C.yellow, { noAo: true });
-    k.sph(0, 0.22, 0, 0.14, C.yellow, 7, { noAo: true });
+    k.cyl(0, 0.14, 0, 0.10, 0.15, 0.28, 6, C.yellow, { noAo: true });
   }, 0);
 }
 

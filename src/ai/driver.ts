@@ -410,9 +410,8 @@ function laneAt(
 ): number {
   const spline = ctx.track!.spline;
   const halfAt = plan.know.read(plan.know.half, dq);
-  let l = padLane(plan, plan.latAt(dq), dq, b.profile.greed) + b.bend;
-  l = clamp(l, -laneLimit(halfAt, speed, drifting, b.profile.bravery),
-    laneLimit(halfAt, speed, drifting, b.profile.bravery));
+  const lim = laneLimit(halfAt, speed, drifting, b.profile.bravery);
+  let l = clamp(padLane(plan, plan.latAt(dq), dq, b.profile.greed) + b.bend, -lim, lim);
   // The cut is deliberately off the road, so it wins its own blend rather than
   // being clamped back onto the tarmac it is there to avoid.
   if (cut) l = lerp(l, cut.lat, cutBlend(spline, cut, dq));
@@ -580,9 +579,17 @@ function drive(
     + (2 / (Ld * Ld)) * e;
 
   // ── keeping it on the road ────────────────────────────────────────────
-  // Where the kart ends up in half a second if it keeps doing exactly what it
-  // is doing now. Relative to the road, its lateral acceleration is the
-  // difference between its own path curvature and the road's.
+  // Where the kart ends up in `RUNOFF_T` seconds if it keeps doing exactly what
+  // it is doing now. Relative to the road, its lateral acceleration is the
+  // difference between its own path curvature and the road's — a kart matching
+  // the corner holds its lateral offset, one going straighter than the corner
+  // slides toward the outside at a rate that says exactly when it arrives.
+  //
+  // The road's curvature here is the spline's own, measured over a long
+  // baseline and so a little flattered on the tight stuff. That is the right
+  // error to have: it makes the predictor slightly slow to shout in a hairpin,
+  // where the driver is already braking and steering for everything it is
+  // worth, rather than permanently jumpy in one.
   const travel = Math.max(6, speed * RUNOFF_T);
   const kRoad = -_here.curvature;
   const latRate = racer.vel.dot(_here.right);

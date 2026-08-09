@@ -113,8 +113,11 @@ export const ARCHETYPES: readonly DriverProfile[] = [
 export const REFERENCE: DriverProfile = {
   key: 'reference',
   blurb: 'the tidy fast one the capture rig drives',
-  aggression: 0.50, consistency: 0.96, bravery: 0.84, driftLove: 0.80,
-  apexShift: 0, lineGain: 1.00, patience: 0.70, greed: 0.85,
+  // Tidy first, quick second. Every screenshot and every clip in the review
+  // pipeline is filmed from this kart, so a tenth of lap time is worth far less
+  // here than never being photographed halfway into the gravel.
+  aggression: 0.50, consistency: 0.98, bravery: 0.80, driftLove: 0.80,
+  apexShift: 0, lineGain: 1.00, patience: 0.70, greed: 0.80,
 };
 
 /**

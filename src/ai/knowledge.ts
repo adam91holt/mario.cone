@@ -622,10 +622,18 @@ export function buildPlan(
   // ── where this driver drifts ──────────────────────────────────────────
   const handling = p.stats.handling;
   const topSpeed = K.maxSpeed * lerp(0.86, 1.14, p.stats.speed) * p.classMul;
-  // Authority the driver leaves for corrections. Brave drivers leave almost
-  // none, which is why they are the ones who run wide when something goes
+  // Authority the driver leaves for corrections. Brave drivers leave less of
+  // it, which is why they are the ones who run wide when something goes
   // slightly wrong.
-  const authority = clamp(lerp(0.70, 0.94, p.bravery) * lerp(0.88, 1, p.skill), 0.56, 0.94);
+  //
+  // The band is narrow on purpose. Bravery is meant to read as *character* —
+  // a later braking point, a hotter entry, the occasional lurid moment — not as
+  // a handicap, and a wide band makes it one: at 0.94 the plan is so far past
+  // what the driver can track that the brave archetypes spend a third of the
+  // lap in the gravel and the timid ones win every race by ten seconds. Most of
+  // bravery's visible effect lives in `decel` below, where a late braker really
+  // does brake late and really does mostly get away with it.
+  const authority = clamp(lerp(0.72, 0.92, p.bravery) * lerp(0.88, 1, p.skill), 0.58, 0.92);
   const chargeRate = K.drift.chargeRate * lerp(0.8, 1.2, handling);
   const tier = new Uint8Array(know.corners.length);
   const drifting = new Uint8Array(n);
@@ -642,7 +650,7 @@ export function buildPlan(
     const charge = chargeRate * (seg.len / Math.max(8, gripV)) * 0.85;
     let want = 0;
     for (let t = 0; t < K.drift.tiers.length; t++) if (charge >= K.drift.tiers[t].at) want = t + 1;
-    const appetite = p.driftLove > 0.8 ? 3 : p.driftLove > 0.5 ? 2 : 1;
+    const appetite = p.driftLove > 0.72 ? 3 : p.driftLove > 0.45 ? 2 : 1;
 
     // Is a drift even the right shape for this corner?
     //

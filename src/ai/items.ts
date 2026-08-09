@@ -95,29 +95,42 @@ export function decideItem(
   switch (id as ItemId) {
     // ── shields and traps ───────────────────────────────────────────────
     case 'banana': {
-      // A held banana is a shield. Spend it when somebody is close enough that
-      // it becomes a *mine* instead — and at the apex, where they have nowhere
-      // to go around it.
-      const chased = view.behindGap < lerp(18, 30, aggression)
-        && inCone(view.behindBearing, 0.55);
-      if (chased) return fire(false, 'trap the kart behind');
-      if (view.cornerExitIn > 8 && view.behindGap < 55 && view.held > 3.5) {
+      // A trailed banana is a shield: while it is back there, the red shell
+      // with your name on it hits the banana instead. So the question is never
+      // "can I drop this", it is "is dropping it worth giving the shield up".
+      //
+      // It is worth it when somebody is close enough that they cannot go round
+      // — inside about a kart's braking distance, dead astern — or at an apex,
+      // where the road they would need to avoid it is the road they need to
+      // take the corner. Anywhere else, keeping it is the stronger move, which
+      // is why a CPU ahead of you so often appears to be doing nothing with one.
+      const cornered = view.behindGap < lerp(12, 20, aggression)
+        && inCone(view.behindBearing, 0.5);
+      if (cornered) return fire(false, 'trap the kart behind');
+      if (view.cornerExitIn > 8 && view.behindGap < 45 && view.held > 3.5) {
         return fire(false, 'lay it on the apex');
       }
-      if (view.held > stale + 4) return fire(false, 'stale');
+      // Nobody near, and it has been a shield for long enough: put it in the
+      // road where the pack has to deal with it rather than carrying it home.
+      if (view.behindGap > 60 && view.held > stale + 4) return fire(false, 'stale');
       return HOLD;
     }
 
     case 'greenShell': {
-      // Straight-line weapon: it only ever hits somebody it can see.
+      // Straight-line weapon: it only ever hits somebody it can see. Bearing
+      // and straightness together are the whole aim — a shell thrown into a
+      // corner puts itself in the barrier.
       const shot = view.aheadGap < lerp(34, 52, aggression)
         && inCone(view.aheadBearing, lerp(0.16, 0.28, aggression))
         && view.straightness > 0.45;
       if (shot) return fire(true, 'shot at the kart ahead');
-      // Otherwise it is worth more sitting behind us as a mine, and more still
-      // orbiting as a shield while somebody is lining us up.
-      if (view.behindGap < 16) return fire(false, 'mine the kart behind');
-      if (view.held > stale) return fire(true, 'stale');
+      // Otherwise it is worth more where it is: a carried shell orbits, and an
+      // orbiting shell eats the next thing thrown at us. Only lay it when
+      // somebody is close enough for it to be a mine instead.
+      if (view.behindGap < 12 && inCone(view.behindBearing, 0.5)) {
+        return fire(false, 'mine the kart behind');
+      }
+      if (view.behindGap > 45 && view.held > stale) return fire(true, 'stale');
       return HOLD;
     }
 
@@ -135,8 +148,13 @@ export function decideItem(
     case 'redShell': {
       // Homing, so range is what matters, not aim. Nothing to gain by holding
       // one when there is somebody to lock onto — but plenty by not wasting it
-      // on a rival about to be out of reach anyway.
-      if (view.place > 1 && view.aheadGap < 110) return fire(true, 'lock onto the kart ahead');
+      // on a rival about to be out of reach anyway. A patient driver waits for
+      // the corner *before* the target, where the spin costs them the exit as
+      // well as the hit; an impatient one fires the moment it locks.
+      const locked = view.place > 1 && view.aheadGap < 110;
+      if (locked && (view.straightness < 0.75 || patience < 0.5 || view.held > 2.2)) {
+        return fire(true, 'lock onto the kart ahead');
+      }
       if (view.held > stale) return fire(true, 'stale');
       return HOLD;
     }
