@@ -33,7 +33,7 @@ export const CSS_STAGE = `
 /* Bottom centre: the one band of the frame the HUD leaves empty, and low enough
    that the camera sweep's subject — a grid of machines — is never behind it. */
 #race .card {
-  position: absolute; left: 50%; bottom: 13%;
+  position: absolute; left: 50%; bottom: 9%;
   display: flex; flex-direction: column; align-items: flex-start;
   gap: calc(var(--u) * .18);
   padding: calc(var(--u) * .55) calc(var(--u) * 2.2) calc(var(--u) * .7) calc(var(--u) * 1.5);
@@ -58,12 +58,12 @@ export const CSS_STAGE = `
   transform: translateX(-50%); opacity: 0;
 }
 #race .lights .board {
-  display: flex; align-items: center; gap: calc(var(--u) * .55);
-  padding: calc(var(--u) * .5) calc(var(--u) * 1.5) calc(var(--u) * .55);
+  display: flex; align-items: center; gap: calc(var(--u) * .62);
+  padding: calc(var(--u) * .55) calc(var(--u) * 1.6) calc(var(--u) * .6);
 }
 #race .lights .board::after { content: none; }
 #race .lights i {
-  display: block; width: calc(var(--u) * 1.5); height: calc(var(--u) * 1.5);
+  display: block; width: calc(var(--u) * 1.7); height: calc(var(--u) * 1.7);
   border-radius: 50%;
   background: radial-gradient(circle at 38% 32%, #3A404E, #14171F 70%);
   box-shadow: inset 0 0 0 calc(var(--u) * .12) rgba(6,8,12,.9),
@@ -80,6 +80,20 @@ export const CSS_STAGE = `
               0 0 calc(var(--u) * 1.5) rgba(90,255,110,.95);
 }
 
+/* ── the note ────────────────────────────────────────────────────────────── */
+/* One line, left edge, above where the ticker will later stack. Small on
+   purpose: it is a *reward*, not an instruction, and it must never compete with
+   the lap banner it arrives underneath. */
+#race .note {
+  position: absolute; left: calc(var(--u) * 1.3); top: 24%;
+  display: flex; align-items: flex-end; gap: calc(var(--u) * .5);
+  padding: calc(var(--u) * .28) calc(var(--u) * .95) calc(var(--u) * .34) calc(var(--u) * .6);
+  opacity: 0;
+}
+#race .note .lbl { height: calc(var(--u) * .85); color: #FFD84D;
+  margin-bottom: calc(var(--u) * .12); }
+#race .note .val { height: calc(var(--u) * 1.45); color: #FFF8F0; }
+
 /* ── the finish ticker ───────────────────────────────────────────────────── */
 #race .ticker {
   position: absolute; left: calc(var(--u) * 1.3); top: 31%;
@@ -90,9 +104,10 @@ export const CSS_STAGE = `
   padding: calc(var(--u) * .26) calc(var(--u) * .9) calc(var(--u) * .32) calc(var(--u) * .55);
   opacity: 0;
 }
+#race .ticker .tick .pl { display: flex; align-items: flex-end; gap: calc(var(--u) * .1); }
 #race .ticker .tick .tp { height: calc(var(--u) * 1.35); color: #FFF8F0; }
-#race .ticker .tick .ts { height: calc(var(--u) * .78); color: #FFF8F0; opacity: .8;
-  margin-bottom: calc(var(--u) * .1); }
+#race .ticker .tick .ts { height: calc(var(--u) * .72); color: #FFF8F0; opacity: .8;
+  margin-bottom: calc(var(--u) * .09); }
 #race .ticker .tick .chip { width: calc(var(--u) * .42); height: calc(var(--u) * 1.15);
   transform: skewX(-9deg); border-radius: calc(var(--u) * .06);
   box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
@@ -321,6 +336,71 @@ export function createLights(): Lights {
   };
 }
 
+// ── the note ───────────────────────────────────────────────────────────────
+
+export interface Note {
+  readonly root: HTMLElement;
+  show(label: string, value: string): void;
+  update(dt: number): void;
+  reset(): void;
+}
+
+/**
+ * A one-line aside: currently only "BEST LAP 0:41.203".
+ *
+ * A quick lap is the one thing a player does in a Grand Prix that nothing else
+ * on screen acknowledges — the lap banner reports every split identically,
+ * whether it was their fastest of the race or their worst. This says which.
+ */
+export function createNote(): Note {
+  const root = fromHtml(`
+    <div class="note plate"><span class="lbl word"></span><span class="val num"></span></div>
+  `);
+  const box = bind(root);
+  const lbl = signBox(q(root, '.lbl'));
+  const val = glyphBox(q(root, '.val'));
+
+  let t = -1;
+  const IN = 0.3;
+  const HOLD = 2.2;
+  const OUT = 0.28;
+
+  return {
+    root,
+
+    show(label, value): void {
+      lbl.set(label);
+      val.set(value);
+      t = 0;
+    },
+
+    reset(): void {
+      t = -1;
+      box.set('opacity', '0');
+    },
+
+    update(dt): void {
+      if (t < 0) return;
+      t += dt;
+      let x = 0, alpha = 1;
+      if (t < IN) {
+        const e = ease.outBack(clamp01(t / IN));
+        x = (e - 1) * 55;
+        alpha = clamp01(t / (IN * 0.5));
+      } else if (t < IN + HOLD) {
+        x = 0;
+      } else {
+        const u = clamp01((t - IN - HOLD) / OUT);
+        x = -ease.inQuad(u) * 55;
+        alpha = 1 - u;
+        if (u >= 1) { t = -1; box.set('opacity', '0'); return; }
+      }
+      box.set('opacity', alpha.toFixed(3));
+      box.set('transform', `translateX(${x.toFixed(2)}%)`);
+    },
+  };
+}
+
 // ── the finish ticker ──────────────────────────────────────────────────────
 
 export interface TickerEntry {
@@ -350,7 +430,7 @@ export function createTicker(): Ticker {
     add(entry): void {
       const el = fromHtml(`
         <div class="tick plate">
-          <span class="tp num"></span><span class="ts num"></span>
+          <span class="pl"><span class="tp num"></span><span class="ts num"></span></span>
           <div class="chip"></div>
           <div class="tn word"></div>
           <div class="tg num"></div>

@@ -9,10 +9,11 @@
 // The other half is the *shape of a race*, and it is worth stating plainly
 // because it is spread over a state machine:
 //
-//   **grid**      The field is seated by championship order — a fresh race puts
-//                 the player at the back, which is where a kart racer's story
-//                 starts — and drives up into its slots while the camera sweeps
-//                 the grid and the course card names the circuit.
+//   **grid**      The field is seated — by championship order in a cup, by the
+//                 field order in a one-off — and drives up into its slots while
+//                 the camera sweeps the grid and the course card names the
+//                 circuit. Everyone gets a real starting place; nobody spends
+//                 the countdown reading "1st".
 //   **lights**    Three beats and a flag. `race.countdown` reads 3, 2, 1 during
 //                 the three seconds before the start and 0 *on* it, so the GO
 //                 the player sees is the frame they are allowed to move.
@@ -28,7 +29,7 @@
 // the phase and remembers where it was.
 
 import * as THREE from 'three';
-import { clamp01, ease, hash1 } from '../core/math.ts';
+import { clamp01, ease, formatTime, hash1 } from '../core/math.ts';
 import { boostRacer } from '../physics/kart.ts';
 import { getVehicle } from '../vehicles/registry.ts';
 import { coursesInCup, listCourses } from '../track/courses/index.ts';
@@ -46,14 +47,15 @@ import type {
 const FORM_TIME = 1.0;
 const FORM_BACK = 11;
 const FORM_ROW_STAGGER = 0.06;
-/** How long the flag holds before the results sheet is allowed to start. */
-const FLAG_HOLD = 1.5;
+/** How long the flag holds before the results sheet is allowed to start. Long
+ *  enough that the HUD's own place banner has said its piece and left. */
+const FLAG_HOLD = 2.0;
 /** ...and the longest the race will wait for the field after the player is in. */
 const WRAP_LIMIT = 14;
 /** A player still circulating after the whole field is home gets this long. */
 const SOLO_LIMIT = 45;
 /** Beat between the last machine crossing and the sheet arriving. */
-const RESULTS_DELAY = 1.15;
+const RESULTS_DELAY = 1.6;
 /** The finish slow-motion, in real seconds: fall, hold, recover. */
 const SLOW_FALL = 0.12;
 const SLOW_HOLD = 0.8;
@@ -76,6 +78,14 @@ const UP = new THREE.Vector3(0, 1, 0);
 
 /** See `gridOrder()`. Held false by the opening camera sweep, not by taste. */
 const PLAYER_AT_BACK = false;
+
+/** Who is ahead of whom. Hoisted so the per-step sort allocates nothing. */
+function byRunningOrder(a: Racer, b: Racer): number {
+  // Finished racers always outrank unfinished ones, earliest first.
+  if (a.finished !== b.finished) return a.finished ? -1 : 1;
+  if (a.finished && b.finished) return a.finishTime - b.finishTime;
+  return b.progress - a.progress;
+}
 
 export function createRaceDirector(ctx: GameContext): GameSystem {
   const R = ctx.config.race;
@@ -124,6 +134,15 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
   const startHeld = new Map<number, number>();
   let sample: SplineSample | null = null;
 
+  /** True while the front-end (`src/ui/menus`) has a screen up. It publishes
+   *  `ui:menu` on both edges; this module stands off the controls while it is
+   *  open rather than reaching into it. */
+  let frontEndOpen = false;
+  ctx.bus.on<{ open: boolean }>('ui:menu', ({ open }) => {
+    frontEndOpen = open;
+    if (open && paused) togglePause();
+  });
+
   const overlay: RaceOverlay | null = createOverlay(onPick);
 
   // ── small helpers ────────────────────────────────────────────────────────
@@ -134,7 +153,15 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
   function setPhase(phase: RacePhase): void {
     if (ctx.race.phase === phase) return;
     ctx.race.phase = phase;
-    ctx.bus.emit(`race:${phase}`, {});
+    // **Except `countdown`.** The per-phase announcement is `race:<phase>`, and
+    // for exactly one phase that name is already taken by the beat event that
+    // carries `{ n }`. Emitting it here fired a `race:countdown` with no beat in
+    // it at the top of every start: the mixer read the missing number as the
+    // set-and-hold note and played it two seconds early, and the banner briefly
+    // set its numeral to the string "undefined" — saved only by the real beat
+    // landing in the same step and overwriting it. Phase watchers use
+    // `race:phase`, which everything in the game already listens to.
+    if (phase !== 'countdown') ctx.bus.emit(`race:${phase}`, {});
     ctx.bus.emit('race:phase', { phase });
   }
 
@@ -327,7 +354,10 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     const [outer, inner] = R.rocketStart.window;
     const skill = racer.ai?.skill ?? 0.5;
     const r = hash1(racer.id * 7.919 + (cfgNow.seed ?? 1) * 0.613 + 3.17);
-    const pRocket = 0.1 + skill * 0.5;
+    // About a third of a 150cc field gets it right and one in twenty bogs — a
+    // grid where five of seven machines rocket away is not a reward, it is the
+    // default, and the player's own start stops meaning anything.
+    const pRocket = 0.05 + skill * 0.3;
     const pBog = 0.03 + (1 - skill) * 0.06;
     if (r < pRocket) return inner + (r / pRocket) * (outer - inner);
     if (r > 1 - pBog) return R.rocketStart.burnout + 0.3;
@@ -371,7 +401,13 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
         racer.lapTimes.push(ctx.race.time);
         const { split, best } = book.lap(racer, ctx.race.time);
         ctx.bus.emit('race:lap', { racer, lap: racer.lap, split });
-        if (best) ctx.bus.emit('race:bestlap', { racer, time: split, lap: racer.lap });
+        if (best) {
+          ctx.bus.emit('race:bestlap', { racer, time: split, lap: racer.lap });
+          // Only worth saying out loud once there is a lap to have beaten.
+          if (racer.isPlayer && racer.lap >= 2) {
+            overlay?.note.show('BEST LAP', formatTime(split));
+          }
+        }
         if (racer.lap === ctx.race.totalLaps - 1) {
           ctx.bus.emit('race:finallap', { racer, lap: racer.lap });
           if (racer.isPlayer) ctx.fx?.flash(0xFF6B1A, 0.3);
@@ -425,15 +461,21 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     });
   }
 
+  /** Reused by `updateStandings`, which runs every fixed step: a fresh array and
+   *  a fresh comparator 120 times a second is the definition of an allocation in
+   *  a hot path. */
+  const order: Racer[] = [];
+
   function updateStandings(): void {
-    const order = ctx.racers.slice().sort((a, b) => {
-      // Finished racers always outrank unfinished ones, earliest first.
-      if (a.finished !== b.finished) return a.finished ? -1 : 1;
-      if (a.finished && b.finished) return a.finishTime - b.finishTime;
-      return b.progress - a.progress;
-    });
-    for (let i = 0; i < order.length; i++) order[i]!.place = i + 1;
-    ctx.race.standings = order.map((r) => r.id);
+    order.length = 0;
+    for (const r of ctx.racers) order.push(r);
+    order.sort(byRunningOrder);
+    const standings = ctx.race.standings;
+    standings.length = 0;
+    for (let i = 0; i < order.length; i++) {
+      order[i]!.place = i + 1;
+      standings.push(order[i]!.id);
+    }
   }
 
   // ── the flag ─────────────────────────────────────────────────────────────
@@ -519,6 +561,7 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
       rounds: cup.state.rounds,
       bestLapName: fast.racer?.name ?? '',
       bestLapTime: fast.time,
+      playerSplits: ctx.player ? book.splitsOf(ctx.player) : [],
       cupComplete: complete,
     }, resultOptions(complete));
   }
@@ -589,12 +632,15 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
       return;
     }
     if (id === 'exit') {
-      // If a front-end is listening it owns what happens next; if nothing is,
-      // the only honest "exit" this build has is a fresh championship.
-      if ((ctx.bus.inspect()['race:exit'] ?? 0) > 0) {
-        ctx.bus.emit('race:exit', { from: 'results' });
+      // The front-end owns what happens after a race, and it published a door
+      // for exactly this: `ui:menu:open` raises the character-select screen.
+      // `race:exit` goes out alongside it for anyone else who wants to know.
+      ctx.bus.emit('race:exit', { from: 'results' });
+      if ((ctx.bus.inspect()['ui:menu:open'] ?? 0) > 0) {
+        ctx.bus.emit('ui:menu:open', { from: 'results' });
         return;
       }
+      // No front-end in this build: the only honest exit is a fresh cup.
       cupStarted = false;
       pendingGrid = null;
       restart({ ...cfgNow, seed });
@@ -603,14 +649,72 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
 
   // ── pause ────────────────────────────────────────────────────────────────
 
+  /**
+   * Hold the field still.
+   *
+   * Taking the phase out of `racing` stops every system from *driving* the
+   * karts — physics zeroes their inputs, the AI stands down, the reels stop —
+   * but a kart is not a thing that stops when you stop pushing it: physics
+   * still integrates the velocity it already had, so a pause taken at 70 m/s
+   * left the whole field gliding silently down the road behind the menu.
+   * Measured; it is the reason this exists.
+   *
+   * The transform is stashed on the frame the game stops and rewritten after
+   * physics each step, which is the same seam the grid drive-in uses. Nothing
+   * else may write these while the phase is not `racing`.
+   */
+  interface Held { pos: THREE.Vector3; vel: THREE.Vector3; speed: number }
+  const held = new Map<number, Held>();
+
+  function holdField(): void {
+    held.clear();
+    for (const r of ctx.racers) {
+      held.set(r.id, { pos: r.pos.clone(), vel: r.vel.clone(), speed: r.speed });
+    }
+  }
+
+  function keepFieldStill(): void {
+    for (const r of ctx.racers) {
+      const h = held.get(r.id);
+      if (!h) continue;
+      r.pos.copy(h.pos);
+      r.prevPos.copy(h.pos);
+      r.vel.set(0, 0, 0);
+      r.speed = 0;
+    }
+  }
+
+  function releaseField(): void {
+    for (const r of ctx.racers) {
+      const h = held.get(r.id);
+      if (!h) continue;
+      r.pos.copy(h.pos);
+      r.prevPos.copy(h.pos);
+      r.vel.copy(h.vel);
+      r.speed = h.speed;
+    }
+    held.clear();
+  }
+
+  /**
+   * Pausing is for a race that is actually being driven.
+   *
+   * Not `finished` and not `results`: the front-end takes the pause key on
+   * both of those to bring itself back up, and two modules answering the same
+   * key is how a player ends up in a paused race behind a title screen. Not
+   * while that front-end is open either — its own screens are already a menu,
+   * and this one would be listening for the same stick underneath it.
+   */
   function canPause(): boolean {
+    if (frontEndOpen) return false;
     const p = ctx.race.phase;
-    return p === 'intro' || p === 'countdown' || p === 'racing' || p === 'finished';
+    return p === 'intro' || p === 'countdown' || p === 'racing';
   }
 
   function togglePause(): void {
     if (paused) {
       paused = false;
+      releaseField();
       overlay?.pause.hide();
       setPhaseQuiet(resumePhase);
       ctx.bus.emit('race:pause', { on: false });
@@ -619,6 +723,7 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     if (!canPause()) return;
     paused = true;
     resumePhase = ctx.race.phase;
+    holdField();
     setPhaseQuiet('loading');
     const player = ctx.player;
     overlay?.pause.show([
@@ -700,7 +805,9 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
         flag: +flagT.toFixed(2),
         timeScale: +ctx.time.scale.toFixed(3),
         finished: book.finishedCount(),
-        grid: ctx.racers.slice().sort((a, b) => a.place - b.place).map((r) => r.name),
+        /** The order the field was seated in, pole first. */
+        grid: seats.map((s) => s.racer.name),
+        places: ctx.racers.slice().sort((a, b) => a.place - b.place).map((r) => r.name),
         rows: book.rows(R.points, colorOf),
         best: (() => { const f = book.fastest(); return { name: f.racer?.name ?? '', time: +f.time.toFixed(3) }; })(),
         cup: cup.state,
@@ -758,6 +865,7 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
       winnerTime = 0;
       lastFinishTime = 0;
       startHeld.clear();
+      held.clear();
       ctx.time.scale = 1;
       book.reset(ctx.racers);
       ensureCup();
@@ -790,6 +898,7 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
 
       if (ctx.inputState.pressed.pause) togglePause();
       if (paused) {
+        keepFieldStill();
         if (overlay) menuInput(dt, overlay.pause.menu);
         return;
       }
@@ -861,7 +970,7 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
         }
 
         case 'results': {
-          if (overlay) menuInput(dt, overlay.results.menu);
+          if (overlay && !frontEndOpen) menuInput(dt, overlay.results.menu);
           break;
         }
 

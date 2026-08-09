@@ -21,7 +21,7 @@ import { listCourses } from '../../track/courses/index.ts';
 import { glyphRun } from '../glyphs.ts';
 import { vehicleMark, wordmark } from './art.ts';
 import {
-  bind, courseMap, cupEmblem, fromHtml, hexCss, q, title, type Bound,
+  bind, courseMap, cupEmblem, fromHtml, hexCss, plannedMap, q, title, type Bound,
 } from './chrome.ts';
 import type { CourseDef, EngineClass, GameContext, VehicleId } from '../../types.ts';
 
@@ -37,8 +37,11 @@ export const CSS_SCREENS = `
   margin-top: calc(var(--u) * .34); font-size: calc(var(--u) * .66); font-weight: 800;
   letter-spacing: .2em; text-transform: uppercase; color: rgba(255,248,240,.6);
 }
-#menu .cupTab.locked .t { color: rgba(255,248,240,.42); }
-#menu .cupTab.locked { filter: saturate(.3) brightness(.72); }
+/* A closed cup is dimmed by dimming its *contents*. Filtering the tab itself
+   dims the selection ring with it, and a highlight you cannot see is a cursor
+   the player has lost. */
+#menu .cupTab.locked .t { color: rgba(255,248,240,.44); }
+#menu .cupTab.locked .em { opacity: .3; }
 #menu .card .mapbox { display: block; }
 #menu .scr-racer .roster .tile.rnd .mark {
   display: flex; align-items: center; justify-content: center;
@@ -168,7 +171,6 @@ const STAT_ROWS = [
 ] as const;
 
 export interface RacerScreen extends Screen {
-  readonly count: number;
   /** The random slot is the last index; it resolves to a real machine on pick. */
   readonly randomIndex: number;
   index: number;
@@ -237,7 +239,6 @@ export function createRacerScreen(): RacerScreen {
 
   const api: RacerScreen = {
     root,
-    count: defs.length + 1,
     randomIndex: defs.length,
     index: 0,
     onHover: null,
@@ -502,7 +503,7 @@ export function createCourseScreen(): CourseScreen {
         c.tot.text(((len * laps) / 1000).toFixed(1));
       } else if (i === 0) {
         // The placeholder a closed cup shows: the card stays, wearing tape.
-        c.mapbox.innerHTML = '';
+        c.mapbox.innerHTML = plannedMap();
         c.nm.text('Surveying');
         c.len.text('—');
         c.lap.text('—');

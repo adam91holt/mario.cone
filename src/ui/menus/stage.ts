@@ -54,14 +54,14 @@ interface Shot {
  * rather than a cut.
  */
 const SHOTS: Record<ShotName, Shot> = {
-  title: { pos: [0.5, 3.1, 13.0], look: [0, 2.5, -4], fov: 38 },
-  hero: { pos: [3.4, 2.2, 8.4], look: [1.5, 1.05, -0.4], fov: 32 },
-  board: { pos: [5.4, 2.8, 10.2], look: [3.6, 1.5, -1.2], fov: 35 },
+  title: { pos: [0.5, 3.0, 13.5], look: [0, 2.9, -8], fov: 38 },
+  hero: { pos: [4.3, 2.9, 12.6], look: [2.3, 0.75, -1.2], fov: 32 },
+  board: { pos: [6.9, 3.3, 14.2], look: [4.9, 1.1, -1.6], fov: 34 },
 };
 
 /** Machines in the title parade, and the lane each one runs in. */
-const PARADE_LANES = [-3.6, -6.0, -8.8, -11.6] as const;
-const PARADE_SPAN = 17;
+const PARADE_LANES = [-4.6, -7.4, -10.6, -14.0] as const;
+const PARADE_SPAN = 19;
 
 interface Display {
   id: VehicleId;
@@ -241,24 +241,25 @@ export function createStage(ctx: GameContext): Stage | null {
     const ORANGE = mat(0xff6b1a, { roughness: 0.6 });
     const CREAM = mat(0xfff8f0, { roughness: 0.5 });
     const DARK = mat(0x2b3038, { roughness: 0.7 });
-    for (let i = -13; i <= 13; i++) {
+    for (let i = -16; i <= 16; i++) {
       const x = i * 3.3;
-      part(dressing, roundedBox(3.0, 1.05, 0.34, 0.14), i % 2 ? CREAM : ORANGE, [x, 0.55, -18]);
-      part(dressing, roundedBox(3.2, 0.16, 0.44, 0.07), DARK, [x, 1.14, -18]);
+      part(dressing, roundedBox(3.0, 0.9, 0.34, 0.14), i % 2 ? CREAM : ORANGE, [x, 0.47, -30]);
+      part(dressing, roundedBox(3.2, 0.14, 0.44, 0.06), DARK, [x, 0.98, -30]);
     }
-    for (const x of [-24, -8, 8, 24]) {
-      part(dressing, new THREE.CylinderGeometry(0.14, 0.2, 9, 8), mat(0x8e99a8, { roughness: 0.5 }),
-        [x, 4.5, -19.6]);
-      part(dressing, roundedBox(2.4, 0.5, 0.7, 0.2), DARK, [x, 9.1, -19.2]);
-      part(dressing, roundedBox(2.2, 0.16, 0.5, 0.06),
-        mat(0xfff3c4, { roughness: 0.2, emissive: 0xffe8a8, emissiveIntensity: 0.75 }),
-        [x, 8.84, -19.0]);
+    for (const x of [-30, -11, 11, 30]) {
+      part(dressing, new THREE.CylinderGeometry(0.15, 0.22, 11, 8), mat(0x8e99a8, { roughness: 0.5 }),
+        [x, 5.5, -33]);
+      part(dressing, roundedBox(2.8, 0.55, 0.8, 0.22), DARK, [x, 11.1, -32.5]);
+      part(dressing, roundedBox(2.6, 0.18, 0.6, 0.07),
+        mat(0xfff3c4, { roughness: 0.2, emissive: 0xffe8a8, emissiveIntensity: 0.8 }),
+        [x, 10.8, -32.3]);
     }
-    // Cones marking the mark itself, back far enough not to crowd the machine.
-    for (const [cx, cz] of [[-5.4, 2.4], [5.4, 2.4], [-5.4, -2.4], [5.4, -2.4]] as const) {
-      part(dressing, new THREE.ConeGeometry(0.42, 1.15, 12), ORANGE, [cx, 0.575, cz]);
-      part(dressing, new THREE.CylinderGeometry(0.31, 0.36, 0.2, 12), CREAM, [cx, 0.56, cz]);
-      part(dressing, roundedBox(0.95, 0.1, 0.95, 0.04), DARK, [cx, 0.05, cz]);
+    // Cones marking the mark itself, small and set back — they frame the
+    // machine, they do not compete with it.
+    for (const [cx, cz] of [[-9, -3.4], [9, -3.4], [-15, -10], [15, -10]] as const) {
+      part(dressing, new THREE.ConeGeometry(0.32, 0.92, 12), ORANGE, [cx, 0.46, cz]);
+      part(dressing, new THREE.CylinderGeometry(0.24, 0.28, 0.16, 12), CREAM, [cx, 0.45, cz]);
+      part(dressing, roundedBox(0.74, 0.08, 0.74, 0.03), DARK, [cx, 0.04, cz]);
     }
     mergeStatic(dressing);
     scene.add(dressing);
@@ -289,14 +290,19 @@ export function createStage(ctx: GameContext): Stage | null {
     };
     // Two rings at different depths. One ring of blocks reads as a fence; two
     // reads as land, because the near one occludes the far one.
-    for (let i = 0; i < 26; i++) {
-      const a = (i / 26) * Math.PI * 2 + rnd() * 0.2;
+    // Tapered six-sided buttes, not boxes. A cuboid at this distance reads as a
+    // wall the moment its top edge is horizontal across the frame; a taper puts
+    // a slope on both sides of every one of them and the horizon becomes land.
+    for (let i = 0; i < 30; i++) {
+      const a = (i / 30) * Math.PI * 2 + rnd() * 0.22;
       const far = i % 2 === 0;
-      const r = far ? 175 + rnd() * 45 : 112 + rnd() * 30;
-      const h = far ? 26 + rnd() * 26 : 11 + rnd() * 13;
-      const w = far ? 60 + rnd() * 70 : 34 + rnd() * 42;
-      part(hills, roundedBox(w, h, w * 0.75, 5), mat(far ? 0x9a7d5c : 0xa98a63, { roughness: 0.97 }),
-        [Math.sin(a) * r, h / 2 - 4, Math.cos(a) * r]);
+      const r = far ? 230 + rnd() * 60 : 150 + rnd() * 40;
+      const h = far ? 30 + rnd() * 34 : 14 + rnd() * 16;
+      const w = far ? 46 + rnd() * 54 : 30 + rnd() * 34;
+      part(hills, new THREE.CylinderGeometry(w * (0.3 + rnd() * 0.3), w, h, 6, 1),
+        mat(far ? 0x7d6449 : 0x8d7152, { roughness: 0.98, flat: true }),
+        [Math.sin(a) * r, h / 2 - 5, Math.cos(a) * r],
+        [0, rnd() * 2, 0]);
     }
     mergeStatic(hills);
     scene.add(hills);
@@ -363,8 +369,9 @@ export function createStage(ctx: GameContext): Stage | null {
   let paradeLevel = 0;
 
   let heroId: VehicleId | null = null;
+  /** 0..1 clock for the one full revolution a machine makes as it arrives. */
+  let arriveT = 1;
   let heroSpin = 0;
-  let heroSpinBoost = 0;
   let heroLevel = 0;
 
   function clearParade(): void {
@@ -470,6 +477,13 @@ export function createStage(ctx: GameContext): Stage | null {
     setHero(id): void {
       if (heroId === id) return;
       heroId = id;
+      // Out of the parade first. The same model instance serves both, and the
+      // parade drives its transform every frame — a machine left in that list
+      // is a machine that quietly drives off the character select.
+      if (id) {
+        const i = parade.findIndex((e) => e.d.id === id);
+        if (i >= 0) { paradeGroup.remove(parade[i]!.d.model.root); parade.splice(i, 1); }
+      }
       for (let i = heroGroup.children.length - 1; i >= 0; i--) {
         heroGroup.remove(heroGroup.children[i]!);
       }
@@ -483,17 +497,19 @@ export function createStage(ctx: GameContext): Stage | null {
         // usually somewhere off the side of the frame.
         d.model.root.position.set(0, 0, 0);
         d.model.root.rotation.set(0, heroSpin, 0);
+        void 0;
         heroGroup.add(d.model.root);
         // Framing follows the machine's own size, exactly as the chase camera
         // does: a 4.8m locomotive and a 1.9m cone cannot share a distance. Small
         // machines come *forward*, or the cone this game is named after is a
         // thumbnail on its own character select.
         const size = getVehicle(id).size;
-        const push = (size.length - 3.0) * 0.66 + (size.width - 2.0) * 0.42;
-        heroGroup.position.set(0, 0, -Math.max(-1.5, Math.min(2.4, push)));
-        // A quarter-turn of extra spin on arrival, decaying: the machine
-        // *presents itself* rather than appearing already turning.
-        heroSpinBoost = 5.2;
+        const span = Math.max(size.length, size.width);
+        const push = (span - 2.6) * 0.85;
+        heroGroup.position.set(0, 0, -Math.max(-0.4, Math.min(2.8, push)));
+        // A full turn on arrival, decaying onto the presenting angle: the
+        // machine *shows itself off* and then holds still enough to be read.
+        arriveT = 0;
       }
       if (paradeWant) { clearParade(); enqueueParade(); }
     },
@@ -501,7 +517,8 @@ export function createStage(ctx: GameContext): Stage | null {
     setParade(on): void {
       if (paradeWant === on) return;
       paradeWant = on;
-      if (on) { clearParade(); enqueueParade(); }
+      clearParade();
+      if (on) enqueueParade();
     },
 
     setLevel(v): void { levelTarget = clamp01(v); },
@@ -514,7 +531,6 @@ export function createStage(ctx: GameContext): Stage | null {
 
       // One machine joins the parade per frame while there is a queue.
       if (paradeWant && paradeQueue.length > 0) joinParade(paradeQueue.shift()!);
-      if (!paradeWant && parade.length > 0 && paradeLevel < 0.02) clearParade();
 
       paradeLevel = damp(paradeLevel, paradeWant ? 1 : 0, 0.0009, dt);
       heroLevel = damp(heroLevel, heroId ? 1 : 0, 0.0006, dt);
@@ -538,15 +554,23 @@ export function createStage(ctx: GameContext): Stage | null {
       // ── the machine on the mark ──────────────────────────────────────────
       if (heroId) {
         const d = displayOf(heroId);
-        if (heroSpinBoost > 0) heroSpinBoost = Math.max(0, heroSpinBoost - dt * 7.5);
-        heroSpin += (0.42 + heroSpinBoost) * dt;
-        d.model.root.rotation.y = heroSpin;
+        // **A sweep, not a turntable.** Every machine in this cast has a face,
+        // and the face is the character — a continuous spin means that half the
+        // time the thing a player is choosing has its back to them, and every
+        // screenshot ever taken of this screen lands on an arbitrary angle. So
+        // the machine rocks through the front three-quarters instead, and only
+        // *arrives* on a full revolution.
+        if (arriveT < 1) arriveT = Math.min(1, arriveT + dt / 0.85);
+        const extra = (1 - ease.outCubic(arriveT)) * Math.PI * 2;
+        heroSpin = 0.55 + Math.sin(clock * 0.46) * 0.62 + extra;
+        d.model.root.position.set(0, 0, 0);
+        d.model.root.rotation.set(0, heroSpin, 0);
         d.model.root.visible = heroLevel > 0.02;
         // Idling, not parked: enough rolling speed that wheels turn, rotors
         // spin and the plane's prop blurs, with a slow weave so the rigs' lean
         // and the cone's tip have something to answer.
         const r = d.racer;
-        r.speed = 7 + heroSpinBoost * 1.6;
+        r.speed = 7 + (1 - arriveT) * 12;
         r.steerAngle = Math.sin(clock * 0.8) * 0.16;
         d.model.update?.(r, dt, 1);
       }

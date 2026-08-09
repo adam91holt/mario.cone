@@ -19,8 +19,8 @@ import { CSS_MENU } from './menu.ts';
 import { CSS_RESULTS, createResults, type Results } from './results.ts';
 import { CSS_PAUSE, createPauseMenu, type PauseMenu } from './pausemenu.ts';
 import {
-  CSS_STAGE, createCard, createLights, createTicker,
-  type Card, type Lights, type Ticker,
+  CSS_STAGE, createCard, createLights, createNote, createTicker,
+  type Card, type Lights, type Note, type Ticker,
 } from './stage.ts';
 
 const CSS_BASE = `
@@ -78,6 +78,7 @@ export interface RaceOverlay {
   readonly root: HTMLElement;
   readonly card: Card;
   readonly lights: Lights;
+  readonly note: Note;
   readonly ticker: Ticker;
   readonly results: Results;
   readonly pause: PauseMenu;
@@ -103,23 +104,26 @@ export function createOverlay(onPick: (id: string) => void): RaceOverlay | null 
 
   const card = createCard();
   const lights = createLights();
+  const note = createNote();
   const ticker = createTicker();
   const results = createResults(onPick);
   const pause = createPauseMenu(onPick);
 
   root.appendChild(card.root);
   root.appendChild(lights.root);
+  root.appendChild(note.root);
   root.appendChild(ticker.root);
   root.appendChild(results.root);
   root.appendChild(pause.root);
   document.body.appendChild(root);
 
   return {
-    root, card, lights, ticker, results, pause,
+    root, card, lights, note, ticker, results, pause,
 
     update(dt: number): void {
       card.update(dt);
       lights.update(dt);
+      note.update(dt);
       ticker.update(dt);
       results.update(dt);
       pause.update(dt);
@@ -128,6 +132,7 @@ export function createOverlay(onPick: (id: string) => void): RaceOverlay | null 
     reset(): void {
       card.reset();
       lights.reset();
+      note.reset();
       ticker.clear();
       results.reset();
       pause.reset();

@@ -28,10 +28,15 @@ import type { CupStanding, ResultRow } from './book.ts';
 export const CSS_RESULTS = `
 #race .results { position: absolute; inset: 0; opacity: 0; display: none; }
 #race .results.live { display: block; }
+/* **Dark, and darkest at the edges.** The lens behind this sheet is orbiting a
+   stopped kart in a world full of two-metre hazard signs, and any of them can
+   end up a metre from the camera: photographed at .9 the corner of the frame
+   was a bright yellow slab next to the finishing order. The centre stays open
+   enough to read the confetti and the machine it is falling on. */
 #race .results .scrim {
   position: absolute; inset: 0;
   background:
-    radial-gradient(130% 100% at 50% 34%, rgba(10,13,20,.46) 0%, rgba(6,8,13,.9) 78%),
+    radial-gradient(115% 95% at 50% 40%, rgba(8,11,17,.58) 0%, rgba(5,7,11,.97) 68%),
     linear-gradient(180deg, rgba(255,107,26,.10), rgba(0,0,0,0) 38%);
 }
 /* Hazard tape down both edges of the frame: the sheet is a sign, and this is
@@ -155,6 +160,19 @@ export const CSS_RESULTS = `
 #race .rs-foot .best .lbl { height: calc(var(--u) * .95); color: #FFC300; }
 #race .rs-foot .best .who { height: calc(var(--u) * 1.15); color: #EEF2F8; }
 #race .rs-foot .best .tm { height: calc(var(--u) * 1.5); color: #FFF8F0; }
+
+/* The player's own laps, in order. The one number a results screen owes a
+   driver that no other readout in the game keeps: what each of their laps
+   actually cost them. Their quickest is lit. */
+#race .rs-foot .laps {
+  display: flex; align-items: center; gap: calc(var(--u) * .7);
+  padding: calc(var(--u) * .4) calc(var(--u) * 1.0) calc(var(--u) * .46);
+}
+#race .rs-foot .laps.none { display: none; }
+#race .rs-foot .laps .lbl { height: calc(var(--u) * .95); color: #FFC300; }
+#race .rs-foot .laps .splits { display: flex; align-items: center; gap: calc(var(--u) * .75); }
+#race .rs-foot .laps .split { height: calc(var(--u) * 1.2); color: #C7D2E2; }
+#race .rs-foot .laps .split.fast { color: #FFD84D; }
 #race .rs-foot .acts { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; }
 `;
 
@@ -166,6 +184,8 @@ export interface ResultsMeta {
   rounds: number;
   bestLapName: string;
   bestLapTime: number;
+  /** The player's own laps, in order. */
+  playerSplits: readonly number[];
   /** Championship complete — the sheet says so and the menu changes. */
   cupComplete: boolean;
 }
@@ -186,6 +206,8 @@ export interface Results {
 const ROW_DELAY = 0.24;
 const ROW_STEP = 0.085;
 const ROW_IN = 0.34;
+/** Slack after the last element has landed, before the sheet is declared still. */
+const SETTLE_PAD = 1.7;
 
 export function createResults(onPick: (id: string) => void): Results {
   const root = fromHtml(`
@@ -212,6 +234,10 @@ export function createResults(onPick: (id: string) => void): Results {
             <div class="who word"></div>
             <div class="tm num"></div>
           </div>
+          <div class="laps plate">
+            <div class="lbl word"></div>
+            <div class="splits"></div>
+          </div>
           <div class="acts"></div>
         </div>
       </div>
@@ -234,6 +260,9 @@ export function createResults(onPick: (id: string) => void): Results {
   const bestLbl = signBox(q(root, '.best .lbl'), 'BEST LAP');
   const bestWho = signBox(q(root, '.best .who'));
   const bestTime = glyphBox(q(root, '.best .tm'));
+  const laps = bind(q(root, '.laps'));
+  signBox(q(root, '.laps .lbl'), 'YOUR LAPS');
+  const splitRow = q(root, '.laps .splits');
 
   const menu = createMenu(onPick);
   q(root, '.acts').appendChild(menu.root);
@@ -252,6 +281,7 @@ export function createResults(onPick: (id: string) => void): Results {
   let count = 0;
   let t = -1;
   let live = false;
+  let settleAt = 3;
 
   function clear(el: HTMLElement): void {
     while (el.firstChild) el.removeChild(el.firstChild);
@@ -327,6 +357,19 @@ export function createResults(onPick: (id: string) => void): Results {
       cupName.set(meta.cupName);
       courseName.set(meta.courseName);
       cupTitle.set(meta.cupComplete ? 'FINAL STANDINGS' : 'CHAMPIONSHIP');
+      clear(splitRow);
+      const mine = meta.playerSplits.filter((s) => s > 0);
+      laps.cls('none', mine.length < 2);
+      if (mine.length >= 2) {
+        const quickest = Math.min(...mine);
+        for (const s of mine) {
+          const el = document.createElement('span');
+          el.className = s === quickest ? 'split num fast' : 'split num';
+          glyphBox(el, formatTime(s));
+          splitRow.appendChild(el);
+        }
+      }
+
       const hasBest = meta.bestLapTime > 0 && !!meta.bestLapName;
       best.cls('none', !hasBest);
       bestLbl.set(hasBest ? 'BEST LAP' : '');
@@ -341,6 +384,7 @@ export function createResults(onPick: (id: string) => void): Results {
       }
 
       menu.set(options, 0);
+      settleAt = ROW_DELAY + count * ROW_STEP + SETTLE_PAD;
       t = 0;
       live = true;
       box.cls('live', true);
@@ -356,6 +400,11 @@ export function createResults(onPick: (id: string) => void): Results {
     update(dt): void {
       if (!live || t < 0) return;
       t += dt;
+
+      // Once the sheet has finished arriving, every term below is constant, and
+      // recomputing forty transform strings a frame for a static screen is work
+      // nobody sees. The menu keeps animating — it is the only live thing left.
+      if (t > settleAt) { menu.update(dt); return; }
 
       // ── the sheet ────────────────────────────────────────────────────────
       const inT = clamp01(t / 0.34);

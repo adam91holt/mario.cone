@@ -401,12 +401,34 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
 
   // ── the edge: keyboard, pad, and the harness ────────────────────────────
 
+  /**
+   * A verb that has been raised but not yet consumed by a fixed step.
+   *
+   * The normal path is the shared input controller: `press()` here,
+   * `inputState.pressed` in `fixedUpdate` there, one code path for a key, a pad
+   * button, a click and `__GAME.press()`. But a fixed step only happens while
+   * the simulation is running, and this front-end sits in front of a race that
+   * another module is entitled to pause — a paused simulation takes no fixed
+   * steps at all, and a menu that stops responding because the race behind it
+   * stopped is a menu that has locked the player out of the game. So the verb
+   * is queued here as well, and `update` drains the queue on any frame that no
+   * fixed step touched. Never both: `fixedUpdate` clears the queue as it runs.
+   */
+  const queued: string[] = [];
+  /** Did a fixed step run under the frame we are about to draw? */
+  let stepped = false;
+
+  function raise(verb: string): void {
+    ctx.input.press(verb);
+    if (queued.length < 4) queued.push(verb);
+  }
+
   const onKeyDown = (e: KeyboardEvent): void => {
     if (!live) return;
     const verb = KEYS[e.code];
     if (!verb) return;
     e.preventDefault();
-    ctx.input.press(verb);
+    raise(verb);
   };
   window.addEventListener('keydown', onKeyDown, { passive: false });
 
@@ -433,16 +455,16 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
       const held = padHeld.get(verb);
       if (held === undefined) {
         padHeld.set(verb, 0);
-        ctx.input.press(verb);
+        raise(verb);
       } else {
         // Directions repeat when held; confirm and back never do — holding A
         // through a transition must not enter three screens.
         const repeats = verb !== 'menu.ok' && verb !== 'menu.back';
         const next = held + dt;
-        if (repeats && held < REPEAT_DELAY && next >= REPEAT_DELAY) ctx.input.press(verb);
+        if (repeats && held < REPEAT_DELAY && next >= REPEAT_DELAY) raise(verb);
         else if (repeats && held >= REPEAT_DELAY
           && Math.floor((held - REPEAT_DELAY) / REPEAT_RATE)
-             !== Math.floor((next - REPEAT_DELAY) / REPEAT_RATE)) ctx.input.press(verb);
+             !== Math.floor((next - REPEAT_DELAY) / REPEAT_RATE)) raise(verb);
         padHeld.set(verb, next);
       }
     }
@@ -485,6 +507,11 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
     ctx.bus.emit('ui:menu', { open: false, screen });
   }
 
+  // The way back in from anywhere else in the game. The results screen is owned
+  // by the race module, so its "quit to menu" needs a door rather than a
+  // dependency: emit this and the front-end comes up.
+  ctx.bus.on('ui:menu:open', () => open('racer'));
+
   // ── the system ──────────────────────────────────────────────────────────
 
   const system: GameSystem = {
@@ -511,6 +538,8 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
     },
 
     fixedUpdate(): void {
+      stepped = true;
+      queued.length = 0;
       const pressed = ctx.inputState.pressed;
       if (!visible) {
         // Escape at the results screen brings the front-end back rather than
@@ -534,6 +563,10 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
     },
 
     update(frameDt: number): void {
+      // Read and clear before the early return, or a frame spent closed leaves
+      // the flag set and the fallback nav below never fires again.
+      const ran = stepped;
+      stepped = false;
       if (!visible) return;
       // Sanitised at the one point that hands it out — the same discipline the
       // HUD applies, and for the same reason: the capture harness can hand this
@@ -543,6 +576,14 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
       clock += dt;
 
       pollPad(dt);
+
+      // No fixed step ran under this frame — the simulation behind us is
+      // paused or stopped. Drive the nav from the queue instead, so the front
+      // end never becomes a picture of itself.
+      if (live && !ran && queued.length > 0) {
+        nav(queued[0]!);
+        queued.length = 0;
+      }
 
       // ── the wipe ──────────────────────────────────────────────────────────
       let cover = 0;

@@ -32,11 +32,8 @@
 
 import { U_CSS, hexCss, C } from '../theme.ts';
 
-export { bind, fromHtml, q, hexCss, rgba } from '../theme.ts';
+export { bind, fromHtml, q, hexCss } from '../theme.ts';
 export type { Bound } from '../theme.ts';
-
-/** The cast's own colours, as CSS, for the roster and the stat bars. */
-export const cssColor = hexCss;
 
 // ── the stylesheet ─────────────────────────────────────────────────────────
 
@@ -372,20 +369,33 @@ export const CSS_MENU = `
   display: flex; align-items: center; justify-content: center;
   opacity: 0; pointer-events: none;
 }
+/* Tape across the card. The stripes are the *edges* of the ribbon, never the
+   bed the words sit on: hazard tape behind lettering is hazard tape you cannot
+   read the lettering off. */
 #menu .card .shut span {
-  transform: rotate(-9deg);
-  padding: calc(var(--u) * .3) calc(var(--u) * .7);
-  background: repeating-linear-gradient(114deg,
-    ${hexCss(C.yellow)} 0 calc(var(--u) * .5), #14171E calc(var(--u) * .5) calc(var(--u) * 1));
-  color: #14171E; font-weight: 900; font-size: calc(var(--u) * .66);
-  letter-spacing: .14em; text-transform: uppercase;
-  box-shadow: 0 calc(var(--u) * .16) calc(var(--u) * .3) rgba(0,0,0,.6);
+  position: relative;
+  transform: rotate(-7deg);
+  white-space: nowrap;
+  padding: calc(var(--u) * .5) calc(var(--u) * 1.2);
+  background: linear-gradient(180deg, #FFE07A, ${hexCss(C.yellow)} 55%, #E8A800);
+  color: #14171E; font-weight: 900; font-size: calc(var(--u) * .84);
+  letter-spacing: .08em; text-transform: uppercase;
+  box-shadow: 0 0 0 calc(var(--u) * .1) rgba(9,11,15,.95),
+              0 calc(var(--u) * .2) calc(var(--u) * .4) rgba(0,0,0,.65);
 }
+#menu .card .shut span::before,
+#menu .card .shut span::after {
+  content: ''; position: absolute; left: 0; right: 0; height: calc(var(--u) * .18);
+  background: repeating-linear-gradient(114deg,
+    #14171E 0 calc(var(--u) * .3), rgba(0,0,0,0) calc(var(--u) * .3) calc(var(--u) * .6));
+}
+#menu .card .shut span::before { top: 0; }
+#menu .card .shut span::after { bottom: 0; }
 
 /* ── the title screen ───────────────────────────────────────────────────── */
 
 #menu .mark-wrap {
-  position: absolute; left: 50%; top: 34%;
+  position: absolute; left: 50%; top: 31%;
   width: min(74%, calc(var(--u) * 62));
 }
 #menu .mark-wrap .board {
@@ -478,7 +488,7 @@ export const CSS_MENU = `
               0 0 0 calc(var(--u) * .28) rgba(9,11,15,.95);
   opacity: 0; pointer-events: none;
 }
-#menu .courseCard { width: calc(var(--u) * 17.5); }
+#menu .courseCard { width: calc(var(--u) * 17.5); min-height: calc(var(--u) * 15.6); }
 #menu .courseCard .t { font-size: calc(var(--u) * 1.05); }
 #menu .facts { display: flex; gap: calc(var(--u) * 1.1); }
 #menu .facts div { display: flex; flex-direction: column; gap: calc(var(--u) * .12); }
@@ -540,6 +550,23 @@ export function courseMap(points: Array<{ x: number; z: number }>, cls = ''): st
     + ` stroke-dasharray="3 4" opacity=".55"/>`
     + `<circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="4.2" fill="${hexCss(C.yellow)}"`
     + ` stroke="#0A0D13" stroke-width="1.6"/>`
+    + `</svg>`;
+}
+
+/**
+ * The card a cup with no circuits in it shows: a site plan with nothing
+ * surveyed on it yet. Deliberately the same object as a real course card, at
+ * the same size, wearing tape — a slot that collapses to nothing reads as a
+ * layout bug, and a slot that is simply absent reads as a shorter game.
+ */
+export function plannedMap(): string {
+  return `<svg class="map" viewBox="0 0 100 100" aria-hidden="true">`
+    + `<rect x="7" y="7" width="86" height="86" rx="9" fill="none" stroke="#4C5665"`
+    + ` stroke-width="3.4" stroke-dasharray="8 7" stroke-linecap="round"/>`
+    + `<path d="M50 30 L61 66 H39 Z" fill="#3C434F" stroke="#4C5665" stroke-width="2.6"`
+    + ` stroke-linejoin="round"/>`
+    + `<rect x="41" y="56" width="18" height="5" fill="#4C5665"/>`
+    + `<rect x="34" y="70" width="32" height="6" rx="2" fill="#3C434F"/>`
     + `</svg>`;
 }
 
