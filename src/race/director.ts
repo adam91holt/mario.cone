@@ -9,11 +9,11 @@
 // The other half is the *shape of a race*, and it is worth stating plainly
 // because it is spread over a state machine:
 //
-//   **grid**      The field is seated — by championship order in a cup, by the
-//                 field order in a one-off — and drives up into its slots while
-//                 the camera sweeps the grid and the course card names the
-//                 circuit. Everyone gets a real starting place; nobody spends
-//                 the countdown reading "1st".
+//   **grid**      The field is seated — by championship order in a cup, with
+//                 the human at the back of a fresh one — and drives up into its
+//                 slots while the camera sweeps the grid and the course card
+//                 names the circuit. Everyone gets a real starting place; nobody
+//                 spends the countdown reading "1st".
 //   **lights**    Three beats and a flag. `race.countdown` reads 3, 2, 1 during
 //                 the three seconds before the start and 0 *on* it, so the GO
 //                 the player sees is the frame they are allowed to move.
@@ -62,6 +62,45 @@ const SLOW_HOLD = 0.8;
 const SLOW_RISE = 1.0;
 const SLOW_DEPTH = 0.3;
 
+// ── the start ──────────────────────────────────────────────────────────────
+//
+// **The window is the last beat, and the reward is for being on the throttle
+// when the flag falls — not for stabbing at it.**
+//
+// This is the one mechanic in the countdown, and the first version of it had
+// the sign backwards. It measured the *press* against a quarter-second slot
+// ending on the green, so the only way to score was to blip the throttle in the
+// last ~0.1s of the count; holding through the final beat — which is Mario
+// Kart's actual window, and the thing the light board fills up to tell you to
+// do — paid nothing, and holding from the course card, which is what every
+// player does the first time, paid 1.2 seconds of immobility with no tell.
+// The countdown contained no decision and silently robbed a race.
+//
+// So the rule is stated in the countdown's own units, and the board draws it:
+//
+//   held ∈ (0, 1 beat]   the throttle came on during the **last beat** — the
+//                        beat where all five bulbs are lit — and is still on at
+//                        the flag. Rocket start.
+//   held ∈ (1, 2 beats]  early, but not stupid. An ordinary start, no penalty.
+//                        The band exists so that "a bit keen" is not a
+//                        catastrophe: only one of these two edges may bite.
+//   held > 2 beats       on the throttle since before the "2". The engine bogs,
+//                        exactly like the real thing — and now says so.
+//   held = 0             first press on or after the green. An ordinary start.
+//                        Nothing is owed to a player who was not on the throttle
+//                        when the race began.
+//
+// `ROCKET_TOLERANCE` is two fixed steps of slack, so a player who comes on the
+// power on the very frame the last bulb lights is inside the window rather than
+// two thousandths outside it.
+const BEAT = 1.0;
+const ROCKET_WINDOW = BEAT + 2 / 120;
+const BOG_HOLD = 2 * BEAT;
+/** Seconds of bogged engine. Long enough to cost a place, short enough that the
+ *  race is not over — the old 0.9 plus the throttle ramp measured out at 1.2s of
+ *  dead stop and 33m, which is not a mistake, it is a deletion. */
+const BOG_TIME = 0.62;
+
 /** Where a racer sits on the grid, in spline terms, so the drive-in can follow
  *  the road rather than a straight line pointing off a banked corner. */
 interface Seat {
@@ -76,8 +115,8 @@ interface Seat {
 
 const UP = new THREE.Vector3(0, 1, 0);
 
-/** See `gridOrder()`. Held false by the opening camera sweep, not by taste. */
-const PLAYER_AT_BACK = false;
+/** See `gridOrder()`. */
+const PLAYER_AT_BACK = true;
 
 /** Who is ahead of whom. Hoisted so the per-step sort allocates nothing. */
 function byRunningOrder(a: Racer, b: Racer): number {
@@ -147,8 +186,52 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
 
   // ── small helpers ────────────────────────────────────────────────────────
 
-  const colorOf = (racer: Racer): number =>
-    blipColor(getVehicle(racer.vehicleId).colors.primary);
+  /**
+   * The livery colour a results row, a ticker line or a championship chip is
+   * painted in.
+   *
+   * A field of eight drawn from a cast of seven always contains a duplicate —
+   * and this table printed both of them in the same paint, so the third and
+   * sixth rows of a results sheet carried identical chips. `blipColor`'s
+   * `variant` exists for exactly this, and counting the machines of the same
+   * kind already on the grid is the rule `ui/minimap.ts` uses, so a chip here
+   * and a blip there stay the same colour.
+   */
+  const colorOf = (racer: Racer): number => {
+    let variant = 0;
+    for (const other of ctx.racers) {
+      if (other === racer) break;
+      if (other.vehicleId === racer.vehicleId) variant++;
+    }
+    return blipColor(getVehicle(racer.vehicleId).colors.primary, variant);
+  };
+
+  /**
+   * Ask the camera for a *shot*, not a mode.
+   *
+   * `camera:mode` is the player's own control — chase, far, look-behind — and
+   * the race has no business spending it on ceremony (it did, once, and the
+   * finish cut to the inside of a building; see `toWrap`). These are the three
+   * moments the race can compose better than a follow rig can, stated as
+   * requests with everything the rig needs to frame them:
+   *
+   *   `grid`      during the 3s intro. The field is a staggered 2x4 and the
+   *               player is seated last, so a beat that reads *up* the grid from
+   *               behind them shows the whole field. `slot` is the player's
+   *               grid index, `total` the field size, `back` the metres of grid
+   *               ahead of them.
+   *   `countdown` the three beats. Wanted: back and up over the pole-sitter's
+   *               shoulder. The chase rig's own pull-back is 1.5m against 8m
+   *               rows, so on any grid slot with a machine behind it the lens
+   *               ends up *inside* that machine.
+   *   `podium`    the results sheet's backdrop. `racerId` is the winner.
+   *
+   * Nothing listens yet; an unanswered ask costs one bus dispatch and keeps the
+   * request in the code that needs it rather than in a report nobody re-reads.
+   */
+  function askCamera(shot: string, extra: Record<string, unknown> = {}): void {
+    ctx.bus.emit('camera:shot', { shot, ...extra });
+  }
 
   function setPhase(phase: RacePhase): void {
     if (ctx.race.phase === phase) return;
@@ -198,20 +281,26 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
    * Later rounds of a cup line up by championship order, best first — which is
    * what makes leading one worth something, and is the rule MK8 uses.
    *
-   * A standalone race lines up in field order, which puts the human on pole.
-   * **That is the camera's requirement, not a design choice.** The opening
-   * sweep's first beat sits 11.5m *ahead* of the player looking back at them,
-   * so everything behind the player is in shot and everything in front of them
-   * is behind the lens: with the human on pole that beat is the whole grid, and
-   * with the human anywhere else it is one machine three metres from the lens
-   * and an empty road. Both compositions were photographed before this comment
-   * was written.
+   * A standalone race — and round one of a cup — puts the human **last**.
    *
-   * Flip `PLAYER_AT_BACK` the day that beat frames *up* the grid from behind
-   * the player instead — starting last is the premise a kart racer wants, and
-   * everything else in this module already supports it (the countdown and the
-   * opening laps are markedly better shots with seven machines in front of
-   * you). One constant, and a line in the camera module.
+   * This used to be the other way round, on the theory that the opening sweep's
+   * first beat sits 11.5m ahead of the player looking back at them and needs the
+   * field behind the lens to have anything in it. Photographing the whole start
+   * rather than one beat of it says the opposite, twice over:
+   *
+   *  - The chase rig spends the countdown 7-9m behind the player, and the grid's
+   *    rows are 8m apart. On pole, that is *inside the row-2 machine*: for the
+   *    entire count the bottom quarter of the frame was a yellow chassis with two
+   *    beacons on it. Seated last, the rig sits on open road.
+   *  - On pole the player never sees a rival before the flag — every one of them
+   *    is behind the lens for the sweep, the count, and the first corner. Seated
+   *    last, the sweep's crane beat looks straight down a staggered 2x4 grid, the
+   *    count frames seven machines, and the race opens with somewhere to go.
+   *
+   * Which is also the premise the genre is built on: you start at the back and
+   * you carve your way up. Later rounds of a cup override this and line up by
+   * championship order, best first — that is what makes leading one worth
+   * something, and it is the rule MK8 uses.
    */
   function gridOrder(): Racer[] {
     const field = ctx.racers.slice();
@@ -271,6 +360,20 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     ctx.bus.emit('race:grid', { order: ctx.race.standings.slice() });
   }
 
+  /** The player's grid index, pole = 0. -1 before the grid is seated. */
+  function playerSlot(): number {
+    for (let i = 0; i < seats.length; i++) if (seats[i]!.racer.isPlayer) return i;
+    return -1;
+  }
+
+  /** Metres of grid in front of the player — how far a lens has to see to hold
+   *  the whole field. Zero on pole. */
+  function gridDepth(): number {
+    const me = playerSlot();
+    if (me < 0 || !seats.length) return 0;
+    return Math.max(0, seats[0]!.distance - seats[me]!.distance);
+  }
+
   /**
    * The field driving up into its slots under the opening camera sweep.
    *
@@ -326,6 +429,7 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     overlay?.card.retire();
     overlay?.lights.arm();
     setPhase('countdown');
+    askCamera('countdown', { slot: playerSlot(), total: seats.length });
     ctx.race.countdown = R.countdownFrom;
     beat(R.countdownFrom);
   }
@@ -338,7 +442,7 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
   }
 
   /**
-   * What each CPU did with the last quarter second before the flag.
+   * How long each CPU had been on the throttle when the flag fell.
    *
    * Deterministic, and deliberately *not* drawn from `ctx.rng`: the shared
    * stream is consumed by items and by the AI, and taking eight numbers out of
@@ -346,12 +450,11 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
    * a decision no one can see. A hash of the racer's id and the race seed gives
    * the same answer every run without moving anybody else's dice.
    *
-   * (The AI used to author this itself by holding the throttle through a beat
-   * the countdown spent showing GO to a field that was not allowed to move. The
-   * beat is gone; see the note on `race.countdown` at the top of this file.)
+   * Same units as the player's, so the field is playing the same game: a value
+   * inside the last beat rockets, a value past two beats bogs, anything between
+   * is an ordinary start.
    */
   function cpuHold(racer: Racer): number {
-    const [outer, inner] = R.rocketStart.window;
     const skill = racer.ai?.skill ?? 0.5;
     const r = hash1(racer.id * 7.919 + (cfgNow.seed ?? 1) * 0.613 + 3.17);
     // About a third of a 150cc field gets it right and one in twenty bogs — a
@@ -359,22 +462,34 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     // default, and the player's own start stops meaning anything.
     const pRocket = 0.05 + skill * 0.3;
     const pBog = 0.03 + (1 - skill) * 0.06;
-    if (r < pRocket) return inner + (r / pRocket) * (outer - inner);
-    if (r > 1 - pBog) return R.rocketStart.burnout + 0.3;
-    return 0;
+    // Inside the beat, and better drivers sit closer to the flag within it.
+    if (r < pRocket) return BEAT * (0.12 + (r / pRocket) * 0.8 * (1.05 - skill * 0.4));
+    if (r > 1 - pBog) return BOG_HOLD + 0.4;
+    return BEAT * 1.5;
   }
 
-  /** Rocket start: reward accelerating in the last fraction of the countdown. */
+  /**
+   * The flag, for one machine. See the note on `BEAT` above for the rule.
+   *
+   * Both outcomes are announced on the bus in the same breath as they are
+   * applied — `race:rocketStart` and `race:burnout` — because a start that only
+   * exists as a number in the physics state is a start no player can learn from.
+   */
   function evaluateStart(racer: Racer): void {
     const held = racer.isPlayer ? (startHeld.get(racer.id) ?? 0) : cpuHold(racer);
-    const [outer, inner] = R.rocketStart.window;
-    if (held > 0 && held <= outer && held >= inner) {
+    if (held > 0 && held <= ROCKET_WINDOW) {
       boostRacer(ctx, racer, 'rocketStart', R.rocketStart.boost.time, R.rocketStart.boost.power);
-      ctx.bus.emit('race:rocketStart', { racer });
-    } else if (held > R.rocketStart.burnout) {
-      // Held far too early — bog down, exactly like the real thing.
-      racer.stunned = Math.max(racer.stunned, 0.9);
-      ctx.bus.emit('race:burnout', { racer });
+      ctx.bus.emit('race:rocketStart', { racer, held });
+    } else if (held > BOG_HOLD) {
+      // On the power since before the "2": the engine bogs, exactly like the
+      // real thing. `duration` is published so the smoke and the strangled
+      // engine note can last as long as the penalty does instead of guessing.
+      racer.stunned = Math.max(racer.stunned, BOG_TIME);
+      ctx.bus.emit('race:burnout', { racer, held, duration: BOG_TIME });
+      if (racer.isPlayer) {
+        overlay?.verdict.show('TOO EARLY', 'ENGINE BOGGED');
+        ctx.fx?.shake(0.4, 0.55);
+      }
     }
   }
 
@@ -494,11 +609,27 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     for (let i = 0; i < done.length; i++) tickerAdd(done[i]!, i + 1);
   }
 
-  /** Slow-motion across the line. Written to `time.scale`, which only the
-   *  realtime loop reads — the harness steps the simulation by hand, so a
-   *  capture is unaffected and stays reproducible. */
+  /**
+   * Slow-motion across the line. Written to `time.scale`, which only the
+   * realtime loop reads — the harness steps the simulation by hand, so a
+   * capture is unaffected and stays reproducible.
+   *
+   * **It is not the only writer, and it does not get to be.** `time.scale` is
+   * also the harness's freeze (`__GAME.setTimeScale(0)`), which is how every
+   * frame-by-frame capture in the project holds the world still. This ramp used
+   * to overwrite it blind, so a reviewer who froze the game and then stepped
+   * through a finish had it quietly start moving again underneath them. So the
+   * ramp remembers the number it last wrote and stands down the moment it finds
+   * something else there: the effect is *ours* right up until somebody else
+   * takes the clock, and then it is theirs.
+   */
+  let slowWrote = -1;
+
   function updateSlowMo(dt: number): void {
     if (slowT < 0) return;
+    if (slowWrote >= 0 && Math.abs(ctx.time.scale - slowWrote) > 1e-4) {
+      slowT = -1; slowWrote = -1; return;
+    }
     slowT += dt;
     let s: number;
     if (slowT < SLOW_FALL) s = 1 - (1 - SLOW_DEPTH) * ease.outQuad(slowT / SLOW_FALL);
@@ -506,9 +637,10 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     else {
       const u = clamp01((slowT - SLOW_FALL - SLOW_HOLD) / SLOW_RISE);
       s = SLOW_DEPTH + (1 - SLOW_DEPTH) * ease.inOutCubic(u);
-      if (u >= 1) { slowT = -1; ctx.time.scale = 1; return; }
+      if (u >= 1) { slowT = -1; slowWrote = -1; ctx.time.scale = 1; return; }
     }
     ctx.time.scale = s;
+    slowWrote = s;
   }
 
   // ── results ──────────────────────────────────────────────────────────────
@@ -535,10 +667,20 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     updateStandings();
     setPhase('finished');
     wrapT = 0;
-    // A lens that keeps chasing a stationary kart for the last ten seconds of a
-    // race is a lens with nothing to say. The orbit is the camera module's own
-    // mode; this only asks for it.
-    ctx.bus.emit('camera:mode', { mode: 'cinematic' });
+    // **No mode change here.**
+    //
+    // This used to ask for `cinematic`, and the ask was answered honestly and
+    // looked terrible: that mode is a trackside orbit whose angle is derived
+    // from `time.elapsed`, so it cut — hard, a quarter-second after the flag —
+    // to whatever bearing the clock happened to land on. Photographed, that was
+    // twice a lens outside the barriers with the player a forty-pixel speck cut
+    // in half by the armco, and once the inside of a building. It is also the
+    // one mode the rig's ground-clearance and occlusion handling skips.
+    //
+    // The chase rig already has a *victory* move for this moment — it arms on
+    // `race:finish` — and it keeps the machine in frame. So the flag keeps the
+    // camera it was shot on, and the ask for a real end-of-race lens is in the
+    // report rather than in a mode that makes the shot worse.
     ctx.bus.emit('race:results', {
       standings: ctx.race.standings.slice(),
       rows: book.rows(R.points, colorOf),
@@ -779,8 +921,10 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
       wrapT = -1;
       showResults();
       // A seek is not a finish: nothing should be left running in slow motion.
+      // Only *our* ramp is unwound — a reviewer who froze the clock and then
+      // seeked keeps their freeze.
       slowT = -1;
-      ctx.time.scale = 1;
+      if (slowWrote >= 0) { ctx.time.scale = 1; slowWrote = -1; }
     } else if (phase === 'intro') {
       setPhase('intro');
     } else {
@@ -859,6 +1003,7 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
       wrapT = -1;
       soloT = 0;
       slowT = -1;
+      slowWrote = -1;
       formT = -1;
       navLatch = 0;
       paused = false;
@@ -882,6 +1027,11 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
         formT = 0;
         setPhase('intro');
         ctx.bus.emit('race:intro', {});
+        askCamera('grid', {
+          slot: playerSlot(),
+          total: seats.length,
+          back: gridDepth(),
+        });
         overlay?.card.show({
           cup: cup.state.name,
           round: cup.state.round + 1,

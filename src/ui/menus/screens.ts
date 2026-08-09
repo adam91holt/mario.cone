@@ -14,6 +14,21 @@
 // capture harness renders frames by hand with no wall clock, so anything the
 // browser animates on its own would land somewhere different in every
 // screenshot. Everything below is integrated from `dt`.
+//
+// ── Why a spring and not a damp ────────────────────────────────────────────
+//
+// `damp` — the exponential approach the rest of this front-end runs on — is the
+// right tool for anything that must *arrive*: a screen fading in, a camera
+// settling, a bar travelling to a value. It is the wrong tool for a cursor.
+// It has no overshoot, so a selection driven by one steps to its rest size in
+// two frames and then reports the same transform for the next twenty-five: a
+// jump, not a pop. Measured, that is exactly what the roster used to do —
+// 1.000 → 1.072 → 1.224 in 33ms and then dead still.
+//
+// Every selection on these screens now runs on a real spring: it overshoots its
+// rest size by about a third of the growth, rings back into it inside a fifth
+// of a second, and then *breathes* — a percent and a half at a bit under a
+// hertz, which is what stops a held cursor from being a screenshot of a cursor.
 
 import { clamp01, damp, ease, lerp } from '../../core/math.ts';
 import { listVehicles } from '../../vehicles/registry.ts';
@@ -21,22 +36,38 @@ import { listCourses } from '../../track/courses/index.ts';
 import { glyphRun } from '../glyphs.ts';
 import { vehicleMark, wordmark } from './art.ts';
 import {
-  bind, courseMap, cupEmblem, fromHtml, hexCss, plannedMap, q, title, type Bound,
+  bind, courseMap, cupEmblem, fromHtml, hexCss, plannedMap, q, title, unitPx, type Bound,
 } from './chrome.ts';
 import type { CourseDef, EngineClass, GameContext, VehicleId } from '../../types.ts';
 
 export const CSS_SCREENS = `
 #menu .scr-course .cups { transform: translateX(-50%); }
-#menu .scr-course .cards { top: calc(var(--ey) + var(--u) * 9.4); }
-#menu .scr-class .cards { top: calc(var(--ey) + var(--u) * 7.2); }
+#menu .scr-course .cards { top: calc(var(--ey) + var(--u) * 9.2); }
+#menu .scr-class .cards { top: calc(var(--ey) + var(--u) * 6.6); }
+
+/* The call to action. It used to be bare orange display text with no plate,
+   floating forty pixels above a prompt rail that said the same words — the
+   least legible thing on the screen was the thing the screen is for. It is a
+   sign now, like every other statement this product makes, and it carries its
+   own keycap so the rail does not have to repeat it. */
 #menu .scr-class .go {
-  position: absolute; left: 50%; bottom: calc(var(--eb) + var(--u) * 3.4); text-align: center;
+  position: absolute; right: var(--er); bottom: calc(var(--eb) + var(--u) * 3.1);
+  display: flex; align-items: center; gap: calc(var(--u) * .8);
+  padding: calc(var(--u) * .62) calc(var(--u) * 1.15) calc(var(--u) * .7);
 }
-#menu .scr-class .go .t { font-size: calc(var(--u) * 1.7); }
+#menu .scr-class .go .t { font-size: calc(var(--u) * 1.5); color: var(--gold); }
 #menu .scr-class .go .sub {
-  margin-top: calc(var(--u) * .34); font-size: calc(var(--u) * .66); font-weight: 800;
-  letter-spacing: .2em; text-transform: uppercase; color: rgba(255,248,240,.6);
+  margin-top: calc(var(--u) * .26); font-size: calc(var(--u) * .6); font-weight: 800;
+  letter-spacing: .2em; text-transform: uppercase; color: rgba(255,248,240,.62);
 }
+#menu .scr-class .go .glow {
+  position: absolute; inset: calc(var(--u) * -.24); border-radius: calc(var(--u) * .8);
+  box-shadow: 0 0 0 calc(var(--u) * .2) ${hexCss(0xFFC300)},
+              0 0 0 calc(var(--u) * .32) rgba(9,11,15,.95),
+              0 0 calc(var(--u) * 1.6) rgba(255,180,40,.6);
+  pointer-events: none;
+}
+
 /* A closed cup is dimmed by dimming its *contents*. Filtering the tab itself
    dims the selection ring with it, and a highlight you cannot see is a cursor
    the player has lost. */
@@ -48,7 +79,127 @@ export const CSS_SCREENS = `
   font-size: calc(var(--u) * 3.4); font-weight: 900; color: var(--yellow);
   text-shadow: 0 calc(var(--u) * .1) 0 #0A0D13, 0 calc(var(--u) * .22) calc(var(--u) * .3) rgba(0,0,0,.7);
 }
+
+/* The circuit screen's lower-right corner: which round of the cup the
+   highlighted circuit is. The corner used to be bare road. */
+#menu .scr-course .brief {
+  position: absolute; right: var(--er); bottom: calc(var(--eb) + var(--u) * 3.1);
+  padding: calc(var(--u) * .55) calc(var(--u) * 1) calc(var(--u) * .66);
+  display: flex; align-items: center; gap: calc(var(--u) * .8);
+}
+#menu .scr-course .brief .em { width: calc(var(--u) * 2.4); height: calc(var(--u) * 2.4); }
+#menu .scr-course .brief .t { font-size: calc(var(--u) * 1.05); }
+#menu .scr-course .brief .cap { font-size: calc(var(--u) * .58); margin-bottom: calc(var(--u) * .2); }
+#menu .scr-course .brief .pips { display: flex; gap: calc(var(--u) * .22); margin-top: calc(var(--u) * .34); }
+#menu .scr-course .brief .pips b {
+  display: block; width: calc(var(--u) * 1.1); height: calc(var(--u) * .26);
+  border-radius: calc(var(--u) * .13); background: rgba(255,248,240,.22);
+}
+#menu .scr-course .brief .pips b.on { background: linear-gradient(90deg, var(--yellow), var(--orange)); }
 `;
+
+// ── the spring ─────────────────────────────────────────────────────────────
+
+interface Spring { v: number; vel: number }
+
+/** 240Hz substeps. A spring this stiff is unstable integrated at a 30fps
+ *  delta, and 30fps is exactly what the capture harness renders at. */
+const SUB = 1 / 240;
+
+function springTo(s: Spring, target: number, k: number, c: number, dt: number): number {
+  let left = dt > 0.25 ? 0.25 : dt;
+  while (left > 0) {
+    const h = left > SUB ? SUB : left;
+    left -= h;
+    s.vel += ((target - s.v) * k - s.vel * c) * h;
+    s.v += s.vel * h;
+  }
+  return s.v;
+}
+
+/** The selection spring: overshoots ~37% of the growth, rings back in ~0.2s. */
+const SEL_K = 2100;
+const SEL_C = 27.5;
+/** The cursor's own travel between cells — faster and nearly critical, because
+ *  a ring that wallows between two tiles reads as lag rather than as weight. */
+const ROVE_K = 4200;
+const ROVE_C = 96;
+/** Idle breath on whatever is currently chosen. */
+const BREATHE_HZ = 0.9;
+const BREATHE_AMP = 0.015;
+
+// ── the roving cursor ──────────────────────────────────────────────────────
+//
+// One ring per screen, not one per cell. Fading a ring out of one tile and into
+// another says "something changed"; sliding the same ring across says *where
+// the cursor went*, and it is the difference between a list of buttons and a
+// cursor moving over a list of buttons.
+
+/** Bumped by the one resize listener below; rovers re-measure when it moves. */
+let layoutEpoch = 0;
+if (typeof window !== 'undefined') {
+  window.addEventListener('resize', () => { layoutEpoch++; });
+}
+
+interface Rover {
+  /** `pop` is the chosen cell's spring value; `lift` is its rise, in fractions
+   *  of its own height. */
+  update(dt: number, index: number, pop: number, show: number, lift: number, grow: number): void;
+}
+
+function makeRover(
+  host: HTMLElement, items: readonly HTMLElement[], cls: string, padU: number,
+): Rover {
+  const el = document.createElement('div');
+  el.className = `rove ${cls}`;
+  host.appendChild(el);
+  const b = bind(el);
+
+  const boxes: Array<{ cx: number; cy: number; w: number; h: number }> = [];
+  let epoch = -1;
+  const sx: Spring = { v: 0, vel: 0 };
+  const sy: Spring = { v: 0, vel: 0 };
+  let started = false;
+
+  function measure(): void {
+    boxes.length = 0;
+    for (const it of items) {
+      boxes.push({
+        cx: it.offsetLeft + it.offsetWidth / 2,
+        cy: it.offsetTop + it.offsetHeight / 2,
+        w: it.offsetWidth,
+        h: it.offsetHeight,
+      });
+    }
+    epoch = layoutEpoch;
+  }
+
+  return {
+    update(dt, index, pop, show, lift, grow): void {
+      if (show <= 0.001) { b.set('opacity', '0'); return; }
+      if (epoch !== layoutEpoch || boxes.length !== items.length
+        || (boxes[0] && boxes[0].w === 0)) measure();
+      const box = boxes[Math.max(0, Math.min(boxes.length - 1, index))];
+      if (!box || box.w === 0) { b.set('opacity', '0'); return; }
+
+      const pad = unitPx() * padU;
+      const tx = box.cx;
+      const ty = box.cy - box.h * lift * pop;
+      if (!started) { started = true; sx.v = tx; sy.v = ty; }
+      const x = springTo(sx, tx, ROVE_K, ROVE_C, dt);
+      const y = springTo(sy, ty, ROVE_K, ROVE_C, dt);
+
+      const w = box.w + pad * 2;
+      const h = box.h + pad * 2;
+      b.set('width', `${w.toFixed(1)}px`);
+      b.set('height', `${h.toFixed(1)}px`);
+      const sc = 1 + pop * grow;
+      b.set('transform',
+        `translate(${(x - w / 2).toFixed(2)}px, ${(y - h / 2).toFixed(2)}px) scale(${sc.toFixed(4)})`);
+      b.set('opacity', ease.outQuart(clamp01(show)).toFixed(3));
+    },
+  };
+}
 
 // ── shared bits ────────────────────────────────────────────────────────────
 
@@ -64,6 +215,8 @@ const head = (text: string, step: number): string => {
 export interface Screen {
   readonly root: HTMLElement;
   update(dt: number, show: number): void;
+  /** Restart this screen's arrival. Called the frame the board swings clear. */
+  enter?(): void;
   dispose?(): void;
 }
 
@@ -72,6 +225,18 @@ function present(root: Bound, show: number, dx: number): void {
   const e = ease.outQuart(clamp01(show));
   root.set('opacity', e.toFixed(3));
   root.set('transform', `translateX(${((1 - e) * dx).toFixed(2)}%)`);
+}
+
+/**
+ * One element of a staggered arrival.
+ *
+ * A screen whose panels, roster, tray and dossier are all fully formed the
+ * instant it appears is a screen that was switched on rather than one that
+ * arrived. Every chooser below runs its own entrance clock and hands each part
+ * a slice of it.
+ */
+function stagger(t: number, delay: number, span = 0.36): number {
+  return ease.outQuart(clamp01((t - delay) / span));
 }
 
 // ── title ──────────────────────────────────────────────────────────────────
@@ -170,6 +335,9 @@ const STAT_ROWS = [
   ['handling', 'Handling'], ['traction', 'Traction'],
 ] as const;
 
+/** How long the change segment stands on a bar after a swap. */
+const DELTA_HOLD = 1.15;
+
 export interface RacerScreen extends Screen {
   /** The random slot is the last index; it resolves to a real machine on pick. */
   readonly randomIndex: number;
@@ -188,17 +356,17 @@ export function createRacerScreen(): RacerScreen {
     const v = defs[i]!;
     tiles += `<div class="tile" data-i="${i}" style="--tint:${hexCss(v.colors.primary)}">`
       + `<div class="face"><div class="wash"></div></div>`
-      + `<div class="mark">${vehicleMark(v.id)}</div>`
-      + `<div class="ring"></div></div>`;
+      + `<div class="mark">${vehicleMark(v.id)}</div></div>`;
   }
   tiles += `<div class="tile rnd" data-i="${defs.length}" style="--tint:${hexCss(0x5FC8F5)}">`
     + `<div class="face"><div class="wash"></div></div>`
-    + `<div class="mark">?</div><div class="ring"></div></div>`;
+    + `<div class="mark">?</div></div>`;
 
   let rows = '';
   for (const [, label] of STAT_ROWS) {
     rows += `<div class="stat"><span class="sname">${label}</span>`
-      + `<span class="track"><i></i><span class="ghost"></span><span class="fill"></span></span></div>`;
+      + `<span class="track"><i></i><span class="fill"></span><span class="delta"></span></span>`
+      + `<b class="arrow"></b></div>`;
   }
 
   const root = fromHtml(`
@@ -214,28 +382,37 @@ export function createRacerScreen(): RacerScreen {
     </div>`);
 
   const b = bind(root);
+  const headBox = bind(q(root, '.head'));
   const dossier = bind(q(root, '.dossier'));
   const kind = bind(q(root, '.kind'));
   const name = q<HTMLElement>(root, '.who > i');
   const blurb = bind(q(root, '.blurb'));
   const nameB = bind(name);
+  const rosterEl = q<HTMLElement>(root, '.roster');
 
-  const tileEls = Array.from(root.querySelectorAll<HTMLElement>('.tile')).map((el) => ({
+  const tileNodes = Array.from(root.querySelectorAll<HTMLElement>('.tile'));
+  const tileEls = tileNodes.map((el) => ({
     box: bind(el),
-    ring: bind(q(el, '.ring')),
     face: bind(q(el, '.face')),
-    sel: 0,
+    s: { v: 0, vel: 0 } as Spring,
   }));
+  const rover = makeRover(rosterEl, tileNodes, 'tileRing', 0.28);
 
   const bars = Array.from(root.querySelectorAll<HTMLElement>('.stat')).map((el) => ({
     fill: bind(q(el, '.fill')),
-    ghost: bind(q(el, '.ghost')),
+    delta: bind(q(el, '.delta')),
+    arrow: bind(q(el, '.arrow')),
     /** Target, and where the bar has actually travelled to. */
     v: 0,
     shown: 0,
-    ghostV: 0,
-    ghostA: 0,
+    /** The segment between the old value and the new one, and its clock. */
+    from: 0,
+    to: 0,
+    hold: 0,
   }));
+
+  let clock = 0;
+  let tIn = 99;
 
   const api: RacerScreen = {
     root,
@@ -251,41 +428,99 @@ export function createRacerScreen(): RacerScreen {
       api.index = next;
       paint();
     },
+    enter(): void { tIn = 0; },
     update(dt, show): void {
       if (show <= 0) { b.set('display', 'none'); return; }
       b.set('display', 'block');
+      clock += dt;
+      tIn += dt;
       present(b, show, 3.5);
       const e = ease.outQuart(clamp01(show));
-      dossier.set('transform', `translate(${((1 - e) * 24).toFixed(1)}%, -50%)`);
 
+      // ── the arrival ────────────────────────────────────────────────────
+      const hIn = stagger(tIn, 0);
+      headBox.set('transform', `translateX(${((1 - hIn) * -16).toFixed(1)}%)`);
+      headBox.set('opacity', hIn.toFixed(3));
+      const dIn = stagger(tIn, 0.1, 0.42);
+      dossier.set('transform',
+        `translate(${(((1 - e) * 24) + (1 - dIn) * 26).toFixed(1)}%, -50%)`);
+      dossier.set('opacity', dIn.toFixed(3));
+
+      // ── the roster ─────────────────────────────────────────────────────
+      // The chosen tile lifts out of the row and grows, overshooting its rest
+      // size and ringing back into it; everything else sinks back and loses
+      // contrast, so the row has one subject and seven neighbours rather than
+      // eight equals.
+      const breathe = 1 + BREATHE_AMP * Math.sin(clock * Math.PI * 2 * BREATHE_HZ);
       for (let i = 0; i < tileEls.length; i++) {
         const t = tileEls[i]!;
-        t.sel = damp(t.sel, i === api.index ? 1 : 0, 0.00006, dt);
-        const k = ease.outBack(t.sel);
-        // The chosen tile lifts out of the row and grows. Everything else sinks
-        // back and loses contrast, so the row has one subject and seven
-        // neighbours rather than eight equals.
+        const on = i === api.index;
+        const raw = springTo(t.s, on ? 1 : 0, SEL_K, SEL_C, dt);
+        // The outgoing tile is allowed to sink, but only a little — a spring
+        // released from 1 undershoots by a third of its travel, and a tile
+        // that dips 8% reads as a fault rather than as recoil.
+        const k = raw < -0.12 ? -0.12 : raw;
+        const cell = stagger(tIn, 0.16 + i * 0.038, 0.4);
+        const scale = (1 + k * 0.22) * (on ? lerp(1, breathe, clamp01(k)) : 1) * lerp(0.8, 1, cell);
         t.box.set('transform',
-          `translateY(${(-k * 13).toFixed(2)}%) scale(${(1 + k * 0.22).toFixed(3)})`);
-        t.ring.set('opacity', t.sel.toFixed(3));
+          `translateY(${(-k * 13 + (1 - cell) * 46).toFixed(2)}%) scale(${scale.toFixed(4)})`);
+        t.box.set('opacity', cell.toFixed(3));
         t.face.set('filter',
-          `brightness(${(0.76 + t.sel * 0.24).toFixed(3)}) saturate(${(0.55 + t.sel * 0.45).toFixed(3)})`);
+          `brightness(${(0.76 + clamp01(k) * 0.24).toFixed(3)}) saturate(${(0.55 + clamp01(k) * 0.45).toFixed(3)})`);
       }
+      const selK = clamp01(tileEls[api.index]?.s.v ?? 0);
+      rover.update(dt, api.index,
+        Math.max(-0.12, tileEls[api.index]?.s.v ?? 0) * (selK > 0 ? breathe : 1),
+        show * stagger(tIn, 0.2, 0.3), 0.13, 0.22);
 
+      // ── the stat bars ──────────────────────────────────────────────────
       for (const bar of bars) {
-        // The bar travels to its new value rather than jumping, and the old one
-        // is left standing for a beat: swapping machines should *show* you what
-        // you just traded away.
+        // The bar travels to its new value rather than jumping, and the change
+        // itself is drawn *over* the fill as a hatched segment between the old
+        // reading and the new one.
+        //
+        // It used to be a ghost of the old value drawn *behind* the fill, which
+        // meant every improvement was hidden underneath the very bar that had
+        // just grown past it: swapping the cone for the sedan gains 27 points
+        // of speed and 119 of weight and the player saw neither, because the
+        // only visible segments were the two stats that got worse.
         bar.shown = damp(bar.shown, bar.v, 0.00004, dt);
         bar.fill.set('width', `${(bar.shown * 100).toFixed(2)}%`);
-        if (bar.ghostA > 0) {
-          bar.ghostA = Math.max(0, bar.ghostA - dt / 0.85);
-          bar.ghost.set('width', `${(bar.ghostV * 100).toFixed(2)}%`);
-          bar.ghost.set('opacity', ease.inQuad(bar.ghostA).toFixed(3));
+        if (bar.hold > 0) {
+          bar.hold = Math.max(0, bar.hold - dt / DELTA_HOLD);
+          const lo = Math.min(bar.from, bar.to);
+          const hi = Math.max(bar.from, bar.to);
+          const up = bar.to >= bar.from;
+          const a = ease.inQuad(clamp01(bar.hold / 0.75));
+          bar.delta.set('left', `${(lo * 100).toFixed(2)}%`);
+          bar.delta.set('width', `${((hi - lo) * 100).toFixed(2)}%`);
+          bar.delta.set('opacity', a.toFixed(3));
+          bar.arrow.set('opacity', a.toFixed(3));
+          bar.delta.cls('up', up);
+          bar.arrow.cls('up', up);
+          bar.arrow.text(up ? '▲' : '▼');
+        } else {
+          bar.delta.set('opacity', '0');
+          bar.arrow.set('opacity', '0');
         }
       }
     },
   };
+
+  function setBars(get: (key: (typeof STAT_ROWS)[number][0]) => number): void {
+    for (let i = 0; i < bars.length; i++) {
+      const bar = bars[i]!;
+      const next = clamp01(get(STAT_ROWS[i]![0]));
+      // Only claim a change when there is one. A repaint that reports a delta
+      // of zero puts a hatched sliver of nothing on five bars at once.
+      if (Math.abs(next - bar.v) > 0.004) {
+        bar.from = bar.v;
+        bar.to = next;
+        bar.hold = 1;
+      }
+      bar.v = next;
+    }
+  }
 
   function paint(): void {
     const def = defs[api.index];
@@ -293,25 +528,17 @@ export function createRacerScreen(): RacerScreen {
       kind.text('Racer 8 of 8');
       nameB.text('Surprise Me');
       blurb.text('Let the site pick. It has opinions.');
-      for (const bar of bars) {
-        bar.ghostV = bar.v;
-        bar.ghostA = 1;
-        bar.v = 0.5;
-      }
+      setBars(() => 0.5);
       return;
     }
     kind.text(`Racer ${api.index + 1} of ${defs.length}`);
     nameB.text(def.name);
     blurb.text(def.blurb);
-    for (let i = 0; i < bars.length; i++) {
-      const bar = bars[i]!;
-      const key = STAT_ROWS[i]![0];
-      bar.ghostV = bar.v;
-      bar.ghostA = 1;
-      bar.v = clamp01(def.stats[key]);
-    }
+    setBars((key) => def.stats[key]);
   }
   paint();
+  // Nothing was traded on the very first paint — there is no previous machine.
+  for (const bar of bars) { bar.hold = 0; bar.shown = bar.v; }
 
   const hit = (ev: Event): number => {
     const el = (ev.target as HTMLElement | null)?.closest?.('[data-i]') as HTMLElement | null;
@@ -378,6 +605,8 @@ export function createCourseScreen(): CourseScreen {
   const all = listCourses();
   const byCup = new Map<string, CourseDef[]>();
   for (const cup of CUPS) byCup.set(cup.id, all.filter((c) => c.cup === cup.id));
+  /** The widest cup decides how many card slots exist. */
+  const SLOTS = Math.max(4, ...CUPS.map((c) => (byCup.get(c.id) ?? []).length));
 
   let tabs = '';
   for (let i = 0; i < CUPS.length; i++) {
@@ -386,14 +615,13 @@ export function createCourseScreen(): CourseScreen {
     tabs += `<div class="plate vis cupTab${open ? '' : ' locked'}" data-row="0" data-i="${i}">`
       + cupEmblem(cup.color, !open)
       + title(cup.name)
-      + `<div class="sel"></div></div>`;
+      + `<div class="held"></div></div>`;
   }
 
-  // Four card slots. There is one circuit today and there will be more; the
-  // slots are built once and shown or hidden, so adding a course to the
+  // Card slots. Built once and shown or hidden, so adding a course to the
   // registry fills one in without a line changing here.
   let cards = '';
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < SLOTS; i++) {
     cards += `<div class="plate vis card courseCard" data-row="1" data-i="${i}">`
       + `<div class="mapbox"></div>`
       + title('', 'nm')
@@ -401,7 +629,7 @@ export function createCourseScreen(): CourseScreen {
       + `<div><span class="v len"></span><span class="k">Metres</span></div>`
       + `<div><span class="v lap"></span><span class="k">Laps</span></div>`
       + `<div><span class="v tot"></span><span class="k">Total km</span></div>`
-      + `</div><div class="shut"><span>In construction</span></div><div class="sel"></div></div>`;
+      + `</div><div class="shut"><span>In construction</span></div><div class="held"></div></div>`;
   }
 
   const root = fromHtml(`
@@ -409,27 +637,47 @@ export function createCourseScreen(): CourseScreen {
       ${head('Choose a circuit', 1)}
       <div class="cups">${tabs}</div>
       <div class="cards">${cards}</div>
+      <div class="plate brief">
+        <div class="em-wrap">${cupEmblem(CUPS[0]!.color)}</div>
+        <div><span class="cap cupname">Hazard Cup</span>${title('Round 1', 'rnd')}
+          <div class="pips"></div></div>
+      </div>
     </div>`);
 
   const b = bind(root);
+  const headBox = bind(q(root, '.head'));
   const cupsBox = bind(q(root, '.cups'));
   const cardsBox = bind(q(root, '.cards'));
+  const briefBox = bind(q(root, '.brief'));
+  const briefEm = q<HTMLElement>(root, '.brief .em-wrap');
+  const briefCup = bind(q(root, '.brief .cupname'));
+  const briefRound = bind(q(root, '.brief .rnd > i'));
+  const briefPips = q<HTMLElement>(root, '.brief .pips');
 
-  const tabEls = Array.from(root.querySelectorAll<HTMLElement>('.cupTab')).map((el) => ({
-    box: bind(el), sel: bind(q(el, '.sel')), v: 0,
+  const tabNodes = Array.from(root.querySelectorAll<HTMLElement>('.cupTab'));
+  const tabEls = tabNodes.map((el) => ({
+    box: bind(el), held: bind(q(el, '.held')), s: { v: 0, vel: 0 } as Spring, held01: 0,
   }));
-  const cardEls = Array.from(root.querySelectorAll<HTMLElement>('.courseCard')).map((el) => ({
+  const cardNodes = Array.from(root.querySelectorAll<HTMLElement>('.courseCard'));
+  const cardEls = cardNodes.map((el) => ({
     el,
     box: bind(el),
-    sel: bind(q(el, '.sel')),
+    held: bind(q(el, '.held')),
     shut: bind(q(el, '.shut')),
     mapbox: q<HTMLElement>(el, '.mapbox'),
     nm: bind(q(el, '.nm > i')),
     len: bind(q(el, '.len')),
     lap: bind(q(el, '.lap')),
     tot: bind(q(el, '.tot')),
-    v: 0,
+    s: { v: 0, vel: 0 } as Spring,
+    held01: 0,
   }));
+
+  const cupRover = makeRover(q<HTMLElement>(root, '.cups'), tabNodes, 'cupRing', 0.2);
+  const cardRover = makeRover(q<HTMLElement>(root, '.cards'), cardNodes, 'cardRing', 0.26);
+
+  let clock = 0;
+  let tIn = 99;
 
   const api: CourseScreen = {
     root,
@@ -454,39 +702,97 @@ export function createCourseScreen(): CourseScreen {
       const next = ((i % n) + n) % n;
       if (next === api.courseIndex) return;
       api.courseIndex = next;
+      paintBrief();
     },
     setRow(r): void { api.row = r; },
+    enter(): void { tIn = 0; },
     update(dt, show): void {
       if (show <= 0) { b.set('display', 'none'); return; }
       b.set('display', 'block');
+      clock += dt;
+      tIn += dt;
       present(b, show, 3.5);
       const e = ease.outQuart(clamp01(show));
-      cupsBox.set('transform', `translate(-50%, ${((1 - e) * -90).toFixed(1)}%)`);
-      cardsBox.set('transform', `translate(-50%, ${((1 - e) * 40).toFixed(1)}%)`);
+      const breathe = 1 + BREATHE_AMP * Math.sin(clock * Math.PI * 2 * BREATHE_HZ);
+
+      const hIn = stagger(tIn, 0);
+      headBox.set('transform', `translateX(${((1 - hIn) * -16).toFixed(1)}%)`);
+      headBox.set('opacity', hIn.toFixed(3));
+      const cupIn = stagger(tIn, 0.08, 0.34);
+      const cardIn = stagger(tIn, 0.2, 0.42);
+      cupsBox.set('transform',
+        `translate(-50%, ${((1 - e) * -90 + (1 - cupIn) * -50).toFixed(1)}%)`);
+      cupsBox.set('opacity', cupIn.toFixed(3));
+      cardsBox.set('transform',
+        `translate(-50%, ${((1 - e) * 40 + (1 - cardIn) * 22).toFixed(1)}%)`);
+      const briefIn = stagger(tIn, 0.34, 0.4);
+      briefBox.set('opacity', briefIn.toFixed(3));
+      briefBox.set('transform', `translateY(${((1 - briefIn) * 60).toFixed(1)}%)`);
+
+      // **The row that has focus wears the ring; the row that does not wears a
+      // keyline.** They used to differ by nothing but the opacity of the same
+      // gold ring, 1.0 against 0.55, which measured as no difference at all:
+      // pressing the key the prompt rail advertises changed the screen in no
+      // way a player could see. Now the unfocused row's choice is marked by a
+      // thin cream keyline with no glow and no lift, its plates are dimmed, and
+      // the roving gold cursor is only ever on the row that is live.
+      const live = api.courseCount();
+      const cupsHot = api.row === 0;
 
       for (let i = 0; i < tabEls.length; i++) {
         const t = tabEls[i]!;
-        const want = api.row === 0 && i === api.cupIndex ? 1
-          : i === api.cupIndex ? 0.55 : 0;
-        t.v = damp(t.v, want, 0.00006, dt);
-        t.sel.set('opacity', t.v.toFixed(3));
-        t.box.set('transform', `translateY(${(-t.v * 8).toFixed(2)}%)`);
+        const on = cupsHot && i === api.cupIndex;
+        const k = Math.max(-0.12, springTo(t.s, on ? 1 : 0, SEL_K, SEL_C, dt));
+        const held = i === api.cupIndex && !cupsHot ? 1 : 0;
+        t.held01 = damp(t.held01, held, 0.00004, dt);
+        t.held.set('opacity', t.held01.toFixed(3));
+        const sc = (1 + k * 0.06) * (on ? lerp(1, breathe, clamp01(k)) : 1);
+        t.box.set('transform',
+          `translateY(${(-k * 9).toFixed(2)}%) scale(${sc.toFixed(4)})`);
+        t.box.set('filter', `brightness(${(cupsHot ? 1 : 0.74).toFixed(2)})`);
+        t.box.cls('hot', on);
       }
-      const live = api.courseCount();
+      cupRover.update(dt, api.cupIndex,
+        cupsHot ? Math.max(-0.12, tabEls[api.cupIndex]?.s.v ?? 0) * breathe : 0,
+        cupsHot ? show * cupIn : 0, 0.09, 0.06);
+
       for (let i = 0; i < cardEls.length; i++) {
         const c = cardEls[i]!;
         if (i >= Math.max(1, live)) { c.box.set('display', 'none'); continue; }
         c.box.set('display', 'flex');
-        const want = api.row === 1 && i === api.courseIndex && live > 0 ? 1
-          : i === api.courseIndex && live > 0 ? 0.5 : 0;
-        c.v = damp(c.v, want, 0.00006, dt);
-        c.sel.set('opacity', c.v.toFixed(3));
+        const on = !cupsHot && i === api.courseIndex && live > 0;
+        const k = Math.max(-0.12, springTo(c.s, on ? 1 : 0, SEL_K, SEL_C, dt));
+        const held = i === api.courseIndex && cupsHot && live > 0 ? 1 : 0;
+        c.held01 = damp(c.held01, held, 0.00004, dt);
+        c.held.set('opacity', c.held01.toFixed(3));
+        const cell = stagger(tIn, 0.22 + i * 0.05, 0.4);
+        const sc = (1 + k * 0.05) * (on ? lerp(1, breathe, clamp01(k)) : 1) * lerp(0.9, 1, cell);
         c.box.set('transform',
-          `translateY(${(-c.v * 4).toFixed(2)}%) scale(${(1 + c.v * 0.045).toFixed(3)})`);
+          `translateY(${(-k * 4 + (1 - cell) * 30).toFixed(2)}%) scale(${sc.toFixed(4)})`);
+        c.box.set('opacity', cell.toFixed(3));
+        c.box.set('filter', `brightness(${(cupsHot ? 0.7 : 0.72 + clamp01(k) * 0.28).toFixed(3)})`);
+        c.box.cls('hot', on);
         c.shut.set('opacity', live > 0 ? '0' : '1');
       }
+      cardRover.update(dt, api.courseIndex,
+        !cupsHot && live > 0 ? Math.max(-0.12, cardEls[api.courseIndex]?.s.v ?? 0) * breathe : 0,
+        !cupsHot && live > 0 ? show * cardIn : 0, 0.04, 0.05);
     },
   };
+
+  function paintBrief(): void {
+    const cup = CUPS[api.cupIndex]!;
+    const list = api.coursesOf(api.cupIndex);
+    briefEm.innerHTML = cupEmblem(cup.color, list.length === 0);
+    briefCup.text(cup.name);
+    briefRound.text(list.length === 0
+      ? 'Surveying' : `Round ${api.courseIndex + 1} of ${list.length}`);
+    let pips = '';
+    for (let i = 0; i < Math.max(1, list.length); i++) {
+      pips += `<b class="${list.length > 0 && i === api.courseIndex ? 'on' : ''}"></b>`;
+    }
+    briefPips.innerHTML = pips;
+  }
 
   function paint(): void {
     const list = api.coursesOf(api.cupIndex);
@@ -510,6 +816,7 @@ export function createCourseScreen(): CourseScreen {
         c.tot.text('—');
       }
     }
+    paintBrief();
   }
   paint();
 
@@ -559,23 +866,29 @@ export function createClassScreen(ctx: GameContext): ClassScreen {
     cards += `<div class="plate vis card cc" data-i="${i}">`
       + `<div class="num">${glyphRun(id.toUpperCase())}</div>`
       + `<div class="meter"><i></i></div>`
-      + `<div class="p desc">${CLASS_COPY[id]}</div>`
-      + `<div class="sel"></div></div>`;
+      + `<div class="p desc">${CLASS_COPY[id]}</div></div>`;
   }
 
   const root = fromHtml(`
     <div class="scr scr-class">
       ${head('Engine class', 2)}
       <div class="cards">${cards}</div>
-      <div class="go">${title('Start race')}<div class="sub">Enter &nbsp;·&nbsp; Space &nbsp;·&nbsp; (A)</div></div>
+      <div class="plate go">
+        <span class="key">↵</span>
+        <div>${title('Start race')}<div class="sub">Space &nbsp;·&nbsp; (A)</div></div>
+        <div class="glow"></div>
+      </div>
     </div>`);
 
   const b = bind(root);
+  const headBox = bind(q(root, '.head'));
   const cardsBox = bind(q(root, '.cards'));
+  const cardsEl = q<HTMLElement>(root, '.cards');
   const go = bind(q(root, '.go'));
-  const goInk = bind(q(root, '.go .t'));
+  const goGlow = bind(q(root, '.go .glow'));
 
-  const cardEls = Array.from(root.querySelectorAll<HTMLElement>('.cc')).map((el, i) => {
+  const cardNodes = Array.from(root.querySelectorAll<HTMLElement>('.cc'));
+  const cardEls = cardNodes.map((el, i) => {
     const id = classes[i]!;
     const meter = bind(q(el, '.meter i'));
     // The speed multiplier the simulation actually uses, mapped so the slowest
@@ -583,10 +896,12 @@ export function createClassScreen(ctx: GameContext): ClassScreen {
     // deficiency.
     const mul = ctx.config.race.classes[id].speedMul;
     meter.set('width', `${(lerp(34, 100, clamp01((mul - 0.72) / 0.52))).toFixed(1)}%`);
-    return { box: bind(el), sel: bind(q(el, '.sel')), v: 0 };
+    return { box: bind(el), s: { v: 0, vel: 0 } as Spring };
   });
+  const rover = makeRover(cardsEl, cardNodes, 'classRing', 0.26);
 
   let clock = 0;
+  let tIn = 99;
 
   const api: ClassScreen = {
     root,
@@ -598,27 +913,49 @@ export function createClassScreen(ctx: GameContext): ClassScreen {
       const n = classes.length;
       api.index = ((i % n) + n) % n;
     },
+    enter(): void { tIn = 0; },
     update(dt, show): void {
       if (show <= 0) { b.set('display', 'none'); return; }
       b.set('display', 'block');
       clock += dt;
+      tIn += dt;
       present(b, show, 3.5);
       const e = ease.outQuart(clamp01(show));
-      cardsBox.set('transform', `translate(-50%, ${((1 - e) * 30).toFixed(1)}%)`);
+      const breathe = 1 + BREATHE_AMP * Math.sin(clock * Math.PI * 2 * BREATHE_HZ);
+
+      const hIn = stagger(tIn, 0);
+      headBox.set('transform', `translateX(${((1 - hIn) * -16).toFixed(1)}%)`);
+      headBox.set('opacity', hIn.toFixed(3));
+      const cardIn = stagger(tIn, 0.1, 0.4);
+      cardsBox.set('transform',
+        `translate(-50%, ${((1 - e) * 30 + (1 - cardIn) * 20).toFixed(1)}%)`);
 
       for (let i = 0; i < cardEls.length; i++) {
         const c = cardEls[i]!;
-        c.v = damp(c.v, i === api.index ? 1 : 0, 0.00006, dt);
-        c.sel.set('opacity', c.v.toFixed(3));
+        const on = i === api.index;
+        const k = Math.max(-0.12, springTo(c.s, on ? 1 : 0, SEL_K, SEL_C, dt));
+        const cell = stagger(tIn, 0.14 + i * 0.05, 0.4);
+        const sc = (1 + k * 0.075) * (on ? lerp(1, breathe, clamp01(k)) : 1) * lerp(0.9, 1, cell);
         c.box.set('transform',
-          `translateY(${(-c.v * 4).toFixed(2)}%) scale(${(1 + c.v * 0.05).toFixed(3)})`);
-        c.box.set('filter', `brightness(${(0.72 + c.v * 0.28).toFixed(3)})`);
+          `translateY(${(-k * 5 + (1 - cell) * 26).toFixed(2)}%) scale(${sc.toFixed(4)})`);
+        c.box.set('opacity', cell.toFixed(3));
+        c.box.set('filter', `brightness(${(0.72 + clamp01(k) * 0.28).toFixed(3)})`);
+        c.box.cls('hot', on);
       }
+      rover.update(dt, api.index,
+        Math.max(-0.12, cardEls[api.index]?.s.v ?? 0) * breathe,
+        show * cardIn, 0.05, 0.075);
 
-      const pulse = 0.5 + 0.5 * Math.sin(clock * 3.6);
-      go.set('opacity', (e * (0.5 + pulse * 0.5)).toFixed(3));
-      go.set('transform', `translateX(-50%) scale(${(0.98 + pulse * 0.04).toFixed(3)})`);
-      goInk.set('color', pulse > 0.55 ? hexCss(0xFFF8F0) : hexCss(0xFFC300));
+      // The call to action. A plate, so it is as legible as everything else on
+      // the screen; the pulse is on the ring around it rather than on the ink,
+      // because a word that changes colour twice a second is a word nobody can
+      // read at the moment they are meant to read it.
+      const pulse = 0.5 + 0.5 * Math.sin(clock * 3.2);
+      const goIn = stagger(tIn, 0.3, 0.4);
+      go.set('opacity', (e * goIn).toFixed(3));
+      go.set('transform',
+        `translateY(${((1 - goIn) * 70).toFixed(1)}%) scale(${(1 + pulse * 0.022).toFixed(4)})`);
+      goGlow.set('opacity', (0.45 + pulse * 0.55).toFixed(3));
     },
   };
 
@@ -634,6 +971,10 @@ export function createClassScreen(ctx: GameContext): ClassScreen {
     const i = hit(ev);
     if (i >= 0) api.onPick?.(i);
   });
+  // The whole plate is the button, not just whatever `data-i` is under the
+  // pointer: a call to action you can only press by hitting one of the cards is
+  // not a call to action.
+  q(root, '.go').addEventListener('pointerdown', () => api.onPick?.(api.index));
 
   return api;
 }

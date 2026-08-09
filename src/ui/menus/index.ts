@@ -49,14 +49,35 @@ const SHOT: Record<ScreenName, ShotName> = {
   title: 'title', racer: 'hero', course: 'board', class: 'board',
 };
 
-/** What the prompt rail says on each screen. */
-const HINTS: Record<ScreenName, string> = {
-  title: '',
-  racer: hintKey('◀ ▶', 'Choose') + hintKey('↵', 'Select') + hintKey('Esc', 'Back'),
-  course: hintKey('▲ ▼', 'Cup / Circuit') + hintKey('◀ ▶', 'Choose')
-    + hintKey('↵', 'Select') + hintKey('Esc', 'Back'),
-  class: hintKey('◀ ▶', 'Choose') + hintKey('↵', 'Start race') + hintKey('Esc', 'Back'),
-};
+/**
+ * What the prompt rail says, given where the cursor actually is.
+ *
+ * The circuit screen has two rows and the rail used to advertise both of them
+ * at once — "▲▼ CUP / CIRCUIT" and "◀▶ CHOOSE" — while saying nothing about
+ * which one the arrow keys were currently driving. A rail that names the row
+ * you are on is also the cheapest possible confirmation that ▲ and ▼ did
+ * anything at all.
+ *
+ * The class screen no longer offers "↵ Start race" either: the call to action
+ * on that screen is a plate with the key printed on it, and a rail repeating it
+ * forty pixels below was the same instruction twice.
+ */
+function hintsFor(screen: ScreenName, courseRow: 0 | 1): string {
+  switch (screen) {
+    case 'racer':
+      return hintKey('◀ ▶', 'Choose') + hintKey('↵', 'Select') + hintKey('Esc', 'Back');
+    case 'course':
+      return courseRow === 0
+        ? hintKey('◀ ▶', 'Cup') + hintKey('▼', 'Circuits')
+          + hintKey('↵', 'Open cup') + hintKey('Esc', 'Back')
+        : hintKey('◀ ▶', 'Circuit') + hintKey('▲', 'Cups')
+          + hintKey('↵', 'Select') + hintKey('Esc', 'Back');
+    case 'class':
+      return hintKey('◀ ▶', 'Choose') + hintKey('Esc', 'Back');
+    default:
+      return '';
+  }
+}
 
 /** Menu verbs, and the keys that produce them. */
 const KEYS: Record<string, string> = {
@@ -164,7 +185,7 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
   let clock = 0;
   let railScroll = 0;
   let booted = false;
-  let hintFor: ScreenName | null = null;
+  let hintText = ' ';
 
   const choice = {
     vehicleId: 'cone' as VehicleId,
@@ -192,6 +213,15 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
     traySlots.get('class')?.text.text(choice.engineClass.toUpperCase());
   }
 
+  /** The rail follows the cursor, not just the screen — so it is repainted from
+   *  `update` rather than only when a screen changes. */
+  function paintHint(): void {
+    const want = hintsFor(screen, screens.course.row);
+    if (want === hintText) return;
+    hintText = want;
+    hintBox.el.innerHTML = want;
+  }
+
   // ── flow ────────────────────────────────────────────────────────────────
 
   function goTo(next: ScreenName): void {
@@ -207,18 +237,18 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
     pending = null;
     screen = next;
     if (next === 'title') {
-      screens.title.enter();
       stage?.setParade(true);
       stage?.setHero(null);
     } else {
       stage?.setParade(false);
       stage?.setHero(choice.vehicleId);
     }
+    // Every screen restarts its own arrival on the frame the board swings
+    // clear, so the panels, the roster and the dossier stagger in behind the
+    // wipe instead of being fully formed the instant it opens.
+    screens[next].enter?.();
     stage?.go(SHOT[next]);
-    if (hintFor !== next) {
-      hintFor = next;
-      hintBox.el.innerHTML = HINTS[next];
-    }
+    paintHint();
     paintTray();
   }
 
@@ -484,13 +514,12 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
     screen = at;
     for (const k of Object.keys(show) as ScreenName[]) show[k] = k === at ? 1 : 0;
     root.classList.add('on');
-    screens.title.enter();
+    screens[at].enter?.();
     stage?.cut(SHOT[at]);
     stage?.setLevel(1);
     stage?.setParade(at === 'title');
     stage?.setHero(at === 'title' ? null : choice.vehicleId);
-    hintFor = at;
-    hintBox.el.innerHTML = HINTS[at];
+    paintHint();
     paintTray();
     ctx.bus.emit('ui:menu', { open: true, screen: at });
   }
@@ -615,6 +644,7 @@ export function createMenuSystem(ctx: GameContext): GameSystem {
       stage?.setLevel(1 - cover * 0.82);
 
       // ── screens ───────────────────────────────────────────────────────────
+      paintHint();
       const hidden = outro > 0;
       for (const k of Object.keys(show) as ScreenName[]) {
         const want = !hidden && k === screen ? 1 : 0;

@@ -32,7 +32,7 @@
 
 import { U_CSS, hexCss, C } from '../theme.ts';
 
-export { bind, fromHtml, q, hexCss } from '../theme.ts';
+export { bind, fromHtml, q, hexCss, unitPx } from '../theme.ts';
 export type { Bound } from '../theme.ts';
 
 // ── the stylesheet ─────────────────────────────────────────────────────────
@@ -228,7 +228,10 @@ export const CSS_MENU = `
   padding: calc(var(--u) * .42) calc(var(--u) * 1.1);
 }
 #menu .hint .k { display: flex; align-items: center; gap: calc(var(--u) * .38); }
-#menu .hint .key {
+/* The keycap. Declared once rather than once per rail, because the call to
+   action on the class screen wears one too — a button that shows the key that
+   presses it never has to be repeated in the prompt rail underneath it. */
+#menu .key {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: calc(var(--u) * 1.5); height: calc(var(--u) * 1.3);
   padding: 0 calc(var(--u) * .34);
@@ -237,6 +240,10 @@ export const CSS_MENU = `
   color: #14171E; font-weight: 900; font-size: calc(var(--u) * .74);
   letter-spacing: .02em;
   box-shadow: 0 calc(var(--u) * .12) 0 #6E6B65, 0 calc(var(--u) * .2) calc(var(--u) * .3) rgba(0,0,0,.55);
+}
+#menu .scr-class .go .key {
+  min-width: calc(var(--u) * 2.1); height: calc(var(--u) * 1.9);
+  font-size: calc(var(--u) * 1.05); border-radius: calc(var(--u) * .34);
 }
 #menu .hint .lbl {
   text-transform: uppercase; font-weight: 800; font-size: calc(var(--u) * .68);
@@ -263,8 +270,12 @@ export const CSS_MENU = `
 
 /* ── the roster ─────────────────────────────────────────────────────────── */
 
+/* Clear of the prompt rail by a whole unit and a half. It used to end two
+   pixels above the rail's gold edge at 1600x900 and *underneath* it at
+   900x506 — the roster and the legend telling you how to drive it were the
+   same object. */
 #menu .roster {
-  position: absolute; left: 0; right: 0; bottom: calc(var(--eb) + var(--u) * 2.6);
+  position: absolute; left: 0; right: 0; bottom: calc(var(--eb) + var(--u) * 4.7);
   display: flex; justify-content: center; align-items: flex-end;
   gap: calc(var(--u) * .62);
 }
@@ -291,20 +302,45 @@ export const CSS_MENU = `
 }
 #menu .tile .mark { position: absolute; inset: calc(var(--u) * .52); }
 #menu .tile .mark svg { width: 100%; height: 100%; display: block; overflow: visible; }
-#menu .tile .ring {
-  position: absolute; inset: calc(var(--u) * -.28); border-radius: calc(var(--u) * .86);
+
+/* ── the cursor ─────────────────────────────────────────────────────────── */
+/* One ring per screen, and it *travels*. Fading a ring out of one cell and
+   into another says "something changed"; sliding the same ring across says
+   where the cursor went, which is the difference between a list of buttons and
+   a cursor moving over a list of buttons. Sized and placed from JS, because
+   only JS knows which cell is chosen and how far its spring has thrown it. */
+#menu .rove {
+  position: absolute; left: 0; top: 0; pointer-events: none; opacity: 0;
+  border-radius: calc(var(--u) * .86);
   box-shadow:
     0 0 0 calc(var(--u) * .22) ${hexCss(C.yellow)},
     0 0 0 calc(var(--u) * .34) rgba(9,11,15,.95),
-    0 0 calc(var(--u) * 1.5) rgba(255,180,40,.6);
-  opacity: 0;
+    0 0 calc(var(--u) * 1.5) rgba(255,180,40,.62);
+  z-index: 5;
 }
-#menu .tile .no {
-  position: absolute; inset: 0; border-radius: calc(var(--u) * .6);
-  background: repeating-linear-gradient(114deg,
-    rgba(255,195,0,.85) 0 calc(var(--u) * .5), rgba(20,23,30,.85) calc(var(--u) * .5) calc(var(--u) * 1));
-  opacity: 0;
+#menu .rove.cupRing {
+  border-radius: calc(var(--u) * .74);
+  box-shadow:
+    0 0 0 calc(var(--u) * .18) ${hexCss(C.yellow)},
+    0 0 0 calc(var(--u) * .28) rgba(9,11,15,.95),
+    0 0 calc(var(--u) * 1.2) rgba(255,180,40,.55);
 }
+#menu .rove.cardRing, #menu .rove.classRing { border-radius: calc(var(--u) * .82); }
+
+/* The *other* row's choice. Deliberately not the same object as the cursor:
+   a thin cream keyline with no glow and no lift. The two rows used to differ
+   by nothing but the opacity of one gold ring — 1.0 against 0.55 — which
+   photographed as no difference at all. */
+#menu .held {
+  position: absolute; inset: calc(var(--u) * -.16); border-radius: calc(var(--u) * .76);
+  box-shadow:
+    0 0 0 calc(var(--u) * .1) rgba(255,248,240,.66),
+    0 0 0 calc(var(--u) * .2) rgba(9,11,15,.9);
+  opacity: 0; pointer-events: none;
+}
+/* The chosen cell paints over its neighbours. Without this the ring around a
+   scaled-up card is drawn and then covered by the card next to it. */
+#menu .card.hot, #menu .cupTab.hot, #menu .tile.hot { z-index: 3; }
 
 /* ── stat bars ──────────────────────────────────────────────────────────── */
 
@@ -335,32 +371,49 @@ export const CSS_MENU = `
   box-shadow: inset 0 calc(var(--u) * .1) 0 rgba(255,255,255,.42);
   border-radius: calc(var(--u) * .16);
 }
-/* The outgoing value, left behind as a ghost for a beat: switching machines
-   should show you what you traded away. */
-#menu .stat .ghost {
+/* What just changed, drawn *over* the fill as a hatched segment between the old
+   reading and the new one.
+   This used to be a ghost of the previous value drawn *behind* the fill, which
+   hid every improvement underneath the very bar that had just grown past it:
+   swapping the cone for the sedan gains 27 points of speed and 119 of weight,
+   and the only segments a player could see were the two stats that got worse.
+   Half the information on the screen was invisible by construction. */
+#menu .stat .delta {
   position: absolute; left: 0; top: 0; bottom: 0; width: 0%;
-  background: rgba(95,200,245,.28);
-  box-shadow: inset calc(var(--u) * -.1) 0 0 rgba(95,200,245,.85);
   border-radius: calc(var(--u) * .16);
+  background: repeating-linear-gradient(114deg,
+    rgba(255,75,58,.95) 0 calc(var(--u) * .17),
+    rgba(255,75,58,.4) calc(var(--u) * .17) calc(var(--u) * .34));
+  box-shadow: inset 0 0 0 calc(var(--u) * .07) rgba(9,11,15,.6);
+  opacity: 0; pointer-events: none;
 }
+#menu .stat .delta.up {
+  background: repeating-linear-gradient(114deg,
+    rgba(111,224,74,.95) 0 calc(var(--u) * .17),
+    rgba(111,224,74,.4) calc(var(--u) * .17) calc(var(--u) * .34));
+}
+/* ...and the same fact stated a second way, for the glance that never reaches
+   the bar. */
+#menu .stat .arrow {
+  width: calc(var(--u) * .95); text-align: center; line-height: 1;
+  font-size: calc(var(--u) * .82); font-weight: 900; font-style: normal;
+  color: ${hexCss(C.red)}; opacity: 0;
+  text-shadow: 0 calc(var(--u) * .06) calc(var(--u) * .14) rgba(0,0,0,.9);
+}
+#menu .stat .arrow.up { color: ${hexCss(C.green)}; }
 
 /* ── cards (courses, cups, classes) ─────────────────────────────────────── */
 
+/* The gap has to clear the *scaled* card plus its ring, or a highlight is drawn
+   and then painted over by the neighbour it grew into. */
 #menu .cards {
-  position: absolute; left: 50%; display: flex; gap: calc(var(--u) * .9);
+  position: absolute; left: 50%; display: flex; gap: calc(var(--u) * 1.2);
   align-items: stretch;
 }
 #menu .card {
   position: relative; cursor: pointer;
   padding: calc(var(--u) * .7);
   display: flex; flex-direction: column; gap: calc(var(--u) * .5);
-}
-#menu .card .sel {
-  position: absolute; inset: calc(var(--u) * -.26); border-radius: calc(var(--u) * .82);
-  box-shadow: 0 0 0 calc(var(--u) * .22) ${hexCss(C.yellow)},
-              0 0 0 calc(var(--u) * .34) rgba(9,11,15,.95),
-              0 0 calc(var(--u) * 1.6) rgba(255,180,40,.55);
-  opacity: 0; pointer-events: none;
 }
 #menu .card .map { display: block; width: 100%; height: auto; overflow: visible; }
 #menu .card .shut {
@@ -482,13 +535,7 @@ export const CSS_MENU = `
 }
 #menu .cupTab .t { font-size: calc(var(--u) * .92); }
 #menu .cupTab .em { width: calc(var(--u) * 1.5); height: calc(var(--u) * 1.5); display: block; }
-#menu .cupTab .sel {
-  position: absolute; inset: calc(var(--u) * -.2); border-radius: calc(var(--u) * .74);
-  box-shadow: 0 0 0 calc(var(--u) * .18) ${hexCss(C.yellow)},
-              0 0 0 calc(var(--u) * .28) rgba(9,11,15,.95);
-  opacity: 0; pointer-events: none;
-}
-#menu .courseCard { width: calc(var(--u) * 17.5); min-height: calc(var(--u) * 15.6); }
+#menu .courseCard { width: calc(var(--u) * 16.4); min-height: calc(var(--u) * 14.4); }
 #menu .courseCard .t { font-size: calc(var(--u) * 1.05); }
 #menu .facts { display: flex; gap: calc(var(--u) * 1.1); }
 #menu .facts div { display: flex; flex-direction: column; gap: calc(var(--u) * .12); }

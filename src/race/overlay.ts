@@ -19,8 +19,8 @@ import { CSS_MENU } from './menu.ts';
 import { CSS_RESULTS, createResults, type Results } from './results.ts';
 import { CSS_PAUSE, createPauseMenu, type PauseMenu } from './pausemenu.ts';
 import {
-  CSS_STAGE, createCard, createLights, createNote, createTicker,
-  type Card, type Lights, type Note, type Ticker,
+  CSS_STAGE, createCard, createLights, createNote, createTicker, createVerdict,
+  type Card, type Lights, type Note, type Ticker, type Verdict,
 } from './stage.ts';
 
 const CSS_BASE = `
@@ -78,6 +78,8 @@ export interface RaceOverlay {
   readonly root: HTMLElement;
   readonly card: Card;
   readonly lights: Lights;
+  /** What the start was worth, when the answer is "you bogged it". */
+  readonly verdict: Verdict;
   readonly note: Note;
   readonly ticker: Ticker;
   readonly results: Results;
@@ -104,6 +106,7 @@ export function createOverlay(onPick: (id: string) => void): RaceOverlay | null 
 
   const card = createCard();
   const lights = createLights();
+  const verdict = createVerdict();
   const note = createNote();
   const ticker = createTicker();
   const results = createResults(onPick);
@@ -111,6 +114,7 @@ export function createOverlay(onPick: (id: string) => void): RaceOverlay | null 
 
   root.appendChild(card.root);
   root.appendChild(lights.root);
+  root.appendChild(verdict.root);
   root.appendChild(note.root);
   root.appendChild(ticker.root);
   root.appendChild(results.root);
@@ -118,11 +122,12 @@ export function createOverlay(onPick: (id: string) => void): RaceOverlay | null 
   document.body.appendChild(root);
 
   return {
-    root, card, lights, note, ticker, results, pause,
+    root, card, lights, verdict, note, ticker, results, pause,
 
     update(dt: number): void {
       card.update(dt);
       lights.update(dt);
+      verdict.update(dt);
       note.update(dt);
       ticker.update(dt);
       results.update(dt);
@@ -132,6 +137,7 @@ export function createOverlay(onPick: (id: string) => void): RaceOverlay | null 
     reset(): void {
       card.reset();
       lights.reset();
+      verdict.reset();
       note.reset();
       ticker.clear();
       results.reset();

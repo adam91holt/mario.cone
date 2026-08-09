@@ -27,13 +27,42 @@
 // simulated, whose speed and steering this file writes by hand. The rigs cannot
 // tell the difference, which is how a parked machine on a title screen ends up
 // with its wheels turning and its cone tip wobbling.
+//
+// ── Contact ────────────────────────────────────────────────────────────────
+//
+// The art direction has one rule it states more emphatically than any other:
+// *every object needs a grounded shadow*. This set used to break it on all four
+// screens — the machine on the mark stood in an **additive** pool of warm light
+// and nothing else, so the ground directly under a hero measured 129% brighter
+// than the asphalt beside it while the same machine on the race grid, a quarter
+// of a second later, sat in a shadow 30% darker than the road. A front-end that
+// contradicts its own game's most emphatic rule is worse than one with no set
+// at all.
+//
+// So contact here is now built the same way the race builds it, in two layers:
+//
+//   *A real cast shadow.* The key is a shadow-casting directional light with an
+//   orthographic frustum that follows the subject — tight around the machine on
+//   the mark, wide enough for the whole line-up on the title. That is the layer
+//   that puts a shadow under the digger's *bucket teeth and front blade*, which
+//   hang two metres in front of anything a blob could cover.
+//
+//   *A contact patch.* A soft dark ellipse under every machine, drawn with a
+//   pure-darkening blend (`dst * (1 - a)`) rather than a black quad, so it
+//   deepens the ground under the chassis without flattening its colour. It is
+//   the ambient-occlusion layer the cast shadow cannot supply, and it is also
+//   the floor under the whole feature: with shadow maps off it still reads.
+//
+// The warm pool survives, but as a *halo* — a ring of light with a hole in the
+// middle where the machine stands. It is what says "on show" without ever
+// putting light where a shadow belongs.
 
 import * as THREE from 'three';
 import { clamp01, damp, ease, lerp } from '../../core/math.ts';
 import { createRacer } from '../../physics/kart.ts';
 import { disposeTree, mergeStatic, part, roundedBox, mat } from '../../vehicles/parts.ts';
 import { getVehicle, listVehicles } from '../../vehicles/registry.ts';
-import type { GameContext, Racer, VehicleId, VehicleModel } from '../../types.ts';
+import type { GameContext, Racer, VehicleDef, VehicleId, VehicleModel } from '../../types.ts';
 
 /** Where the lens is for each screen, and what it is looking at. */
 export type ShotName = 'title' | 'hero' | 'board';
@@ -42,6 +71,9 @@ interface Shot {
   pos: readonly [number, number, number];
   look: readonly [number, number, number];
   fov: number;
+  /** Where the shadow frustum sits for this shot, and how wide it opens. */
+  focus: readonly [number, number];
+  radius: number;
 }
 
 /**
@@ -54,19 +86,55 @@ interface Shot {
  * rather than a cut.
  */
 const SHOTS: Record<ShotName, Shot> = {
-  title: { pos: [0.5, 3.0, 13.5], look: [0, 2.9, -8], fov: 38 },
-  hero: { pos: [4.3, 2.9, 12.6], look: [2.3, 0.75, -1.2], fov: 32 },
-  board: { pos: [6.9, 3.3, 14.2], look: [4.9, 1.1, -1.6], fov: 34 },
+  // Lifted, and looking a little further down than it used to. The lanes of the
+  // parade used to project onto within a few pixels of the same screen row, so
+  // a machine four metres behind another was simply drawn on top of it; from
+  // here each lane sits on its own line of the road.
+  title: { pos: [0.5, 4.1, 13.0], look: [0, 2.0, -8.6], fov: 39, focus: [0, -9], radius: 21 },
+  hero: { pos: [4.3, 2.9, 12.6], look: [2.3, 0.75, -1.2], fov: 32, focus: [1.5, -3], radius: 12 },
+  board: { pos: [6.2, 3.6, 12.4], look: [4.0, 0.7, -1.4], fov: 33, focus: [2.5, -3], radius: 13 },
 };
 
-/** Machines in the title parade, and the lane each one runs in. */
-const PARADE_LANES = [-4.6, -7.4, -10.6, -14.0] as const;
-const PARADE_SPAN = 19;
+/**
+ * The title line-up.
+ *
+ * Two rules, and both of them exist because the first cut of this parade had
+ * neither: the digger drove through the red car at t≈3s and the road cone — the
+ * machine the game is *named after* — left frame entirely and stayed gone.
+ *
+ *   *Nothing may occupy the same space as anything else.* Machines run in
+ *   lanes; within a lane they share one speed and sit exactly half a loop
+ *   apart, so the gap between them is a constant and no machine can ever
+ *   overtake another. Lanes are spaced from the actual `size.width` of the
+ *   widest machine in each, widest at the back, so a 4.5m wingspan cannot
+ *   clip the helicopter in the lane in front of it.
+ *
+ *   *The mascot never leaves.* The cone does not join the parade at all. It
+ *   stands on its own mark, front and centre under the wordmark, weaving on
+ *   the spot — the star of the game, present in every frame of its own title
+ *   screen, with the rest of the cast driving past behind it.
+ */
+const MASCOT: VehicleId = 'cone';
+/** Left of the wordmark and nearer the lens than any lane, so it is the biggest
+ *  machine on the screen and can never be the one hidden behind another. */
+const MASCOT_AT = { x: -4.7, z: -3.9 } as const;
+/** Half a loop each way. Wide enough that a wrap happens well off frame even in
+ *  the far lane, where the camera sees roughly ±18m. */
+const PARADE_SPAN = 24;
+const PARADE_LANES = 3;
+/** Metres of clear air between the widest machine in one lane and the next. */
+const LANE_MARGIN = 1.25;
+const NEAR_LANE_Z = -9.4;
+/** Nearest lane first. Near runs fastest, so the line-up reads with parallax. */
+const LANE_SPEED = [8.1, 6.9, 5.9] as const;
 
 interface Display {
   id: VehicleId;
   racer: Racer;
   model: VehicleModel;
+  /** The soft dark ellipse this machine stands on. */
+  patch: THREE.Mesh;
+  patchMat: THREE.MeshBasicMaterial;
 }
 
 interface ParadeEntry {
@@ -98,6 +166,9 @@ export interface Stage {
 // Scratch. Nothing in the per-frame path may allocate.
 const _look = new THREE.Vector3();
 const _pos = new THREE.Vector3();
+/** The key's direction, normalised once. Moving the light and its target by the
+ *  same delta keeps this constant while the shadow volume follows the subject. */
+const LIGHT_DIR = new THREE.Vector3(-7, 9, 6).normalize();
 
 // ── procedural textures ────────────────────────────────────────────────────
 
@@ -151,7 +222,7 @@ function roadTexture(): THREE.Texture {
   return tex;
 }
 
-/** A soft round falloff, used for the pool of light and for the dust. */
+/** A soft round falloff, used for the dust motes. */
 function blobTexture(hard = 0.0): THREE.Texture {
   const S = 64;
   const c = document.createElement('canvas');
@@ -162,6 +233,56 @@ function blobTexture(hard = 0.0): THREE.Texture {
   grad.addColorStop(0, 'rgba(255,255,255,1)');
   grad.addColorStop(0.55, 'rgba(255,255,255,.34)');
   grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, S, S);
+  return new THREE.CanvasTexture(c);
+}
+
+/**
+ * The pool of light the hero stands in — with a hole in it.
+ *
+ * The old pool was a filled additive blob, which is why the brightest patch of
+ * ground on the character select was the patch directly under the machine. A
+ * halo says exactly the same thing about "this one is on show" while leaving
+ * the contact area to the shadow that belongs there.
+ */
+function haloTexture(): THREE.Texture {
+  const S = 128;
+  const c = document.createElement('canvas');
+  c.width = S;
+  c.height = S;
+  const g = c.getContext('2d')!;
+  const grad = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  grad.addColorStop(0.00, 'rgba(255,255,255,0)');
+  grad.addColorStop(0.30, 'rgba(255,255,255,0)');
+  grad.addColorStop(0.52, 'rgba(255,255,255,.85)');
+  grad.addColorStop(0.74, 'rgba(255,255,255,.36)');
+  grad.addColorStop(1.00, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, S, S);
+  return new THREE.CanvasTexture(c);
+}
+
+/**
+ * The contact patch: white with an alpha falloff, drawn through a blend that
+ * throws the source colour away and keeps only `dst * (1 - a)`.
+ *
+ * A black quad at 60% opacity would wash the asphalt toward grey; this darkens
+ * it and leaves its hue alone, which is what a shadow on a coloured ground
+ * actually does. The corners of the plane fall outside the gradient's last stop
+ * and are fully transparent, so the patch is an ellipse and not a square.
+ */
+function patchTexture(): THREE.Texture {
+  const S = 128;
+  const c = document.createElement('canvas');
+  c.width = S;
+  c.height = S;
+  const g = c.getContext('2d')!;
+  const grad = g.createRadialGradient(S / 2, S / 2, S * 0.05, S / 2, S / 2, S / 2);
+  grad.addColorStop(0.00, 'rgba(255,255,255,.80)');
+  grad.addColorStop(0.34, 'rgba(255,255,255,.62)');
+  grad.addColorStop(0.66, 'rgba(255,255,255,.26)');
+  grad.addColorStop(1.00, 'rgba(255,255,255,0)');
   g.fillStyle = grad;
   g.fillRect(0, 0, S, S);
   return new THREE.CanvasTexture(c);
@@ -185,8 +306,14 @@ export function createStage(ctx: GameContext): Stage | null {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.16;
-  renderer.shadowMap.enabled = false;
   renderer.info.autoReset = true;
+
+  // Shadows follow the game's own quality switch. `PCFShadowMap` rather than
+  // the soft variant on purpose: the reviewers rasterise in software, and the
+  // extra taps buy a softness the contact patch underneath already supplies.
+  const SHADOWS = ctx.quality.shadows !== false;
+  renderer.shadowMap.enabled = SHADOWS;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
 
   const scene = new THREE.Scene();
   scene.background = gradientSky();
@@ -197,13 +324,39 @@ export function createStage(ctx: GameContext): Stage | null {
   // ── light ───────────────────────────────────────────────────────────────
   // Warm key from the left and high, cool sky bounce, and a cold kicker from
   // behind that the material module's Fresnel rim then rides on. Same three
-  // lights the race is lit with, so a machine looks like itself in both.
+  // lights the race is lit with, so a machine looks like itself in both — and,
+  // now, the same one of the three casting.
   const key = new THREE.DirectionalLight(0xffe6c2, 3.1);
   key.position.set(-7, 9, 6);
+  key.castShadow = SHADOWS;
+  key.shadow.mapSize.set(1024, 1024);
+  key.shadow.bias = -0.0007;
+  key.shadow.normalBias = 0.03;
+  key.shadow.radius = 1.6;
   const kick = new THREE.DirectionalLight(0x8fc4ff, 1.35);
   kick.position.set(6, 3.4, -8);
   const sky = new THREE.HemisphereLight(0x9ad4ff, 0x3b2f24, 1.5);
-  scene.add(key, kick, sky);
+  scene.add(key, key.target, kick, sky);
+
+  let shadowR = -1;
+  /** Point the shadow volume at whatever the current shot is about. */
+  function focusShadow(fx: number, fz: number, r: number): void {
+    key.target.position.set(fx, 0.5, fz);
+    key.position.set(
+      fx + LIGHT_DIR.x * 34, 0.5 + LIGHT_DIR.y * 34, fz + LIGHT_DIR.z * 34);
+    key.target.updateMatrixWorld();
+    if (Math.abs(shadowR - r) > 0.05) {
+      shadowR = r;
+      const cam = key.shadow.camera;
+      cam.left = -r;
+      cam.right = r;
+      cam.top = r;
+      cam.bottom = -r;
+      cam.near = 6;
+      cam.far = 62 + r * 2.4;
+      cam.updateProjectionMatrix();
+    }
+  }
 
   // ── ground ──────────────────────────────────────────────────────────────
   const roadTex = roadTexture();
@@ -212,6 +365,7 @@ export function createStage(ctx: GameContext): Stage | null {
     new THREE.MeshStandardMaterial({ map: roadTex, color: 0xb6bac4, roughness: 0.86, metalness: 0.02 }),
   );
   ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
   scene.add(ground);
 
   // Painted markings: a lane line down the set and hazard kerbs either side of
@@ -230,6 +384,10 @@ export function createStage(ctx: GameContext): Stage | null {
     }
   }
   mergeStatic(paint);
+  // Paint is *ground*. It receives and never casts — a lane line two
+  // centimetres proud of the road casting its own shadow is a stripe with a
+  // drop shadow, which is exactly what a road marking is not.
+  for (const m of paint.children) { m.castShadow = false; m.receiveShadow = true; }
   scene.add(paint);
 
   // The works. A run of barriers closing off the far side of the set, four
@@ -237,6 +395,7 @@ export function createStage(ctx: GameContext): Stage | null {
   // something between the road and the land, and this game has an obvious
   // answer to what that something is.
   const dressing = new THREE.Group();
+  const marks = new THREE.Group();
   {
     const ORANGE = mat(0xff6b1a, { roughness: 0.6 });
     const CREAM = mat(0xfff8f0, { roughness: 0.5 });
@@ -255,27 +414,36 @@ export function createStage(ctx: GameContext): Stage | null {
         [x, 10.8, -32.3]);
     }
     // Cones marking the mark itself, small and set back — they frame the
-    // machine, they do not compete with it.
+    // machine, they do not compete with it. These live in their own group
+    // because they are the only dressing close enough to the mark to need a
+    // shadow: a cone standing on the same tarmac as the hero, with nothing
+    // under it, is the tell that the hero's shadow was faked.
     for (const [cx, cz] of [[-9, -3.4], [9, -3.4], [-15, -10], [15, -10]] as const) {
-      part(dressing, new THREE.ConeGeometry(0.32, 0.92, 12), ORANGE, [cx, 0.46, cz]);
-      part(dressing, new THREE.CylinderGeometry(0.24, 0.28, 0.16, 12), CREAM, [cx, 0.45, cz]);
-      part(dressing, roundedBox(0.74, 0.08, 0.74, 0.03), DARK, [cx, 0.04, cz]);
+      part(marks, new THREE.ConeGeometry(0.32, 0.92, 12), ORANGE, [cx, 0.46, cz]);
+      part(marks, new THREE.CylinderGeometry(0.24, 0.28, 0.16, 12), CREAM, [cx, 0.45, cz]);
+      part(marks, roundedBox(0.74, 0.08, 0.74, 0.03), DARK, [cx, 0.04, cz]);
     }
     mergeStatic(dressing);
-    scene.add(dressing);
+    mergeStatic(marks);
+    // The far dressing is thirty metres behind the mark and never inside the
+    // shadow frustum; leaving it out of the depth pass is free.
+    for (const m of dressing.children) { m.castShadow = false; m.receiveShadow = false; }
+    for (const m of marks.children) { m.castShadow = true; m.receiveShadow = true; }
+    scene.add(dressing, marks);
   }
 
-  // The pool of light the hero stands in. A gradient on the floor rather than a
+  // The halo the hero stands in. A gradient on the floor rather than a
   // spotlight: a real cone of light through no atmosphere is invisible, and
-  // this is the part a player actually reads as "on show".
+  // this is the part a player actually reads as "on show". It is a *ring* —
+  // see haloTexture — so it never lands where the shadow does.
   const poolMat = new THREE.MeshBasicMaterial({
-    map: blobTexture(), color: 0xffd9a0, transparent: true, opacity: 0,
+    map: haloTexture(), color: 0xffd0a0, transparent: true, opacity: 0,
     blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
   });
-  const pool = new THREE.Mesh(new THREE.PlaneGeometry(11, 11), poolMat);
+  const pool = new THREE.Mesh(new THREE.PlaneGeometry(13.5, 13.5), poolMat);
   pool.rotation.x = -Math.PI / 2;
   pool.position.y = 0.03;
-  pool.renderOrder = -2;
+  pool.renderOrder = -3;
   scene.add(pool);
 
   // ── the horizon ─────────────────────────────────────────────────────────
@@ -305,6 +473,7 @@ export function createStage(ctx: GameContext): Stage | null {
         [0, rnd() * 2, 0]);
     }
     mergeStatic(hills);
+    for (const m of hills.children) { m.castShadow = false; m.receiveShadow = false; }
     scene.add(hills);
   }
 
@@ -342,7 +511,11 @@ export function createStage(ctx: GameContext): Stage | null {
   scene.add(heroGroup);
   const paradeGroup = new THREE.Group();
   scene.add(paradeGroup);
+  const mascotGroup = new THREE.Group();
+  mascotGroup.position.set(MASCOT_AT.x, 0, MASCOT_AT.z);
+  scene.add(mascotGroup);
 
+  const patchTex = patchTexture();
   const built = new Map<VehicleId, Display>();
 
   /** Build a machine and the display racer that drives its rig. Cached: the
@@ -355,10 +528,42 @@ export function createStage(ctx: GameContext): Stage | null {
     const racer = createRacer(-1, def.name, id, { ...def.stats }, false);
     racer.maxSpeed = 34;
     racer.grounded = true;
-    const d: Display = { id, racer, model };
+
+    // The rigs ship a contact blob of their own that the race's contact pass
+    // switches off and replaces. Nothing was replacing it here, and nothing was
+    // switching it off either — so hide it and draw the patch this set wants.
+    model.root.traverse((o) => { if (o.name === 'shadowBlob') o.visible = false; });
+
+    const patchMat = new THREE.MeshBasicMaterial({
+      map: patchTex,
+      transparent: true,
+      depthWrite: false,
+      toneMapped: false,
+      // Pure darkening: throw the source colour away and keep dst * (1 - a).
+      blending: THREE.CustomBlending,
+      blendEquation: THREE.AddEquation,
+      blendSrc: THREE.ZeroFactor,
+      blendDst: THREE.OneMinusSrcAlphaFactor,
+      opacity: 0,
+    });
+    // Half again the footprint, because the gradient's dark core is only the
+    // middle two-thirds of the plane.
+    const patch = new THREE.Mesh(
+      new THREE.PlaneGeometry(def.size.width * 1.7, def.size.length * 1.5), patchMat);
+    patch.rotation.x = -Math.PI / 2;
+    patch.position.y = 0.017;
+    patch.renderOrder = -1;
+    patch.matrixAutoUpdate = true;
+    model.root.add(patch);
+
+    const d: Display = { id, racer, model, patch, patchMat };
     built.set(id, d);
     return d;
   }
+
+  /** How strong a contact patch is. With a real cast shadow under it the patch
+   *  is the occlusion term only; without one it is the whole shadow. */
+  const PATCH_MAX = SHADOWS ? 0.62 : 0.95;
 
   const parade: ParadeEntry[] = [];
   /** Ids still waiting to join the parade. One is built per rendered frame, so
@@ -367,6 +572,10 @@ export function createStage(ctx: GameContext): Stage | null {
   let paradeQueue: VehicleId[] = [];
   let paradeWant = false;
   let paradeLevel = 0;
+  /** Lane z and speed, recomputed whenever the line-up changes. */
+  const laneZ: number[] = [];
+  /** Which lane each queued machine belongs in, and where in it. */
+  const laneOf = new Map<VehicleId, { lane: number; slot: number; of: number }>();
 
   let heroId: VehicleId | null = null;
   /** 0..1 clock for the one full revolution a machine makes as it arrives. */
@@ -380,25 +589,81 @@ export function createStage(ctx: GameContext): Stage | null {
     paradeQueue = [];
   }
 
+  /**
+   * Deal the cast into lanes and work out where the lanes are.
+   *
+   * Widest at the back, and each lane pushed away from the one in front of it
+   * by half of each one's widest machine plus a fixed margin — so the spacing
+   * rule is derived from the models rather than guessed at, and a wider machine
+   * arriving later cannot silently start clipping its neighbour.
+   */
   function enqueueParade(): void {
-    const all = listVehicles();
-    paradeQueue = all.map((v) => v.id).filter((id) => id !== heroId);
+    laneOf.clear();
+    laneZ.length = 0;
+    const rest = listVehicles()
+      .filter((v) => v.id !== MASCOT && v.id !== heroId);
+    if (rest.length === 0) { paradeQueue = []; return; }
+    const order = rest.slice().sort((a, b) => b.size.width - a.size.width);
+    const per = Math.ceil(order.length / PARADE_LANES);
+    const chunks: VehicleDef[][] = [];
+    for (let i = 0; i < order.length; i += per) chunks.push(order.slice(i, i + per));
+    // Built widest-first, so reversing puts the nearest lane at index 0.
+    chunks.reverse();
+
+    let z = NEAR_LANE_Z;
+    let prevHalf = 0;
+    for (let i = 0; i < chunks.length; i++) {
+      const half = Math.max(...chunks[i]!.map((v) => v.size.width)) / 2;
+      if (i > 0) z -= prevHalf + half + LANE_MARGIN;
+      prevHalf = half;
+      laneZ.push(z);
+      for (let k = 0; k < chunks[i]!.length; k++) {
+        laneOf.set(chunks[i]![k]!.id, { lane: i, slot: k, of: chunks[i]!.length });
+      }
+    }
+    // Nearest lane first into the build queue: the machines closest to the lens
+    // are the ones a player sees appear.
+    paradeQueue = [];
+    for (const chunk of chunks) for (const v of chunk) paradeQueue.push(v.id);
   }
 
   function joinParade(id: VehicleId): void {
     const d = displayOf(id);
     if (d.model.root.parent) d.model.root.parent.remove(d.model.root);
-    const n = parade.length;
-    const lane = PARADE_LANES[n % PARADE_LANES.length]!;
-    const speed = 7.5 + (n % 3) * 1.9;
+    const place = laneOf.get(id) ?? { lane: 0, slot: 0, of: 1 };
+    const lane = Math.min(place.lane, Math.max(0, laneZ.length - 1));
+    // Exactly one loop-fraction apart, and every machine in a lane runs at the
+    // lane's speed — which is what makes the gap a constant and a collision
+    // arithmetically impossible.
+    const phase = (place.slot / place.of) * PARADE_SPAN * 2 + lane * 5.7;
+    let x = -PARADE_SPAN + (phase % (PARADE_SPAN * 2));
+    if (x > PARADE_SPAN) x -= PARADE_SPAN * 2;
     parade.push({
       d,
-      x: -PARADE_SPAN + (n / 6) * PARADE_SPAN * 2,
-      z: lane - (n >= PARADE_LANES.length ? 1.4 : 0),
-      speed,
-      wob: n * 1.7,
+      x,
+      z: laneZ[lane] ?? NEAR_LANE_Z,
+      speed: LANE_SPEED[Math.min(lane, LANE_SPEED.length - 1)]!,
+      wob: lane * 1.9 + place.slot * 3.1,
     });
     paradeGroup.add(d.model.root);
+  }
+
+  /** The mascot, parked on its own mark. Null while the parade is off. */
+  let mascot: Display | null = null;
+
+  function takeMascot(): void {
+    if (mascot || heroId === MASCOT) return;
+    const d = displayOf(MASCOT);
+    if (d.model.root.parent) d.model.root.parent.remove(d.model.root);
+    d.model.root.position.set(0, 0, 0);
+    mascotGroup.add(d.model.root);
+    mascot = d;
+  }
+
+  function releaseMascot(): void {
+    if (!mascot) return;
+    mascotGroup.remove(mascot.model.root);
+    mascot = null;
   }
 
   // ── shot ────────────────────────────────────────────────────────────────
@@ -409,6 +674,9 @@ export function createStage(ctx: GameContext): Stage | null {
   let level = 1;
   let levelTarget = 1;
   let clock = 0;
+  let focusX = SHOTS.title.focus[0];
+  let focusZ = SHOTS.title.focus[1];
+  let focusR = SHOTS.title.radius;
 
   function applyShot(): void {
     // Eased, and biased toward the front of the move, so a screen change reads
@@ -456,6 +724,10 @@ export function createStage(ctx: GameContext): Stage | null {
       from = SHOTS[shot];
       to = SHOTS[shot];
       shotT = 1;
+      focusX = to.focus[0];
+      focusZ = to.focus[1];
+      focusR = to.radius;
+      focusShadow(focusX, focusZ, focusR);
       applyShot();
     },
 
@@ -469,6 +741,8 @@ export function createStage(ctx: GameContext): Stage | null {
         look: [lerp(from.look[0], to.look[0], u), lerp(from.look[1], to.look[1], u),
           lerp(from.look[2], to.look[2], u)],
         fov: lerp(from.fov, to.fov, u),
+        focus: to.focus,
+        radius: to.radius,
       };
       to = SHOTS[shot];
       shotT = 0;
@@ -483,6 +757,7 @@ export function createStage(ctx: GameContext): Stage | null {
       if (id) {
         const i = parade.findIndex((e) => e.d.id === id);
         if (i >= 0) { paradeGroup.remove(parade[i]!.d.model.root); parade.splice(i, 1); }
+        if (id === MASCOT) releaseMascot();
       }
       for (let i = heroGroup.children.length - 1; i >= 0; i--) {
         heroGroup.remove(heroGroup.children[i]!);
@@ -497,7 +772,6 @@ export function createStage(ctx: GameContext): Stage | null {
         // usually somewhere off the side of the frame.
         d.model.root.position.set(0, 0, 0);
         d.model.root.rotation.set(0, heroSpin, 0);
-        void 0;
         heroGroup.add(d.model.root);
         // Framing follows the machine's own size, exactly as the chase camera
         // does: a 4.8m locomotive and a 1.9m cone cannot share a distance. Small
@@ -518,7 +792,7 @@ export function createStage(ctx: GameContext): Stage | null {
       if (paradeWant === on) return;
       paradeWant = on;
       clearParade();
-      if (on) enqueueParade();
+      if (on) { enqueueParade(); takeMascot(); } else releaseMascot();
     },
 
     setLevel(v): void { levelTarget = clamp01(v); },
@@ -531,6 +805,7 @@ export function createStage(ctx: GameContext): Stage | null {
 
       // One machine joins the parade per frame while there is a queue.
       if (paradeWant && paradeQueue.length > 0) joinParade(paradeQueue.shift()!);
+      if (paradeWant && !mascot) takeMascot();
 
       paradeLevel = damp(paradeLevel, paradeWant ? 1 : 0, 0.0009, dt);
       heroLevel = damp(heroLevel, heroId ? 1 : 0, 0.0006, dt);
@@ -539,16 +814,37 @@ export function createStage(ctx: GameContext): Stage | null {
       for (const e of parade) {
         e.x += e.speed * dt;
         if (e.x > PARADE_SPAN) e.x -= PARADE_SPAN * 2;
-        const wob = Math.sin(clock * 0.7 + e.wob) * 0.09;
+        // The weave is lateral only, and small: a lane's whole spacing budget
+        // is spent on clearance, and a machine that wanders 40cm across it is
+        // a machine that eventually finds its neighbour.
+        const wob = Math.sin(clock * 0.7 + e.wob) * 0.075;
         const root = e.d.model.root;
-        root.position.set(e.x, 0, e.z + Math.sin(clock * 0.35 + e.wob) * 0.22);
+        root.position.set(e.x, 0, e.z + Math.sin(clock * 0.35 + e.wob) * 0.16);
         root.rotation.y = Math.PI / 2 + wob;
         root.visible = paradeLevel > 0.02;
+        e.d.patchMat.opacity = PATCH_MAX * paradeLevel * level;
         const r = e.d.racer;
         r.speed = e.speed;
         r.steerAngle = wob * 1.6;
         r.drift.angle = 0;
         e.d.model.update?.(r, dt, 1);
+      }
+
+      // ── the mascot ───────────────────────────────────────────────────────
+      // Front and centre, facing the lens, weaving on the spot. It is the only
+      // machine on the title screen that never goes anywhere, which is the
+      // point: the game's namesake is in every frame of its own title card.
+      if (mascot) {
+        const root = mascot.model.root;
+        root.position.set(Math.sin(clock * 0.31) * 0.62, 0, Math.sin(clock * 0.23) * 0.2);
+        root.rotation.y = 0.34 + Math.sin(clock * 0.44) * 0.46;
+        root.visible = paradeLevel > 0.02;
+        mascot.patchMat.opacity = PATCH_MAX * paradeLevel * level;
+        const r = mascot.racer;
+        r.speed = 8.5;
+        r.steerAngle = Math.sin(clock * 0.62) * 0.2;
+        r.drift.angle = 0;
+        mascot.model.update?.(r, dt, 1);
       }
 
       // ── the machine on the mark ──────────────────────────────────────────
@@ -566,6 +862,7 @@ export function createStage(ctx: GameContext): Stage | null {
         d.model.root.position.set(0, 0, 0);
         d.model.root.rotation.set(0, heroSpin, 0);
         d.model.root.visible = heroLevel > 0.02;
+        d.patchMat.opacity = PATCH_MAX * heroLevel * level;
         // Idling, not parked: enough rolling speed that wheels turn, rotors
         // spin and the plane's prop blurs, with a slow weave so the rigs' lean
         // and the cone's tip have something to answer.
@@ -576,9 +873,22 @@ export function createStage(ctx: GameContext): Stage | null {
       }
 
       // ── the set ──────────────────────────────────────────────────────────
-      poolMat.opacity = heroLevel * level * 0.5;
+      // The halo is a ring: it lights the ground *around* the machine and
+      // leaves the ground under it to the shadow.
+      poolMat.opacity = heroLevel * level * 0.42;
       pool.visible = poolMat.opacity > 0.01;
       pool.position.set(heroGroup.position.x, 0.03, heroGroup.position.z);
+
+      // The shadow volume follows the shot, eased on the same clock, so the
+      // frustum tightens onto the hero as the camera arrives on it.
+      const u = ease.inOutCubic(clamp01(shotT));
+      const tx = lerp(from.focus[0], to.focus[0], u);
+      const tz = lerp(from.focus[1], to.focus[1], u);
+      const tr = lerp(from.radius, to.radius, u);
+      focusX = damp(focusX, heroId ? tx + heroGroup.position.x * 0.5 : tx, 0.0008, dt);
+      focusZ = damp(focusZ, heroId ? tz + heroGroup.position.z * 0.5 : tz, 0.0008, dt);
+      focusR = damp(focusR, tr, 0.0008, dt);
+      focusShadow(focusX, focusZ, focusR);
 
       for (let i = 0; i < MOTES; i++) {
         let y = motePos[i * 3 + 1]! + moteVel[i]! * dt;
@@ -604,14 +914,18 @@ export function createStage(ctx: GameContext): Stage | null {
 
     dispose(): void {
       clearParade();
+      releaseMascot();
       for (const d of built.values()) {
         if (d.model.root.parent) d.model.root.parent.remove(d.model.root);
+        d.patch.geometry.dispose();
+        d.patchMat.dispose();
         d.model.dispose?.();
       }
       built.clear();
       disposeTree(scene);
       (scene.background as THREE.Texture | null)?.dispose?.();
       roadTex.dispose();
+      patchTex.dispose();
       moteGeo.dispose();
       moteMat.dispose();
       poolMat.dispose();

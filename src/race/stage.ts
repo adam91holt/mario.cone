@@ -52,9 +52,17 @@ export const CSS_STAGE = `
 
 /* ── the start lights ────────────────────────────────────────────────────── */
 /* Between the item socket and the countdown numeral — the one clear strip of
-   sky in the middle of the frame on a start grid. */
+   sky in the middle of the frame on a start grid.
+
+   **Above the banner band, not on it.** This used to sit at 21%, which is the
+   exact line the HUD prints its interrupt banners on, and the race overlay is
+   the layer above the HUD: the frame the flag falls on is also the frame the
+   HUD slams "ROCKET START" onto the screen, and the board — still lit, still
+   green — covered its middle. Photographed, the payoff of the one mechanic in
+   the countdown read "R...KET ST...T". The board now clears that band, and it
+   leaves faster than the banner arrives (see go()). */
 #race .lights {
-  position: absolute; left: 50%; top: 21%;
+  position: absolute; left: 50%; top: 12.5%;
   transform: translateX(-50%); opacity: 0;
 }
 #race .lights .board {
@@ -79,6 +87,29 @@ export const CSS_STAGE = `
   box-shadow: inset 0 0 0 calc(var(--u) * .1) rgba(0,50,10,.5),
               0 0 calc(var(--u) * 1.5) rgba(90,255,110,.95);
 }
+
+/* ── the start verdict ───────────────────────────────────────────────────── */
+/* The other half of the rocket start, and until now the silent half: the flag
+   falls, the engine bogs, and the only thing that happened on screen was a red
+   outline pulse lasting a fraction of the penalty. This lands on the banner
+   line — the same strip of frame a good start's "ROCKET START" lands on, so the
+   two possible answers to "what was my start worth" arrive in one place — and it
+   holds for as long as the machine is actually stuck. */
+#race .verdict {
+  position: absolute; left: 50%; top: 21%;
+  display: flex; flex-direction: column; align-items: center;
+  gap: calc(var(--u) * .12);
+  padding: calc(var(--u) * .46) calc(var(--u) * 2.2) calc(var(--u) * .56);
+  transform: translateX(-50%); opacity: 0;
+}
+/* Smoke and hot metal: a dark, sooty plate with a hazard-red top edge, against
+   the gold the reward wears. */
+#race .verdict.plate {
+  background: linear-gradient(178deg, rgba(70,44,34,.95) 0%, rgba(36,22,18,.96) 50%, rgba(16,10,9,.97) 100%);
+}
+#race .verdict.plate::before { background: linear-gradient(90deg, #FF3A1E, #FF8A2B 50%, #FF3A1E); }
+#race .verdict .big { height: calc(var(--u) * 2.35); color: #FF9E5E; }
+#race .verdict .sub { height: calc(var(--u) * .92); color: #C9A79A; opacity: .95; }
 
 /* ── the note ────────────────────────────────────────────────────────────── */
 /* One line, left edge, above where the ticker will later stack. Small on
@@ -311,11 +342,17 @@ export function createLights(): Lights {
         goT += dt;
         // ...and leaves upward the moment the flag falls, with one hard punch on
         // the frame the lights go green.
+        //
+        // **Quickly.** The board has said everything it has to say by the time
+        // the green has registered, and the screen it is standing on belongs, on
+        // that same frame, to the start's own verdict — the banner, or the
+        // burnout. 0.1s of green and a 0.24s exit clears the frame inside a
+        // third of a second while still landing the punch.
         const punch = Math.exp(-goT * 9);
         scale = 1 + punch * 0.16;
-        const out = clamp01((goT - 0.35) / 0.4);
+        const out = clamp01((goT - 0.1) / 0.24);
         alpha = 1 - ease.inQuad(out);
-        y = -ease.inQuad(out) * 70;
+        y = -ease.inQuad(out) * 80;
         if (out >= 1) { armed = false; box.set('opacity', '0'); return; }
       }
 
@@ -332,6 +369,93 @@ export function createLights(): Lights {
       }
       board.set('transform', goT >= 0
         ? `translateY(${(Math.exp(-goT * 12) * -6).toFixed(2)}%)` : 'none');
+    },
+  };
+}
+
+// ── the start verdict ──────────────────────────────────────────────────────
+
+export interface Verdict {
+  readonly root: HTMLElement;
+  /** One loud line, plus a quiet one under it. */
+  show(big: string, sub?: string): void;
+  update(dt: number): void;
+  reset(): void;
+}
+
+/**
+ * What the player's start was worth, when the answer is bad.
+ *
+ * The good answer already has a home — the HUD slams a gold ROCKET START banner
+ * on the same line — and the bad one had nothing but a red outline flash on the
+ * item socket, over in a fraction of a second, while the penalty ran for a
+ * second and a quarter. A player cannot learn a mechanic whose failure state is
+ * invisible; they just conclude the game ate their race.
+ *
+ * So: a plate that arrives with a hard slam and *shakes* while it holds, because
+ * a bogged engine is a machine sitting there vibrating, and the motion is the
+ * part that reads at a glance.
+ */
+export function createVerdict(): Verdict {
+  const root = fromHtml(`
+    <div class="verdict plate">
+      <div class="big word"></div>
+      <div class="sub word"></div>
+    </div>
+  `);
+  const box = bind(root);
+  const big = signBox(q(root, '.big'));
+  const sub = signBox(q(root, '.sub'));
+
+  let t = -1;
+  const IN = 0.16;
+  const HOLD = 1.25;
+  const OUT = 0.3;
+
+  return {
+    root,
+
+    show(text, subText = ''): void {
+      big.set(text);
+      sub.set(subText);
+      t = 0;
+    },
+
+    reset(): void {
+      t = -1;
+      box.set('opacity', '0');
+    },
+
+    update(dt): void {
+      if (t < 0) return;
+      t += dt;
+      let alpha = 1, scale = 1, x = 0, y = 0;
+      if (t < IN) {
+        // Down and in, overshooting — the same slam the HUD's own alert banner
+        // uses, so the two read as one interface.
+        const u = ease.outBack(clamp01(t / IN));
+        scale = 0.72 + u * 0.28;
+        alpha = clamp01(t / (IN * 0.45));
+        y = (1 - u) * -40;
+      } else if (t < IN + HOLD) {
+        // The shudder. Two detuned frequencies so it never looks like a loop,
+        // decaying as the engine picks itself up.
+        const u = (t - IN) / HOLD;
+        const k = (1 - u) * (1 - u);
+        x = Math.sin((t) * 41) * 1.7 * k;
+        y = Math.sin((t) * 29 + 1.1) * 1.3 * k;
+        scale = 1 + Math.sin(t * 37) * 0.012 * k;
+      } else {
+        const u = clamp01((t - IN - HOLD) / OUT);
+        const e = ease.inQuad(u);
+        alpha = 1 - e;
+        y = e * 26;
+        scale = 1 - e * 0.08;
+        if (u >= 1) { t = -1; box.set('opacity', '0'); return; }
+      }
+      box.set('opacity', alpha.toFixed(3));
+      box.set('transform',
+        `translate(calc(-50% + ${x.toFixed(2)}%), ${y.toFixed(2)}%) scale(${scale.toFixed(3)})`);
     },
   };
 }
