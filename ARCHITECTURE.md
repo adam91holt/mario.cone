@@ -285,6 +285,20 @@ particle or a camera move off a hit should read `item:strike`, not `kart:hit` �
 physics emits the latter from `stunRacer` and only knows its own three-value
 vocabulary.
 
+**The kind is the shape, not the size.** There are four kinds and thirteen
+items, and for one item that abstraction was hiding a real defect: a gas bottle
+and a hard hat both flip you, so both took the same profile, and traced hit by
+hit they produced identical slip curves to the degree — the biggest bang in the
+roster landing exactly as hard as the smallest. `src/items/index.ts` now carries
+`HIT_ITEM`, a per-item override on top of the four, and `bomb` has one: a third
+again of stun, a launch half as big again, and a much wider swing. **The `kind`
+on the wire is still `flip`.** Adding a fifth value would drop the largest
+explosion in the game into the default branch of both `audio/index.ts` and
+`fx/index.ts`, which switch on the four — so if you want a fifth kind, add the
+handling on both sides first. `item:reaction`'s `force` (0.35..1.4) is the other
+half of the answer and is already wired: it scales the burst, the shove, the
+overshoot and the camera kick.
+
 **The roster is named in this game's own words, and the ids are not.** The item
 set is a Wheel Chock, a Hard Hat, a Foreman's Hat, an Air Canister, a Safety
 Award, a Pile Driver, a Power Cut, a Tar Sprayer, a Dust Sheet, a Gas Bottle, a

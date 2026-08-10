@@ -1,6 +1,6 @@
 {
-  "phase": "Polish wave landed — items and fx go again",
-  "phaseNote": "Both scores fell because the critics reached past the gap they were sent to close. The item economy finding is the one that matters most: the slot is empty for 87% of a race, so the whole item layer is something a player barely touches.",
+  "phase": "Shadows: five pieces, one cause",
+  "phaseNote": "Contact shadows have now failed the menu stage, the world geometry, the machines, the floor quality rung and the items. Each was diagnosed inside its own module and none is a module bug — nothing in the ownership table owns lighting. Next pass takes the whole repo and closes it.",
   "pieces": [
     {
       "id": "feel",
@@ -52,18 +52,18 @@
       "name": "Effects & spectacle",
       "scope": "src/fx",
       "state": "fail",
-      "rounds": 2,
-      "verdict": "6.0/10 after two rounds. The 16-gon puff is gone and the whole particle family with it, since one cell served tyre smoke, dust, impacts and the burnout cloud.",
-      "gap": "The mini-turbo release — the moment the entire drift system exists to pay off — reads as a bug rather than a reward: the rear half of the machine vanishes into a blown-white disc under a hard-edged pale-gold torus lying flat in the road plane, there is no flame at any frame, and the tier colour the player just spent three seconds earning is thrown away for a generic orange."
+      "rounds": 4,
+      "verdict": "6.5/10, up from 6.0. The flat ground torus is gone, the exhaust jets are in, the boost grade is pulled back off the whole frame.",
+      "gap": "The drift ground signature fails in both halves at once. The sparks are a comb of near-parallel constant-width needles lying in the road plane — the seven longest inside a 10 degree spread at aspect ratios of 9:1 to 25:1 — and the tyre smoke is six to eight separately countable grey slabs instead of a continuous rope."
     },
     {
       "id": "items",
       "name": "Items",
       "scope": "src/items",
       "state": "fail",
-      "rounds": 2,
-      "verdict": "5.5/10 after two rounds. The blooper no longer blacks the screen out, and the roster is renamed and re-arted into this game's own vocabulary instead of Nintendo's.",
-      "gap": "The player's item slot is empty for 87% of a race. A full census — 3 laps, 145 seconds, the game's own CPU driver at the wheel — found 3 draws, one unbroken 63.7s stretch with nothing, and a star, bullet, lightning, red shell or mushroom never once reaching the player's hand. The best-built part of this module is something the player barely gets to touch."
+      "rounds": 4,
+      "verdict": "6.5/10. The box economy is fixed — the census that failed it became its acceptance test — and the roster is renamed and re-arted into roadworks. Peaked at 7.5 mid-round.",
+      "gap": "A single carried item is not drawn in the world at all: carry() returns shown 0 for count 1, because the orbit rig is only built for multiples. So the shield that item:block fires six times a race is something the player is protected by and can never see, aim or plan around. Item boxes cast no shadow and loose coins clip through the tarmac as clean half-discs."
     },
     {
       "id": "ai",
@@ -157,6 +157,10 @@
     }
   ],
   "log": [
+    {
+      "when": "2026-08-10 16:16 UTC",
+      "text": "Items round 3 fixed the box economy and peaked at 7.5. Both pieces now sit at 6.5, and the recurring finding across five separate critics is the same one: nothing casts a shadow."
+    },
     {
       "when": "2026-08-10 12:40 UTC",
       "text": "Polish wave landed. A full-race census found the item slot empty 87% of the time — 3 draws in 145 seconds — which is why items scored 5.5 despite the blooper and the roster both being fixed."

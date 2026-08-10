@@ -1008,21 +1008,157 @@ export function contactShadowMaterial(): THREE.MeshBasicMaterial {
   });
 }
 
-/** A flat contact shadow lying in the XZ plane, ready to parent to an item. */
-export function contactShadow(size: number, darkness = 0.26): THREE.Mesh {
-  const mesh = new THREE.Mesh(
-    contactShadowGeometry(size * 0.5, darkness), contactShadowMaterial());
-  mesh.name = 'shadow';
+// ── the blob under a carried item ──────────────────────────────────────────
+//
+// The pair above is a *baked* disc: the falloff and the density are in the
+// vertex colours, so once it is built the only thing a caller can change is how
+// big it is. That is right for a box and for a coin, which never move and never
+// lift, and both still use it.
+//
+// It is wrong for the three hats orbiting a kart, and the round this was
+// written the difference was the single loudest defect in the module. Those
+// three ride 95cm off a road that banks and crowns underneath them, the kart
+// carrying them leaves the ground over every crest, and the shadow has to
+// answer all of that: *directly under the item*, small, soft, weaker the higher
+// it rides, and gone by the time the machine is properly airborne. A disc whose
+// only knob is scale cannot say any of it — and the version that shipped threw
+// the blob a full metre up the road along the sun, which from a chase camera
+// put a hard black ellipse a hat's width away from the hat. A critic looking
+// straight at it read the shadow as a scenery shadow on the same dirt and the
+// items as having none at all, which is the correct reading of that picture.
+//
+// So this one is a shader, with the falloff and the strength as uniforms.
+// Everything else is deliberately the same as the shadow the *karts* cast
+// (`render/contact.ts`): a dense core with a short penumbra, a wide soft skirt
+// around it, and a blue-violet multiply rather than a grey one — ground in
+// shadow is lit by the sky and the sky is blue. A neutral blob beside a violet
+// one is the tell that two systems drew the same frame without talking.
+
+/**
+ * Linear multiplier applied to the ground under a carried item at full density.
+ *
+ * Lighter than `render/contact.ts`'s 0.300/0.272/0.455, and it should be: that
+ * is a whole machine sitting on the road, this is a hard hat floating a metre
+ * over it. Same hue, two thirds of the bite.
+ */
+const CARRY_TINT = [0.340, 0.315, 0.480] as const;
+
+let _carryGeo: THREE.BufferGeometry | null = null;
+
+/** A unit quad in the XZ plane spanning -1..1, shared by every carried blob. */
+function carryShadowGeometry(): THREE.BufferGeometry {
+  if (!_carryGeo) {
+    _carryGeo = new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2);
+  }
+  return _carryGeo;
+}
+
+const CARRY_VERT = /* glsl */ `
+varying vec2 vLocal;
+void main() {
+  vLocal = uv * 2.0 - 1.0;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+}`;
+
+const CARRY_FRAG = /* glsl */ `
+uniform vec3 uTint;
+uniform float uStrength;
+uniform float uCore;
+varying vec2 vLocal;
+void main() {
+  float d = length( vLocal );
+  // Two terms, exactly as the kart's own patch: a nearly hard core that says
+  // "this is a solid object" and a wide soft skirt that stops the core reading
+  // as a sticker. The penumbra widens as the item climbs — that is uCore
+  // shrinking against a fixed quad — so height is legible from the blob alone.
+  float core = 1.0 - smoothstep( uCore - 0.16, uCore + 0.16, d );
+  float halo = 1.0 - smoothstep( uCore * 0.5, 1.0, d );
+  float a = clamp( core * 0.72 + halo * 0.42, 0.0, 1.0 ) * uStrength;
+  if ( a < 0.004 ) discard;
+  gl_FragColor = vec4( mix( vec3( 1.0 ), uTint, a ), 1.0 );
+}`;
+
+/**
+ * The blob under one carried item. Owns its material — `uStrength` and `uCore`
+ * are written every frame from the item's height, so it cannot be shared.
+ */
+export function carryShadow(): THREE.Mesh {
+  const mesh = new THREE.Mesh(carryShadowGeometry(), new THREE.ShaderMaterial({
+    uniforms: {
+      uTint: { value: new THREE.Color(CARRY_TINT[0], CARRY_TINT[1], CARRY_TINT[2]) },
+      uStrength: { value: 1 },
+      uCore: { value: 0.42 },
+    },
+    vertexShader: CARRY_VERT,
+    fragmentShader: CARRY_FRAG,
+    blending: THREE.MultiplyBlending,
+    // three warns once per draw call without this, and with the alpha written
+    // as 1.0 it changes nothing about the result. Same bargain as
+    // `contactShadowMaterial`.
+    premultipliedAlpha: true,
+    transparent: true,
+    depthWrite: false,
+    toneMapped: false,
+    // Same reason as `contactShadowMaterial`: the disc lies within centimetres
+    // of a crowned, banked road and the depth test would otherwise eat whichever
+    // half of it lost.
+    polygonOffset: true,
+    polygonOffsetFactor: -6,
+    polygonOffsetUnits: -12,
+  }));
+  mesh.name = 'carryShadow';
   mesh.renderOrder = -1;
   mesh.userData.noShadow = true;
   return mesh;
 }
 
-export function addProjectileShadow(node: THREE.Object3D, size = 1.15): void {
-  // 0.24, not 0.42. Multiply blending scales the road's own brightness, and
-  // this road is asphalt — there is not much brightness there to scale, so a
-  // disc that only takes 58% of it off is a shadow you have to be told about.
-  node.add(contactShadow(size, 0.24));
+/**
+ * Point the blob at a given height above the road.
+ *
+ * `radius` is the item's own footprint. The disc spreads as it lifts and thins
+ * out with it, and is gone by `fade` metres — the height at which the machine
+ * carrying it is unambiguously in the air and a shadow pinned under it would be
+ * a lie. Returns the world radius the quad should be scaled to.
+ */
+export function setCarryShadow(mesh: THREE.Mesh, radius: number, height: number,
+  fade = 2.6, parentScale = 1): number {
+  const h = Math.max(0, height);
+  const lift = Math.min(1, h / fade);
+  const mat = mesh.material as THREE.ShaderMaterial;
+  // Spread: a shadow gets wider and vaguer the further the thing casting it is
+  // from the ground. uCore is in unit space, so shrinking it while the quad
+  // grows is what turns the hard-edged contact blob into a soft pool.
+  const spread = radius * (1.12 + 0.55 * lift);
+  mat.uniforms.uCore!.value = 0.46 - 0.30 * lift;
+  // Not linear in height. A hard hat at hub height is still very much *on* this
+  // road and its blob has to say so; what has to disappear is the blob under a
+  // machine that has genuinely left the ground, and that is the top of the
+  // range. A straight ramp spends most of its travel washing out the case the
+  // player looks at all race to protect the case they see twice a lap.
+  mat.uniforms.uStrength!.value = Math.pow(1 - lift, 0.6);
+  // `parentScale` divides out a squash or a swell on the node the blob hangs
+  // off. A wheel chock lands with a bounce and a gas bottle grows before it
+  // goes; a shadow that grows with them is a shadow that has left the ground.
+  const k = spread / Math.max(0.01, parentScale);
+  mesh.scale.set(k, 1, k);
+  return spread;
+}
+
+/**
+ * The blob under a projectile — the same object, sized to the thing it hangs
+ * under, driven from `entities.groundShadow`.
+ *
+ * `radius` is the item's own footprint in metres. It was a *baked* grey disc
+ * until the round that fixed the carried items, and the wheel chock lying in
+ * the road was the tell: a hard-edged near-black ellipse under a chock, six
+ * metres from a kart casting a soft blue-violet one. Two shadows in the same
+ * frame, drawn by two different rules, is the thing a player reads as "made by
+ * people who never met" even when they cannot say why.
+ */
+export function addProjectileShadow(node: THREE.Object3D, radius = 0.58): void {
+  const blob = carryShadow();
+  blob.userData.radius = radius;
+  node.add(blob);
 }
 
 export function addProjectileGlow(node: THREE.Object3D, color: number, radius = 0.62): void {

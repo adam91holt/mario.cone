@@ -24,8 +24,8 @@ import { clamp, clamp01, damp, ease } from '../core/math.ts';
 import {
   addProjectileGlow, addProjectileShadow,
   buildBlast, buildBurst, buildChock, buildDustSheet, buildGasBottle, buildSprayer,
-  buildRing, buildScorch, buildShell, cloneWithMaterials, setColor, setOpacity,
-  setRimStrength,
+  buildRing, buildScorch, buildShell, cloneWithMaterials, setCarryShadow, setColor,
+  setOpacity, setRimStrength,
 } from './models.ts';
 import { surfaceHeight } from '../track/geom.ts';
 import type { GameContext, Racer, SplineSample } from '../types.ts';
@@ -174,8 +174,8 @@ export function refreshSunDirection(ctx: GameContext): void {
  * `up`, so it stays on a banked or crowned surface instead of driving through
  * it. Reuses `out`; nothing here allocates.
  */
-export function shadowOffset(height: number, up: THREE.Vector3, out: THREE.Vector3):
-THREE.Vector3 {
+export function shadowOffset(height: number, up: THREE.Vector3, out: THREE.Vector3,
+  reach = 1.6): THREE.Vector3 {
   // The throw, softened. A geometric projection is correct and, past about a
   // metre of height, unreadable: this sun sits at 34° above the horizon, so an
   // item box floating a metre and a half up throws its shadow two and a half
@@ -190,8 +190,14 @@ THREE.Vector3 {
   // toward an asymptote a shade over a kart's width: a coin sitting at 40cm is
   // untouched, and the box goes from 2.57m to 0.99m, which stays under the
   // object that cast it from every angle a player can reach.
+  //
+  // `reach` is that asymptote, and a *carried* item wants a much shorter one.
+  // A box floats alone in the middle of the road and a metre of rake reads as
+  // sunlight; three hats orbiting a kart are a metre and a half apart, so the
+  // same metre puts each blob nearer its neighbour's hat than its own. See
+  // `CARRY_REACH`.
   const raw = height / Math.max(0.25, _sunDir.y);
-  const k = raw / (1 + raw / 1.6);
+  const k = raw / (1 + raw / reach);
   out.set(-_sunDir.x * k, 0, -_sunDir.z * k);
   return out.addScaledVector(up, -out.dot(up));
 }
@@ -249,12 +255,12 @@ export function createEntityField(ctx: GameContext): EntityField {
     // travel *fast* — a halo. A projectile is on screen for under a second and
     // spends it against tarmac; without these it is a coloured lump nobody can
     // find. See `addProjectileShadow`.
-    addProjectileShadow(prototypes.get('banana')!, 1.25);
-    addProjectileShadow(prototypes.get('bomb')!, 1.3);
+    addProjectileShadow(prototypes.get('banana')!, 0.56);
+    addProjectileShadow(prototypes.get('bomb')!, 0.58);
     for (const [kind, colour] of [
       ['greenShell', 0x8CFF6A], ['redShell', 0xFF7A5A],
     ] as Array<[EntityKind, number]>) {
-      addProjectileShadow(prototypes.get(kind)!, 1.6);
+      addProjectileShadow(prototypes.get(kind)!, 0.66);
       addProjectileGlow(prototypes.get(kind)!, colour, 0.46);
     }
 
@@ -620,24 +626,30 @@ export function createEntityField(ctx: GameContext): EntityField {
    * that grows with them is a shadow that has left the ground.
    */
   function groundShadow(e: Entity, node: THREE.Object3D): void {
-    const s = node.getObjectByName('shadow');
+    const s = node.getObjectByName('carryShadow') as THREE.Mesh | undefined;
     if (!s) return;
     const h = Math.max(0, node.position.y - e.groundY);
     const inv = 1 / Math.max(0.01, node.scale.y);
     // Thrown along the sun, like every other shadow in the frame — and undone
     // out of the node's own yaw, because the node spins and a shadow that
     // orbits the thing casting it is worse than no shadow at all.
-    shadowOffset(h, UP, _v);
+    //
+    // The reach is short, for the reason set out over `CARRY_REACH` in
+    // `index.ts`: a shell riding half a metre off the road wants its blob under
+    // it, not a metre up the road where it reads as a mark on the tarmac.
+    shadowOffset(h, UP, _v, 0.45);
     const c = Math.cos(-node.rotation.y);
     const sn = Math.sin(-node.rotation.y);
     s.position.set(
       (_v.x * c + _v.z * sn) * inv,
-      (0.05 - h) * inv,
+      (0.04 - h) * inv,
       (-_v.x * sn + _v.z * c) * inv,
     );
-    // A shadow spreads and weakens as the thing casting it climbs. Materials
-    // are shared across the pool, so this is done with scale rather than alpha.
-    s.scale.setScalar(clamp(1 - h * 0.06, 0.5, 1.15) / Math.max(0.01, node.scale.x));
+    // A shadow spreads and weakens as the thing casting it climbs — and lets go
+    // entirely of a shell that has been launched off a crest, which the version
+    // this replaced did not: it pinned a hard disc under the road forty
+    // centimetres below a shell three metres in the air.
+    setCarryShadow(s, (s.userData.radius as number) ?? 0.58, h, 2.6, node.scale.x);
   }
 
   /**

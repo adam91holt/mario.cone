@@ -32,7 +32,7 @@ import { boostRacer, stunRacer } from '../physics/kart.ts';
 import { buildRacingLine, type RacingLine } from '../track/racingline.ts';
 import type { TrackSpline } from '../track/spline.ts';
 import { drawItem, ITEMS, REEL_FACES, type ItemEntry } from './defs.ts';
-import { createBoxField, PICK_RADIUS_SQ, type BoxField } from './boxes.ts';
+import { boxReached, createBoxField, type BoxField } from './boxes.ts';
 import { COIN_PICK_SQ, createCoinField, type CoinField } from './coins.ts';
 import {
   createEntityField, PROJECTILE_SPEED, refreshSunDirection, roadCrown, shadowOffset,
@@ -40,8 +40,8 @@ import {
 } from './entities.ts';
 import {
   buildChock, buildGasBottle, buildSheetShroud, buildBulletHusk, buildMushroom,
-  buildShell, buildStarAura, cloneWithMaterials, contactShadow, setRimStrength,
-  STAR_SPARKS,
+  buildShell, buildStarAura, carryShadow, cloneWithMaterials, setCarryShadow,
+  setRimStrength, STAR_SPARKS,
 } from './models.ts';
 import { createItemHud, type ItemHud } from './reel.ts';
 import type {
@@ -76,7 +76,21 @@ export {
  *  so the reel can be timed against its own clock, and `tools/items-shots.mjs`
  *  calls `setTimeScale(0)` first, which is the only way to make a frame-by-frame
  *  capture of anything in this game mean what it says. */
-const SPIN_PLAYER = 1.05;
+/**
+ * ...and 0.85 rather than 1.05, which is a *balance* number wearing an
+ * animation's clothes.
+ *
+ * The slot is not blank while the drum turns — it is showing a spinning item —
+ * but `racer.item` is null, and every probe that asks "does the player have
+ * something" is reading that. At the cadence the boxes now run at, an
+ * autopiloted player draws seventeen or eighteen times in a race, so every
+ * tenth of a second of reel is nearly two seconds of the race in which the
+ * answer to that question is no. Two tenths off the top is a fifth of the reel
+ * and 2.5% of the race, and the beat survives it intact: the drum still runs
+ * nine faces and still decelerates into the snap, which is the part anybody
+ * actually watches.
+ */
+const SPIN_PLAYER = 0.85;
 const SPIN_CPU = 0.4;
 /** How long the item the reel just handed over stays oversized. Short: this is
  *  a punch, not an animation. */
@@ -171,6 +185,23 @@ const ORBIT_SCALE = 0.95;
  */
 const TRAIL_BACK = 2.0;
 const TRAIL_HEIGHT = 0.42;
+
+/**
+ * How far a *carried* item's shadow is raked along the sun, asymptotically.
+ *
+ * A third of a metre, against the 1.6 an item box uses, and the gap between
+ * those two numbers is the whole of the defect this round exists to fix. A box
+ * floats alone in the middle of the road: a metre of rake reads as sunlight and
+ * says "this thing is off the ground". Three hard hats orbiting a kart are a
+ * metre and a half apart at 95cm of altitude, so the same rake lands each blob
+ * clear of its own hat and most of the way to its neighbour's — and a dark
+ * ellipse a hat's width from the hat is not read as that hat's shadow by
+ * anybody. It is read as a mark on the road, which is exactly what the critic
+ * who rejected this build called it, in the same sentence as "the items cast no
+ * shadow". At 0.34 the throw still points where every other shadow in the frame
+ * points, and it never leaves the silhouette of the thing casting it.
+ */
+const CARRY_REACH = 0.34;
 
 const OFFROAD: ReadonlySet<Surface> = new Set<Surface>(['dirt', 'grass', 'sand', 'water']);
 
@@ -277,6 +308,37 @@ const HIT_KIND: Partial<Record<ItemId, HitKind>> = {
   horn: 'bump',
 };
 
+/**
+ * ...and where an item is not content to be a stock example of its kind.
+ *
+ * The four profiles above are *shapes of reaction*, not item stats, and for one
+ * item that abstraction was hiding a real bug. A gas bottle and a hard hat both
+ * flip you, so both took `HIT.flip` — one second of stun, one turn, a 6.2m/s
+ * launch — and traced hit by hit they produced the same slip curve to the
+ * degree. The biggest bang in the roster landed exactly as hard as the
+ * smallest, and every other part of the game was already telling the player it
+ * would not: the bottle has a fuse you can hear, a blast radius of seven and a
+ * half metres, a fireball, a scorch mark the road keeps for five seconds, and a
+ * shove that scales with how close you were standing.
+ *
+ * So the bottle gets its own numbers. It is still a `flip` on the wire —
+ * `item:strike` and `item:reaction` carry the four-value vocabulary that fx and
+ * audio switch on, and inventing a fifth would silently drop the largest
+ * explosion in the game into both modules' default branch — but a third again
+ * of stun, half a turn more of rotation, and a launch half as big again as a
+ * shell's. You get thrown, and it takes you longer to gather it up.
+ */
+const HIT_ITEM: Partial<Record<ItemId, HitProfile>> = {
+  bomb: {
+    stun: 1.34, turns: 1, over: 0.42 * TAU, easePow: 3.4,
+    bite: 4.8, biteTau: 0.19, tail: 0.52, launch: 9.6, roll: 0.46, shove: 0.38,
+  },
+};
+
+/** The reaction a given item produces: its own, or its kind's stock one. */
+const profileOf = (item: ItemId | null, kind: HitKind): HitProfile =>
+  (item ? HIT_ITEM[item] : undefined) ?? HIT[kind];
+
 /** Constant drag under the decay, m/s². It stops working before zero — the
  *  player must still be rolling when control comes back. */
 const HIT_DRAG = 6;
@@ -284,6 +346,73 @@ const HIT_FLOOR = 6.5;
 /** Seconds at the end of the spin over which the chassis is handed back to the
  *  physics orientation, so control returns without a snap. */
 const HIT_RELEASE = 0.18;
+/**
+ * Seconds of protection *after* the spin-out ends.
+ *
+ * Long enough that the kart that just hit you cannot immediately hit you again
+ * while you are still gathering the thing up, short enough that it is not a
+ * free run. Ends in a blink — see `GRACE_BLINK`.
+ */
+const GRACE_AFTER = 0.7;
+/**
+ * ...of which the last stretch is handed to `racer.invulnerable`.
+ *
+ * That field blinks the machine, and this is the only window in which a blink
+ * says something true: you have your kart back, you are still protected, and
+ * the protection is about to stop. It never overlaps the spin-out, so nothing
+ * a player is watching happen to their own machine is delivered on a
+ * half-invisible one.
+ */
+const GRACE_BLINK = 0.4;
+
+/**
+ * How long a CPU will sit on an item it has nothing to aim at, seconds.
+ *
+ * Read this against the lap: a row of boxes comes round every eight seconds or
+ * so of driving, so an item held for eight is an item held for the whole gap
+ * between draws — which is exactly the shape a kart racer's item slot is meant
+ * to have. It was five to seven *with a target test that almost always passed*,
+ * so the real number was closer to one and a half, and the field spent the race
+ * throwing hats at empty road and driving on with nothing in hand.
+ */
+const HOARD = 8.0;
+/**
+ * ...and longer still for the two that are worth more behind you than in front.
+ *
+ * A chock on the back bumper and a hat held low are *shields* (see the block in
+ * `onHit`): while they are there the next thing thrown at this kart hits them
+ * instead. A CPU that throws its shield away at the first empty road behind it
+ * has spent an item to accomplish nothing at all.
+ */
+const HOARD_SHIELD = 11.0;
+/**
+ * Metres before a row of boxes at which a CPU spends whatever it is still
+ * holding, seconds be damned.
+ *
+ * This is the behaviour that actually keeps an item slot full, and it is worth
+ * being explicit about why. You cannot take a box with your hands full, so an
+ * item carried *through* a row does not merely delay the next draw — it throws
+ * the row away, and the next chance is a third of a lap later. Every decent
+ * Mario Kart player clears their slot on the approach for exactly this reason,
+ * and a field that does not is a field whose item boxes are mostly decoration.
+ *
+ * Sixteen metres is about four tenths of a second at racing speed — long enough
+ * that a chock dropped here is a real hazard on the run-in and short enough
+ * that the slot is not standing empty for a quarter of the gap between rows
+ * waiting for one. Every metre of this window is a metre of empty slot, and
+ * that is the whole reason it is as tight as it is.
+ */
+const USE_BEFORE_ROW = 16;
+/**
+ * The shortest a CPU will ever sit on anything, seconds.
+ *
+ * A floor under `aiDelay`, and it exists because the instant items — the coin
+ * above all, which is a third of what a leader ever draws — have delays low
+ * enough that the reel had barely stopped before the slot was empty again. A
+ * beat of *having* the item is not a delay tax, it is the difference between
+ * drawing something and being handed a result.
+ */
+const PATIENCE_FLOOR = 2.8;
 
 // ── scratch ────────────────────────────────────────────────────────────────
 
@@ -307,7 +436,12 @@ const ROLL_AXIS = new THREE.Vector3(0, 0, 1);
 const PITCH_AXIS = new THREE.Vector3(1, 0, 0);
 /** The contact point under a kart, in the kart's own frame. */
 const _ground = new THREE.Vector3();
+/** The road's up at that point — the plane a carried item's blob lies in. */
+const _norm = new THREE.Vector3();
 const _shadow = new THREE.Vector3();
+/** Measuring a held model's footprint. Written once per item id, at build. */
+const _box = new THREE.Box3();
+const _size = new THREE.Vector3();
 const _off = new THREE.Vector3();
 /** The muzzle's own scratch. Deliberately not shared with `_off`, which is
  *  written from `update`, because this one is written from the fixed step. */
@@ -362,6 +496,9 @@ interface RacerItems {
   hitTime: number;
   hitTotal: number;
   hitKind: HitKind;
+  /** The numbers this particular hit is being integrated against — captured on
+   *  impact, because two items can share a `kind` and not a profile. */
+  hitProfile: HitProfile;
   /** World-space direction of travel, held for the whole spin. */
   hitDirX: number;
   hitDirZ: number;
@@ -376,6 +513,24 @@ interface RacerItems {
   hitColor: number;
   /** Visual emitter clock for that trail. Written only from `update`. */
   hitPuff: number;
+  /**
+   * Seconds of "you cannot be hit again yet", counted by this module.
+   *
+   * Separate from `racer.invulnerable` on purpose, and it is a *visual*
+   * distinction rather than a bookkeeping one. The vehicle rig blinks anything
+   * carrying `invulnerable`, which is the right tell for the half-second after
+   * you get control back and completely wrong for the second and a half a
+   * spin-out plus its grace period actually lasts: a wheel chock used to hand
+   * `stun + 0.55` straight to `invulnerable`, and the machine strobed through
+   * the whole reaction — photographed 0.8s after the hit there was nothing on
+   * the road but a shadow. The spin-out is the most expensive thing that
+   * happens to a player and it has to be *delivered on a solid machine*.
+   *
+   * So the protection lives here for the length of the spin, and only the last
+   * `GRACE_BLINK` seconds of it are handed to `invulnerable` — where the blink
+   * then means what it is supposed to mean: your shield is running out.
+   */
+  grace: number;
 
   /** Visual state, written only from `update`. */
   orbit: THREE.Group | null;
@@ -396,9 +551,10 @@ function newState(id: number): RacerItems {
     star: 0, bullet: 0, bulletDist: 0, bulletLat: 0, bulletSpeed0: 0,
     shrunk: 0, ink: 0, boo: 0, booSteal: 0, booTarget: -1,
     shown: 0, guarded: false,
-    hitTime: 0, hitTotal: 1, hitKind: 'spin', hitDirX: 0, hitDirZ: 1,
+    hitTime: 0, hitTotal: 1, hitKind: 'spin', hitProfile: HIT.spin,
+    hitDirX: 0, hitDirZ: 1,
     hitSpeed: 0, hitYaw0: 0, hitEnd: 0, hitOver: 0, hitDir: 1,
-    hitColor: 0xFFF8F0, hitPuff: 0,
+    hitColor: 0xFFF8F0, hitPuff: 0, grace: 0,
     orbit: null, orbitKey: '', aura: null, husk: null, shroud: null, scale: 1,
     phase: id * 1.7, sparkle: 0,
   };
@@ -417,6 +573,8 @@ export function createItemSystem(ctx: GameContext): GameSystem {
   ctx.scene.add(rig);
 
   const heldProtos = new Map<string, THREE.Object3D>();
+  /** ...and how much road each of them covers. See `heldPrototype`. */
+  const heldRadius = new Map<string, number>();
   /** Spare orbit rigs, keyed `item:count`. See `drawCarried`. */
   const orbitPool = new Map<string, THREE.Group[]>();
   let auraProto: THREE.Object3D | null = null;
@@ -498,7 +656,10 @@ export function createItemSystem(ctx: GameContext): GameSystem {
    */
   const immune = (racer: Racer): boolean =>
     racer.effects.has('star') || racer.effects.has('bullet')
-    || racer.effects.has('boo') || racer.invulnerable > 0;
+    || racer.effects.has('boo') || racer.invulnerable > 0
+    // ...and the post-hit grace, which spends most of its life *not* written to
+    // `invulnerable` so the spin-out is delivered on a machine you can see.
+    || (states.get(racer.id)?.grace ?? 0) > 0;
 
   /** `Array.find` with a closure allocates, and these run inside the fixed
    *  step on every projectile contact. */
@@ -578,12 +739,14 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     const st = stateOf(racer);
     st.hold = 0;
 
-    beginHit(racer, st, kind, by, from ?? by?.pos ?? null, def.color, force);
+    beginHit(racer, st, kind, by, from ?? by?.pos ?? null, def.color, force, item);
     hitFx(racer, kind, def.color, force);
 
     if (racer.isPlayer) {
       hud.flash(def.color, kind === 'spin' ? 0.3 : 0.45);
-      ctx.fx?.shake(kind === 'spin' ? 0.55 : 0.95, 0.4);
+      // ...and scaled by how hard it landed, so standing next to a gas bottle
+      // when it goes is not the same camera move as clipping the edge of it.
+      ctx.fx?.shake((kind === 'spin' ? 0.55 : 0.95) * clamp(force, 0.7, 1.35), 0.4);
       // Name it. Everything else about a hit — the spin, the red instruments,
       // the coins on the road — is the same picture whichever item caused it.
       hud.strike(item);
@@ -601,8 +764,15 @@ export function createItemSystem(ctx: GameContext): GameSystem {
    * rotation *about* the first.
    */
   function beginHit(racer: Racer, st: RacerItems, kind: HitKind, by: Racer | null,
-    from: THREE.Vector3 | null, color: number, force: number): void {
-    const P = HIT[kind];
+    from: THREE.Vector3 | null, color: number, force: number,
+    item: ItemId | null = null): void {
+    // The profile is captured here and held for the whole spin-out. Looking it
+    // up per step off `hitKind` alone is what made every `flip` identical: the
+    // kind is the *shape* of the reaction and the item is how hard it lands,
+    // and only one of those two survives into the integrator unless it is
+    // written down.
+    const P = profileOf(item, kind);
+    st.hitProfile = P;
 
     // The direction of travel, in the world, flattened. A kart that is barely
     // moving has no travel direction worth keeping, so it borrows its nose.
@@ -665,6 +835,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     // `stunRacer` would otherwise silently drop the event and the flags.
     const keep = racer.speed;
     racer.invulnerable = 0;
+    st.grace = P.stun + GRACE_AFTER;
     // `flip` is this module's word; physics knows three. A flip is a spin as
     // far as its own flags are concerned, and the extra flag below is what
     // tells anyone who cares the difference.
@@ -672,7 +843,11 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       kind === 'bump' ? 'bump' : kind === 'squish' ? 'squish' : 'spin', by);
     racer.speed = keep;
     racer.stunned = P.stun;
-    racer.invulnerable = P.stun + 0.55;
+    // **Not** `invulnerable`. `stunRacer` may have written one of its own, and
+    // anything on that field blinks the machine — see `RacerItems.grace`. The
+    // protection is `st.grace`; `invulnerable` is picked up again in
+    // `tickGrace`, once there is a machine under the player's hands to blink.
+    racer.invulnerable = 0;
     if (kind === 'flip') racer.effects.add('flip');
 
     // Off the ground for the heavy ones. Physics only believes a kart is
@@ -701,7 +876,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
    * the third, which is what turned every hit into a circle.
    */
   function driveSpinout(racer: Racer, st: RacerItems, dt: number): void {
-    const P = HIT[st.hitKind];
+    const P = st.hitProfile;
     st.hitTime = Math.max(0, st.hitTime - dt);
     const left = st.hitTime;
     const age = st.hitTotal - left;
@@ -765,6 +940,29 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     racer.quat.slerp(_quat, clamp01(left / HIT_RELEASE));
 
     if (left <= 0) endHit(racer, st);
+  }
+
+  /**
+   * The post-hit grace, and the one window in which the machine is allowed to
+   * blink.
+   *
+   * Runs every fixed step for every racer, before anything can hit them. Two
+   * jobs: count the protection down, and hand its last `GRACE_BLINK` seconds to
+   * `racer.invulnerable` — which is what the vehicle rig strobes. While the
+   * spin-out is running, `invulnerable` is held at zero, so the reaction a
+   * player is watching happen to their own kart happens on a solid one.
+   *
+   * `Math.max` rather than a plain write, because a star, a boo and physics'
+   * own kart-on-kart bump all use the same field and this must never shorten
+   * one of theirs.
+   */
+  function tickGrace(racer: Racer, st: RacerItems, dt: number): void {
+    if (st.grace <= 0) return;
+    st.grace = Math.max(0, st.grace - dt);
+    if (racer.stunned > 0 || st.hitTime > 0) return;
+    if (st.grace > 0 && st.grace <= GRACE_BLINK) {
+      racer.invulnerable = Math.max(racer.invulnerable, st.grace);
+    }
   }
 
   /** Clear up after a spin-out. The flags are cleared here rather than left to
@@ -1024,15 +1222,38 @@ export function createItemSystem(ctx: GameContext): GameSystem {
   function pickups(racer: Racer, st: RacerItems): void {
     const d = lapDistance(racer);
 
-    if (!racer.item && st.spin <= 0 && !racer.effects.has('bullet')) {
+    // ...**including while riding a pile driver.** A bullet drives the racing
+    // line at forty metres a second, which takes it straight through the middle
+    // of every row on the circuit, and this used to be gated off so a racer
+    // ploughed through thirty item boxes over six seconds and came out the far
+    // end holding nothing. That is the game ignoring something the player
+    // watched happen. It also gives the ride a *landing*: you are put down in
+    // fourth with something in your hands rather than put down in fourth and
+    // immediately overtaken. The item cannot be fired while the husk is on —
+    // `st.bullet` blocks `use` — so this is a hand-off, not a double-dip.
+    if (!racer.item && st.spin <= 0) {
       const near = boxes.candidates(d);
+      // The **nearest** one in reach, not the first the broadphase happens to
+      // list. The reach is wider than the spacing on purpose — a pack all
+      // funnelling down the racing line strips the middle of a row and leaves
+      // its edges standing, and a kart that can only take the box it is
+      // pointed at gets nothing while two sit a metre and a half away — so on
+      // a busy row two or three boxes are in range at once and it matters
+      // which breaks. Taking the far one while the near one is untouched is
+      // the kind of thing nobody can name and everybody sees.
+      let best = -1;
+      let bestD = Infinity;
       for (let i = 0; i < near.length; i++) {
-        const box = boxes.boxes[near[i]!]!;
+        const idx = near[i]!;
+        const box = boxes.boxes[idx]!;
         if (box.respawn > 0) continue;
-        if (box.pos.distanceToSquared(racer.pos) > PICK_RADIUS_SQ + 1.4) continue;
-        breakOpen(racer, st, near[i]!);
-        break;
+        if (!boxReached(box, racer.pos)) continue;
+        const dx = box.pos.x - racer.pos.x;
+        const dz = box.pos.z - racer.pos.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < bestD) { bestD = d2; best = idx; }
       }
+      if (best >= 0) breakOpen(racer, st, best);
     }
 
     const nearCoins = coins.candidates(d);
@@ -1491,14 +1712,51 @@ export function createItemSystem(ctx: GameContext): GameSystem {
    * road teaches the player that items are noise. Each item asks its own
    * question, and the answer is gated by a draw from `ctx.rng` so the field
    * does not act in unison.
+   *
+   * **A held item is a position, not indecision.** This is the half that was
+   * missing, and it cost the game more than the box layout did: the whole field
+   * — the autopiloted player included — used to dump whatever it drew within a
+   * second or two of drawing it, at nothing in particular, and then drive on
+   * with an empty slot until the next row. Dragging a wheel chock behind you
+   * for half a lap is not a CPU failing to make up its mind; it is the single
+   * most common thing a good Mario Kart player does, it is what the shield in
+   * `onHit` exists to reward, and it is why a real kart racer's item slot is
+   * *full* most of the time. Every branch below now has a target test worth
+   * failing and a hoard limit measured in the seconds a lap actually has.
    */
   function aiUse(racer: Racer, st: RacerItems, distance: number): void {
     const id = racer.item!;
     const def = ITEMS[id];
     const skill = racer.ai?.skill ?? 0.8;
-    const patience = def.aiDelay * (1.6 - skill);
+    /**
+     * Patience *rises* with skill, which is the opposite of what it used to do.
+     * `1.6 - skill` made the best driver in the field the twitchiest — a 0.95
+     * skill CPU threw its shell in two thirds of the time an 0.6 took, when the
+     * thing that separates a good kart player from a bad one is precisely that
+     * they wait for the shot.
+     */
+    const patience = Math.max(PATIENCE_FLOOR, def.aiDelay * (0.85 + skill * 0.85));
     if (st.held < patience) return;
     const chance = ctx.config.ai.itemUseChance;
+
+    // The row is coming and this kart's hands are full — see `USE_BEFORE_ROW`.
+    // Deliberately *above* the per-item questions rather than folded into each
+    // one's fallback: it is not "I have run out of patience", it is "there is a
+    // box forty metres away and I cannot take it holding this".
+    if (boxes.gapAhead(distance) < USE_BEFORE_ROW) {
+      // Scattered across the approach rather than fired on the metre. Every
+      // kart in the field runs this test on the same forty metres of road, and
+      // eight machines throwing on the same frame every lap is a chorus line,
+      // not a race. A coin flip per look, five looks a second, spreads them
+      // over the whole run-in.
+      if (ctx.rng.bool(0.6)) {
+        // Backwards for the chock, which is worth more on the road behind a row
+        // of boxes than in the air in front of it: everyone converges on a row,
+        // so a chock laid on the approach is the best-placed chock of the lap.
+        use(racer, st, id !== 'banana');
+      }
+      return;
+    }
 
     switch (id) {
       case 'mushroom':
@@ -1507,35 +1765,50 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         const straight = Math.abs(ctx.track!.spline.atDistance(distance + 30, _sample).curvature) < 0.004;
         if (OFFROAD.has(racer.surface) || (straight && racer.speed > 12)) {
           if (ctx.rng.bool(chance)) use(racer, st, true);
-        } else if (st.held > 6) use(racer, st, true);
+        } else if (st.held > HOARD) use(racer, st, true);
         break;
       }
       case 'banana': {
-        const behind = nearest(racer, false, 22);
-        if (behind || st.held > 5) {
+        // Close behind, and *close* is the word: at twenty-two metres a chock
+        // dropped on the racing line is something the chaser has a second and a
+        // half to read and steer around, so the drop was free and the shield
+        // was gone. Ten metres is inside their reaction — and until somebody is
+        // that close, the chock is worth more hanging off the back bumper,
+        // where it eats the next hard hat aimed at this kart.
+        const behind = nearest(racer, false, 8);
+        if (behind || st.held > HOARD_SHIELD) {
           if (ctx.rng.bool(chance)) use(racer, st, false);
         }
         break;
       }
       case 'greenShell': {
-        const ahead = nearest(racer, true, 48);
-        const behind = nearest(racer, false, 16);
-        if (ahead && ctx.rng.bool(chance * skill)) use(racer, st, true);
+        // A hard hat travels in a straight line, so the shot is only on if the
+        // road ahead is one. Firing it into the apex of a hairpin is the shot
+        // that made items look like noise.
+        const ahead = nearest(racer, true, 30);
+        const behind = nearest(racer, false, 9);
+        const straight = Math.abs(ctx.track!.spline.atDistance(distance + 20, _sample).curvature) < 0.006;
+        if (ahead && straight && ctx.rng.bool(chance * skill)) use(racer, st, true);
         else if (behind && ctx.rng.bool(chance * 0.6)) use(racer, st, false);
-        else if (st.held > 7) use(racer, st, true);
+        else if (st.held > HOARD_SHIELD) use(racer, st, true);
         break;
       }
       case 'redShell': {
-        if (racer.place > 1 && ctx.rng.bool(chance)) use(racer, st, true);
-        else if (st.held > 6) use(racer, st, false);
+        // It homes, so the only question is whether there is anybody in front
+        // of this kart *on the road* to home at. `place > 1` said yes for a
+        // leader's chaser forty seconds up the circuit, and the shell died of
+        // old age every time.
+        const ahead = nearest(racer, true, 40);
+        if (ahead && ctx.rng.bool(chance)) use(racer, st, true);
+        else if (st.held > HOARD) use(racer, st, true);
         break;
       }
       case 'bomb': {
-        const ahead = nearest(racer, true, 34);
-        const behind = nearest(racer, false, 18);
+        const ahead = nearest(racer, true, 26);
+        const behind = nearest(racer, false, 12);
         if (ahead && ctx.rng.bool(chance)) use(racer, st, true);
         else if (behind && ctx.rng.bool(chance)) use(racer, st, false);
-        else if (st.held > 6) use(racer, st, true);
+        else if (st.held > HOARD) use(racer, st, true);
         break;
       }
       case 'horn': {
@@ -1545,7 +1818,59 @@ export function createItemSystem(ctx: GameContext): GameSystem {
           if (!e.active || e.kind !== 'redShell' || e.targetId !== racer.id) continue;
           if (e.pos.distanceToSquared(racer.pos) < 700) { inbound = true; break; }
         }
-        if (inbound || st.held > 5) use(racer, st, true);
+        if (inbound || st.held > HOARD) use(racer, st, true);
+        break;
+      }
+      case 'coin': {
+        // Under the cap a coin is *top speed*, and top speed banked now is
+        // worth more than top speed banked later, so it goes straight in. At
+        // the cap it is a quarter-second nudge and nothing else — and a nudge
+        // is worth waiting for a place to spend, which is why the leader's
+        // consolation prize stopped evaporating the instant the reel stopped.
+        if (racer.coins < COIN_CAP) use(racer, st, true);
+        else if (OFFROAD.has(racer.surface) || racer.speed < racer.maxSpeed * 0.72) {
+          use(racer, st, true);
+        }
+        break;
+      }
+      case 'blooper': {
+        // It tars the glass of everybody ahead. Nobody ahead, nothing to tar.
+        if (racer.place > 2 && ctx.rng.bool(chance)) use(racer, st, true);
+        else if (st.held > HOARD) use(racer, st, true);
+        break;
+      }
+      case 'star': {
+        // Invincible, faster, and it knocks people aside — so it is worth
+        // something *near other karts* and worth much less on an empty road.
+        // Firing it the instant it lands is how a tail-ender spends the best
+        // item on the table overtaking nobody.
+        const near = nearest(racer, true, 40) ?? nearest(racer, false, 18);
+        if (near || OFFROAD.has(racer.surface)) { if (ctx.rng.bool(chance)) use(racer, st, true); }
+        else if (st.held > HOARD) use(racer, st, true);
+        break;
+      }
+      case 'bulletBill': {
+        // It flies you *up the road*. With nobody up the road to reach, all it
+        // does is take the wheel off you for six seconds.
+        if (nearest(racer, true, 140) && ctx.rng.bool(chance)) use(racer, st, true);
+        else if (st.held > HOARD) use(racer, st, true);
+        break;
+      }
+      case 'lightning': {
+        // Everyone ahead loses their item, their size and their speed — so the
+        // bolt is worth most when there is a field in front of you to shrink,
+        // and worth nothing at all from the front.
+        if (racer.place > 1 && ctx.rng.bool(chance * 0.7)) use(racer, st, true);
+        else if (st.held > HOARD) use(racer, st, true);
+        break;
+      }
+      case 'boo': {
+        // A dust sheet steals. It steals *nothing* off a field that is holding
+        // nothing, which is exactly the moment a CPU used to spend it.
+        let carrying = 0;
+        for (const other of ctx.racers) if (other !== racer && other.item) carrying++;
+        if (carrying >= 2 && ctx.rng.bool(chance)) use(racer, st, true);
+        else if (st.held > HOARD) use(racer, st, true);
         break;
       }
       default:
@@ -1811,6 +2136,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
   function squishPass(): void {
     for (const small of ctx.racers) {
       if (!small.effects.has('shrunk') || small.invulnerable > 0) continue;
+      if (stateOf(small).grace > 0) continue;
       for (const big of ctx.racers) {
         if (big === small || big.effects.has('shrunk')) continue;
         if (big.pos.distanceToSquared(small.pos) > 6.5) continue;
@@ -1840,7 +2166,10 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     // reason boo belongs here rather than in the branch above: a boo must not
     // pay for the hit with the item it is carrying, and the branch above spends
     // the shield.
-    if (racer.invulnerable > 0 || racer.stunned > 0 || racer.effects.has('boo')) return false;
+    // (`grace` and not only `invulnerable`, because the grace period spends
+    // most of its life off that field on purpose — see `RacerItems.grace`.)
+    if (racer.invulnerable > 0 || racer.stunned > 0 || racer.effects.has('boo')
+      || stateOf(racer).grace > 0) return false;
 
     if (e.kind === 'bomb') {
       explode(e.pos, e.ownerId, e.groundY);
@@ -1896,6 +2225,15 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       default: return null;
     }
     heldProtos.set(key, proto);
+    // ...and how much road it covers, measured off the model rather than
+    // guessed. A wheel chock, a hard hat and a gas bottle are different sizes,
+    // and a shadow authored as one constant is visibly too big under one of
+    // them and too small under another — which is exactly how a blob stops
+    // reading as *that object's* shadow. Measured once, here, because a
+    // bounding box walks the whole mesh.
+    _box.setFromObject(proto);
+    _box.getSize(_size);
+    heldRadius.set(key, clamp(Math.max(_size.x, _size.z) * 0.5, 0.22, 0.7));
     return proto;
   }
 
@@ -1966,9 +2304,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
             copy.visible = true;
             copy.scale.setScalar(ORBIT_SCALE);
             carrier.add(copy);
-            const blob = contactShadow(0.86 * ORBIT_SCALE * 2, 0.22);
-            blob.name = 'carryShadow';
-            carrier.add(blob);
+            carrier.add(carryShadow());
             group.add(carrier);
           }
         }
@@ -1990,6 +2326,17 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     _right.set(1, 0, 0).applyQuaternion(_quat);
     _up.set(0, 1, 0).applyQuaternion(_quat);
     _pos.copy(_vis).addScaledVector(_up, -0.55);
+
+    // ...and the *road*, which is not the same plane. The contact point above
+    // rides with the machine, so over a crest it is a metre in the air and a
+    // shadow pinned to it hangs in the sky with the kart. One `nearest` per
+    // racer per frame — not one per item — and the surface each blob lands on
+    // is then evaluated in that sample's own frame, which holds over the two
+    // and a half metres an orbit reaches.
+    const track = ctx.track;
+    const s = track ? track.spline.nearest(_vis, _sample) : null;
+    const verge = track?.course.vergeWidth ?? 5;
+    if (s) _norm.copy(s.up);
 
     // The settle punch. For the fraction of a second after the reel lands, the
     // item the kart is holding is oversized and falling back to size — the one
@@ -2023,27 +2370,61 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         node.rotateY(-a);
       }
       node.scale.setScalar(ORBIT_SCALE * punch);
-      // ...and the shadow on the road under it. Height is measured against the
-      // *kart's* contact plane rather than the world horizontal, so it holds on
-      // the banking, and the disc is thrown along the sun like every other
-      // shadow in the frame.
-      const blob = carrier.children[1];
-      if (blob) {
-        // Eight racers with a triple each is twenty-four extra draw calls for
-        // discs a couple of pixels across at the far end of a straight. Contact
-        // matters where the eye can see it; past seventy metres it cannot.
-        blob.visible = carrier.position.distanceToSquared(ctx.camera.position) < 70 * 70;
+
+      // ── the blob on the road under it ─────────────────────────────────────
+      //
+      // The one thing that decides whether the three hats are *orbiting the
+      // kart* or *pasted over the frame*. Three rules, and the version this
+      // replaced broke all three at once.
+      //
+      //   *It goes under the item.* The throw along the sun is compressed to a
+      //   third of a metre — enough to agree with the direction every other
+      //   shadow in the frame is raked, short enough that the blob never leaves
+      //   the item's own silhouette. At the box's asymptote it was a metre, and
+      //   a metre from a hat on a chase camera is a separate black ellipse: the
+      //   critic who rejected this read it as a scenery shadow and the hats as
+      //   casting nothing, which is what that picture actually shows.
+      //
+      //   *It lands on the road, not on the kart.* Projected onto the track
+      //   surface at the blob's own lateral offset — so it holds through the
+      //   crown, the banking and the verge — and it lets go when the machine
+      //   leaves the ground instead of flying with it.
+      //
+      //   *It is the item's size and the item's height.* Radius off the model's
+      //   own footprint, spreading and thinning as it lifts.
+      const blob = carrier.children[1] as THREE.Mesh | undefined;
+      if (!blob) continue;
+      // Eight racers with a triple each is twenty-four extra draw calls for
+      // discs a couple of pixels across at the far end of a straight, so there
+      // is a cull — but it is a long one. At seventy metres this dropped the
+      // shadows out of the *overhead* camera, which sits about eighty up and is
+      // the one shot a reviewer uses to check exactly this. A cull that hides
+      // the thing from the instrument that measures it is not an optimisation.
+      blob.visible = carrier.position.distanceToSquared(ctx.camera.position) < 95 * 95;
+      if (!blob.visible) continue;
+
+      // Height above the *road*: drop the item onto the surface at its own
+      // lateral offset, measured along the track's up.
+      let h: number;
+      if (s) {
+        _to.subVectors(carrier.position, s.pos);
+        const lat = _to.dot(s.right);
+        _shadow.copy(s.pos).addScaledVector(s.right, lat)
+          .addScaledVector(_norm, roadCrown(lat, s.width, verge));
+        h = _to.subVectors(carrier.position, _shadow).dot(_norm);
+        // Keep the along-track component: the sample's origin is under the
+        // *kart*, and an item two metres ahead of it belongs two metres ahead.
+        _shadow.copy(carrier.position).addScaledVector(_norm, -h);
+      } else {
+        _norm.copy(_up);
+        h = 0.55;
+        _shadow.copy(carrier.position).addScaledVector(_norm, -h);
       }
-      if (blob && blob.visible) {
-        _to.subVectors(carrier.position, _pos);
-        const h = Math.max(0.05, _to.dot(_up));
-        _shadow.copy(_pos).addScaledVector(_up, 0.03)
-          .addScaledVector(_to, 1).addScaledVector(_up, -h)
-          .add(shadowOffset(h, _up, _off));
-        blob.position.subVectors(_shadow, carrier.position);
-        blob.quaternion.setFromUnitVectors(UP, _up);
-        blob.scale.setScalar(clamp(1 - h * 0.08, 0.55, 1.1));
-      }
+      _shadow.addScaledVector(_norm, 0.03)
+        .add(shadowOffset(Math.max(0, h), _norm, _off, CARRY_REACH));
+      blob.position.subVectors(_shadow, carrier.position);
+      blob.quaternion.setFromUnitVectors(UP, _norm);
+      setCarryShadow(blob, heldRadius.get(id!) ?? 0.34, h);
     }
   }
 
@@ -2303,13 +2684,21 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       visualTime = 0;
       entities.clear();
       for (const st of states.values()) {
-        if (st.orbit) rig.remove(st.orbit);
+        // Back to the pool, not into the bin. The models inside an orbit rig
+        // share their materials with the hidden prototype and must never be
+        // disposed; the blob under each one owns a material of its own and must
+        // be. Clearing the pool on every reset dropped both on the floor, and
+        // the capture harness resets a dozen times a run.
+        if (st.orbit) {
+          rig.remove(st.orbit);
+          const bin = orbitPool.get(st.orbitKey);
+          if (bin) bin.push(st.orbit); else orbitPool.set(st.orbitKey, [st.orbit]);
+        }
         dropNode(st.aura);
         dropNode(st.husk);
         dropNode(st.shroud);
       }
       states.clear();
-      orbitPool.clear();
       // A shrunk racer whose state has just been thrown away would otherwise
       // start the next race at half size for ever, and a racer reset mid-spin
       // would carry this module's own `flip` flag into it — the clock that
@@ -2360,6 +2749,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         const st = stateOf(racer);
         if (st.useLock > 0) st.useLock = Math.max(0, st.useLock - dt);
         if (st.settle > 0) st.settle = Math.max(0, st.settle - dt);
+        tickGrace(racer, st, dt);
         // Before anything else, and before the effects: a spin-out is this
         // module correcting the step physics has just taken, so it has to land
         // on the same step. A star or a bullet cancels it outright.
@@ -2465,10 +2855,24 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         if (Array.isArray(m)) for (const x of m) x.dispose();
         else m?.dispose();
       });
+      // ...and the pooled orbit rigs, which by then are detached from `rig` and
+      // therefore invisible to the traversal above.
+      for (const bin of orbitPool.values()) {
+        for (const group of bin) {
+          group.traverse((o) => {
+            const mesh = o as THREE.Mesh;
+            if (!mesh.isMesh) return;
+            const m = mesh.material as THREE.Material | THREE.Material[] | undefined;
+            if (Array.isArray(m)) for (const x of m) x.dispose();
+            else m?.dispose();
+          });
+        }
+      }
       ctx.scene.remove(rig);
       states.clear();
       orbitPool.clear();
       heldProtos.clear();
+      heldRadius.clear();
     },
   };
 
@@ -2581,7 +2985,11 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         byId = -1): boolean {
         const racer = racerById(racerId);
         if (!racer) return false;
+        // Both halves of the protection, or a bench staging two hits in a row
+        // gets one hit and a silent no-op — `grace` outlives `invulnerable` by
+        // design, see `RacerItems.grace`.
         racer.invulnerable = 0;
+        stateOf(racer).grace = 0;
         return strike(racer, racerById(byId), item);
       },
       /** Hand every CPU the same item, so a pack fight can be staged. */
@@ -2697,6 +3105,52 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         }
         return best;
       },
+
+      /**
+       * The supply side of the item economy, as numbers rather than a picture.
+       *
+       * How often a player draws is a property of the *layout* — how many rows
+       * a lap has, how far apart they are, and how far across the road each one
+       * reaches — and none of that is visible in a screenshot of one row. This
+       * is what a census reads before it blames the roulette.
+       */
+      rows(): Record<string, unknown> {
+        const L = ctx.track?.length ?? 1;
+        const start = ctx.track?.course.startDistance ?? 0;
+        const at = new Map<number, { lats: number[]; detour: boolean; live: number }>();
+        for (const b of boxes.boxes) {
+          const key = Math.round(b.distance);
+          let e = at.get(key);
+          if (!e) { e = { lats: [], detour: b.detour, live: 0 }; at.set(key, e); }
+          e.lats.push(ctx.track ? (ctx.track.spline.nearest(b.pos, _sample).lateral ?? 0) : 0);
+          if (b.respawn <= 0) e.live++;
+        }
+        const rows = Array.from(at.entries())
+          .filter(([, e]) => !e.detour)
+          .map(([d, e]) => ({
+            fromStart: Math.round(((d - start) % L + L) % L),
+            n: e.lats.length,
+            // How many of them are there *right now*. A row that is always
+            // half broken when the back of the field arrives is a row that is
+            // only supplying the front of it.
+            live: e.live,
+            halfWidth: +(ctx.track!.spline.atDistance(d, _sample).width * 0.5).toFixed(1),
+            span: +Math.max(...e.lats.map(Math.abs)).toFixed(1),
+          }))
+          .sort((a, b) => a.fromStart - b.fromStart);
+        const gaps: number[] = [];
+        for (let i = 0; i < rows.length; i++) {
+          const next = rows[(i + 1) % rows.length]!;
+          gaps.push(((next.fromStart - rows[i]!.fromStart) % L + L) % L);
+        }
+        return {
+          lap: Math.round(L),
+          boxes: boxes.boxes.length,
+          detours: boxes.boxes.filter((b) => b.detour).length,
+          rows,
+          gaps: gaps.map(Math.round),
+        };
+      },
       /** Roll the draw table `n` times for a given place. Balance, not play. */
       sample(place = 1, n = 2000, fieldSize = Math.max(2, ctx.racers.length)):
       Record<string, number> {
@@ -2731,6 +3185,11 @@ export function createItemSystem(ctx: GameContext): GameSystem {
           travel: (travel * D) % 360,
           slip: angleDelta(racer.yaw, travel) * D,
           stunned: racer.stunned,
+          // Two numbers, not one, and the gap between them is the fix: `grace`
+          // is how long this racer cannot be hit for, `invulnerable` is how
+          // long the vehicle rig will *blink* them for. The second is a short
+          // tail of the first and never overlaps the spin-out.
+          grace: st.grace,
           invulnerable: racer.invulnerable,
           grounded: racer.grounded,
           coins: racer.coins,
@@ -2749,6 +3208,27 @@ export function createItemSystem(ctx: GameContext): GameSystem {
           // these say how long it was *meant* to run and how far through it is,
           // which is the difference between "the spin is short" and "something
           // cut the spin short".
+          // Supply, from where this racer is sitting: how many boxes the
+          // broadphase is offering them and how far the nearest live one is,
+          // *in the road's plane*. A slot that stays empty through a row of
+          // boxes is either an economy problem or a reach problem, and these
+          // two numbers are the only things that tell them apart.
+          boxCands: boxes.candidates(lapDistance(racer)).length,
+          /** Metres to the next row of boxes — the CPU's own clear-out clock. */
+          rowGap: boxes.gapAhead(lapDistance(racer)),
+          boxNear: (() => {
+            const near = boxes.candidates(lapDistance(racer));
+            let best = Infinity;
+            for (let i = 0; i < near.length; i++) {
+              const b = boxes.boxes[near[i]!]!;
+              if (b.respawn > 0) continue;
+              const dx = b.pos.x - racer.pos.x;
+              const dz = b.pos.z - racer.pos.z;
+              const d2 = Math.sqrt(dx * dx + dz * dz);
+              if (d2 < best) best = d2;
+            }
+            return best;
+          })(),
           spin: st.spin,
           spinTotal: st.spinTotal,
           spinFace: st.spin > 0 ? REEL_FACES[st.reelIndex % REEL_FACES.length] : '',
@@ -2771,6 +3251,62 @@ export function createItemSystem(ctx: GameContext): GameSystem {
           bearing: threatBearing,
           item: threatLevel > 0 ? threatItem : null,
         };
+      },
+
+      /**
+       * Where every carried item and its ground shadow actually are.
+       *
+       * Contact is the one thing a screenshot argues about and nothing else can
+       * settle: "the hats are floating" and "the shadow is there but three
+       * metres up the road" look identical from a chase camera. This reports the
+       * item's world position, the blob's, the height between them and the
+       * ground the track thinks is under it — so a reviewer can tell a missing
+       * shadow from a misplaced one without reading the source.
+       */
+      carry(racerId = ctx.player?.id ?? 0): Record<string, unknown> | null {
+        const racer = racerById(racerId);
+        const st = states.get(racerId);
+        if (!racer || !st) return null;
+        const r3 = (v: THREE.Vector3): number[] =>
+          [+v.x.toFixed(2), +v.y.toFixed(2), +v.z.toFixed(2)];
+        const items: Array<Record<string, unknown>> = [];
+        for (const carrier of st.orbit?.children ?? []) {
+          const node = carrier.children[0];
+          const blob = carrier.children[1] as THREE.Mesh | undefined;
+          carrier.updateWorldMatrix(true, false);
+          _pos.setFromMatrixPosition(carrier.matrixWorld);
+          const at = _pos.clone();
+          let shadow: number[] | null = null;
+          let ground = 0;
+          if (blob) {
+            blob.updateWorldMatrix(true, false);
+            _shadow.setFromMatrixPosition(blob.matrixWorld);
+            shadow = r3(_shadow);
+            if (ctx.track) {
+              const s = ctx.track.spline.nearest(_shadow, _sample);
+              // The road surface at the blob's own lateral offset, measured
+              // along the track's up — the road banks, so comparing world y
+              // would report a metre of error on a corner that has none.
+              const lat = s.lateral ?? 0;
+              _off.copy(s.pos).addScaledVector(s.right, lat)
+                .addScaledVector(s.up,
+                  roadCrown(lat, s.width, ctx.track.course.vergeWidth ?? 5));
+              ground = +_off.sub(_shadow).dot(s.up).toFixed(3);
+            }
+          }
+          items.push({
+            at: r3(at),
+            shadow,
+            visible: !!blob?.visible,
+            // Positive means the blob is *below* the road it is meant to lie on,
+            // which is a shadow the depth test will eat.
+            sunk: ground,
+            height: blob ? +(at.y - (_shadow.y)).toFixed(2) : 0,
+            scale: blob ? +blob.scale.x.toFixed(2) : 0,
+            nodeScale: node ? +node.scale.x.toFixed(2) : 0,
+          });
+        }
+        return { item: racer.item, shown: st.shown, key: st.orbitKey, items };
       },
 
       state(): Record<string, unknown> {

@@ -15,13 +15,38 @@
 // layout invalidation for nothing.
 
 const CSS = `
+/* ── the blend mode lives here, on the group, and that is the whole fix ──────
+ *
+ * Every child used to carry "mix-blend-mode: screen" of its own, and none of
+ * them was screening anything. A positioned, z-indexed element with
+ * "contain: strict" is an isolated group: a child's blend mode composites
+ * against the *group's* backdrop, which inside here is empty transparent
+ * black. Screen against nothing is the source unchanged, and the group was
+ * then laid over the game with ordinary source-over alpha.
+ *
+ * So the loudest sustained cue in the game was not adding light to the
+ * picture, it was interpolating the picture toward a saturated hue. Measured
+ * on a tier-three mini-turbo, the sky's green channel fell from 210 to 134 and
+ * the whole frame went violet — a colour grade wearing a rim light's name. A
+ * *light* cannot take green out of the sky, and a cue that can is a cue that
+ * has to be kept tiny to stay safe, which is how the budget ended up inverted:
+ * the thing that must be read was invisible and the thing that is punctuation
+ * was at grade strength.
+ *
+ * Moving the blend to the group is what makes it light. The children composite
+ * normally among themselves, and the finished group screens over the game, so
+ * the arithmetic is out = base + alpha * src * (1 - base): it brightens the
+ * dark half of the frame hard, tints the bright half barely, and cannot pull a
+ * channel down at any strength. That is a rim light, and it is why the alphas
+ * below can afford to be honest. */
 #fx-screen {
   position: fixed; inset: 0; pointer-events: none; z-index: 9;
   overflow: hidden; contain: strict;
+  mix-blend-mode: screen;
 }
 #fx-screen .flash {
   position: absolute; inset: -2%;
-  opacity: 0; mix-blend-mode: screen;
+  opacity: 0;
   will-change: opacity;
 }
 /* The rush has to be a *frame*, and it has to stay out of the driving line.
@@ -37,22 +62,30 @@ const CSS = `
 
    farthest-side puts the 100% stop on the middles of the four edges instead, so
    the hot band runs the whole way round the rim — including the top and bottom
-   centre, which no HUD element occupies — and the corners simply saturate. The
-   opening stop is what keeps it out of the driving line, and 66% of the
-   half-height is a long way outside the road ahead: at 900px tall that is the
-   outer 150px of the frame, and the horizon sits near the middle. The centre
-   two thirds stay completely clean, which was always the point. */
+   centre, which no HUD element occupies — and the corners simply saturate.
+
+   ── and the band is now a band, not two thirds of the picture ───────────────
+
+   The opening stop was at 69% of the half-side. At 900px tall that is the outer
+   140px *and everything outside it*, top and bottom, plus the outer 250px at
+   the sides — 22.5% of the frame repainted in one hue, measured, and still 15%
+   of it a second and a quarter after the boost had gone. A cue occupying a
+   fifth of the picture is not peripheral, it is the picture.
+
+   86% is the outer 63px of a 900px frame and the outer 112px of a 1600px one:
+   a rim. The centre of the glass, where the road and the field and every
+   decision the player is making live, is untouched at every strength. */
 #fx-screen .rush {
   position: absolute; inset: 0;
-  opacity: 0; mix-blend-mode: screen;
+  opacity: 0;
   transform-origin: 50% 50%;
   will-change: opacity, transform;
   background:
     radial-gradient(ellipse farthest-side at 50% 50%,
-      rgba(255,190,90,0) 69%,
-      rgba(255,182,86,0.09) 84%,
-      rgba(255,158,60,0.30) 94%,
-      rgba(255,126,34,0.64) 100%);
+      rgba(255,224,168,0) 86%,
+      rgba(255,214,150,0.085) 92%,
+      rgba(255,190,110,0.20) 96%,
+      rgba(255,158,60,0.36) 100%);
 }
 /* The charge ring. Its colour follows the mini-turbo tier, so the frame itself
    is part of the meter — the sparks say it loudest, this says it in peripheral
@@ -71,9 +104,9 @@ const CSS = `
 #fx-screen .rush.charge {
   background:
     radial-gradient(ellipse farthest-side at 50% 50%,
-      rgba(255,242,216,0) 70%,
-      rgba(255,242,216,0.06) 88%,
-      rgba(255,242,216,0.16) 100%);
+      rgba(255,242,216,0) 89%,
+      rgba(255,242,216,0.028) 95%,
+      rgba(255,242,216,0.10) 100%);
 }
 `;
 
@@ -84,19 +117,135 @@ const CSS = `
  * gets more valuable, and the inner stops are lightened toward white — a
  * saturated hue at 10% over a bright sky is invisible, and the point of the
  * ring is that it is readable without being looked at.
+ *
+ * ── why it is half of what it was, and starts twice as far out ──────────────
+ *
+ * Because it was repainting the world. Measured on a frozen drift, the top-left
+ * corner of the *sky* went cyan at tier one, green at tier two and violet at
+ * tier three, and the tarmac went with it. The sky is a named palette anchor
+ * (ARCHITECTURE section 12) and a gameplay state was hue-rotating it for the
+ * whole of every corner — which is not a peripheral cue, it is a colour grade.
+ *
+ * Two numbers fix it and both matter. The peak comes down by half, so the rim
+ * tints rather than washes; and the first stop moves from 68% of the
+ * half-height out to 84%, which at 900px tall confines the whole gradient to
+ * the outer 70px of the frame instead of the outer 145. What is left is a
+ * coloured edge a player reads without looking at it, over a picture whose own
+ * colours are still its own.
+ *
+ * ── ...and why the peak then had to go back up ──────────────────────────────
+ *
+ * Because halving it stopped it being a meter. This ring is the *only* cue for
+ * the charge that lives in peripheral vision, and a meter whose first two
+ * marks are below threshold is not a meter, it is a surprise at the end.
+ * Measured against a centre control, the tier-0 and tier-1 rims were within
+ * two RGB units of each other and of the unboosted frame; only tier three
+ * moved at all. The ladder was invisible-invisible-overwhelming.
+ *
+ * The peak is now linear in the tier — 0.152 / 0.204 / 0.256 — and `index.ts`
+ * drives the ring at full amount for any charged tier rather than multiplying a
+ * second cautious ladder into this one. Measured against the same band as the
+ * boost rush, the rims now step 12 / 15 / 20 RGB units off an unlit frame, with
+ * an uncharged drift at 2. Tier three stays under the boost rush's 22-25, which
+ * is the ceiling the whole screen layer is budgeted against: nothing a drift can
+ * do may shout louder than the boost it is earning, and `index.ts` sets the
+ * rush's floor from these numbers so no rung of the ladder steps down. See
+ * `rushCss`.
+ *
+ * All of it is safe at these strengths only because the layer genuinely screens
+ * now — see the note at the top of `CSS`. Light added to a rim cannot take the
+ * colour out of the middle however far the ladder climbs.
  */
 function chargeCss(tier: number, hex: number): string {
   const r = (hex >> 16) & 0xff, g = (hex >> 8) & 0xff, b = hex & 0xff;
   const lift = (k: number): string =>
     `${Math.round(r + (255 - r) * k)},${Math.round(g + (255 - g) * k)},${Math.round(b + (255 - b) * k)}`;
-  const peak = 0.28 + 0.05 * tier;
+  // Narrower than the boost rush and brighter at the very edge, which is both
+  // more readable and cheaper on the composite: the eye reads the peak, the
+  // budget is spent by the area. Starting at 89% rather than 86% costs a fifth
+  // of the band's width and buys a third more strength at the rim. It also
+  // keeps the two cues distinguishable in peripheral vision without either
+  // needing to be looked at — the charge is a hard thin rim, the boost is a
+  // wider frame closing in.
+  const peak = 0.10 + 0.052 * tier;
   return `
 #fx-screen .rush.charge.t${tier} {
   background:
     radial-gradient(ellipse farthest-side at 50% 50%,
-      rgba(${lift(0.35)},0) 68%,
-      rgba(${lift(0.22)},${(peak * 0.34).toFixed(3)}) 87%,
+      rgba(${lift(0.35)},0) 89%,
+      rgba(${lift(0.22)},${(peak * 0.28).toFixed(3)}) 95%,
       rgba(${lift(0)},${peak.toFixed(3)}) 100%);
+}`;
+}
+
+/**
+ * One tier's *rush* rule — the sustained edge glow while a boost is live.
+ *
+ * This is the correction to the loudest colour bug the module had. The tier a
+ * player spends three seconds earning was being paid off in a screen flash of
+ * 0.10 lasting a single frame, while the rush — 0.90 for the entire boost, the
+ * thing that is actually on the glass while they are looking at it — ran a
+ * generic warm orange gradient whatever fired it. A violet ultra and a blue
+ * tier one therefore paid off identically, and the one channel with enough
+ * screen time to carry the difference was spending it on a constant.
+ *
+ * So the rush takes the tier. The hot outer stop is the tier's own hue at full
+ * saturation; the inner stops are lifted toward white so the band reads as
+ * *light* rather than as a coloured filter, and the innermost is warmed a
+ * little toward flame in every tier — a boost is fire whatever charged it, and
+ * a rim of pure cyan with no warmth in it reads as a freeze, not as thrust.
+ *
+ * ── the budget ──────────────────────────────────────────────────────────────
+ *
+ * Every number in here is now spent against one rule: **the rush may add light
+ * to the rim and may not repaint the frame.** It was doing the second. Held at
+ * 0.93 opacity for the whole of a 1.85s ultra, over a gradient that opened at
+ * 69% of the half-side and reached 0.64 alpha, it covered 22.5% of the picture
+ * in one saturated hue and — because the layer was not really screening, see
+ * `CSS` — pulled 76 RGB units of green out of the sky while it did.
+ *
+ * Three changes, and the arithmetic behind them:
+ *
+ *   the group screens for real, so the composite is base + a·src·(1 − base).
+ *   Nothing can go down.
+ *
+ *   the opening stop moves 69% → 86%, which is the difference between a fifth
+ *   of the frame and its outer rim.
+ *
+ *   the outer alpha comes down 0.64 → 0.36. It could be higher again and still
+ *   be safe, which is the point of screening: against the brightest thing in
+ *   the picture — the sky, around 0.82 linear — the worst channel that leaves
+ *   is 0.36 · 0.93 · 0.9 · 0.18 ≈ 0.05, about 14 RGB units, while against the
+ *   darkest, tarmac in shadow, the same term is worth 60-odd units of *added*
+ *   light. That asymmetry is what a real light does, and it is the entire
+ *   reason a rim this narrow still reads.
+ *
+ * The tier still rides on the hue, which is the whole point of the channel, but
+ * it now rides on a rim rather than on the whole glass.
+ *
+ * Measured on the review bench with the layer forced on over a settled racing
+ * frame at 1600x900, against the same frame with the layer hidden: the critic's
+ * own sky patch moves 16 RGB units at most on any channel and every channel
+ * moves *up*, against 121 down before. The outer-6% band means move 21-25. The
+ * centre of the frame moves by 1, which is rounding.
+ */
+function rushCss(tier: number, hex: number): string {
+  const r = (hex >> 16) & 0xff, g = (hex >> 8) & 0xff, b = hex & 0xff;
+  // Toward white by k, then a touch toward flame so no tier reads as cold.
+  const mix = (k: number, warm: number): string => {
+    const wr = r + (255 - r) * k, wg = g + (255 - g) * k, wb = b + (255 - b) * k;
+    return `${Math.round(wr + (255 - wr) * warm)},`
+      + `${Math.round(wg + (170 - wg) * warm)},`
+      + `${Math.round(wb + (60 - wb) * warm)}`;
+  };
+  return `
+#fx-screen .rush.boost.b${tier} {
+  background:
+    radial-gradient(ellipse farthest-side at 50% 50%,
+      rgba(${mix(0.45, 0.35)},0) 86%,
+      rgba(${mix(0.34, 0.30)},0.085) 92%,
+      rgba(${mix(0.16, 0.22)},0.20) 96%,
+      rgba(${mix(0.00, 0.14)},0.36) 100%);
 }`;
 }
 
@@ -105,6 +254,9 @@ export interface ScreenFx {
   flash(color: number, amount: number): void;
   /** Warm edge rush, 0..1. Set every frame; it eases on its own. */
   setRush(amount: number): void;
+  /** Which mini-turbo tier the live boost came out of, 0 for anything else.
+   *  The rush is the only cue with enough screen time to carry it. */
+  setRushTier(tier: number): void;
   /** Mini-turbo charge ring, 0..1. Set every frame. */
   setCharge(amount: number): void;
   /** Which tier that ring is showing: 0 uncharged, then whatever
@@ -139,6 +291,7 @@ export function createScreenFx(tierHex: readonly number[]): ScreenFx {
   let charge = 0;
   let chargeTarget = 0;
   let chargeTier = 0;
+  let rushTier = 0;
 
   // Last values actually written to the DOM.
   let wroteFlash = -1;
@@ -147,17 +300,35 @@ export function createScreenFx(tierHex: readonly number[]): ScreenFx {
   let wroteRushScale = -1;
   let wroteCharge = -1;
   let wroteTier = -1;
+  let wroteRushTier = -1;
+  /**
+   * Whether the layer is painting at all.
+   *
+   * A blend mode on a full-screen fixed element makes the compositor read the
+   * backdrop back to blend against it, every frame, whether or not the element
+   * has anything in it — and for most of a lap it has nothing in it. Taking the
+   * whole layer out of the paint tree when every channel is at zero costs one
+   * string write per state change and removes the readback entirely.
+   */
+  let live = false;
 
   if (typeof document !== 'undefined') {
     style = document.createElement('style');
     style.textContent = CSS
       + chargeCss(1, tierHex[1] ?? 0x4FC3F7)
       + chargeCss(2, tierHex[2] ?? 0x3CFF6B)
-      + chargeCss(3, tierHex[3] ?? 0xE040FB);
+      + chargeCss(3, tierHex[3] ?? 0xE040FB)
+      + rushCss(1, tierHex[1] ?? 0x4FC3F7)
+      + rushCss(2, tierHex[2] ?? 0x3CFF6B)
+      + rushCss(3, tierHex[3] ?? 0xE040FB);
     document.head.appendChild(style);
 
     root = document.createElement('div');
     root.id = 'fx-screen';
+    // Born dark. `live` starts false, and the first update only writes on a
+    // *change* — so without this the layer would sit in the paint tree, blend
+    // mode and all, from boot until the first boost.
+    root.style.display = 'none';
     root.innerHTML =
       '<div class="rush boost"></div><div class="rush charge"></div><div class="flash"></div>';
     document.body.appendChild(root);
@@ -175,6 +346,10 @@ export function createScreenFx(tierHex: readonly number[]): ScreenFx {
 
     setRush(amount: number): void {
       rushTarget = amount > 1 ? 1 : amount < 0 ? 0 : amount;
+    },
+
+    setRushTier(tier: number): void {
+      rushTier = tier < 0 ? 0 : tier > 3 ? 3 : tier | 0;
     },
 
     setCharge(amount: number): void {
@@ -206,6 +381,13 @@ export function createScreenFx(tierHex: readonly number[]): ScreenFx {
       const ck = 1 - Math.exp(-(chargeTarget > charge ? 12 : 8) * step);
       charge += (chargeTarget - charge) * ck;
 
+      const wantLive = flashAmt > 0 || rush > 0.004 || charge > 0.004;
+      if (wantLive !== live) {
+        live = wantLive;
+        if (root) root.style.display = live ? '' : 'none';
+      }
+      if (!live) return;
+
       if (flashEl) {
         const a = Math.round(flashAmt * 100) / 100;
         if (a !== wroteFlash) {
@@ -234,6 +416,12 @@ export function createScreenFx(tierHex: readonly number[]): ScreenFx {
           rushEl.style.transform = `scale(${s})`;
           wroteRushScale = s;
         }
+        // The tier only changes on the frame a boost fires, so this is a
+        // class swap a handful of times a race rather than a per-frame write.
+        if (rushTier !== wroteRushTier) {
+          rushEl.className = rushTier > 0 ? `rush boost b${rushTier}` : 'rush boost';
+          wroteRushTier = rushTier;
+        }
       }
 
       if (chargeEl) {
@@ -252,10 +440,12 @@ export function createScreenFx(tierHex: readonly number[]): ScreenFx {
     debug(): Record<string, number | string | boolean> {
       return {
         mounted: !!root && root.isConnected,
+        live,
         flash: Math.round(flashAmt * 1000) / 1000,
         flashHex: `#${(flashHex & 0xffffff).toString(16).padStart(6, '0')}`,
         rush: Math.round(rush * 1000) / 1000,
         rushTarget: Math.round(rushTarget * 1000) / 1000,
+        rushTier,
         charge: Math.round(charge * 1000) / 1000,
         tier: chargeTier,
         opacity: rushEl?.style.opacity ?? '',
@@ -267,9 +457,13 @@ export function createScreenFx(tierHex: readonly number[]): ScreenFx {
       rush = rushTarget = 0;
       charge = chargeTarget = 0;
       chargeTier = 0;
+      rushTier = 0;
       wroteFlash = wroteRush = wroteRushScale = wroteCharge = -1;
       wroteFlashHex = -1;
       wroteTier = -1;
+      wroteRushTier = -1;
+      live = false;
+      if (root) root.style.display = 'none';
     },
 
     dispose(): void {
