@@ -65,6 +65,40 @@ function trim(value) {
   return value;
 }
 
+/**
+ * A conversation record, with the prompt kept whole and only the machinery
+ * around it trimmed.
+ *
+ * The first version of this ran `trim` over the entire record, which is wrong in
+ * the one way that matters: a blanket limit cannot tell a 9,000-character
+ * capture log from a 16,851-character prompt, and this session contains both. It
+ * cut the prompt. The tool's own warning caught it, which is the only reason
+ * this comment exists rather than a quietly mangled archive.
+ *
+ * So text blocks — what a person or the model actually said — are never
+ * truncated at any length. Everything else in the message, meaning tool inputs
+ * and tool results, still is.
+ */
+function trimMessage(record) {
+  const out = { ...record };
+  const msg = record.message;
+  if (!msg) return trim(out);
+
+  const content = msg.content;
+  let kept;
+  if (typeof content === 'string') {
+    kept = scrub(content);
+  } else if (Array.isArray(content)) {
+    kept = content.map((b) => (b?.type === 'text' ? { ...b, text: scrub(b.text ?? '') } : trim(b)));
+  } else {
+    kept = trim(content);
+  }
+
+  // Trim the record's own metadata, then restore the untouched message.
+  const shell = trim({ ...out, message: undefined });
+  return { ...shell, message: { ...trim({ ...msg, content: undefined }), content: kept } };
+}
+
 /** Pull the plain text out of a message body of either shape. */
 function textOf(content) {
   if (typeof content === 'string') return content;
@@ -88,7 +122,7 @@ for (const line of lines) {
   }
   // queue-operation is scheduler bookkeeping, not conversation.
   if (e.type === 'queue-operation') continue;
-  records.push(trim(e));
+  records.push(e.type === 'user' || e.type === 'assistant' ? trimMessage(e) : trim(e));
 
   const when = e.timestamp ? e.timestamp.replace('T', ' ').slice(0, 16) : '';
 
@@ -143,8 +177,17 @@ await writeFile(path.join(OUT, 'prompts.md'), md.join('\n'));
 const size = (p) => readFile(path.join(OUT, p)).then((b) => (b.length / 1048576).toFixed(1));
 console.log(`  prompts.md     ${await size('prompts.md')} MB  (${turns.length} turns)`);
 console.log(`  session.jsonl  ${await size('session.jsonl')} MB  (${records.length} records)`);
-console.log(`  longest single prompt: ${longestPrompt} chars against a ${LIMIT} limit`);
-if (longestPrompt > LIMIT) {
-  console.error('  WARNING: a prompt exceeds the truncation limit and was cut in the jsonl.');
+console.log(`  longest single prompt: ${longestPrompt} chars, kept whole`);
+
+// The claim above is checked rather than asserted: find the longest prompt in
+// the *output* and confirm nothing truncated it on the way through.
+const cut = records.some((r) => {
+  if (r.type !== 'user' && r.type !== 'assistant') return false;
+  const c = r.message?.content;
+  const blocks = typeof c === 'string' ? [{ type: 'text', text: c }] : Array.isArray(c) ? c : [];
+  return blocks.some((b) => b?.type === 'text' && /…\[truncated \d+ chars\]$/.test(b.text ?? ''));
+});
+if (cut) {
+  console.error('  FAIL: a message body was truncated. Prompts must survive whole.');
   process.exitCode = 1;
 }

@@ -163,6 +163,23 @@ match the comment.
 
 ---
 
+## The prompts
+
+Nobody hand-wrote the TypeScript in this repository. It was built by agents
+working from a conversation, so the prompts are closer to the source than `src/`
+is — and they are committed here alongside it, refreshed as the build runs.
+
+- **[`docs/session/prompts.md`](docs/session/prompts.md)** — every prompt and
+  reply, in order.
+- **[`docs/session/session.jsonl`](docs/session/session.jsonl)** — the same
+  thing with the structure intact: messages, tool calls, tool results. Long tool
+  output is truncated with a marker; message text never is.
+
+Most of the turns are the build loop waking itself on a schedule rather than a
+person typing.
+
+---
+
 ## Running it locally
 
 ```bash
