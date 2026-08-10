@@ -838,22 +838,29 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       // frames a second and still correct on a single frame drawn after a
       // thousand simulation steps with nothing rendered in between.
       if (spinning) {
-        spinLeft = spinLeft > dt ? spinLeft - dt : 0;
         const u = clamp01(1 - spinLeft / Math.max(0.05, spinDur));
         // See SPIN_OVERRUN: the curve can run out before the settle arrives.
         if (u > 0.99) drumOver += (SPIN_OVERRUN - drumOver) * Math.min(1, dt * 5);
-        // **Monotonic.** The two clocks disagree in *either* direction, and a
-        // reel event that restates more time left than the interpolation had
-        // assumed used to hand the wheel a position behind the one it was
-        // already at — measured at four tenths of a cell backwards, mid-spin,
-        // which is not a wheel slowing down, it is a wheel with a fault. A wheel
-        // turns one way, so the travel only ever goes up.
-        spinTravel = Math.max(spinTravel, spinCells * spinShape(u) + drumOver);
+        const target = spinCells * spinShape(u) + drumOver;
+        // **Chased toward the simulation's answer, not integrated toward it.**
+        //
+        // `dt` here is the *wall* clock — the engine's own loop hands `update`
+        // the real frame delta whatever the simulation is doing, and under a
+        // capture that delta is a screenshot's worth of software rasterising,
+        // hundreds of milliseconds at a time. Anything that spends `dt` as if it
+        // were race time is therefore wrong in both directions at once: it
+        // sprints while the harness is busy and stalls while it steps. So the
+        // *position* comes from the item system's own remaining time and this
+        // is only the smoothing between one face of its reel and the next.
+        //
+        // The chase does the right thing at both ends of that range by
+        // construction: at 16ms it closes a third of the gap, which turns eight
+        // to twenty reel ticks a second into continuous motion, and at anything
+        // over about 45ms it saturates, so a single frame drawn after a long
+        // step lands exactly on the position that spin should be showing.
+        spinTravel += (target - spinTravel) * Math.min(1, dt * 22);
         drumPhase = (spinFrom + spinTravel) % DRUM_N;
-        spinSpeed = Math.max(
-          u > 0.99 ? 0.7 : 0,
-          (spinCells * spinRate(u)) / Math.max(0.05, spinDur),
-        );
+        spinSpeed = (spinCells * spinRate(u)) / Math.max(0.05, spinDur);
         jitter = 1;
       } else if (landing > 0) {
         // The clunk. One cell, eased out, onto the face the draw actually made.
@@ -907,6 +914,14 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
           // An item that arrived without a wheel behind it: the reviewer's
           // bench, a steal, a lightning strike redistributing the field. It
           // *snaps* — see `showFace` — and the housing carries the beat.
+          //
+          // The door snaps with it, and for the same reason: a shutter that
+          // takes a tenth of a second to clear is a shutter that is still down
+          // on the one frame a bench draws after putting something in the
+          // player's hand. That is the widget photographing empty while holding
+          // an item all over again, one layer further up, and the whole point of
+          // this pass is that it cannot happen from any direction.
+          shutOpen = 1;
           showFace(id, 0.2, true);
           punch = 1;
           landFlare = Math.max(landFlare, 0.8);

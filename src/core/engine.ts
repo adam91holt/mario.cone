@@ -125,10 +125,31 @@ export function createEngine(ctx: GameContext, canvas: HTMLCanvasElement): Engin
 
   ctx.budget = budget;
 
+  /** The CSS size and device ratio the drawing buffer was last built for. */
+  let sizedW = 0;
+  let sizedH = 0;
+  let sizedRatio = 0;
+
+  /**
+   * Match the drawing buffer to the canvas — and only when it does not.
+   *
+   * The guard used to compare `canvas.width` (which is *device* pixels) against
+   * the element's CSS width, which are the same number only when the device
+   * pixel ratio is exactly 1. On any retina laptop, and on every frame the
+   * quality governor has scaled the render resolution, the two never matched,
+   * so this ran its whole body — `setSize`, a projection rebuild, the
+   * composer's target check and an `engine:resize` emit that the minimap and
+   * the item slot both do work on — sixty times a second forever. Remembering
+   * what we last sized *for* is the only comparison that is true in both
+   * worlds, and it is also what lets the governor change the pixel ratio and
+   * have the next frame simply pick it up.
+   */
   function resize(): void {
     const w = canvas.clientWidth || canvas.width || 1280;
     const h = canvas.clientHeight || canvas.height || 720;
-    if (canvas.width === w && canvas.height === h && camera.aspect === w / h) return;
+    const ratio = renderer.getPixelRatio();
+    if (w === sizedW && h === sizedH && ratio === sizedRatio) return;
+    sizedW = w; sizedH = h; sizedRatio = ratio;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -178,6 +199,18 @@ export function createEngine(ctx: GameContext, canvas: HTMLCanvasElement): Engin
     const blend = alpha > 1 ? 1 : alpha > 0 ? alpha : 0; // NaN lands on 0
     ctx.time.alpha = blend;
 
+    // Counted *before* the update pass, so a system reading them this frame
+    // sees this frame included. Counting after was a real bug and a subtle one:
+    // the single frame `startRace` primes to warm the shaders was still
+    // uncounted while it ran, so the *next* frame — the first live one of the
+    // session — saw the count move from 0 to 1 and read a bench frame arriving
+    // milliseconds ago. The quality governor's burst test latched on that and
+    // stood down for the rest of every real player's session, which is the
+    // worst kind of failure: the ladder still typechecked, still passed its
+    // determinism proof, and never once ran.
+    budget.frames++;
+    if (driving) budget.liveFrames++; else budget.benchFrames++;
+
     let t = now();
     const t0 = t;
     for (let i = 0; i < systems.length; i++) {
@@ -204,8 +237,6 @@ export function createEngine(ctx: GameContext, canvas: HTMLCanvasElement): Engin
     drawTimes[frameIdx] = drawMs;
     frameIdx = (frameIdx + 1) % BUDGET_WINDOW;
     if (frameCount < BUDGET_WINDOW) frameCount++;
-    budget.frames++;
-    if (driving) budget.liveFrames++; else budget.benchFrames++;
     simBank = 0;
     stepBank = 0;
 
@@ -276,8 +307,20 @@ export function createEngine(ctx: GameContext, canvas: HTMLCanvasElement): Engin
     // else the browser is doing, and it is the only one that is meaningless
     // when the harness is driving. `wallCount` stays 0 in that case, and
     // `budget.wallMs` reads 0 — which is the honest answer, not a fake 60.
-    wallTimes[wallCount % BUDGET_WINDOW] = wallDt * 1000;
-    wallCount++;
+    //
+    // **`raw`, not `wallDt`.** The 0.25s clamp above exists to stop a
+    // backgrounded tab teleporting the karts; it is a limit on how much
+    // *simulation* one frame may buy, and it has no business inside a
+    // measurement. Recording the clamped value made `budget.wallMs` saturate at
+    // exactly 250ms, so a machine drawing 1.7 frames a second — a real reading
+    // of 590ms — reported the same number as one drawing 4, and the honest
+    // reading of the worst machines this instrument exists for was the one
+    // number it could not express. The first frame has no delta at all and is
+    // skipped rather than recorded as a zero.
+    if (raw > 0) {
+      wallTimes[wallCount % BUDGET_WINDOW] = raw * 1000;
+      wallCount++;
+    }
     const n = wallCount < BUDGET_WINDOW ? wallCount : BUDGET_WINDOW;
     let wsum = 0;
     for (let i = 0; i < n; i++) wsum += wallTimes[i]!;
