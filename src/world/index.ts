@@ -164,7 +164,11 @@ const CASTS = new Set<string>([
   // The near half of the landscape's own kit.
   'rubble', 'rubble2', 'saltRidge', 'saltRidge2',
   'snowDrift', 'snowDrift2', 'snowPole', 'surveyPeg', 'avFence',
-  'windsockMast', 'pines0', 'pines1', 'pines2',
+  'windsockMast',
+  // Not the pine stands. They are foliage — a shadow of one is a mess of thin
+  // triangles rather than a silhouette — and they are this module's single
+  // largest triangle bill on Switchback Summit. Shadow passes are counted per
+  // batch, not per instance inside it.
 ]);
 
 /**
