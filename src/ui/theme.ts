@@ -160,6 +160,99 @@ export function blipColor(n: number, variant = 0): number {
   return hslToHex((h + variant * 0.045 + 1) % 1, S, L);
 }
 
+/**
+ * Pull a whole field's blip colours apart, in place, without losing the tie to
+ * the machine each one came from.
+ *
+ * `blipColor` can only see one racer, and the collisions that actually break a
+ * minimap are between *different* machines: this cast contains a near-black
+ * locomotive (teal, 187°), a blue helicopter (207°) and a near-white aeroplane
+ * whose saturation floor lands it on periwinkle (218°). Three blues within 31°
+ * of each other, which photographed as one colour three times — and the same
+ * thing happens to the orange cone and the red car once the duplicate-variant
+ * nudge has moved one of them.
+ *
+ * So the field is relaxed as a set. Hues repel on the circle, each one clamped
+ * to a small displacement from where the machine put it, and any pair still
+ * inside the threshold afterwards is separated in *lightness* instead — which
+ * is the channel that survives a six-pixel marker better than hue does anyway.
+ *
+ * Pure, and deliberately signature-free of anything but colours, so the results
+ * sheet in `race/` can adopt it without this module learning about racers.
+ */
+/** Minimum circular hue distance between two blips, as a fraction of the wheel. */
+const HUE_MIN = 0.085;
+/** How far a hue may be pushed from where its machine put it. */
+const HUE_CLAMP = 0.055;
+
+export function spreadBlipColors(base: readonly number[]): number[] {
+  const n = base.length;
+  const h = new Array<number>(n);
+  const s = new Array<number>(n);
+  const l = new Array<number>(n);
+  const h0 = new Array<number>(n);
+  for (let i = 0; i < n; i++) {
+    const c = base[i]!;
+    const r = ((c >> 16) & 255) / 255, g = ((c >> 8) & 255) / 255, b = (c & 255) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const li = (max + min) / 2;
+    const d = max - min;
+    let hi = 0, si = 0;
+    if (d > 1e-6) {
+      si = li > 0.5 ? d / (2 - max - min) : d / (max + min);
+      if (max === r) hi = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+      else if (max === g) hi = ((b - r) / d + 2) / 6;
+      else hi = ((r - g) / d + 4) / 6;
+    }
+    h[i] = hi; h0[i] = hi; s[i] = si; l[i] = li;
+  }
+
+  const wrap = (v: number): number => v - Math.floor(v);
+  const gap = (a: number, b: number): number => {
+    let d = wrap(b - a);
+    if (d > 0.5) d -= 1;
+    return d;
+  };
+
+  for (let pass = 0; pass < 6; pass++) {
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const d = gap(h[i]!, h[j]!);
+        const ad = Math.abs(d);
+        if (ad >= HUE_MIN) continue;
+        // Exactly coincident hues need a direction, and it has to be the same
+        // one every time this runs or two racers swap colours between races.
+        const dir = ad < 1e-6 ? (i < j ? -1 : 1) : Math.sign(d);
+        const push = (HUE_MIN - ad) * 0.5 * dir;
+        h[i] = wrap(h[i]! - push);
+        h[j] = wrap(h[j]! + push);
+      }
+    }
+    for (let i = 0; i < n; i++) {
+      const off = gap(h0[i]!, h[i]!);
+      if (Math.abs(off) > HUE_CLAMP) h[i] = wrap(h0[i]! + Math.sign(off) * HUE_CLAMP);
+    }
+  }
+
+  // Anything the wheel could not separate is separated in value instead: the
+  // darker of the pair goes darker and the lighter goes lighter, which is the
+  // difference a six-pixel marker actually carries.
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (Math.abs(gap(h[i]!, h[j]!)) >= HUE_MIN * 0.82) continue;
+      if (Math.abs(l[i]! - l[j]!) >= 0.2) continue;
+      const lo = l[i]! <= l[j]! ? i : j;
+      const hi = lo === i ? j : i;
+      l[lo] = Math.max(0.4, l[lo]! - 0.11);
+      l[hi] = Math.min(0.88, l[hi]! + 0.11);
+    }
+  }
+
+  const out = new Array<number>(n);
+  for (let i = 0; i < n; i++) out[i] = hslToHex(h[i]!, s[i]!, l[i]!);
+  return out;
+}
+
 function hslToHex(h: number, s: number, l: number): number {
   const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
   const p = 2 * l - q;
@@ -350,6 +443,19 @@ export const MAP = {
   /** Casing width as a multiple of the road's, and crown width likewise. */
   inkScale: 1.42,
   crownScale: 0.16,
+  /**
+   * The gravel cut, for a course that declares one.
+   *
+   * A circuit with a shortcut on it and a map that draws one unbroken loop is a
+   * map that cannot teach the circuit — the player finds the fastest line
+   * through Digger's Elbow by accident or never. Worn gravel, taken from the
+   * canyon floor the cut is actually scraped through, and dashed because a
+   * branch that is drawn as solidly as the tarmac reads as a second road rather
+   * than as the risk it is.
+   */
+  cut: '#D2A465',
+  /** The direction-of-travel marks painted down the crown. */
+  arrow: 'rgba(255,250,236,.72)',
 } as const;
 
 // ── DOM ────────────────────────────────────────────────────────────────────

@@ -89,6 +89,17 @@
 // governor puts the last one back and stands down: the machine is being held up
 // by something this ladder does not own, and carrying on down it would spend
 // the game's looks on nothing at all.
+//
+// That last mechanism is also the answer to the one thing wall time genuinely
+// cannot tell you. A display running at 30Hz delivers a 33ms frame no matter
+// how idle the machine is, and from inside the page it is indistinguishable
+// from a GPU taking 33ms — there is no web API for the refresh rate, and a
+// `render()` that returns in 8ms says nothing about what the driver did next.
+// So the governor assumes it is at fault, which is the right way round: guessing
+// wrong on a 30Hz panel costs a soft rung, and guessing wrong on a slow GPU is
+// the five-out-of-ten this file was sent back for. The futile check then cleans
+// it up — two cuts that move a vsync-locked 33ms by nothing, and the ladder
+// puts one back and leaves it alone.
 
 import { config } from './config.ts';
 import type {
@@ -162,6 +173,24 @@ function rung(
  * step before it keeps shadows and the halo and only gives up resolution. A
  * machine that reaches the floor was never going to be saved by anything above
  * it.
+ *
+ * ── What it measured ───────────────────────────────────────────────────────
+ *
+ * Median real rAF period, one frozen sim state at 1600x900 under a software
+ * rasteriser, three interleaved passes so page warm-up could not flatter the
+ * rung that happened to go first (it very nearly did: walked once in order,
+ * rung 0 read 1383ms against the same rung's 683ms once twenty warm-up frames
+ * had gone by, and the whole ladder looked twice as good as it is).
+ *
+ *   rung 0  high    683ms   —
+ *   rung 1  high-   633ms   -7%
+ *   rung 2  med     533ms   -16%
+ *   rung 3  med-    467ms   -12%
+ *   rung 4  low     350ms   -25%
+ *   rung 5  floor   267ms   -24%     61% off the top rung, end to end
+ *
+ * Every step buys time, which is the bar the ladder it replaces could not
+ * clear: three of that one's four steps moved the frame by zero.
  */
 const LADDER: readonly Rung[] = [
   rung('high', 'high', 1.00),
@@ -270,8 +299,15 @@ const PANIC_SAMPLES = 4;
 /** ...and before a *drop* is judged to have bought anything. */
 const VERDICT_SAMPLES = 14;
 
-/** A drop that buys less than this fraction of the frame back bought nothing. */
-const FUTILE_GAIN = 0.05;
+/**
+ * A drop that buys less than this fraction of the frame back bought nothing.
+ *
+ * Set under the smallest step the ladder actually contains — rung 0 to rung 1
+ * measured 7% — and well over the step the previous ladder's cheapest rungs
+ * measured, which was zero. It is a detector for "this lever does not apply to
+ * this machine", not a quality bar on the ladder.
+ */
+const FUTILE_GAIN = 0.04;
 /** Consecutive futile drops before the governor puts one back and stands down. */
 const FUTILE_LIMIT = 2;
 /** ...and how much worse the frame has to get before it tries again. */
@@ -280,6 +316,27 @@ const RETRY_FACTOR = 1.4;
 /** Frames of wall history. Emptied on every change, so it is never a mean
  *  across two different games. */
 const WALL_WINDOW = 64;
+/**
+ * Frames thrown away after a change, before the window starts filling again.
+ *
+ * A settle counted in *seconds* is not a settle when a frame costs half of one.
+ * Measured on the first live run of this ladder: the panic path's 0.9s lockout
+ * was a single frame at 500ms, so every verdict included the frame in which the
+ * shadow map was disposed and reallocated and the post stack's five mips were
+ * resized. The change log came out non-monotone because of it — a rung that
+ * dropped the frame from 913ms to 464ms was followed by one that "measured"
+ * 690ms, which was the reallocation and not the game. The seconds-based settle
+ * still runs on top, for the slower things (a batch of dressing coming back
+ * into range).
+ *
+ * Three rather than two because the floor rung's shader recompiles do not all
+ * land on one frame: three.js compiles a material the first time it draws it,
+ * so turning the post stack off spreads its thirty new programs over however
+ * many frames it takes for those objects to come into view. A 1.9-second frame
+ * got past a two-frame skip on the live run and then sat in `wallWorst` for the
+ * next sixty samples.
+ */
+const SKIP_FRAMES = 3;
 /** A gap longer than this was not a frame — an alt-tab, a breakpoint, a
  *  harness stall — and averaging it in would convict the machine of it. */
 const STALL_MS = 2000;
@@ -331,6 +388,11 @@ export interface QualityProbe {
   fps: number;
 
   // ── the work, kept only to attribute blame once wall time has convicted ──
+  /** CPU work over the *same* frames as `wallMs`. Compare the two. */
+  workMs: number;
+  /** The engine's own sixty-frame mean. Kept because it is what `stats()`
+   *  reports, and because the gap between it and `workMs` is itself a reading:
+   *  a big one means the machine's speed changed recently. */
   meanMs: number;
   worstMs: number;
   simMs: number;
@@ -360,8 +422,22 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
 
   // ── the wall-clock instrument ────────────────────────────────────────────
   const wall = new Float32Array(WALL_WINDOW);
+  /**
+   * CPU work for the same frames, sample for sample.
+   *
+   * `budget.meanMs` cannot be used for this. It averages sixty *frames*, which
+   * is a second on a machine that is fine and thirty-five seconds on one that
+   * is delivering 1.7 — so on exactly the machine the attribution matters for,
+   * it reports work from half a minute ago. Measured: while the steady state
+   * read 6.6ms of work against a 590ms frame, `budget.meanMs` was still saying
+   * 699ms and the change log was blaming the draw for a frame that was idling
+   * in the driver. Same samples, same window, or the comparison is not one.
+   */
+  const work = new Float32Array(WALL_WINDOW);
   let wallIdx = 0;
   let wallCount = 0;
+  /** Frames still to discard after a change. See `SKIP_FRAMES`. */
+  let skipFrames = 0;
   /** `performance.now()` at the previous delivered frame, or 0. */
   let lastFrameAt = 0;
   /** Rendered frames the rAF loop drove, as last seen. */
@@ -375,6 +451,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   let wallMean = 0;
   let wallWorst = 0;
   let wallBest = 0;
+  let workMean = 0;
   let lateFrac = 0;
 
   /** Seconds over budget / under it. One of the two is always zero. */
@@ -426,7 +503,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    */
   function boundBy(b: FrameBudget): string {
     if (wallMean <= 0) return '';
-    if (b.meanMs > wallMean * 0.66) {
+    if (workMean > wallMean * 0.66) {
       return b.meanSimMs > b.meanDrawMs ? 'sim' : 'draw';
     }
     return wallMean > TARGET_MS * UP_FACTOR ? 'gpu' : 'vsync';
@@ -453,7 +530,9 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     wallMean = 0;
     wallWorst = 0;
     wallBest = 0;
+    workMean = 0;
     lateFrac = 0;
+    skipFrames = SKIP_FRAMES;
   }
 
   function applyRung(next: number, why: string): void {
@@ -476,7 +555,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         to: index,
         why,
         wallMs: +wallMean.toFixed(1),
-        workMs: +(b?.meanMs ?? 0).toFixed(2),
+        workMs: +workMean.toFixed(2),
         bound: b ? boundBy(b) : '',
       });
     }
@@ -558,6 +637,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       samples: wallCount,
       fps: wallMean > 0 ? +(1000 / wallMean).toFixed(1) : 0,
 
+      workMs: +workMean.toFixed(3),
       meanMs: +(b?.meanMs ?? 0).toFixed(3),
       worstMs: +(b?.worstMs ?? 0).toFixed(3),
       simMs: +(b?.meanSimMs ?? 0).toFixed(3),
@@ -595,6 +675,12 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         auto = false;
         applied = e.quality;
         index = nearestRung(e.quality);
+        // Bring the render resolution to the rung that pick lands on, or a
+        // reviewer who asks for `high` after the ladder has been to the floor
+        // gets high's shadows and the floor's pixels, and photographs a state
+        // no rung describes.
+        applyScale(LADDER[index]!.scale);
+        clearWindow();
         holding = 'pinned';
       });
 
@@ -686,26 +772,39 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         if (gap > 0 && gap < STALL_MS && visible) {
           secs = gap / 1000;
           liveSeconds += secs;
-          wall[wallIdx] = gap;
-          wallIdx = (wallIdx + 1) % WALL_WINDOW;
-          if (wallCount < WALL_WINDOW) wallCount++;
+          // The frames right after a change are the change reallocating itself,
+          // not the game. They still count as time; they are not evidence.
+          if (skipFrames > 0) {
+            skipFrames--;
+          } else {
+            wall[wallIdx] = gap;
+            // The budget's per-frame fields are written at the *end* of
+            // `renderFrame` and we run inside the update pass, so these are the
+            // previous frame's costs — which is the frame `gap` just measured.
+            work[wallIdx] = b.simMs + b.updateMs + b.drawMs;
+            wallIdx = (wallIdx + 1) % WALL_WINDOW;
+            if (wallCount < WALL_WINDOW) wallCount++;
 
-          let sum = 0;
-          let worst = 0;
-          let best = Infinity;
-          let late = 0;
-          const lateAt = TARGET_MS * LATE_FACTOR;
-          for (let i = 0; i < wallCount; i++) {
-            const v = wall[i]!;
-            sum += v;
-            if (v > worst) worst = v;
-            if (v < best) best = v;
-            if (v > lateAt) late++;
+            let sum = 0;
+            let wsum = 0;
+            let worst = 0;
+            let best = Infinity;
+            let late = 0;
+            const lateAt = TARGET_MS * LATE_FACTOR;
+            for (let i = 0; i < wallCount; i++) {
+              const v = wall[i]!;
+              sum += v;
+              wsum += work[i]!;
+              if (v > worst) worst = v;
+              if (v < best) best = v;
+              if (v > lateAt) late++;
+            }
+            wallMean = sum / wallCount;
+            workMean = wsum / wallCount;
+            wallWorst = worst;
+            wallBest = best === Infinity ? 0 : best;
+            lateFrac = late / wallCount;
           }
-          wallMean = sum / wallCount;
-          wallWorst = worst;
-          wallBest = best === Infinity ? 0 : best;
-          lateFrac = late / wallCount;
         }
       }
 
@@ -738,8 +837,9 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // Above the warm-up gate and above the settle, because those exist to
       // stop the governor acting on thin evidence and a machine delivering
       // twenty-seven frames a second is not thin evidence. It still needs a
-      // fresh window (`MIN_SAMPLES` after the last change emptied it) and a
-      // short dwell, so one stalled frame cannot walk the ladder.
+      // fresh window — `PANIC_SAMPLES` frames since the last change emptied it,
+      // and `SKIP_FRAMES` of reallocation discarded before those — and a short
+      // dwell on top, so no single stalled frame can walk the ladder.
       const panic = wallMean > TARGET_MS * PANIC_FACTOR;
       const canDrop = index < LADDER.length - 1 && !stalled;
       if (panic && canDrop && liveSeconds >= PANIC_ARM_S && settleFor >= PANIC_SETTLE) {
@@ -790,7 +890,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       const over = wallMean > TARGET_MS * DOWN_FACTOR || lateFrac > DOWN_LATE_FRAC;
       const under = wallMean < TARGET_MS * UP_FACTOR
         && lateFrac < 0.03
-        && b.meanMs < UP_WORK_MS
+        && workMean < UP_WORK_MS
         && b.worstMs < UP_WORST_MS;
 
       if (over) {

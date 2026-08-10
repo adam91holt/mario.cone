@@ -39,7 +39,7 @@ import type { GameContext, Racer } from '../types.ts';
 import { glyphBox, ordinalWord, type GlyphBox } from './glyphs.ts';
 import { CHEVRON_SVG, COIN_SVG } from './icons.ts';
 import { createRoller, rollerHtml, type Roller } from './roller.ts';
-import { bind, fromHtml, q, rgba, type Bound } from './theme.ts';
+import { bind, C, fromHtml, q, rgba, type Bound } from './theme.ts';
 
 export const CSS_READOUTS = `
 /* ── lap ─────────────────────────────────────────────────────────────────── */
@@ -49,9 +49,18 @@ export const CSS_READOUTS = `
 #hud .lap-head { display: flex; align-items: center; gap: calc(var(--u) * .95); }
 #hud .lap-num { display: flex; align-items: flex-end; gap: calc(var(--u) * .16); }
 #hud .lap-num .num { height: calc(var(--u) * 4.3); color: #FFF8F0; }
-#hud .lap-num .sep { height: calc(var(--u) * 2.5); color: #FFF8F0; opacity: .42;
+/* **Dimmed by colour, never by opacity.** Every numeral in this game carries an
+   ink keyline and an extruded under-face as *geometry* (see glyphs.ts), and
+   fading the whole element takes the keyline with it — so the "3" beside the
+   lap number wore a grey outline and a grey shadow while the "1" beside it wore
+   a black one, and the "/" between them had no outline at all. Three type
+   treatments inside one plate, on the one screen the player looks at most.
+   Setting the face colour instead leaves the keyline, the bevel and the drop
+   shadow at full strength, so a quiet numeral is the same object as a loud one
+   in a quieter paint. */
+#hud .lap-num .sep { height: calc(var(--u) * 2.5); color: #9AA3B4;
   margin-bottom: calc(var(--u) * .12); }
-#hud .lap-num .tot { height: calc(var(--u) * 2.8); color: #FFF8F0; opacity: .88;
+#hud .lap-num .tot { height: calc(var(--u) * 2.8); color: #DDE2EC;
   margin-bottom: calc(var(--u) * .06); }
 #hud .pips { display: flex; gap: calc(var(--u) * .22); margin-left: auto; align-self: center; }
 /* An unlit pip has to be *visibly a pip* — a slot waiting to be filled — or the
@@ -66,6 +75,38 @@ export const CSS_READOUTS = `
 }
 #hud .pips i.done { background: #FFC300; box-shadow: inset 0 0 0 1px rgba(0,0,0,.5), 0 0 calc(var(--u) * .34) rgba(255,195,0,.75); }
 #hud .pips i.now { background: #FFF8F0; box-shadow: inset 0 0 0 1px rgba(0,0,0,.5), 0 0 calc(var(--u) * .4) rgba(255,248,240,.8); }
+/* ── the race clock ──────────────────────────────────────────────────────── */
+/* **There was no clock anywhere in this game.** A previous pass removed a
+   millisecond readout on the argument that a Grand Prix has no target time, and
+   that argument is half right: three digits of milliseconds updating sixty
+   times a second is telemetry, and it was correctly deleted. But a racer with
+   no clock at all is a racer where the only time the player ever sees is the
+   split inside a lap banner that holds for well under a second — so a run they
+   are proud of has no number attached to it, and the results sheet quotes a
+   figure they have never once been shown. Mario Kart puts the elapsed time on
+   the same corner as the lap counter, and so does this now: tenths, not
+   thousandths, on a second field of the sign the lap is already printed on. */
+#hud .lap-clock {
+  display: flex; align-items: center; gap: calc(var(--u) * .34);
+  margin-top: calc(var(--u) * .3); padding-top: calc(var(--u) * .28);
+  box-shadow: inset 0 calc(var(--u) * .09) 0 rgba(255,248,240,.16);
+}
+#hud .lap-clock .ck { height: calc(var(--u) * 1.7); color: #D6DCE8; display: block; }
+/* A stopwatch, at the weight of the pips beside it. */
+#hud .lap-clock .dial {
+  width: calc(var(--u) * 1.1); height: calc(var(--u) * 1.1); flex: none;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 calc(var(--u) * .17) rgba(255,248,240,.62),
+              0 0 0 calc(var(--u) * .07) rgba(9,11,15,.85);
+  position: relative;
+}
+#hud .lap-clock .dial::after {
+  content: ''; position: absolute; left: 50%; top: 22%;
+  width: calc(var(--u) * .12); height: calc(var(--u) * .34);
+  margin-left: calc(var(--u) * -.06);
+  background: rgba(255,248,240,.85);
+}
+#hud .lap-plate.final .lap-clock .ck { color: #FFC98A; }
 /* The last lap is a different race and the sign says so — hazard orange, and a
    slow pulse that never quite settles. */
 #hud .lap-plate.final::before { background: linear-gradient(90deg, #FF6B1A, #FFC300 50%, #FF6B1A); }
@@ -140,6 +181,23 @@ export const CSS_READOUTS = `
 }
 `;
 
+/**
+ * The race clock, to a tenth.
+ *
+ * Not `formatTime` from core/math: that one is the *record* format — minutes,
+ * seconds and thousandths — and it is the right answer on a lap banner, on the
+ * results sheet and in a save file, all of which are read standing still. This
+ * one is read at 200km/h out of the corner of an eye, where the third decimal
+ * is a blur that costs a glyph rebuild every frame.
+ */
+function clockText(sec: number): string {
+  const t = isFinite(sec) && sec > 0 ? sec : 0;
+  const m = Math.floor(t / 60);
+  const s = Math.floor(t % 60);
+  const tenth = Math.floor((t % 1) * 10);
+  return `${m}:${String(s).padStart(2, '0')}.${tenth}`;
+}
+
 export interface Panel {
   readonly root: HTMLElement;
   update(dt: number): void;
@@ -159,6 +217,7 @@ export function createLapPanel(ctx: GameContext): Panel {
         </div>
         <div class="pips"></div>
       </div>
+      <div class="lap-clock"><i class="dial"></i><span class="ck"></span></div>
     </div>
   `);
 
@@ -166,6 +225,7 @@ export function createLapPanel(ctx: GameContext): Panel {
   const roller: Roller = createRoller(q(root, '.roll.cur'));
   glyphBox(q(root, '.sep'), '/');
   const total = glyphBox(q(root, '.tot'), '3');
+  const clock = glyphBox(q(root, '.ck'), '0:00.0');
   const pipBox = q(root, '.pips');
 
   let pips: HTMLElement[] = [];
@@ -197,6 +257,15 @@ export function createLapPanel(ctx: GameContext): Panel {
       const player = ctx.player;
       buildPips(race.totalLaps);
       total.set(String(race.totalLaps));
+
+      // **Tenths, and the clock stops when the player does.** A glyph run is
+      // rebuilt only when its text changes (see glyphs.ts), so a thousandths
+      // readout would reparse an eight-glyph SVG sixty times a second in the
+      // busiest corner of the screen for two digits nobody can read at speed.
+      // Tenths cost ten rebuilds a second and still move, which is the whole
+      // difference between a clock and a caption.
+      const shownTime = player?.finished ? player.finishTime : race.time;
+      clock.set(clockText(shownTime));
 
       // `lap` counts from -1 on the run-up to the line, so the displayed lap is
       // one more than it and never leaves 1..total.
@@ -328,9 +397,18 @@ export function createPositionPanel(ctx: GameContext): Panel {
           flashUp = gained;
           deltaT = 1;
           deltaUp = gained;
+          // **The palette's own colours, and only the top third of the plate.**
+          // A 78%-tall wash of `#8CFF6A` screened over a dark striped plate
+          // composites to a desaturated olive — a colour that is in neither the
+          // palette anchor nor anywhere else in this HUD, and which photographs
+          // as a colour-management fault rather than as a reward. `C.green` and
+          // `C.red` are the two the rest of the instrument set is painted from,
+          // and confining the wash to the top of the sign leaves the plate its
+          // own face: the flash now reads as light coming *off* the header
+          // strip, which is where a gain already lifts the whole plate towards.
           flash.set('background', gained
-            ? `linear-gradient(180deg, ${rgba(0x8CFF6A, 0.75)}, ${rgba(0x2FA015, 0)} 78%)`
-            : `linear-gradient(0deg, ${rgba(0xFF5B45, 0.7)}, ${rgba(0x8E1A0C, 0)} 78%)`);
+            ? `linear-gradient(180deg, ${rgba(C.green, 0.9)}, ${rgba(C.green, 0)} 46%)`
+            : `linear-gradient(0deg, ${rgba(C.red, 0.85)}, ${rgba(C.red, 0)} 46%)`);
         }
         shown = place;
       }

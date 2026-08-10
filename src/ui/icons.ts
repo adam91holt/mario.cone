@@ -96,18 +96,51 @@ const CANISTER = `
   ${plain('M29 57.4h6l-3 5.4z', '#BFE6FF', 'opacity=".92"')}
 `;
 
-function shell(body: string, rim: string): string {
+/**
+ * The two shells, which were the same picture in two colours.
+ *
+ * A green shell and a red shell were literally one function called twice with a
+ * different hue: identical dome, identical three studs, identical rim. At
+ * socket size and at 200km/h "is this the one that goes straight or the one
+ * that hunts?" was a question about a *colour*, and a player who is
+ * red-green-confused, or who glanced at it over a bright sky, had no answer at
+ * all. The two most consequential items in the game cannot differ in one
+ * channel.
+ *
+ * So the marks on the dome differ too: green wears the three blunt studs it
+ * always had, red wears a stacked pair of homing chevrons pointing the way it
+ * is about to go. Different shape, different count, different rhythm — legible
+ * as a black-and-white thumbnail, which is the test.
+ */
+function shell(body: string, rim: string, marks: string): string {
   return `
     ${s('M9 37a23 23 0 0 1 46 0z', body)}
     ${plain('M32 17.5a19.5 19.5 0 0 1 19.4 17.6H12.6A19.5 19.5 0 0 1 32 17.5z', rim, 'opacity=".55"')}
-    ${s('M32 18.4 27 30h10z', rim)}
-    ${s('M14.6 29.2 22 33.6l-4.6 3.4z', rim)}
-    ${s('M49.4 29.2 42 33.6l4.6 3.4z', rim)}
+    ${marks}
     ${gloss('M17 33c1-8 7.5-13 13-13.6-6 3-9.5 8-10.4 14.6z', 0.6)}
     ${s('M5 36h54a5 5 0 0 1 0 13H5a5 5 0 0 1 0-13z', '#FFF8F0')}
     ${plain('M5.5 43.5h53', 'none', `stroke="${INK}" stroke-width="1.6" opacity=".28"`)}
   `;
 }
+
+/** Green: three blunt studs, the way a shell that only bounces is marked. */
+const SHELL_STUDS = (rim: string): string => `
+  ${s('M32 18.4 27 30h10z', rim)}
+  ${s('M14.6 29.2 22 33.6l-4.6 3.4z', rim)}
+  ${s('M49.4 29.2 42 33.6l4.6 3.4z', rim)}
+`;
+
+/** Red: two chevrons, stacked and pointing forward. It is aimed at somebody. */
+const SHELL_CHEVRONS = (rim: string): string => `
+  ${plain('M21.5 34 32 26.5 42.5 34', 'none',
+  `stroke="${INK}" stroke-width="6.4" fill="none" stroke-linejoin="round" stroke-linecap="round"`)}
+  ${plain('M21.5 34 32 26.5 42.5 34', 'none',
+  `stroke="${rim}" stroke-width="3.4" fill="none" stroke-linejoin="round" stroke-linecap="round"`)}
+  ${plain('M22.5 25 32 18.2 41.5 25', 'none',
+  `stroke="${INK}" stroke-width="6.4" fill="none" stroke-linejoin="round" stroke-linecap="round"`)}
+  ${plain('M22.5 25 32 18.2 41.5 25', 'none',
+  `stroke="${rim}" stroke-width="3.4" fill="none" stroke-linejoin="round" stroke-linecap="round"`)}
+`;
 
 const BODIES: Record<ItemId, string> = {
   // **A banana, not a leaf.**
@@ -134,8 +167,8 @@ const BODIES: Record<ItemId, string> = {
     ${plain('M57 52a2.4 2.4 0 0 1 0 3.4', 'none',
     'stroke="#7A5510" stroke-width="3" stroke-linecap="round"')}
   `,
-  greenShell: shell('#46D63C', '#1F7A1C'),
-  redShell: shell('#F03A2E', '#8E1C14'),
+  greenShell: shell('#46D63C', '#1F7A1C', SHELL_STUDS('#1F7A1C')),
+  redShell: shell('#F03A2E', '#FFE9C4', SHELL_CHEVRONS('#FFE9C4')),
   // **A compressed-air canister, not a mushroom.** `items/models.ts` re-themed
   // the instant boost to a hazard-banded gas bottle with a nozzle under it —
   // every machine in this cast is a roadworks machine, and a red cap with white
@@ -163,10 +196,18 @@ const BODIES: Record<ItemId, string> = {
     ${plain('M25 33.5a3.1 3.1 0 1 1 0 .1zM39 33.5a3.1 3.1 0 1 1 0 .1z', INK)}
     ${plain('M27.5 41c2.6 3.4 6.4 3.4 9 0', 'none', `stroke="${INK}" stroke-width="3" stroke-linecap="round"`)}
   `,
+  // **Lifted out of the plate.** This and the bob-omb were drawn at the values
+  // of the object — a bullet bill is gunmetal, a bob-omb is black — and the
+  // socket they sit in runs from #333B49 down to #0E1218. Photographed there,
+  // both read as *holes*: two icons in a thirteen-icon set where the only thing
+  // that registered was a pair of white eyes floating in the dark. An icon in
+  // this game is a painted object under a key light, not a value study, so both
+  // are now painted in the light: the same hue, three stops up, which keeps the
+  // silhouette and gets it off the plate.
   bulletBill: `
-    ${s('M20 17h16a15 15 0 0 1 0 30H20a13 15 0 0 1 0-30z', '#4A5162')}
-    ${s('M20 20 8 16l3 16-3 16 12-4z', '#2E3340')}
-    ${gloss('M24 22h9a11 11 0 0 1 8 4c-3-1-14-1-19 1z', 0.35)}
+    ${s('M20 17h16a15 15 0 0 1 0 30H20a13 15 0 0 1 0-30z', '#78839A')}
+    ${s('M20 20 8 16l3 16-3 16 12-4z', '#4B5468')}
+    ${gloss('M24 22h9a11 11 0 0 1 8 4c-3-1-14-1-19 1z', 0.5)}
     ${plain('M25 27a4.2 4.2 0 1 1 0 .1zM38 27a4.2 4.2 0 1 1 0 .1z', '#FFF8F0')}
     ${plain('M26.5 37c4 3.4 8 3.4 12 0', 'none', `stroke="#FFF8F0" stroke-width="3" stroke-linecap="round"`)}
   `,
@@ -178,14 +219,21 @@ const BODIES: Record<ItemId, string> = {
     ${plain('M17 40v13M25 42v16M39 42v16M47 40v13', 'none',
     `stroke="${INK}" stroke-width="9.4" stroke-linecap="round"`)}
     ${plain('M17 40v13M25 42v16M39 42v16M47 40v13', 'none',
-    'stroke="#F2F6FF" stroke-width="6" stroke-linecap="round"')}
-    ${s('M32 6c13.5 0 21 11.5 21 23 0 8-4 13-7 15H18c-3-2-7-7-7-15C11 17.5 18.5 6 32 6z', '#F2F6FF')}
+    'stroke="#DCE9FF" stroke-width="6" stroke-linecap="round"')}
+    ${s('M32 6c13.5 0 21 11.5 21 23 0 8-4 13-7 15H18c-3-2-7-7-7-15C11 17.5 18.5 6 32 6z', '#DCE9FF')}
     ${gloss('M20 26c0-8 5.5-14 12-15-8 4-11 9-11 16z', 0.7)}
     ${plain('M23 26a5.4 5.4 0 1 1 0 .1zM38 26a5.4 5.4 0 1 1 0 .1z', '#2C3550')}
     ${plain('M26.4 24.4a1.9 1.9 0 1 1 0 .1zM41.4 24.4a1.9 1.9 0 1 1 0 .1z', '#FFFFFF')}
   `,
+  // **Arms, and a warm white.** Boo and the blooper were both "white blob with
+  // two dark eyes" — the same read at socket size, for two items that do
+  // opposite things. Boo gets the two stubby arms it has always had in every
+  // drawing of it, which changes the outline rather than the palette, and the
+  // two whites are pulled apart: the squid is cold and wet, the ghost is warm.
   boo: `
-    ${s('M10 33a22 22 0 0 1 44 0v20l-6-5.4-5.5 5.4L37 47.6 31.5 53 26 47.6 20.5 53 15 47.6 10 53z', '#EFF3FF')}
+    ${s('M10 39m-6.5 0a6.5 6.5 0 1 0 13 0a6.5 6.5 0 1 0 -13 0', '#FFF1E4')}
+    ${s('M54 39m-6.5 0a6.5 6.5 0 1 0 13 0a6.5 6.5 0 1 0 -13 0', '#FFF1E4')}
+    ${s('M10 33a22 22 0 0 1 44 0v20l-6-5.4-5.5 5.4L37 47.6 31.5 53 26 47.6 20.5 53 15 47.6 10 53z', '#FFF1E4')}
     ${gloss('M18 30c0-9 6.5-15 13-16-8.5 4.5-12 10-12 17z', 0.7)}
     ${plain('M23 30a4.4 4.4 0 1 1 0 .1zM39 30a4.4 4.4 0 1 1 0 .1z', '#2B3149')}
     ${plain('M32 38.5a6.4 4.4 0 1 1 0 .1z', '#2B3149')}
@@ -195,8 +243,8 @@ const BODIES: Record<ItemId, string> = {
     ${plain('M39 20q10-5 9-16', 'none', 'stroke="#9AA5B4" stroke-width="4" fill="none" stroke-linecap="round"')}
     ${plain('M48 6.5a5.6 5.6 0 1 1 0 .1z', '#FFC65A')}
     ${plain('M49.4 5.6a3 3 0 1 1 0 .1z', '#FFF6D2')}
-    ${s('M29 17a21 21 0 1 1 0 42 21 21 0 0 1 0-42z', '#2E3340')}
-    ${gloss('M18 30c1.5-6.5 7-11 12-11.6-7 3.4-10 7-11 12z', 0.28)}
+    ${s('M29 17a21 21 0 1 1 0 42 21 21 0 0 1 0-42z', '#69738A')}
+    ${gloss('M18 30c1.5-6.5 7-11 12-11.6-7 3.4-10 7-11 12z', 0.5)}
     ${plain('M11 34q18 8 36 0', 'none', 'stroke="#FF6B1A" stroke-width="6" fill="none"')}
     ${plain('M22 34a3.4 3.4 0 1 1 0 .1zM36 34a3.4 3.4 0 1 1 0 .1z', '#FFF8F0')}
   `,
@@ -218,9 +266,31 @@ const BODIES: Record<ItemId, string> = {
   `,
 };
 
+/**
+ * The backing every icon is painted on.
+ *
+ * **An icon cannot be responsible for its own contrast.** The socket's face
+ * runs from `#333B49` at the top to `#0E1218` at the bottom, and thirteen icons
+ * drawn from thirteen different palettes cannot each be checked against it —
+ * two of them, the bob-omb and the bullet bill, lost that argument outright and
+ * photographed as holes with a pair of eyes floating in them. Lifting those two
+ * fixes those two; the *set* needs one ground.
+ *
+ * So every icon carries a soft light pool underneath it, sized to the icon and
+ * fading out well before the edge of the box. It is not a plate — a hard disc
+ * behind an object reads as a badge and would fight the socket's own housing —
+ * it is the light the object is standing in, and it puts every icon in the set
+ * on the same footing whatever colour it happens to be.
+ */
+const BACKING = `<radialGradient id="ig-back" cx=".5" cy=".46" r=".54">
+<stop offset="0" stop-color="#FFF8F0" stop-opacity=".3"/>
+<stop offset=".55" stop-color="#FFF8F0" stop-opacity=".16"/>
+<stop offset="1" stop-color="#FFF8F0" stop-opacity="0"/></radialGradient>`;
+
 /** One `<svg>` per item, all present in the slot, one of them `.on`. */
 export function itemIconSvg(id: ItemId): string {
-  return `<svg viewBox="0 0 64 64" data-face="${id}" aria-hidden="true">${BODIES[id]}</svg>`;
+  return `<svg viewBox="0 0 64 64" data-face="${id}" aria-hidden="true">`
+    + `<circle cx="32" cy="30" r="32" fill="url(#ig-back)"/>${BODIES[id]}</svg>`;
 }
 
 /**
@@ -234,7 +304,7 @@ export function itemIconSvg(id: ItemId): string {
  */
 export const ICON_DEFS = `<svg class="icon-defs" aria-hidden="true"><defs>${
   [...ramps.values()].join('')
-}</defs></svg>`;
+}${BACKING}</defs></svg>`;
 
 export const ITEM_IDS = Object.keys(BODIES) as ItemId[];
 

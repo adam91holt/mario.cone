@@ -46,7 +46,19 @@ export interface Engine {
 export function createEngine(ctx: GameContext, canvas: HTMLCanvasElement): Engine {
   const renderer = new THREE.WebGLRenderer({
     canvas,
-    antialias: ctx.quality.aa,
+    // **Not `ctx.quality.aa`.** This flag multisamples the *default* framebuffer,
+    // and with the post stack installed the scene never touches it: the world is
+    // drawn into `sceneTarget`, and the only thing that ever reaches the
+    // backbuffer is one full-screen quad. A quad has no interior edges, so every
+    // sample of that multisample buffer holds the same colour — the game paid
+    // four times the writes and a resolve every frame, for ever, to antialias a
+    // rectangle. The edges are resolved where they exist, in `post.ts`'s FXAA
+    // pass, which the ladder can also switch off; and the one tier that would
+    // genuinely want hardware AA is the floor rung, which is the tier that
+    // already asks for `aa: false`. A context attribute cannot be changed after
+    // creation, which is the other half of the reason it was never the ladder's
+    // to spend.
+    antialias: false,
     powerPreference: 'high-performance',
     stencil: false,
   });
@@ -363,13 +375,24 @@ export function createEngine(ctx: GameContext, canvas: HTMLCanvasElement): Engin
      * `ms` is *measured work* — simulation plus visual update plus draw — not a
      * wall-clock delta, so it means the same thing whether the browser's rAF
      * loop or the capture harness is driving. `wallMs` carries the wall reading
-     * when there is one. `fps` is what that work implies, capped at the display
-     * rate the game targets: 4ms of work is a 60fps frame with headroom, not a
-     * 250fps one, and reporting 250 hides the headroom rather than showing it.
+     * when there is one.
+     *
+     * **`fps` is the wall clock whenever there is one.** It used to be derived
+     * from `ms` alone and capped at 60, which is defensible for a harness-driven
+     * page with no wall clock at all and a straight falsehood for a live one:
+     * `performance.now()` around `renderer.render()` times command submission,
+     * not the picture, so a laptop delivering four frames a second measured 12ms
+     * of work and this function answered `fps: 60`. That is the first number
+     * every reviewer reads. When the loop is driving, frames per second means
+     * frames per second; the work-implied figure survives only as the fallback
+     * for `step()`/`render()` captures, where it is the only honest answer, and
+     * keeps its cap there because 4ms of work is a 60fps frame with headroom
+     * rather than a 250fps one.
      */
     stats(): RenderStats {
       const info = renderer.info;
       const ms = budget.meanMs;
+      const wall = budget.wallMs;
       const cost: SystemCost[] = [];
       for (let i = 0; i < systems.length; i++) {
         const sim = sysSimAvg[i] ?? 0;
@@ -383,7 +406,11 @@ export function createEngine(ctx: GameContext, canvas: HTMLCanvasElement): Engin
       }
       cost.sort((a, b) => (b.simMs + b.updateMs) - (a.simMs + a.updateMs));
       return {
-        fps: ms > 0 ? Math.min(60, Math.round(1000 / ms)) : 0,
+        // One decimal on the wall path: a machine at 1.4 seconds a frame rounds
+        // to zero as an integer, and "0" reads as broken rather than as slow.
+        fps: wall > 0
+          ? +(1000 / wall).toFixed(1)
+          : (ms > 0 ? Math.min(60, Math.round(1000 / ms)) : 0),
         ms: +ms.toFixed(2),
         worstMs: +budget.worstMs.toFixed(2),
         drawCalls: info.render.calls,

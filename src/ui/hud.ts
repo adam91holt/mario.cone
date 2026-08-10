@@ -123,12 +123,24 @@ export function createHudSystem(ctx: GameContext): GameSystem {
   `);
 
   const layer = bind(q(root, '.layer'));
-  const corners = REVEAL.map(([name, dx, dy]) => ({
+  const corners = REVEAL.map(([name, dx, dy], i) => ({
     box: bind(q(root, `.${name}`)),
     dx, dy,
     centred: name === 'tc',
     /** Stays on screen when the rest of the set retires at the flag. */
     keep: name === 'br',
+    /**
+     * This cluster's own phase in the impact shake.
+     *
+     * **A hit used to move the HUD as one rigid slab.** The whole layer was
+     * translated and rotated together, so the lap plate, the map, the coin
+     * plate and the place indicator all leaned the same way by the same amount
+     * at the same instant — which is not five instruments being knocked, it is
+     * a photograph of five instruments being tilted. Five separate phases, from
+     * an irrational step so no two ever come back into sync, and the set comes
+     * apart on the bang the way a dashboard full of loose gauges would.
+     */
+    phase: i * 2.399963,
   }));
 
   const slot = createItemSlot(ctx);
@@ -220,6 +232,15 @@ export function createHudSystem(ctx: GameContext): GameSystem {
    * done.
    */
   let handed = false;
+  /**
+   * Whether the clusters are currently displaced from their resting place.
+   *
+   * The composed writer below has to run for one extra frame after everything
+   * it composes has reached zero, or the last shake offset is what the set
+   * stays parked at. `bind()` swallows the repeat writes, so "one extra frame"
+   * costs a map lookup.
+   */
+  let cornersHot = true;
 
   const unsubs: Array<() => void> = [];
   unsubs.push(ctx.bus.on('race:handoff', () => { handed = true; }));
@@ -273,6 +294,7 @@ export function createHudSystem(ctx: GameContext): GameSystem {
       // second of the moment it happens in.
       reveal = 0;
       slotIn = 0;
+      cornersHot = true;
       slot.reset();
       map.reset();
       banners.reset();
@@ -301,19 +323,14 @@ export function createHudSystem(ctx: GameContext): GameSystem {
 
       // ── impact, and its opposite ─────────────────────────────────────────
       //
-      // One transform for the whole set, composed from both responses: a hit
-      // shakes it and a boost swells it. Written from a single place because two
-      // writers on one `transform` means whichever ran last wins, and a boost
-      // taken while still shaking is exactly when both are happening.
+      // The *swell* is the whole set's, because a boost is one event happening
+      // to the machine all the instruments are bolted to. The *shake* is not:
+      // it is handed to the clusters below, each with its own phase, because a
+      // rigid slab leaning eight degrees is a photograph of a HUD being tilted
+      // rather than of five instruments being hit.
       if (jolt > 0) jolt = Math.max(0, jolt - dt * 3.1);
-      if (jolt > 0 || surge > 0) {
-        const k = jolt * jolt;
-        const x = Math.sin(clock * 61) * k * 1.1;
-        const y = Math.sin(clock * 47 + 1.3) * k * 0.7;
-        const rot = Math.sin(clock * 53) * k * 0.8;
-        const s = 1 + surge * surge * 0.016;
-        layer.set('transform',
-          `translate(${x.toFixed(3)}%, ${y.toFixed(3)}%) rotate(${rot.toFixed(3)}deg) scale(${s.toFixed(4)})`);
+      if (surge > 0.0005) {
+        layer.set('transform', `scale(${(1 + surge * surge * 0.016).toFixed(4)})`);
       } else {
         layer.set('transform', 'none');
       }
@@ -349,25 +366,18 @@ export function createHudSystem(ctx: GameContext): GameSystem {
       const preFlag = ctx.race.phase === 'intro' || ctx.race.phase === 'countdown';
       slotIn = preFlag ? 0 : Math.min(1, slotIn + dt / 0.34);
 
-      // ── reveal, and its opposite ─────────────────────────────────────────
-      // One writer for every corner's transform, always. Two writers on one
-      // transform means whichever ran last wins, and "the set is arriving" and
-      // "the socket is still waiting for the flag" are both true for the first
-      // third of a second of every race.
-      if (reveal < 1 || slotIn < 1) {
-        if (reveal < 1) reveal = Math.min(1, reveal + dt / 0.32);
-        const back = 1 - ease.outQuart(reveal);
-        const held = Math.max(back, 1 - ease.outQuart(slotIn));
-        for (const c of corners) {
-          const b = c.centred ? held : back;
-          const tx = c.dx * b * 46 + (c.centred ? -50 : 0);
-          const ty = c.dy * b * 60;
-          c.box.set('transform', `translate(${tx.toFixed(2)}%, ${ty.toFixed(2)}%)`);
-          c.box.set('opacity', (c.centred
-            ? Math.min(1, (1 - held) * 2.2)
-            : Math.min(1, reveal * 2.2)).toFixed(3));
-        }
-      } else if (ctx.player?.finished || handed || retire > 0) {
+      // ── reveal, retire, and the shake ────────────────────────────────────
+      //
+      // **One writer for every cluster's transform, always.** Two writers on one
+      // `transform` means whichever ran last wins, and three of these states
+      // overlap in practice: "the set is arriving" and "the socket is still
+      // waiting for the flag" are both true for the first third of a second of
+      // every race, and a shell can land on the player in the middle of either.
+      // So the arrival offset, the retirement offset and the impact shake are
+      // composed here and written once.
+      if (reveal < 1) reveal = Math.min(1, reveal + dt / 0.32);
+      const retiring = (ctx.player?.finished ?? false) || handed || retire > 0;
+      if (retiring) {
         // The working instruments leave once the race is decided; the place
         // indicator holds, because it is the answer. A beat of delay first, so
         // the crossing itself is not competing with the furniture moving.
@@ -375,13 +385,33 @@ export function createHudSystem(ctx: GameContext): GameSystem {
         retire = want > retire
           ? Math.min(1, retire + dt / 0.9)
           : Math.max(0, retire - dt / 0.4);
-        const out = ease.inQuad(clamp01((retire - 0.25) / 0.75));
+      }
+      const back = 1 - ease.outQuart(reveal);
+      const held = Math.max(back, 1 - ease.outQuart(slotIn));
+      const gone = retiring ? ease.inQuad(clamp01((retire - 0.25) / 0.75)) : 0;
+      const shake = jolt * jolt;
+      if (back > 0 || held > 0 || gone > 0 || shake > 0 || cornersHot) {
+        cornersHot = back > 0 || held > 0 || gone > 0 || shake > 0;
         for (const c of corners) {
-          if (c.keep && !handed) continue;
-          const tx = c.dx * out * 46 + (c.centred ? -50 : 0);
-          const ty = c.dy * out * 62;
-          c.box.set('transform', `translate(${tx.toFixed(2)}%, ${ty.toFixed(2)}%)`);
-          c.box.set('opacity', (1 - out).toFixed(3));
+          const b = c.centred ? held : back;
+          const leave = c.keep && !handed ? 0 : gone;
+          let tx = (c.dx * b * 46) + (c.dx * leave * 46) + (c.centred ? -50 : 0);
+          let ty = (c.dy * b * 60) + (c.dy * leave * 62);
+          let rot = 0;
+          if (shake > 0) {
+            // Each cluster on its own beat, and rotating about its own middle —
+            // which is what makes the lap plate and the map look like two
+            // things that were hit rather than one thing that was tilted.
+            tx += Math.sin(clock * 61 + c.phase) * shake * 3.4;
+            ty += Math.sin(clock * 47 + c.phase * 1.7) * shake * 2.8;
+            rot = Math.sin(clock * 53 + c.phase * 2.3) * shake * 2.2;
+          }
+          c.box.set('transform', rot === 0
+            ? `translate(${tx.toFixed(2)}%, ${ty.toFixed(2)}%)`
+            : `translate(${tx.toFixed(2)}%, ${ty.toFixed(2)}%) rotate(${rot.toFixed(2)}deg)`);
+          c.box.set('opacity', ((c.centred
+            ? Math.min(1, (1 - held) * 2.2)
+            : Math.min(1, reveal * 2.2)) * (1 - leave)).toFixed(3));
         }
       }
     },

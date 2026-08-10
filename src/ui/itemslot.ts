@@ -299,22 +299,46 @@ export const CSS_ITEM = `
   overflow: hidden;
   /* Six slats. A lit hairline along the top of each, a body that falls away
      under it, and a hard seam at the bottom — which is what makes a flat
-     gradient read as pressed steel rather than as stripes. Painted at road-sign
-     values, not at shadow values: the whole point of this object is that the
-     top of the frame stops being a hole. */
+     gradient read as pressed steel rather than as stripes.
+
+     **Painted at shut-door values, not at road-sign values.** The first cut of
+     this shutter was lit like an item: pale steel slats at #C3CEDE with a
+     saturated safety-orange band across them, and photographed after a reset —
+     with "item: null" and "coins: 0" — it was a fully realised object with the same
+     visual weight as a shell sitting in the socket. That is the one thing the
+     empty state cannot be. "I have nothing" has to read differently from "I
+     have something" *at a glance and out of the corner of an eye*, so the door
+     is now a dark closed door: the same object, the same slats, the same
+     hazard band, all of it two stops down and out of the light. What it must
+     not be is a hole — it still has a lit edge on every slat, so it reads as
+     shut rather than as missing. */
   background: repeating-linear-gradient(180deg,
-    #C3CEDE 0 calc(var(--u) * .08),
-    #8B98AC calc(var(--u) * .08) calc(var(--u) * .46),
-    #59647A calc(var(--u) * .46) calc(var(--u) * .9),
-    #1B2029 calc(var(--u) * .9) calc(var(--u) * .99));
+    #6C7789 0 calc(var(--u) * .08),
+    #4A5262 calc(var(--u) * .08) calc(var(--u) * .46),
+    #333A48 calc(var(--u) * .46) calc(var(--u) * .9),
+    #12161D calc(var(--u) * .9) calc(var(--u) * .99));
+}
+/* **The housing is not lit when there is nothing in it.**
+   The socket wears a hazard-yellow ring, and that ring is the loudest thing
+   about the widget — it was on all race, whether the player was holding a
+   bullet bill or holding nothing, which is exactly the tell that was missing.
+   Empty, the ring drops to the same cold steel the door is made of and the
+   socket stops advertising. The instant an item lands the gold comes back, and
+   the difference between the two frames is unmistakable at any size. */
+#hud .slot.empty {
+  box-shadow:
+    inset 0 0 0 calc(var(--u) * .2) rgba(122,134,154,.72),
+    inset 0 0 0 calc(var(--u) * .34) rgba(18,22,30,.9),
+    inset 0 calc(var(--u) * -.62) calc(var(--u) * 1.1) rgba(0,0,0,.55),
+    0 calc(var(--u) * .34) calc(var(--u) * .9) rgba(0,0,0,.5);
 }
 /* The key light, from the top left, same as every other painted surface in this
    game. Without it the slats are a flat grille and the socket is a vent. */
 #hud .slot .shut::before {
   content: ''; position: absolute; inset: 0;
   background:
-    radial-gradient(120% 90% at 26% 8%, rgba(255,255,255,.26), rgba(255,255,255,0) 62%),
-    linear-gradient(163deg, rgba(255,240,214,.1), rgba(0,0,0,.2) 76%);
+    radial-gradient(120% 90% at 26% 8%, rgba(255,255,255,.15), rgba(255,255,255,0) 62%),
+    linear-gradient(163deg, rgba(255,240,214,.05), rgba(0,0,0,.34) 76%);
 }
 /* ...and the recess. The shutter sits *inside* the housing, so it is in the
    housing's shadow at the top and bottom lips. */
@@ -335,13 +359,18 @@ export const CSS_ITEM = `
    photograph taken of it. One flat namespace under "#hud" is what the whole
    instrument set shares, and a widget-agnostic class name inside it is a
    collision waiting for the next widget. */
+/* ...and it is *painted on a shut door*, not lit like a signal. At full safety
+   orange this band was the brightest thing in the socket, which is how an empty
+   slot ended up weighing the same as a held item. Drained to the ochre a hazard
+   stripe goes when the sun is off it, and narrower, it still says "closed" and
+   it no longer says "look here". */
 #hud .slot .shut .hazard {
   position: absolute; left: 0; right: 0; top: 50%;
-  height: calc(var(--u) * 1.5); margin-top: calc(var(--u) * -.75);
+  height: calc(var(--u) * 1.2); margin-top: calc(var(--u) * -.6);
   background: repeating-linear-gradient(128deg,
-    #FF6B1A 0 calc(var(--u) * .44), #171B24 calc(var(--u) * .44) calc(var(--u) * .88));
+    #8A5A2C 0 calc(var(--u) * .44), #151922 calc(var(--u) * .44) calc(var(--u) * .88));
   box-shadow:
-    inset 0 calc(var(--u) * .1) 0 rgba(255,255,255,.24),
+    inset 0 calc(var(--u) * .1) 0 rgba(255,255,255,.1),
     0 calc(var(--u) * -.11) 0 rgba(8,10,14,.92),
     0 calc(var(--u) * .11) 0 rgba(8,10,14,.92);
 }
