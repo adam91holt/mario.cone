@@ -211,7 +211,8 @@ that matters — typecheck has passed on a build that didn't boot.
 
 ## Where it's up to
 
-Honestly: **good, and not yet done.** Four circuits, eight racers, three laps,
+Honestly: **good, and not yet done.** Four circuits, seven machines and seven
+drivers, three laps,
 drift with three mini-turbo tiers, items, a championship across a cup, a full
 front end. It races properly and it looks like a game.
 

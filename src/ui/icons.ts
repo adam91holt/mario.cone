@@ -12,11 +12,12 @@
 // thirteen objects each and one of them was overwritten before a player saw a
 // frame of it. A runtime patch over a duplication is not a fix, it is a bill.
 //
-// So the set is imported. `adoptSlot` in `items/reel.ts` now finds every face
-// already correct and writes nothing, which is what its own comment always said
-// it would become. What is left in this file is the two icons that are *not*
-// items and have no home in the item module: the coin readout's coin and the
-// place-change chevron.
+// So the set is imported, and the repaint in `items/reel.ts` — which walked the
+// published socket at build rewriting every face from the item module's own
+// drawings — is deleted along with it. What is left in this file is the two
+// pictures that are *not* items and have no home in the item module: the coin
+// readout's coin (drawn from the item set's coin all the same, so even that is
+// one drawing) and the place-change chevron.
 
 import { itemIconBody, itemIconSvg, ITEM_ICON_DEFS, ITEM_ICON_IDS } from '../items/icons.ts';
 

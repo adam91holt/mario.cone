@@ -286,7 +286,7 @@ const SHOTS = [
   },
   {
     name: 'finish',
-    caption: 'A second and a half after winning: the bars land on a cleared HUD, the winner centred.',
+    caption: 'Half a second after winning: bars landed on a cleared HUD, the winner centred, confetti up.',
     async run(game) {
       // **Driven with `advance`, not `step`.**
       //
@@ -305,10 +305,39 @@ const SHOTS = [
       // delta, so the beat is photographed at the moment it actually looks like
       // this. `__RACE.flag` stays: a race cannot be driven to a first place on
       // demand, and it runs the real branch.
+      //
+      // **And the page's own clock is stopped first.** The engine's rAF loop is
+      // still running underneath the harness and steps the simulation off the
+      // wall clock (see the note on `settle` below); under software GL a single
+      // round trip is most of a second of race, so an unfrozen `advance(0.9)`
+      // landed anywhere between the crossing and the hand-off curtain depending
+      // on how busy the machine was — twice it photographed a beat that was
+      // four seconds old with the confetti already spent. With the scale at
+      // zero the only thing that moves the race is `advance`, which steps and
+      // renders from the same delta, so half a second into the beat means half a
+      // second: bars landed, instruments gone, banner slammed, confetti in the
+      // air. Photographed at 0.9 the storm has already crossed the frame.
+      // The flag and the beat go in **one** round trip, and the page's own clock
+      // is stopped first. Both halves of that matter. Every round trip under
+      // software GL is a large fraction of a second, and the rAF loop underneath
+      // the harness spends it stepping the simulation *and* ageing the
+      // particles; split across two calls, the confetti was a second and a half
+      // old — thirty metres down the road — before the first frame of the beat
+      // was ever drawn, and the shot came back as an empty win.
+      // The clock is stopped **before the ride**, not after it. `step()` drives
+      // the simulation directly and ignores the scale, so the ride is unchanged
+      // — but the page's rAF loop is then contributing nothing, and "nine
+      // seconds in" means the same corner of the circuit on every machine
+      // instead of wherever four round trips of software-GL latency happened to
+      // leave the kart. Measured before this line existed: the same recipe
+      // photographed 1:41 and 2:30 of the same race on two consecutive runs.
       await game.reset({ instant: true });
+      await game.setTimeScale(0);
       await rideTo(game, 9);
-      await game.evaluate(() => globalThis.__RACE.flag(1));
-      await game.advance(1.4);
+      await game.evaluate(() => {
+        globalThis.__RACE.flag(1);
+        window.__GAME.advance(0.5, 20);
+      });
     },
   },
   {
@@ -332,8 +361,9 @@ const SHOTS = [
       }
       // ...and then let the sheet actually arrive: the rows land one at a time
       // off a clock integrated from the render delta, so a sheet photographed
-      // without rendered frames is a sheet with nothing on it.
-      await game.advance(2.8);
+      // without rendered frames is a sheet with nothing on it. 2.2s is past the
+      // last championship total finishing its climb.
+      await game.advance(2.2);
     },
   },
   {
@@ -530,7 +560,11 @@ async function runShots() {
       await game.render();
 
       const file = path.join(outDir, `${shot.name}.png`);
-      await page.screenshot({ path: file });
+      // Not the 30s default. A full-frame DOM overlay — the results sheet is
+      // one, edge to edge, with a scrim, sixteen plates and a blend mode on it
+      // — takes the software rasteriser well past half a minute to hand back,
+      // and a timeout there reads exactly like a crash and is not one.
+      await page.screenshot({ path: file, timeout: 180_000 });
 
       const snap = await game.snapshot();
       const stats = await game.stats();

@@ -418,10 +418,19 @@ export function createHudSystem(ctx: GameContext): GameSystem {
         //
         // `HUD_RETIRE` is stated in `ui/theme.ts` next to the number it has to
         // beat, so the two can never again be set by two people who never met.
+        // **Clamped to the target, not to 0..1.** This used to read `Math.min(1,
+        // …)` against `Math.max(0, …)`, and `want > retire` is false when both
+        // are 1 — so the frame after the set finished leaving, it started coming
+        // back, and the frame after that it left again. The instruments
+        // sawtoothed forever at the edges of the screen at about a tenth of
+        // opacity, which no capture had ever shown because the shot that
+        // photographs this beat froze every visual clock in it (see the `finish`
+        // recipe in tools/capture.mjs). Moving toward `want` has a resting state;
+        // moving toward a bound does not.
         const want = ctx.player?.finished || handed ? 1 : 0;
         retire = want > retire
-          ? Math.min(1, retire + dt / HUD_RETIRE)
-          : Math.max(0, retire - dt / 0.4);
+          ? Math.min(want, retire + dt / HUD_RETIRE)
+          : Math.max(want, retire - dt / 0.4);
       }
       const back = 1 - ease.outQuart(reveal);
       const held = Math.max(back, 1 - ease.outQuart(slotIn));

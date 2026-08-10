@@ -34,7 +34,7 @@ import { boostRacer } from '../physics/kart.ts';
 import { getVehicle } from '../vehicles/registry.ts';
 import { coursesInCup, listCourses } from '../track/courses/index.ts';
 import { ordinalWord } from '../ui/glyphs.ts';
-import { blipColor } from '../ui/theme.ts';
+import { blipColor, FINISH_HOLD, FINISH_WRAP } from '../ui/theme.ts';
 import { createCup, createRaceBook, type ResultRow } from './book.ts';
 import { createOverlay, type RaceOverlay } from './overlay.ts';
 import { FIN_HOLD, FIN_IN, WIPE_COVERED, WIPE_TOTAL } from './stage.ts';
@@ -64,19 +64,21 @@ const FLAG_HOLD = 2.0;
  * of a dirt bank.
  *
  * 4.2 covers the beat, plus the second and a half in which a real field
- * genuinely does come home behind a winner (measured on Cone Canyon: +1.291,
- * +1.449, +3.491, +3.749), and stops where the banner does. Anyone still out on
- * the circuit is brought in by `toWrap` with a time the sheet labels as an
- * estimate — or, more than a lap out, with no time at all. A race is over when
- * the player's race is over.
+ * genuinely does come home behind a winner (measured on Cone Canyon: +0.058,
+ * +0.483, +1.183, +1.241, +1.958, +5.308 on a race driven end to end), and it
+ * is stated in `ui/theme.ts` beside the wrap, because the HUD's finishing
+ * banner has to hold for their sum or the last second before the curtain is an
+ * empty frame. Anyone still out on the circuit is brought in by `toWrap` with a
+ * time the sheet labels as an estimate — or, more than a lap out, with no time
+ * at all. A race is over when the player's race is over.
  */
-const WRAP_LIMIT = 4.2;
+const WRAP_LIMIT = FINISH_HOLD;
 /** A player still circulating after the whole field is home gets this long. */
 const SOLO_LIMIT = 45;
 /** Beat between the last machine crossing and the sheet arriving. Short enough
  *  that the curtain starts while the finish banner is still on the frame, so
  *  the hand-off happens *out of* something rather than out of an empty shot. */
-const RESULTS_DELAY = 1.0;
+const RESULTS_DELAY = FINISH_WRAP;
 /** The finish slow-motion, in real seconds: fall, hold, recover. */
 const SLOW_FALL = 0.15;
 const SLOW_HOLD = 0.55;
@@ -305,17 +307,17 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
    *   `countdown` the three beats. Back and up in proportion to the grid
    *               standing in front of the player, so the machines they have to
    *               get past are in the frame they spend the count staring at.
-   *   `podium`    the results sheet's backdrop. `racerId` is the winner.
-   *   `finish`    the player's own crossing.
+   *   `finish`    the player's own crossing. `hold` is how long the move runs,
+   *               and it is the same number the beat and the flag window are
+   *               cut from.
    *
-   * **Three of the four are answered now** — `render/camera.ts` subscribes and
-   * composes `grid`, `countdown` and `podium`. They were not, for the whole
-   * life of the project, which is why the opening sweep used to fly through the
-   * item layer reading the grid backwards and why the results sheet's
-   * deliberately transparent centre opened onto empty road.
-   *
-   * `finish` is still unanswered, and the borrow below is what stands in for it
-   * — see the note under it.
+   * **All three are answered** — `render/camera.ts` subscribes and composes
+   * `grid`, `countdown` and `finish`, and reads `finish`'s `hold` as the length
+   * of the move rather than keeping a number of its own. They were not, for the
+   * whole life of the project, which is why the opening sweep used to fly
+   * through the item layer reading the grid backwards. (`podium` was a fourth
+   * and is gone: it played its whole length under a results sheet that covers
+   * the frame at 97% opacity.)
    */
   function askCamera(shot: string, extra: Record<string, unknown> = {}): void {
     ctx.bus.emit('camera:shot', { shot, ...extra });
@@ -789,7 +791,10 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
    * somebody had timed it. Real racing prints "+1 LAP".
    */
   function lapsDown(racer: Racer): number {
-    return Math.max(0, ctx.race.totalLaps - Math.max(0, racer.lap));
+    // `racer.lap` is laps *completed*, so a machine on the final lap of three
+    // reads 2 and is not a lap down — it is on the lead lap and simply behind.
+    // One less than the total is therefore the datum, not the total.
+    return Math.max(0, ctx.race.totalLaps - 1 - Math.max(0, racer.lap));
   }
 
   function finishRacer(racer: Racer, estimated: boolean): void {

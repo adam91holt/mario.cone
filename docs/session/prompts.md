@@ -4711,3 +4711,120 @@ STEP 4 — If FINISHED:
   f. Standing gaps no single piece owns, for the next coherence pass: the purple tier-3 mini-turbo has still never been seen by anyone; a single carried item is not drawn in the world at all because the orbit rig is only built for count>1; the finish letterbox guillotines the position badge on the one beat it matters.
 
 Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
+
+### 🤖 Claude — 2026-08-10 20:13 UTC
+
+Session archive refreshed — 469 turns now. `src` is transiently broken across ten files by the live agent, so per protocol I'll commit the archive and leave `src` to the waiter.
+
+### 🤖 Claude — 2026-08-10 20:14 UTC
+
+Routine tick — coherence pass alive, session archive committed at `0d46573`.
+
+`claude` up 3h04m, agent writing 1 second ago; 6 started, 4 returned. The archive is now **469 turns / 3,747 records**, and the longest prompt is still 16,851 characters intact — verified by reading it back out of the written file rather than trusting the input.
+
+`src` is deliberately not in that commit. The agent is mid-write across ten files at once — `race/stage.ts`, `ui/hud.ts`, `ui/theme.ts`, `render/camera.ts` and more — so typecheck fails inside files it currently has open. That's transient, and the protocol is to commit what's ready (the archive) and leave the rest. The waiter from earlier is still armed and will fire the moment the tree is both compiling and quiet for 75 seconds; I'll push `src` then.
+
+### 🧑 Prompt — 2026-08-10 20:14 UTC
+
+Stop hook feedback:
+[~/.claude/stop-hook-git-check.sh]: There are uncommitted changes in the repository. Please commit and push these changes to the remote branch.
+
+### 🤖 Claude — 2026-08-10 20:14 UTC
+
+The waiter's still armed. But these errors have persisted across several minutes now, so let me check whether this is actually transient or the backtick-in-CSS trap the architecture doc warns about.
+
+### 🤖 Claude — 2026-08-10 20:14 UTC
+
+Not transient — this is the exact trap `ARCHITECTURE.md` golden rule 7 warns about, and it's bitten again:
+
+```
+/* ... markup carries the same hiding rule inline (it has to: `items/reel.ts` mounts
+   it outside `#hud` ...) */
+```
+
+Those backticks are inside a CSS comment **inside a template literal**. Each one closes the literal, the next reopens it, so the count stays even and the file looks balanced — while the text between them is parsed as TypeScript. The agent will hit this on its own typecheck, and I won't fight it for files it has open. But this is the second time, so let me fix the *class* of bug instead:
+
+### 🤖 Claude — 2026-08-10 20:15 UTC
+
+96 hits — and almost all are false positives. My heuristic was too broad: it flags any block comment with a backtick in a file that *also* contains a CSS literal, but most of those comments sit outside the literal where backticks are perfectly legal.
+
+The real insight is that `tsc` already *detects* this fine. What it does badly is **explain** it — "',' expected" pointing at valid CSS. Rewriting the tool to do the part that's actually missing:
+
+### 🤖 Claude — 2026-08-10 20:16 UTC
+
+The agent fixed the backticks itself on its own typecheck run — exactly as predicted, and the new tool correctly stays silent rather than crying wolf. Committing both:
+
+### 🤖 Claude — 2026-08-10 20:16 UTC
+
+Different error now — `signBox` unresolved in `launch.ts`, so the agent has moved on to another refactor. Still mid-flight. Committing the tool, which is independent and done:
+
+### 🤖 Claude — 2026-08-10 20:16 UTC
+
+Tool committed at `da7518a`. `src` stays out — the agent is live (`claude` up 3h07m) and has moved on to a second refactor, so the tree is oscillating between compiling and not. The waiter is still armed and will catch a settled state.
+
+Two things worth recording from this:
+
+**The backtick trap bit for a third time**, and it resolved itself — the agent hit it on its own typecheck and fixed it a minute later, which is why I didn't touch files it had open. But it's now cost three incidents, it's already golden rule 7 in the architecture doc, and prose has failed to prevent it twice. So `tools/lintcss.mjs` now handles the part that was actually missing: `tsc` *detects* it perfectly, but reports "',' expected" pointing at a line of valid CSS, with the real cause a comment somewhere above. The tool walks back from each syntax error to the nearest block comment holding a backtick and names it.
+
+**My first attempt at that tool was wrong and I threw it away.** It tried to detect the bug directly — flag any block comment with a backtick in a file that also holds a CSS literal — and reported **96 offences**, nearly all ordinary JSDoc sitting outside the literal where backticks are entirely legal. A linter that cries wolf ninety times is worse than no linter. The rewrite says nothing at all unless the compiler is already unhappy, which is exactly what it did on the run that shipped it.
+
+### 🧑 Prompt — 2026-08-10 20:18 UTC
+
+<task-notification>
+<task-id>broj740yy</task-id>
+<tool-use-id>toolu_01Ba66bvkniRSHcDysBzHty6</tool-use-id>
+<output-file>/tmp/claude-0/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/tasks/broj740yy.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for a settled compiling state" completed (exit code 0)</summary>
+</task-notification>
+
+### 🤖 Claude — 2026-08-10 20:18 UTC
+
+The tree settled — clean and quiet, re-verified independently. Committing:
+
+### 🤖 Claude — 2026-08-10 20:18 UTC
+
+Settled and committed at `f111769` — clean and untouched for 75 seconds, re-verified before the commit.
+
+Thirteen files across race, ui and render: the finish sequence and the instruments that have to survive it. That's aimed at the round-1 judge's gap — that the two joins between the front end and the race, launch→grid and finish→results, are where the game visibly stops being one product.
+
+The tree failed twice on the way here and **neither failure was mine to fix**. First the backtick trap, which the agent hit on its own typecheck and corrected a minute later. Then an unresolved `signBox` while the signage face was moving between modules. A live agent mid-refactor produces exactly that oscillation, and waiting was right both times — reverting would have destroyed work in progress, and committing would have published a build that couldn't compile.
+
+One detail I liked: `tools/capture.mjs` moved too. That's the right instinct rather than scope creep — the review sheet is how every critic sees this game, so a finish sequence the harness can't photograph is a finish sequence nobody will judge.
+
+### 🧑 Prompt — 2026-08-10 21:10 UTC
+
+MARIO.CONE build loop — hourly. Repo adam91holt/mario.cone (PUBLIC), branch claude/mario-kart-racing-game-z8wdf1. WFDIR=/root/.claude/projects/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/subagents/workflows
+
+EVERY TICK, before anything else: `node tools/session.mjs`. It refreshes docs/session/prompts.md and docs/session/session.jsonl — the conversation that is building this game, which the user asked to be published and kept current. It exits non-zero if a message body was truncated; if that happens fix the tool rather than committing a mangled archive. Commit the refresh with whatever else the tick produces.
+
+Do NOT trust any run id written here — resolve it: RUN=$(ls -t $WFDIR | head -1). Current run: coherence pass = wf_85410807-a0a.
+
+STEP 1 — PROVE the wave is alive. Two checks; the second has never been wrong:
+  date -u
+  ls -lt --time-style=+%H:%M:%S $WFDIR/$RUN/agent-*.jsonl | head -3
+  ps -eo etime,comm | grep -w claude
+(a) Newest agent-*.jsonl mtime older than ~25 minutes = dead. USE `ls -t`; a plain `ls | tail` sorts ALPHABETICALLY and once hid the only live agent behind eleven finished ones.
+(b) ELAPSED of the main `claude` process. DECISIVE. If claude has been alive for LESS time than the gap since the last agent write, the container restarted and every in-flight agent is dead, however recent the mtimes look. Two agents whose last write is the IDENTICAL second is the same signature. Do NOT grep for claude in a `--sort=-pcpu | head -4` list — Chrome outranks it and it will not appear.
+Never judge by files existing or Chrome counts: subagents run IN-PROCESS inside the main claude process, so `ps aux | grep claude` shows nothing for a healthy wave.
+
+Count: node -e "const fs=require('fs');let s=0,r=0;for(const l of fs.readFileSync(process.argv[1],'utf8').trim().split('\n')){try{const e=JSON.parse(l);if(e.type==='started')s++;if(e.type==='result')r++;}catch{}}console.log(s,r)" $WFDIR/$RUN/journal.jsonl
+Concurrency is 2 on this 4-core box.
+
+STEP 2 — If DEAD, RESUME, DO NOT RELAUNCH:
+  Workflow({scriptPath:"<the same script>", resumeFromRunId:"<the dead RUN>", args:<the SAME args object, byte-for-byte>})
+Completed agent() calls return from cache instantly and only the killed agents re-run, carry intact. Args must match exactly or the cache misses. First `npx tsc --noEmit`, then commit and push whatever exists (say in the message if unverified). Read the dead run's journal for results that already have a `score` — those verdicts are earned and must never be re-bought.
+IF TYPECHECK FAILS INSIDE A FILE A DEAD AGENT WAS MID-WRITE ON, that is NOT transient — the agent is not coming back to finish it, and the resumed agent restarts that step from scratch. `git checkout --` those files rather than committing a build that cannot compile.
+AFTER ANY LAUNCH OR RESUME, VERIFY: grep 'YOUR PIECE' AND 'Observed:' out of each new agent transcript.
+
+STEP 3 — If ALIVE: `npx tsc --noEmit`. If clean, commit and push. Do NOT run captures or smoke while agents are active, and never pkill on any pattern matching "capture.mjs".
+
+STEP 4 — If FINISHED:
+  a. `npx tsc --noEmit` then `node tools/capture.mjs --smoke`. Typecheck-clean has passed on a build that did not boot; smoke is the real gate.
+  b. `node tools/capture.mjs` and LOOK at the PNGs with Read. Never trust an agent's summary.
+  c. Update tools/progress.state.json with the real verdicts, `node tools/progress.mjs`, `node tools/readmeshots.mjs`.
+  d. Commit, push, PR (base main, draft false), merge, then `git fetch origin main && git reset --hard origin/main && git push --force-with-lease` (merges are squashed, so ff-only will refuse).
+  e. Remaining work, in order: COURSES re-judge — it scored 5.0 because theme.ground never painted terrain and thirteen theme.props keys had zero reads; that wiring now exists, so its job is to USE it and prove the four courses are distinguishable from the overhead shot without the minimap. Then PERF re-run, which regressed to 475 draw calls and 667k triangles when the item economy fix put 102 boxes on the course. Then closing verdicts on wave 1 (feel, camera, track, look, cast), merged long ago and never judged.
+  f. Standing gaps no single piece owns, for the next coherence pass: the purple tier-3 mini-turbo has still never been seen by anyone; a single carried item is not drawn in the world at all because the orbit rig is only built for count>1; the finish letterbox guillotines the position badge on the one beat it matters.
+
+Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.

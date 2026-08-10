@@ -323,9 +323,17 @@ with a brown stalk under a plate reading WHEEL CHOCK, a Koopa shell with three
 studs under HARD HAT, a Boo with eyes and hands under DUST SHEET, a lit-fuse
 Bob-omb under GAS BOTTLE and a smiling star under SAFETY AWARD, thirty pixels
 above the item system's own what-hit-you plate drawing the right object in the
-same frame. Until `ui/icons.ts` imports this set, `items/reel.ts` repaints the
-faces of whatever socket carries `data-item-slot` from it at build (`adoptSlot`),
-which is idempotent and becomes a no-op the day the second set is deleted.
+same frame.
+
+That second set is gone. `src/ui/icons.ts` is now four lines of re-export plus
+the two pictures that are genuinely not items — the coin readout's coin (built
+from `itemIconBody('coin')`, so even that is the same drawing) and the
+place-change chevron. `items/reel.ts` used to patch over the duplication at
+runtime with an `adoptSlot` pass that repainted every `<svg data-face>` in the
+published socket; that is gone too, because a runtime patch which outlives the
+thing it was patching is just a second bug. The defs block is mounted once —
+whoever gets there first — since a `url(#…)` paint server is resolved against
+the document and two copies would put every gradient id in it twice.
 
 **Timing the reel.** `item:roulette` `start` carries `duration` — the seconds
 that spin will actually run — and `item:reel` fires once per face of the drum
@@ -497,6 +505,26 @@ rather than reimplemented, and they are shared *as code*, not as a convention:
 - **The circuit diagram.** `MAP` in `ui/theme.ts`, drawn by `courseMap()` on the
   select cards and by `ui/minimap.ts` in the HUD. The same road, the same
   chequer on the start.
+- **The finish hand-off's clocks.** `LETTERBOX_IN`, `HUD_RETIRE`, `FINISH_HOLD`,
+  `FINISH_WRAP` and `FINISH_WINDOW`, all in `ui/theme.ts`, because both halves
+  have to agree about the same second and a half and neither owns it. The
+  letterbox belongs to `race/stage.ts` and the instrument set belongs to
+  `ui/hud.ts`, and they had never been compared: the bars closed in 0.2s while
+  the HUD waited out a quarter of its own ramp and then took nine tenths of a
+  second to leave, so the timer plate and the minimap travelled *up through* the
+  top bar and the place badge was photographed as a gold stump. Likewise the
+  race waited six seconds for the field and the HUD's finishing banner held for
+  four, which left a stopped machine on an embankment with nothing on the frame
+  at all. A number that two modules must agree on is not a tuning constant, it
+  is an interface.
+- **The cast.** `VehicleDef.driver` in `src/vehicles/registry.ts` — one driver
+  name bolted to each machine, read off the def by every racer including the
+  player. The names used to be a flat array in `main.ts` indexed by grid slot
+  against a machine pool with the player's own pick removed from it, so BOLLARD
+  was a Sedan or a Road Cone depending on what *you* had chosen. **The field is
+  the cast**: `config.race.racerCount` is seven because there are seven
+  machines, and `buildField` clamps to `listVehicles().length` so nothing
+  outside can put the same machine on the grid twice.
 
 The colour pipeline is shared too: the menus' 3D set runs `installFilmStock`
 from `render/grade.ts` at `EXPOSURE_TRIM`, which is the same grade and the same

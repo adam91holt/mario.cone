@@ -441,9 +441,9 @@ ${scope} ${sel}.r { right: -${CURTAIN_OUTSET}%;
    arrive together and butt up into one 1.6u bar of tape down the meeting line,
    and the seam between two blades that round to the same pixel is under it. */
 ${scope} ${sel}::after {
-  content: ''; position: absolute; top: 0; bottom: 0; width: calc(var(--u) * .8);
+  content: ''; position: absolute; top: 0; bottom: 0; width: calc(var(--u) * .95);
   background: ${hazardCss()};
-  box-shadow: 0 0 calc(var(--u) * .9) rgba(255,107,26,.35);
+  box-shadow: 0 0 calc(var(--u) * 1.1) rgba(255,107,26,.38);
 }
 ${scope} ${sel}.l::after { right: 0; }
 ${scope} ${sel}.r::after { left: 0; }
@@ -474,6 +474,36 @@ export const LETTERBOX_IN = 0.2;
  * first beat after the flag, and this runs on the frame delta, which is not.
  */
 export const HUD_RETIRE = LETTERBOX_IN * 0.75;
+
+/**
+ * Seconds from the player's own crossing to the hand-off curtain closing on it.
+ *
+ * Split between the race director's two numbers — how long it waits for the
+ * field, and the beat it leaves between the last machine home and the sheet —
+ * and read by the HUD, which has to hold the finishing banner for at least that
+ * long.
+ *
+ * **Because the alternative is an empty frame.** The window was six seconds
+ * plus a 1.6s wrap and the banner held 4.2, so a comfortable win ended with two
+ * and a half seconds of a stopped machine on an embankment with nothing on the
+ * screen at all — no HUD, no banner, no confetti, no ticker — before anything
+ * happened. Three modules each ended cleanly and nobody owned the join. The
+ * banner now leaves *under* the curtain rather than before it.
+ */
+export const FINISH_HOLD = 4.2;
+export const FINISH_WRAP = 1.0;
+/**
+ * ...and the same window in **wall** seconds, which is the clock the banner
+ * runs on.
+ *
+ * Not the sum. The two numbers above are race seconds and the finish drops the
+ * simulation to a third of speed for the first beat and a half after the
+ * crossing (`SLOW_*` in race/director.ts), so the race spends about seven
+ * tenths of a second more real time crossing its own window than they add up
+ * to. A banner that leaves on the sum leaves just before the curtain, which is
+ * the empty frame this whole block exists to close.
+ */
+export const FINISH_WINDOW = FINISH_HOLD + FINISH_WRAP + 0.7;
 
 // ── the cursor ─────────────────────────────────────────────────────────────
 //

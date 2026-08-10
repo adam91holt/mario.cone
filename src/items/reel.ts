@@ -777,7 +777,8 @@ export function createItemHud(): ItemHud {
   let hitEl: HTMLDivElement | null = null;
   let fxRoot: HTMLDivElement | null = null;
   let defsEl: HTMLDivElement | null = null;
-  /** The socket another module published, if there is one. See `adoptSlot`. */
+  /** The socket another module published, if there is one. Held only so this
+   *  module knows to stand its own down. */
   let published: Element | null = null;
   let hitName: SignBox | null = null;
   let style: HTMLStyleElement | null = null;
