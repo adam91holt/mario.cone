@@ -82,10 +82,10 @@ const CSS = `
   will-change: opacity, transform;
   background:
     radial-gradient(ellipse farthest-side at 50% 50%,
-      rgba(255,190,90,0) 86%,
-      rgba(255,182,86,0.055) 93%,
-      rgba(255,158,60,0.12) 97%,
-      rgba(255,126,34,0.20) 100%);
+      rgba(255,224,168,0) 86%,
+      rgba(255,214,150,0.085) 92%,
+      rgba(255,190,110,0.20) 96%,
+      rgba(255,158,60,0.36) 100%);
 }
 /* The charge ring. Its colour follows the mini-turbo tier, so the frame itself
    is part of the meter — the sparks say it loudest, this says it in peripheral
@@ -104,9 +104,9 @@ const CSS = `
 #fx-screen .rush.charge {
   background:
     radial-gradient(ellipse farthest-side at 50% 50%,
-      rgba(255,242,216,0) 87%,
-      rgba(255,242,216,0.028) 94%,
-      rgba(255,242,216,0.075) 100%);
+      rgba(255,242,216,0) 89%,
+      rgba(255,242,216,0.028) 95%,
+      rgba(255,242,216,0.10) 100%);
 }
 `;
 
@@ -142,12 +142,15 @@ const CSS = `
  * two RGB units of each other and of the unboosted frame; only tier three
  * moved at all. The ladder was invisible-invisible-overwhelming.
  *
- * The peak is now roughly linear in the tier, and the amount `index.ts` drives
- * it with climbs too, so the product — what actually lands on the glass —
- * steps 0.10 / 0.15 / 0.20. The top of that ladder is exactly the boost rush's
- * own outer alpha, which is the ceiling the whole screen layer is budgeted
- * against: nothing a drift can do may shout louder than the boost it is
- * earning. See `rushCss`.
+ * The peak is now linear in the tier — 0.152 / 0.204 / 0.256 — and `index.ts`
+ * drives the ring at full amount for any charged tier rather than multiplying a
+ * second cautious ladder into this one. Measured against the same band as the
+ * boost rush, the rims now step 12 / 15 / 20 RGB units off an unlit frame, with
+ * an uncharged drift at 2. Tier three stays under the boost rush's 22-25, which
+ * is the ceiling the whole screen layer is budgeted against: nothing a drift can
+ * do may shout louder than the boost it is earning, and `index.ts` sets the
+ * rush's floor from these numbers so no rung of the ladder steps down. See
+ * `rushCss`.
  *
  * All of it is safe at these strengths only because the layer genuinely screens
  * now — see the note at the top of `CSS`. Light added to a rim cannot take the
@@ -157,13 +160,20 @@ function chargeCss(tier: number, hex: number): string {
   const r = (hex >> 16) & 0xff, g = (hex >> 8) & 0xff, b = hex & 0xff;
   const lift = (k: number): string =>
     `${Math.round(r + (255 - r) * k)},${Math.round(g + (255 - g) * k)},${Math.round(b + (255 - b) * k)}`;
-  const peak = 0.075 + 0.035 * tier;
+  // Narrower than the boost rush and brighter at the very edge, which is both
+  // more readable and cheaper on the composite: the eye reads the peak, the
+  // budget is spent by the area. Starting at 89% rather than 86% costs a fifth
+  // of the band's width and buys a third more strength at the rim. It also
+  // keeps the two cues distinguishable in peripheral vision without either
+  // needing to be looked at — the charge is a hard thin rim, the boost is a
+  // wider frame closing in.
+  const peak = 0.10 + 0.052 * tier;
   return `
 #fx-screen .rush.charge.t${tier} {
   background:
     radial-gradient(ellipse farthest-side at 50% 50%,
-      rgba(${lift(0.35)},0) 86%,
-      rgba(${lift(0.22)},${(peak * 0.30).toFixed(3)}) 94%,
+      rgba(${lift(0.35)},0) 89%,
+      rgba(${lift(0.22)},${(peak * 0.28).toFixed(3)}) 95%,
       rgba(${lift(0)},${peak.toFixed(3)}) 100%);
 }`;
 }
@@ -202,12 +212,13 @@ function chargeCss(tier: number, hex: number): string {
  *   the opening stop moves 69% → 86%, which is the difference between a fifth
  *   of the frame and its outer rim.
  *
- *   the outer alpha comes down 0.64 → 0.20. Against the brightest thing in the
- *   picture — the sky, around 0.82 linear — the worst channel that leaves is
- *   0.20 · 0.93 · 0.9 · 0.18 ≈ 0.03, about 8 RGB units. Against the darkest —
- *   tarmac in shadow — the same term is worth 30-odd units of *added* light,
- *   which is exactly the asymmetry a real light has and exactly the reason the
- *   rim reads at all.
+ *   the outer alpha comes down 0.64 → 0.36. It could be higher again and still
+ *   be safe, which is the point of screening: against the brightest thing in
+ *   the picture — the sky, around 0.82 linear — the worst channel that leaves
+ *   is 0.36 · 0.93 · 0.9 · 0.18 ≈ 0.05, about 14 RGB units, while against the
+ *   darkest, tarmac in shadow, the same term is worth 60-odd units of *added*
+ *   light. That asymmetry is what a real light does, and it is the entire
+ *   reason a rim this narrow still reads.
  *
  * The tier still rides on the hue, which is the whole point of the channel, but
  * it now rides on a rim rather than on the whole glass.
@@ -215,8 +226,8 @@ function chargeCss(tier: number, hex: number): string {
  * Measured on the review bench with the layer forced on over a settled racing
  * frame at 1600x900, against the same frame with the layer hidden: the critic's
  * own sky patch moves 16 RGB units at most on any channel and every channel
- * moves *up*, against 121 down before. The band means move about 25. The centre
- * of the frame moves by 1, which is rounding.
+ * moves *up*, against 121 down before. The outer-6% band means move 21-25. The
+ * centre of the frame moves by 1, which is rounding.
  */
 function rushCss(tier: number, hex: number): string {
   const r = (hex >> 16) & 0xff, g = (hex >> 8) & 0xff, b = hex & 0xff;
@@ -290,6 +301,16 @@ export function createScreenFx(tierHex: readonly number[]): ScreenFx {
   let wroteCharge = -1;
   let wroteTier = -1;
   let wroteRushTier = -1;
+  /**
+   * Whether the layer is painting at all.
+   *
+   * A blend mode on a full-screen fixed element makes the compositor read the
+   * backdrop back to blend against it, every frame, whether or not the element
+   * has anything in it — and for most of a lap it has nothing in it. Taking the
+   * whole layer out of the paint tree when every channel is at zero costs one
+   * string write per state change and removes the readback entirely.
+   */
+  let live = false;
 
   if (typeof document !== 'undefined') {
     style = document.createElement('style');
@@ -304,6 +325,10 @@ export function createScreenFx(tierHex: readonly number[]): ScreenFx {
 
     root = document.createElement('div');
     root.id = 'fx-screen';
+    // Born dark. `live` starts false, and the first update only writes on a
+    // *change* — so without this the layer would sit in the paint tree, blend
+    // mode and all, from boot until the first boost.
+    root.style.display = 'none';
     root.innerHTML =
       '<div class="rush boost"></div><div class="rush charge"></div><div class="flash"></div>';
     document.body.appendChild(root);
@@ -355,6 +380,13 @@ export function createScreenFx(tierHex: readonly number[]): ScreenFx {
       rush += (rushTarget - rush) * rk;
       const ck = 1 - Math.exp(-(chargeTarget > charge ? 12 : 8) * step);
       charge += (chargeTarget - charge) * ck;
+
+      const wantLive = flashAmt > 0 || rush > 0.004 || charge > 0.004;
+      if (wantLive !== live) {
+        live = wantLive;
+        if (root) root.style.display = live ? '' : 'none';
+      }
+      if (!live) return;
 
       if (flashEl) {
         const a = Math.round(flashAmt * 100) / 100;
@@ -408,6 +440,7 @@ export function createScreenFx(tierHex: readonly number[]): ScreenFx {
     debug(): Record<string, number | string | boolean> {
       return {
         mounted: !!root && root.isConnected,
+        live,
         flash: Math.round(flashAmt * 1000) / 1000,
         flashHex: `#${(flashHex & 0xffffff).toString(16).padStart(6, '0')}`,
         rush: Math.round(rush * 1000) / 1000,
@@ -429,6 +462,8 @@ export function createScreenFx(tierHex: readonly number[]): ScreenFx {
       wroteFlashHex = -1;
       wroteTier = -1;
       wroteRushTier = -1;
+      live = false;
+      if (root) root.style.display = 'none';
     },
 
     dispose(): void {

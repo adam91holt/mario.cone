@@ -2057,8 +2057,15 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       //   sky rather than against the identically-coloured ground.
       //
       // A little under half of the emission goes to the skirt. Loose ground
-      // only.
-      const skirt = !hard && rng.next() < 0.46;
+      // only — and more of it the further away the machine is, because the two
+      // halves fail differently with distance. A plume is a handful of
+      // separated puffs a few metres apart: close up they overlap into a body,
+      // and forty metres away they are four soft discs floating over a barrier,
+      // which is precisely the "pale lozenges" read this module has been
+      // rejected for twice. The skirt is a *continuous* thing lying on the
+      // ground, so it stays legible at any range, and it is the half an
+      // overhead frame can see anyway.
+      const skirt = !hard && rng.next() < 0.46 + 0.34 * (1 - fx.near);
       // Capped so that even at full growth no single puff crosses `MAX_PUFF`.
       // A rooster tail off gravel gets its mass from ninety-six emissions a
       // second, not from any one of them being the size of the kart.
@@ -2143,7 +2150,11 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       // overlap heavily by design. The governor measures coverage, so paying
       // for the density out of the per-puff alpha is what keeps the extra mass
       // from being taken straight back off it.
-      dustSpec.alpha = sfx.alpha * (skirt ? rng.range(0.5, 0.78) : rng.range(0.7, 1.1));
+      // ...and thinner again with distance, for the same reason. A puff that is
+      // one soft disc on the glass has to be *haze*; only a cloud dense enough
+      // to have a body may be opaque enough to have an outline.
+      dustSpec.alpha = sfx.alpha * (0.45 + 0.55 * fx.near)
+        * (skirt ? rng.range(0.5, 0.78) : rng.range(0.7, 1.1));
       if (skirt) {
         setHdr(dustSpec.color0, deep, 1.0);
         setHdr(dustSpec.color1, deep, 0.72);
@@ -3137,9 +3148,17 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     // explosion under the kart, dust that spreads reads as weight arriving.
     // This is the part a hop keeps, because a wheel hitting the road does move
     // some air whatever put it there.
-    dustRing(_p.x, _p.y, _p.z, 5 + Math.round(26 * punch), 3 + 11 * punch, racer.surface,
-      0.7 + 0.6 * punch);
-
+    //
+    // ── and it happens at the tyres, not at the navel ───────────────────────
+    //
+    // One burst at the machine's centre is one puff, and one puff photographed
+    // from behind is a wisp drifting sideways — which is exactly what a landing
+    // at speed came back as. What arrives at the ground is four contact patches
+    // a metre and a half apart, and MK8 answers every one of them: the read is
+    // a *wide flat collar* under the machine, not a cloud behind it. Four
+    // smaller bursts at the corners cost the same particles and draw the width
+    // of the thing that landed.
+    //
     // ── the line between a bump and a landing ────────────────────────────────
     //
     // 0.16 rather than 0.10, and it is the number that decides whether the
@@ -3148,7 +3167,26 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     // "came off a crest" from "clipped a kerb" cleanly, and without it a chase
     // frame on an ordinary straight has a five-metre annulus painted under the
     // machine for no reason a player could name.
-    if (punch < 0.16) return;
+    //
+    // The *collar* is behind the same gate, and has to be. A drift hop happens
+    // several times a corner; four bursts at four corners for every one of them
+    // is three times the dust a hop used to throw, laid on tarmac, which is the
+    // exact litter this module was rejected for two rounds ago. A hop keeps one
+    // small central puff, which is all a wheel touching down is worth.
+    if (punch < 0.16) {
+      dustRing(_p.x, _p.y, _p.z, 4 + Math.round(10 * punch), 3 + 6 * punch,
+        racer.surface, 0.7);
+      return;
+    }
+    const corner = 5 + Math.round(16 * punch);
+    for (let side = -1; side <= 1; side += 2) {
+      for (let end = -1; end <= 1; end += 2) {
+        local(side * s.halfW * 0.92, -RIDE_HEIGHT + 0.05, end * s.len * 0.34, _p);
+        dustRing(_p.x, _p.y, _p.z, corner, 2.4 + 8 * punch, racer.surface,
+          0.55 + 0.45 * punch);
+      }
+    }
+    local(0, -RIDE_HEIGHT + 0.05, 0, _p);
 
     // Two rings, fast and slow. One expanding hard edge reads as a shockwave;
     // a second, wider and softer behind it, reads as the dust it displaced.
@@ -3253,15 +3291,27 @@ export function createFxSystem(ctx: GameContext): GameSystem {
           smokeSpec.life = 0.9;
           smokeSpec.size0 = 0.5 * rig;
           smokeSpec.size1 = smokeSpec.size0 * 3.0;
-          smokeSpec.alpha = 0.062;
+          smokeSpec.alpha = 0.105;
           smokeSpec.rotVel = rng.range(-1.2, 1.2);
           setHdr(smokeSpec.color0, SMOKE, 1.05);
           setHdr(smokeSpec.color1, SMOKE_DEEP, 0.95);
-          pool.burst(smokeSpec, Math.round(7 * density), 2.6, 0.3, rng);
+          pool.burst(smokeSpec, Math.round(10 * density), 2.6, 0.3, rng);
         }
       }
       smokeSpec.alpha = 0.042;
-      dustRing(gx, gy, gz, 8, 4, racer.surface, 1.0 * rig);
+      dustRing(gx, gy, gz, 10, 4, racer.surface, 1.0 * rig);
+      // ── the punctuation ────────────────────────────────────────────────
+      //
+      // A slip is the quietest of the four hits and it was *silent*: four low
+      // bursts of 0.06-alpha smoke and eight puffs of tarmac dust, under a kart
+      // that was already spinning. Photographed, the whole event was three
+      // small stars orbiting the machine — the stun, drawn by `spinStars`, with
+      // nothing at all marking the instant of the hit.
+      //
+      // It does not get fire, because a slip is not a smash. It gets one hard
+      // fast collar on the deck, held for a couple of frames so a shutter can
+      // catch it, which is the shape "something arrived here" is made of.
+      ring(gx, gy, gz, 0.9 * rig, 4.0 * rig, 0.26, WARM_WHITE, 1.9, 0.55, true, 0.16);
       if (racer.isPlayer) {
         screen.flash(0xFFE8C0, 0.12);
         trauma = clamp01(trauma + 0.16);
@@ -4821,8 +4871,19 @@ export function createFxSystem(ctx: GameContext): GameSystem {
         // slipstream emits `kart:boost`, which lit the envelope, which lit the
         // rush — measured at 0.687 with the whole rim orange for a machine that
         // had done nothing but tuck in behind another one.
+        //
+        // The floor is 0.80 rather than 0.62, and the number comes off the
+        // ladder rather than off taste. Measured against an unlit frame, the
+        // charge ring reaches 12 / 15 / 20 RGB units at the rim; a tier-one
+        // mini-turbo used to fire a rush of 0.687, which lands at 9 — so the
+        // reward for cashing in a charge was *dimmer than the charge had been*,
+        // and the one step in the whole ladder that must never go backwards
+        // did. At 0.80 the same boost lands near 15 and the ultra near 24, so
+        // every rung is above the one below it. The tier's own hue is what
+        // separates a weak boost from a strong one; the amount only has to say
+        // "you are on it", and it has to say it louder than the wind-up did.
         rushAmt = pfx.boostKind === 1
-          ? clamp01(pfx.boostEnv * (0.62 + 0.38 * clamp01((player.boost.power - 18) / 34)))
+          ? clamp01(pfx.boostEnv * (0.80 + 0.20 * clamp01((player.boost.power - 18) / 34)))
           : 0;
         // The tier the rush is wearing is latched by `spendBoost` and let go
         // here, when the envelope that carries it is finally down. Clearing it

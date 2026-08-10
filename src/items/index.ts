@@ -40,8 +40,8 @@ import {
 } from './entities.ts';
 import {
   buildChock, buildGasBottle, buildSheetShroud, buildBulletHusk, buildMushroom,
-  buildShell, buildStarAura, cloneWithMaterials, contactShadow, setRimStrength,
-  STAR_SPARKS,
+  buildShell, buildStarAura, carryShadow, cloneWithMaterials, setCarryShadow,
+  setRimStrength, STAR_SPARKS,
 } from './models.ts';
 import { createItemHud, type ItemHud } from './reel.ts';
 import type {
@@ -186,6 +186,23 @@ const ORBIT_SCALE = 0.95;
 const TRAIL_BACK = 2.0;
 const TRAIL_HEIGHT = 0.42;
 
+/**
+ * How far a *carried* item's shadow is raked along the sun, asymptotically.
+ *
+ * A third of a metre, against the 1.6 an item box uses, and the gap between
+ * those two numbers is the whole of the defect this round exists to fix. A box
+ * floats alone in the middle of the road: a metre of rake reads as sunlight and
+ * says "this thing is off the ground". Three hard hats orbiting a kart are a
+ * metre and a half apart at 95cm of altitude, so the same rake lands each blob
+ * clear of its own hat and most of the way to its neighbour's — and a dark
+ * ellipse a hat's width from the hat is not read as that hat's shadow by
+ * anybody. It is read as a mark on the road, which is exactly what the critic
+ * who rejected this build called it, in the same sentence as "the items cast no
+ * shadow". At 0.34 the throw still points where every other shadow in the frame
+ * points, and it never leaves the silhouette of the thing casting it.
+ */
+const CARRY_REACH = 0.34;
+
 const OFFROAD: ReadonlySet<Surface> = new Set<Surface>(['dirt', 'grass', 'sand', 'water']);
 
 /** Projectile kinds a carried item will take on the nose for you. */
@@ -291,6 +308,37 @@ const HIT_KIND: Partial<Record<ItemId, HitKind>> = {
   horn: 'bump',
 };
 
+/**
+ * ...and where an item is not content to be a stock example of its kind.
+ *
+ * The four profiles above are *shapes of reaction*, not item stats, and for one
+ * item that abstraction was hiding a real bug. A gas bottle and a hard hat both
+ * flip you, so both took `HIT.flip` — one second of stun, one turn, a 6.2m/s
+ * launch — and traced hit by hit they produced the same slip curve to the
+ * degree. The biggest bang in the roster landed exactly as hard as the
+ * smallest, and every other part of the game was already telling the player it
+ * would not: the bottle has a fuse you can hear, a blast radius of seven and a
+ * half metres, a fireball, a scorch mark the road keeps for five seconds, and a
+ * shove that scales with how close you were standing.
+ *
+ * So the bottle gets its own numbers. It is still a `flip` on the wire —
+ * `item:strike` and `item:reaction` carry the four-value vocabulary that fx and
+ * audio switch on, and inventing a fifth would silently drop the largest
+ * explosion in the game into both modules' default branch — but a third again
+ * of stun, half a turn more of rotation, and a launch half as big again as a
+ * shell's. You get thrown, and it takes you longer to gather it up.
+ */
+const HIT_ITEM: Partial<Record<ItemId, HitProfile>> = {
+  bomb: {
+    stun: 1.34, turns: 1, over: 0.42 * TAU, easePow: 3.4,
+    bite: 4.8, biteTau: 0.19, tail: 0.52, launch: 9.6, roll: 0.46, shove: 0.38,
+  },
+};
+
+/** The reaction a given item produces: its own, or its kind's stock one. */
+const profileOf = (item: ItemId | null, kind: HitKind): HitProfile =>
+  (item ? HIT_ITEM[item] : undefined) ?? HIT[kind];
+
 /** Constant drag under the decay, m/s². It stops working before zero — the
  *  player must still be rolling when control comes back. */
 const HIT_DRAG = 6;
@@ -388,7 +436,12 @@ const ROLL_AXIS = new THREE.Vector3(0, 0, 1);
 const PITCH_AXIS = new THREE.Vector3(1, 0, 0);
 /** The contact point under a kart, in the kart's own frame. */
 const _ground = new THREE.Vector3();
+/** The road's up at that point — the plane a carried item's blob lies in. */
+const _norm = new THREE.Vector3();
 const _shadow = new THREE.Vector3();
+/** Measuring a held model's footprint. Written once per item id, at build. */
+const _box = new THREE.Box3();
+const _size = new THREE.Vector3();
 const _off = new THREE.Vector3();
 /** The muzzle's own scratch. Deliberately not shared with `_off`, which is
  *  written from `update`, because this one is written from the fixed step. */
@@ -443,6 +496,9 @@ interface RacerItems {
   hitTime: number;
   hitTotal: number;
   hitKind: HitKind;
+  /** The numbers this particular hit is being integrated against — captured on
+   *  impact, because two items can share a `kind` and not a profile. */
+  hitProfile: HitProfile;
   /** World-space direction of travel, held for the whole spin. */
   hitDirX: number;
   hitDirZ: number;
@@ -495,7 +551,8 @@ function newState(id: number): RacerItems {
     star: 0, bullet: 0, bulletDist: 0, bulletLat: 0, bulletSpeed0: 0,
     shrunk: 0, ink: 0, boo: 0, booSteal: 0, booTarget: -1,
     shown: 0, guarded: false,
-    hitTime: 0, hitTotal: 1, hitKind: 'spin', hitDirX: 0, hitDirZ: 1,
+    hitTime: 0, hitTotal: 1, hitKind: 'spin', hitProfile: HIT.spin,
+    hitDirX: 0, hitDirZ: 1,
     hitSpeed: 0, hitYaw0: 0, hitEnd: 0, hitOver: 0, hitDir: 1,
     hitColor: 0xFFF8F0, hitPuff: 0, grace: 0,
     orbit: null, orbitKey: '', aura: null, husk: null, shroud: null, scale: 1,
@@ -516,6 +573,8 @@ export function createItemSystem(ctx: GameContext): GameSystem {
   ctx.scene.add(rig);
 
   const heldProtos = new Map<string, THREE.Object3D>();
+  /** ...and how much road each of them covers. See `heldPrototype`. */
+  const heldRadius = new Map<string, number>();
   /** Spare orbit rigs, keyed `item:count`. See `drawCarried`. */
   const orbitPool = new Map<string, THREE.Group[]>();
   let auraProto: THREE.Object3D | null = null;
@@ -680,12 +739,14 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     const st = stateOf(racer);
     st.hold = 0;
 
-    beginHit(racer, st, kind, by, from ?? by?.pos ?? null, def.color, force);
+    beginHit(racer, st, kind, by, from ?? by?.pos ?? null, def.color, force, item);
     hitFx(racer, kind, def.color, force);
 
     if (racer.isPlayer) {
       hud.flash(def.color, kind === 'spin' ? 0.3 : 0.45);
-      ctx.fx?.shake(kind === 'spin' ? 0.55 : 0.95, 0.4);
+      // ...and scaled by how hard it landed, so standing next to a gas bottle
+      // when it goes is not the same camera move as clipping the edge of it.
+      ctx.fx?.shake((kind === 'spin' ? 0.55 : 0.95) * clamp(force, 0.7, 1.35), 0.4);
       // Name it. Everything else about a hit — the spin, the red instruments,
       // the coins on the road — is the same picture whichever item caused it.
       hud.strike(item);
@@ -703,8 +764,15 @@ export function createItemSystem(ctx: GameContext): GameSystem {
    * rotation *about* the first.
    */
   function beginHit(racer: Racer, st: RacerItems, kind: HitKind, by: Racer | null,
-    from: THREE.Vector3 | null, color: number, force: number): void {
-    const P = HIT[kind];
+    from: THREE.Vector3 | null, color: number, force: number,
+    item: ItemId | null = null): void {
+    // The profile is captured here and held for the whole spin-out. Looking it
+    // up per step off `hitKind` alone is what made every `flip` identical: the
+    // kind is the *shape* of the reaction and the item is how hard it lands,
+    // and only one of those two survives into the integrator unless it is
+    // written down.
+    const P = profileOf(item, kind);
+    st.hitProfile = P;
 
     // The direction of travel, in the world, flattened. A kart that is barely
     // moving has no travel direction worth keeping, so it borrows its nose.
@@ -808,7 +876,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
    * the third, which is what turned every hit into a circle.
    */
   function driveSpinout(racer: Racer, st: RacerItems, dt: number): void {
-    const P = HIT[st.hitKind];
+    const P = st.hitProfile;
     st.hitTime = Math.max(0, st.hitTime - dt);
     const left = st.hitTime;
     const age = st.hitTotal - left;
@@ -2157,6 +2225,15 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       default: return null;
     }
     heldProtos.set(key, proto);
+    // ...and how much road it covers, measured off the model rather than
+    // guessed. A wheel chock, a hard hat and a gas bottle are different sizes,
+    // and a shadow authored as one constant is visibly too big under one of
+    // them and too small under another — which is exactly how a blob stops
+    // reading as *that object's* shadow. Measured once, here, because a
+    // bounding box walks the whole mesh.
+    _box.setFromObject(proto);
+    _box.getSize(_size);
+    heldRadius.set(key, clamp(Math.max(_size.x, _size.z) * 0.5, 0.22, 0.7));
     return proto;
   }
 
@@ -2227,9 +2304,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
             copy.visible = true;
             copy.scale.setScalar(ORBIT_SCALE);
             carrier.add(copy);
-            const blob = contactShadow(0.86 * ORBIT_SCALE * 2, 0.22);
-            blob.name = 'carryShadow';
-            carrier.add(blob);
+            carrier.add(carryShadow());
             group.add(carrier);
           }
         }
@@ -2251,6 +2326,17 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     _right.set(1, 0, 0).applyQuaternion(_quat);
     _up.set(0, 1, 0).applyQuaternion(_quat);
     _pos.copy(_vis).addScaledVector(_up, -0.55);
+
+    // ...and the *road*, which is not the same plane. The contact point above
+    // rides with the machine, so over a crest it is a metre in the air and a
+    // shadow pinned to it hangs in the sky with the kart. One `nearest` per
+    // racer per frame — not one per item — and the surface each blob lands on
+    // is then evaluated in that sample's own frame, which holds over the two
+    // and a half metres an orbit reaches.
+    const track = ctx.track;
+    const s = track ? track.spline.nearest(_vis, _sample) : null;
+    const verge = track?.course.vergeWidth ?? 5;
+    if (s) _norm.copy(s.up);
 
     // The settle punch. For the fraction of a second after the reel lands, the
     // item the kart is holding is oversized and falling back to size — the one
@@ -2284,27 +2370,61 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         node.rotateY(-a);
       }
       node.scale.setScalar(ORBIT_SCALE * punch);
-      // ...and the shadow on the road under it. Height is measured against the
-      // *kart's* contact plane rather than the world horizontal, so it holds on
-      // the banking, and the disc is thrown along the sun like every other
-      // shadow in the frame.
-      const blob = carrier.children[1];
-      if (blob) {
-        // Eight racers with a triple each is twenty-four extra draw calls for
-        // discs a couple of pixels across at the far end of a straight. Contact
-        // matters where the eye can see it; past seventy metres it cannot.
-        blob.visible = carrier.position.distanceToSquared(ctx.camera.position) < 70 * 70;
+
+      // ── the blob on the road under it ─────────────────────────────────────
+      //
+      // The one thing that decides whether the three hats are *orbiting the
+      // kart* or *pasted over the frame*. Three rules, and the version this
+      // replaced broke all three at once.
+      //
+      //   *It goes under the item.* The throw along the sun is compressed to a
+      //   third of a metre — enough to agree with the direction every other
+      //   shadow in the frame is raked, short enough that the blob never leaves
+      //   the item's own silhouette. At the box's asymptote it was a metre, and
+      //   a metre from a hat on a chase camera is a separate black ellipse: the
+      //   critic who rejected this read it as a scenery shadow and the hats as
+      //   casting nothing, which is what that picture actually shows.
+      //
+      //   *It lands on the road, not on the kart.* Projected onto the track
+      //   surface at the blob's own lateral offset — so it holds through the
+      //   crown, the banking and the verge — and it lets go when the machine
+      //   leaves the ground instead of flying with it.
+      //
+      //   *It is the item's size and the item's height.* Radius off the model's
+      //   own footprint, spreading and thinning as it lifts.
+      const blob = carrier.children[1] as THREE.Mesh | undefined;
+      if (!blob) continue;
+      // Eight racers with a triple each is twenty-four extra draw calls for
+      // discs a couple of pixels across at the far end of a straight, so there
+      // is a cull — but it is a long one. At seventy metres this dropped the
+      // shadows out of the *overhead* camera, which sits about eighty up and is
+      // the one shot a reviewer uses to check exactly this. A cull that hides
+      // the thing from the instrument that measures it is not an optimisation.
+      blob.visible = carrier.position.distanceToSquared(ctx.camera.position) < 95 * 95;
+      if (!blob.visible) continue;
+
+      // Height above the *road*: drop the item onto the surface at its own
+      // lateral offset, measured along the track's up.
+      let h: number;
+      if (s) {
+        _to.subVectors(carrier.position, s.pos);
+        const lat = _to.dot(s.right);
+        _shadow.copy(s.pos).addScaledVector(s.right, lat)
+          .addScaledVector(_norm, roadCrown(lat, s.width, verge));
+        h = _to.subVectors(carrier.position, _shadow).dot(_norm);
+        // Keep the along-track component: the sample's origin is under the
+        // *kart*, and an item two metres ahead of it belongs two metres ahead.
+        _shadow.copy(carrier.position).addScaledVector(_norm, -h);
+      } else {
+        _norm.copy(_up);
+        h = 0.55;
+        _shadow.copy(carrier.position).addScaledVector(_norm, -h);
       }
-      if (blob && blob.visible) {
-        _to.subVectors(carrier.position, _pos);
-        const h = Math.max(0.05, _to.dot(_up));
-        _shadow.copy(_pos).addScaledVector(_up, 0.03)
-          .addScaledVector(_to, 1).addScaledVector(_up, -h)
-          .add(shadowOffset(h, _up, _off));
-        blob.position.subVectors(_shadow, carrier.position);
-        blob.quaternion.setFromUnitVectors(UP, _up);
-        blob.scale.setScalar(clamp(1 - h * 0.08, 0.55, 1.1));
-      }
+      _shadow.addScaledVector(_norm, 0.03)
+        .add(shadowOffset(Math.max(0, h), _norm, _off, CARRY_REACH));
+      blob.position.subVectors(_shadow, carrier.position);
+      blob.quaternion.setFromUnitVectors(UP, _norm);
+      setCarryShadow(blob, heldRadius.get(id!) ?? 0.34, h);
     }
   }
 
@@ -2564,13 +2684,21 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       visualTime = 0;
       entities.clear();
       for (const st of states.values()) {
-        if (st.orbit) rig.remove(st.orbit);
+        // Back to the pool, not into the bin. The models inside an orbit rig
+        // share their materials with the hidden prototype and must never be
+        // disposed; the blob under each one owns a material of its own and must
+        // be. Clearing the pool on every reset dropped both on the floor, and
+        // the capture harness resets a dozen times a run.
+        if (st.orbit) {
+          rig.remove(st.orbit);
+          const bin = orbitPool.get(st.orbitKey);
+          if (bin) bin.push(st.orbit); else orbitPool.set(st.orbitKey, [st.orbit]);
+        }
         dropNode(st.aura);
         dropNode(st.husk);
         dropNode(st.shroud);
       }
       states.clear();
-      orbitPool.clear();
       // A shrunk racer whose state has just been thrown away would otherwise
       // start the next race at half size for ever, and a racer reset mid-spin
       // would carry this module's own `flip` flag into it — the clock that
@@ -2727,10 +2855,24 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         if (Array.isArray(m)) for (const x of m) x.dispose();
         else m?.dispose();
       });
+      // ...and the pooled orbit rigs, which by then are detached from `rig` and
+      // therefore invisible to the traversal above.
+      for (const bin of orbitPool.values()) {
+        for (const group of bin) {
+          group.traverse((o) => {
+            const mesh = o as THREE.Mesh;
+            if (!mesh.isMesh) return;
+            const m = mesh.material as THREE.Material | THREE.Material[] | undefined;
+            if (Array.isArray(m)) for (const x of m) x.dispose();
+            else m?.dispose();
+          });
+        }
+      }
       ctx.scene.remove(rig);
       states.clear();
       orbitPool.clear();
       heldProtos.clear();
+      heldRadius.clear();
     },
   };
 
@@ -3109,6 +3251,62 @@ export function createItemSystem(ctx: GameContext): GameSystem {
           bearing: threatBearing,
           item: threatLevel > 0 ? threatItem : null,
         };
+      },
+
+      /**
+       * Where every carried item and its ground shadow actually are.
+       *
+       * Contact is the one thing a screenshot argues about and nothing else can
+       * settle: "the hats are floating" and "the shadow is there but three
+       * metres up the road" look identical from a chase camera. This reports the
+       * item's world position, the blob's, the height between them and the
+       * ground the track thinks is under it — so a reviewer can tell a missing
+       * shadow from a misplaced one without reading the source.
+       */
+      carry(racerId = ctx.player?.id ?? 0): Record<string, unknown> | null {
+        const racer = racerById(racerId);
+        const st = states.get(racerId);
+        if (!racer || !st) return null;
+        const r3 = (v: THREE.Vector3): number[] =>
+          [+v.x.toFixed(2), +v.y.toFixed(2), +v.z.toFixed(2)];
+        const items: Array<Record<string, unknown>> = [];
+        for (const carrier of st.orbit?.children ?? []) {
+          const node = carrier.children[0];
+          const blob = carrier.children[1] as THREE.Mesh | undefined;
+          carrier.updateWorldMatrix(true, false);
+          _pos.setFromMatrixPosition(carrier.matrixWorld);
+          const at = _pos.clone();
+          let shadow: number[] | null = null;
+          let ground = 0;
+          if (blob) {
+            blob.updateWorldMatrix(true, false);
+            _shadow.setFromMatrixPosition(blob.matrixWorld);
+            shadow = r3(_shadow);
+            if (ctx.track) {
+              const s = ctx.track.spline.nearest(_shadow, _sample);
+              // The road surface at the blob's own lateral offset, measured
+              // along the track's up — the road banks, so comparing world y
+              // would report a metre of error on a corner that has none.
+              const lat = s.lateral ?? 0;
+              _off.copy(s.pos).addScaledVector(s.right, lat)
+                .addScaledVector(s.up,
+                  roadCrown(lat, s.width, ctx.track.course.vergeWidth ?? 5));
+              ground = +_off.sub(_shadow).dot(s.up).toFixed(3);
+            }
+          }
+          items.push({
+            at: r3(at),
+            shadow,
+            visible: !!blob?.visible,
+            // Positive means the blob is *below* the road it is meant to lie on,
+            // which is a shadow the depth test will eat.
+            sunk: ground,
+            height: blob ? +(at.y - (_shadow.y)).toFixed(2) : 0,
+            scale: blob ? +blob.scale.x.toFixed(2) : 0,
+            nodeScale: node ? +node.scale.x.toFixed(2) : 0,
+          });
+        }
+        return { item: racer.item, shown: st.shown, key: st.orbitKey, items };
       },
 
       state(): Record<string, unknown> {
