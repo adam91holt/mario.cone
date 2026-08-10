@@ -1,6 +1,6 @@
 {
-  "phase": "Coherence complete — three waves to go",
-  "phaseNote": "Two rounds of whole-game judgement done. The race now has stakes and the camera now looks at the player. Next: perf and the course roster together, then the polish wave, then closing verdicts on wave 1.",
+  "phase": "Wave 6 landed — polish wave next",
+  "phaseNote": "hud 7.0 and perf 6.0. The item slot and minimap are fixed and the frame cost is down a quarter with the simulation untouched. Both still fail on something measured: a winning position plate cut in half by the letterbox, and a frame-time instrument that cannot see the frames it exists for.",
   "pieces": [
     {
       "id": "feel",
@@ -79,9 +79,9 @@
       "name": "HUD & minimap",
       "scope": "src/ui",
       "state": "fail",
-      "rounds": 6,
-      "verdict": "6.5/10 after three rounds. Item slot, minimap, lap pips, coin and position plates, banners, designed numerals.",
-      "gap": "The roulette is visibly dead for 92% of its duration: the drum runs 0.067s of a 1.05s spin, then the slot sits empty for a full second before the item teleports in with no landing punch."
+      "rounds": 2,
+      "verdict": "7.0/10 after two rounds. The item slot is no longer a void — it has a designed idle and draws its item — the roulette runs its whole spin, and the minimap gives each rival a readable marker instead of seven identical dots.",
+      "gap": "At the finish, the one frame the whole race builds to, the position plate this module keeps on screen because it is the answer comes to rest with its bottom 40% and its entire ordinal suffix behind the letterbox bar. The player who wins is shown a sawn-off gold 1 with no ST."
     },
     {
       "id": "world",
@@ -141,10 +141,10 @@
       "id": "perf",
       "name": "Performance",
       "scope": "engine-wide",
-      "state": "queued",
-      "rounds": 0,
-      "verdict": "",
-      "gap": ""
+      "state": "fail",
+      "rounds": 2,
+      "verdict": "6.0/10 after two rounds. Real cuts landed: 509,822 triangles across 299 draw calls, down from 678,804 across 370, with the simulation bit-identical — same seed, same 47.825 m/s, same 512.926m.",
+      "gap": "The instrument is still broken one layer down. Round 1 failed the governor for a warm-up gate that could not fire on a slow machine; the gate is now counted in seconds, and the seconds accumulator has the same property — STALL_MS discards the exact frames the governor exists to measure, so liveSeconds accrued 1.66s across 200s of wall time and it read priming, samples 0, for three minutes."
     },
     {
       "id": "coherence",
@@ -157,6 +157,10 @@
     }
   ],
   "log": [
+    {
+      "when": "2026-08-10 08:39 UTC",
+      "text": "Wave 6 landed. 509,822 triangles across 299 draw calls, down from 678,804 across 370, with the simulation bit-identical. The item slot is no longer a black hole."
+    },
     {
       "when": "2026-08-10 03:44 UTC",
       "text": "Coherence pass complete. The field now finishes 24-94s apart instead of inside 0.811s, the AI charges mini-turbos, and the review sheet no longer captions frames that do not show what they claim."
