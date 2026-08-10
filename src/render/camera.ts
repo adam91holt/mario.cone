@@ -122,7 +122,9 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
   let swing = 0;         // signed, shaped — the term everything else reads
 
   let introT = 0, introActive = false;
+  /** The `finish` shot's clock, and how much of the move this place is worth. */
   let celebT = -1;
+  let celebScale = 1;
 
   // ── the shots the race asks for ──────────────────────────────────────────
   //
@@ -148,6 +150,15 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
   //               more height while the lights are on, so the field the player
   //               has to get past is in the frame they are staring at.
   //   `podium`    the winner, orbited slowly behind the results sheet.
+  //   `finish`    the player's own crossing. This was the one the director had
+  //               been describing in full — racer, place, podium, hold, even
+  //               how far past the line the machine will be when the shot
+  //               settles — into a room with nobody in it, for the whole life
+  //               of the project. The director stood in for it by borrowing
+  //               `camera:mode 'near'`, which is the player's channel and not
+  //               the race's, and both files carried a comment apologising.
+  //               The borrow is gone: `config.camera.victory` now carries the
+  //               lens `near` was lending, and the move is armed from the shot.
 
   /** Metres of grid ahead of the player, as the director measured it. */
   let shotBack = 0;
@@ -164,10 +175,20 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
   let podiumRacer: Racer | null = null;
   let podiumT = 0;
 
-  ctx.bus.on<{ shot: string; back?: number; racerId?: number }>(
-    'camera:shot', ({ shot, back, racerId }) => {
+  ctx.bus.on<{ shot: string; back?: number; racerId?: number; podium?: boolean }>(
+    'camera:shot', ({ shot, back, racerId, podium }) => {
       if (shot === 'grid' || shot === 'countdown') {
         shotBack = Math.max(0, back ?? 0);
+        return;
+      }
+      if (shot === 'finish') {
+        celebT = 0;
+        // A podium and a fourth are two different two and a half seconds — the
+        // race says which in the ask, and the overlay already paints them
+        // differently. The lens agrees rather than treating every crossing as a
+        // win: a podium gets the whole orbit, anything else gets two thirds of
+        // it. It is still a composed shot; it is just not a celebration.
+        celebScale = podium ? 1 : 0.65;
         return;
       }
       if (shot === 'podium') {
@@ -274,9 +295,11 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
     if (a.isPlayer || b.isPlayer) addTrauma(clamp01(force) * 0.18);
   });
 
-  ctx.bus.on<{ racer: Racer }>('race:finish', ({ racer }) => {
-    if (racer.isPlayer) celebT = 0;
-  });
+  // The move is armed from `camera:shot`, not from `race:finish`. The race
+  // emits both on the same frame, but only the shot knows whether this was a
+  // podium — and only the shot is *withheld* on an abandoned race, which is
+  // right: quitting from the pause menu is not a result and does not get a hero
+  // lens. `race:finish` fires once per racer and says nothing about the frame.
 
   // ── geometry helpers ─────────────────────────────────────────────────────
 
@@ -576,6 +599,7 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
       lookSnap = 0;
       swingDir = 0; swingNext = 0; swingU = 0; swingHop = 0; swingDepth = 1; swing = 0;
       celebT = -1;
+      celebScale = 1;
       podiumRacer = null;
       podiumT = 0;
       // `shotBack` is deliberately not cleared here: the director emits
@@ -659,7 +683,8 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
       // ── heading ────────────────────────────────────────────────────────
       const travelYaw = travelYawOf(racer);
 
-      const celeb = celebT >= 0 ? ease.inOutCubic(clamp01(celebT / C.victory.time)) : 0;
+      const celeb = celebT >= 0
+        ? ease.inOutCubic(clamp01(celebT / C.victory.time)) * celebScale : 0;
 
       const lookBack = ctx.inputState.look > 0.5;
       const lookWas = lookAmt;

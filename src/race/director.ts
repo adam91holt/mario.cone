@@ -37,7 +37,7 @@ import { ordinalWord } from '../ui/glyphs.ts';
 import { blipColor } from '../ui/theme.ts';
 import { createCup, createRaceBook, type ResultRow } from './book.ts';
 import { createOverlay, type RaceOverlay } from './overlay.ts';
-import { FIN_HOLD, FIN_IN, FIN_TOTAL, WIPE_COVERED, WIPE_TOTAL } from './stage.ts';
+import { FIN_HOLD, FIN_IN, WIPE_COVERED, WIPE_TOTAL } from './stage.ts';
 import { formatGap } from './results.ts';
 import type { MenuOption } from './menu.ts';
 import type {
@@ -51,8 +51,24 @@ const FORM_ROW_STAGGER = 0.06;
 /** How long the flag holds before the results sheet is allowed to start. Long
  *  enough that the HUD's own place banner has said its piece and left. */
 const FLAG_HOLD = 2.0;
-/** ...and the longest the race will wait for the field after the player is in. */
-const WRAP_LIMIT = 14;
+/**
+ * ...and the longest the race will wait for the field after the player is in.
+ *
+ * **Six, not fourteen.** Fourteen was chosen when the frame after the flag was
+ * assumed to be interesting, and it never was: the finish beat ended at 2.55s,
+ * the HUD retired, the results sheet was still eight seconds out, and the
+ * measured field spread on Cone Canyon was twenty-six seconds — so the cap was
+ * what actually fired, and what it capped was up to fourteen seconds of a
+ * stationary kart in a run-off with no interface on it at all. The player had
+ * just won.
+ *
+ * Six seconds is a beat you can watch: the letterbox is held (see stage.ts),
+ * the finish lens is orbiting the machine, and the ticker lands a plate for
+ * each racer as they come home. Anyone still out on the circuit at six seconds
+ * is brought in by `toWrap`, with the estimated time the results table already
+ * knows how to label. A race is over when the player's race is over.
+ */
+const WRAP_LIMIT = 6;
 /** A player still circulating after the whole field is home gets this long. */
 const SOLO_LIMIT = 45;
 /** Beat between the last machine crossing and the sheet arriving. */
@@ -308,55 +324,30 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     ctx.bus.emit('camera:shot', { shot, ...extra });
   }
 
-  // ── the lens, borrowed ───────────────────────────────────────────────────
+  // ── the lens, no longer borrowed ─────────────────────────────────────────
   //
-  // `camera:shot` is the right channel and nothing answers the `finish` request
-  // on it yet, so the flag would land on the same chase framing the previous
-  // three laps were shot on —
-  // which is the single loudest complaint against this piece. `camera:mode`
-  // *is* answered, and it can at least change the lens: `near` pulls two metres
-  // in, drops half a metre and shortens the field of view, which against the
-  // rig's own victory move — three metres back, up, sixty degrees of orbit —
-  // composes as a long lens swinging round a machine that stays large in frame.
+  // This module used to hold a whole borrow-and-return apparatus — three
+  // functions, three flags and a paragraph of apology — whose only job was to
+  // push `camera:mode` to `near` at the flag and give it back afterwards,
+  // because `camera:shot { shot: 'finish' }` went to a module that had never
+  // subscribed to it. `camera:mode` is the *player's* channel: a player holding
+  // look-behind, or a reviewer who has asked for `overhead`, had the shot
+  // silently taken off them, and the borrow had to be unwound on four separate
+  // paths to avoid leaving the lens somewhere nobody asked for.
   //
-  // `far` was tried first and photographed badly for a reason worth writing
-  // down: pulling *back* at a finish hands the middle of the frame to whichever
-  // machine happens to be passing, and a player who has just stopped racing is
-  // being passed by all of them. At the finish the lens must close in.
+  // `render/camera.ts` answers `finish` now, and the lens the borrow was
+  // lending (two metres in, half a metre down, four degrees off the field of
+  // view) is folded into `config.camera.victory` where the rest of the move
+  // lives. The mode is watched here only so the probe can report it.
   //
-  // Borrowed, not taken:
-  //   - only from `chase`. A player holding look-behind, or a reviewer who has
-  //     asked for `overhead`, has said what they want the lens to do.
-  //   - given straight back the moment anything else touches the mode, and at
-  //     the hand-off in any case.
-  // The proper answer is a `finish` shot composed by the camera module; the ask
-  // for it goes out on every flag either way.
+  // The reasoning that produced `near` is worth keeping even though the borrow
+  // is gone: `far` was tried first and photographed badly, because pulling
+  // *back* at a finish hands the middle of the frame to whichever machine
+  // happens to be passing, and a player who has just stopped racing is being
+  // passed by all of them. At the finish the lens must close in.
   let camMode: CameraMode = 'chase';
-  let camOwned = false;
-  let camSelf = false;
 
-  ctx.bus.on<{ mode: CameraMode }>('camera:mode', ({ mode }) => {
-    camMode = mode;
-    if (!camSelf) camOwned = false;
-  });
-
-  function setCameraMode(mode: CameraMode): void {
-    camSelf = true;
-    ctx.bus.emit('camera:mode', { mode });
-    camSelf = false;
-  }
-
-  function borrowCamera(mode: CameraMode): void {
-    if (camOwned || camMode !== 'chase') return;
-    setCameraMode(mode);
-    camOwned = true;
-  }
-
-  function returnCamera(): void {
-    if (!camOwned) return;
-    camOwned = false;
-    setCameraMode('chase');
-  }
+  ctx.bus.on<{ mode: CameraMode }>('camera:mode', ({ mode }) => { camMode = mode; });
 
   function setPhase(phase: RacePhase): void {
     if (ctx.race.phase === phase) return;
@@ -869,9 +860,9 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
    *   *time*    drops to a third over a sixth of a second and comes back over
    *             six tenths. The crossing is the one frame in a race that is
    *             worth looking at, and until now the game drove straight past it.
-   *   *lens*    a change of shot. The right channel is `camera:shot` and it is
-   *             asked on every flag; until something answers it, the mode is
-   *             borrowed for a wide — see `borrowCamera`.
+   *   *lens*    a composed shot on `camera:shot`, answered by
+   *             `render/camera.ts`. The ask carries the place and the podium
+   *             flag, so a fourth is framed differently from a win.
    *   *frame*   letterbox bars, and then either a warm, saturated, gold-swept
    *             picture or a cold, drained, closing one. A still from a podium
    *             finish and a still from fifth are not the same photograph any
@@ -894,9 +885,7 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
       ctx.fx?.flash(podium ? 0xFFF3C4 : 0xE6EEF8, podium ? 0.46 : 0.3);
       overlay?.finish.arm(place, podium);
       beatT = 0;
-      // The shot the race would compose if anything were listening — with
-      // everything a rig needs to frame it — and, until it does, the tightest
-      // lens the published mode channel can give. See `borrowCamera`.
+      // Everything the rig needs to frame the crossing. Answered.
       askCamera('finish', {
         racerId: ctx.player?.id ?? 0,
         place,
@@ -905,7 +894,6 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
         /** Metres past the line the machine will be when the shot settles. */
         lead: Math.abs(ctx.player?.speed ?? 0) * 0.6,
       });
-      borrowCamera('near');
     }
 
     // The race is decided; the mixer should not wait for the last CPU to trundle
@@ -1070,7 +1058,6 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     overlay?.note.reset();
     overlay?.verdict.reset();
     clearWrongWay();
-    returnCamera();
     ctx.bus.emit('race:handoff', { to: 'results' });
   }
 
@@ -1323,7 +1310,6 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
       overlay?.finish.at(-1, -1);
       overlay?.ticker.clear();
       clearWrongWay();
-      returnCamera();
       showResults();
       // A seek is not a finish: nothing should be left running in slow motion.
       // Only *our* ramp is unwound — a reviewer who froze the clock and then
@@ -1382,7 +1368,7 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
         },
         handoff: { wipe: +wipeT.toFixed(3), beat: +beatT.toFixed(3), done: handedOff },
         wrongWay: wrongOn,
-        camera: { mode: camMode, borrowed: camOwned },
+        camera: { mode: camMode },
         finished: book.finishedCount(),
         /** The order the field was seated in, pole first. */
         grid: seats.map((s) => s.racer.name),
@@ -1494,11 +1480,10 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
       lastStart.quality = 0;
       lastStart.tier = 0;
       held.clear();
-      // The camera module puts its own mode back to `chase` in its reset, so the
-      // borrow is forgotten rather than handed back — emitting here would fight
-      // a reviewer who set a mode between races.
+      // The camera module puts its own mode back to `chase` in its reset, so
+      // this only re-syncs the copy the probe reports — emitting here would
+      // fight a reviewer who set a mode between races.
       camMode = 'chase';
-      camOwned = false;
       ctx.time.scale = 1;
       book.reset(ctx.racers);
       ensureCup();
@@ -1545,8 +1530,14 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
       // in `racing`, runs through `finished`, and the curtain it hands over to
       // has to keep opening once the phase is already `results`.
       if (beatT >= 0) {
+        // **Not cleared at `FIN_TOTAL`.** The colour of the beat ends there;
+        // the letterbox it opened does not. See the note on `FIN_IN` in
+        // stage.ts — this clock now runs from the player's crossing to the
+        // hand-off, and it is what holds a composed frame over the seconds the
+        // rest of the field is still coming home. `showResults` clears it,
+        // behind a closed curtain, which is the only place a letterbox may
+        // vanish.
         beatT += dt;
-        if (beatT >= FIN_TOTAL) beatT = -1;
       }
       if (wipeT >= 0) {
         wipeT += dt;

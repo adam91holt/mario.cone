@@ -16,6 +16,7 @@
 // `fixedUpdate` at a constant dt, so two runs of the same seed produce byte
 // identical results tables.
 
+import { getVehicle } from '../vehicles/registry.ts';
 import type { Racer, VehicleId } from '../types.ts';
 
 /** One racer's line in the results table. Plain JSON — critics diff these. */
@@ -37,8 +38,24 @@ export interface ResultRow {
   /** True when the flag came in before this racer did and the time is an
    *  estimate rather than a measurement. */
   estimated: boolean;
-  /** Kart livery, for the colour chip. */
+  /**
+   * The map blip's colour: the machine's hue pushed into the band that reads at
+   * ninety pixels against a grey road. Right for a dot, wrong for a table.
+   */
   color: number;
+  /**
+   * ...and the machine's *actual* livery, unclamped.
+   *
+   * `blipColor` floors saturation at 0.55 and clamps lightness to 0.48-0.8,
+   * which is exactly correct for a minimap and actively false on a full-width
+   * results sheet: it gives the near-black Shunter a teal spine and the
+   * white-and-red Prop Plane a pale lavender one. The front-end spends a whole
+   * screen selling machines — PICK YOUR MACHINE, a dossier, five stat bars, a
+   * launch card carrying the silhouette — and ninety seconds later the sheet
+   * listed eight driver names and nothing tied any of them to a machine at all.
+   * The one tie left was the colour, and it was the wrong colour.
+   */
+  livery: number;
 }
 
 /** What the book tracks for a racer while the race is still running. */
@@ -157,6 +174,7 @@ export function createRaceBook(): RaceBook {
         points: points[e.place - 1] ?? 0,
         estimated: e.estimated,
         color: colorOf(e.racer),
+        livery: getVehicle(e.racer.vehicleId).colors.primary,
       }));
     },
   };

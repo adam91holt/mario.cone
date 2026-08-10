@@ -21,6 +21,7 @@
 import { clamp01, ease, formatTime } from '../core/math.ts';
 import { glyphBox, ordinalWord, type GlyphBox } from '../ui/glyphs.ts';
 import { bind, fromHtml, q, rgba, type Bound } from '../ui/theme.ts';
+import { vehicleMark } from '../ui/menus/art.ts';
 import { signBox } from './letters.ts';
 import { createHint, createMenu, type Menu, type MenuOption, type Sfx } from './menu.ts';
 import type { CupStanding, ResultRow } from './book.ts';
@@ -111,6 +112,21 @@ export const CSS_RESULTS = `
 #race .row.p2 .pos .num, #race .row.p2 .pos .suf { color: #D8E2F0; }
 #race .row.p3 .pos .num, #race .row.p3 .pos .suf { color: #FFA06A; }
 
+/* The machine, as the same silhouette the roster sold it with.
+   This sheet used to list eight driver names — GRAVEL, BOLLARD, DETOUR — and
+   nothing anywhere said that Gravel was the Shunter. The front-end spends a
+   whole screen on machines: PICK YOUR MACHINE, MACHINE 1 OF 7, a dossier, five
+   stat bars, a breadcrumb chip, a launch card carrying the silhouette and the
+   name. Ninety seconds later the result of all that choosing was a table it
+   does not appear in. This is "vehicleMark" from ui/menus/art.ts — literally
+   the roster's own drawing, not a second one. */
+#race .row .mk {
+  display: flex; align-items: center; justify-content: center;
+  width: calc(var(--u) * 3.4); height: calc(var(--u) * 2.1); flex: none;
+  opacity: .92;
+}
+#race .row .mk svg { display: block; width: 100%; height: 100%; overflow: visible; }
+#race .row.you .mk { opacity: 1; }
 #race .row .nm { height: calc(var(--u) * 1.55); color: #EEF2F8; }
 #race .row .tm { height: calc(var(--u) * 1.55); color: #C7D2E2; margin-left: auto; }
 #race .row.est .tm { opacity: .55; }
@@ -335,6 +351,7 @@ export function createResults(onPick: (id: string) => void, sfx: Sfx): Results {
         <div class="plate-bg plate"></div>
         <div class="chip"></div>
         <div class="pos"><span class="pnum num"></span><span class="psuf num"></span></div>
+        <div class="mk">${vehicleMark(row.vehicleId)}</div>
         <div class="nm word"></div>
         <div class="tm num"></div>
         <div class="pts"><span class="num"></span></div>
@@ -349,7 +366,10 @@ export function createResults(onPick: (id: string) => void, sfx: Sfx): Results {
     // screen exists to do for them.
     glyphBox(q(el, '.tm'), row.place === 1 ? formatTime(row.time) : `+${formatGap(row.gap)}`);
     glyphBox(q(el, '.pts .num'), row.points > 0 ? `+${row.points}` : '');
-    bind(q(el, '.chip')).set('background', chipPaint(row.color));
+    // The machine's own colour, not the minimap's reading of it. See `livery`
+    // in book.ts: `blipColor` is right for a ninety-pixel dot and wrong for a
+    // full-width row, where it paints a near-black locomotive teal.
+    bind(q(el, '.chip')).set('background', chipPaint(row.livery));
     const b = bind(el);
     b.cls('you', row.isPlayer);
     b.cls('est', row.estimated);

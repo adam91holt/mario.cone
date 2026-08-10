@@ -161,6 +161,29 @@ export function createHudSystem(ctx: GameContext): GameSystem {
   let hurting = false;
   let clock = 0;
   let reveal = 1;
+  /**
+   * How far in the item socket is, 0..1 — and it is held at 0 until the flag.
+   *
+   * **Two modules both claimed the top centre of the screen and neither could
+   * see the other.** The socket lives at `#hud .tc`, an inch below the top
+   * edge; the race's start-light board lives at 16.5% of the frame in
+   * `race/stage.ts`, on the layer above. Photographed on the frame the player
+   * spends the whole countdown staring at, they land about fifteen pixels apart
+   * and read as one two-storey widget — and then state the same brand motif two
+   * incompatible ways, because a socket is a recess with a continuous hazard
+   * ring round a 1.28u corner and a plate is a sign with a yellow strip along
+   * one edge and a 0.55u corner. Neither module was wrong; nobody owned the
+   * space between them.
+   *
+   * The decision, made across both: **the socket has nothing to say before the
+   * flag falls.** There is no item, there is no way to get one, and it is an
+   * empty box sitting on top of the one signal that does mean something during
+   * the count. So it stays parked off the top edge — the same offset the reveal
+   * already flies it in from — and arrives with the race. The board keeps its
+   * position and gets its chevron texture back, so the top of the frame holds
+   * exactly one object at a time.
+   */
+  let slotIn = 1;
   /** Boost response: a white-hot beat across the whole instrument set. */
   let surge = 0;
   let surging = false;
@@ -249,6 +272,7 @@ export function createHudSystem(ctx: GameContext): GameSystem {
       // not a loading screen, and every review capture renders less than a
       // second of the moment it happens in.
       reveal = 0;
+      slotIn = 0;
       slot.reset();
       map.reset();
       banners.reset();
@@ -321,16 +345,27 @@ export function createHudSystem(ctx: GameContext): GameSystem {
         root.classList.remove('surge');
       }
 
+      // The socket waits for the flag. See `slotIn`.
+      const preFlag = ctx.race.phase === 'intro' || ctx.race.phase === 'countdown';
+      slotIn = preFlag ? 0 : Math.min(1, slotIn + dt / 0.34);
+
       // ── reveal, and its opposite ─────────────────────────────────────────
-      if (reveal < 1) {
-        reveal = Math.min(1, reveal + dt / 0.32);
-        const e = ease.outQuart(reveal);
-        const back = 1 - e;
+      // One writer for every corner's transform, always. Two writers on one
+      // transform means whichever ran last wins, and "the set is arriving" and
+      // "the socket is still waiting for the flag" are both true for the first
+      // third of a second of every race.
+      if (reveal < 1 || slotIn < 1) {
+        if (reveal < 1) reveal = Math.min(1, reveal + dt / 0.32);
+        const back = 1 - ease.outQuart(reveal);
+        const held = Math.max(back, 1 - ease.outQuart(slotIn));
         for (const c of corners) {
-          const tx = c.dx * back * 46 + (c.centred ? -50 : 0);
-          const ty = c.dy * back * 60;
+          const b = c.centred ? held : back;
+          const tx = c.dx * b * 46 + (c.centred ? -50 : 0);
+          const ty = c.dy * b * 60;
           c.box.set('transform', `translate(${tx.toFixed(2)}%, ${ty.toFixed(2)}%)`);
-          c.box.set('opacity', Math.min(1, reveal * 2.2).toFixed(3));
+          c.box.set('opacity', (c.centred
+            ? Math.min(1, (1 - held) * 2.2)
+            : Math.min(1, reveal * 2.2)).toFixed(3));
         }
       } else if (ctx.player?.finished || handed || retire > 0) {
         // The working instruments leave once the race is decided; the place
