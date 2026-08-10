@@ -4,12 +4,13 @@
 // re-cut layout re-places its own boxes. Two kinds of placement, and the
 // difference between them is the whole design:
 //
-//   Rows. Seven boxes spanning the road, wall to wall, at the six straightest
-//   points of the lap. The racing line runs through one of them, so a leader
-//   defending their line pays nothing to take an item — which is correct,
-//   because what they draw from it is a banana. Nobody else can miss the row
-//   either: the spacing is tighter than the pickup radius, so every line
-//   across the road takes exactly one box.
+//   Rows. Eight boxes — one per kart — spanning the road wall to wall, at the
+//   straightest point of each eighth of the lap. The racing line runs through
+//   one of them, so a leader defending their line pays nothing to take an item,
+//   which is correct, because what they draw from it is a banana. Nobody else
+//   can miss the row either: both ends are pinned to the tarmac edge and the
+//   spacing is tighter than the pickup radius, so every line across the road
+//   takes exactly one box.
 //
 //   Detours. Singles out on the gravel of the shortcut and hard on the outside
 //   of the two tightest corners. Those cost real time to reach, and the payment
@@ -48,10 +49,15 @@ const SIZE = 1.85;
  * and one unbroken sixty-four-second stretch with an empty slot — a kart racer
  * whose item layer the player touches for a tenth of the race.
  *
- * 1.5s is about forty metres at racing speed: long enough that the *pack* still
- * feels the row thin out around it, far too short to deny anybody a lap.
+ * Nine tenths of a second is about thirty metres at racing speed: long enough that a row does
+ * visibly thin out as the pack files through it, far too short to deny anybody a
+ * lap. Traced against a real eight-kart start, even 1.5 was leaving the back of
+ * the field on bare tarmac through the opening rows — the whole field converges
+ * on the racing line, so the middle of the first row is stripped by the leaders
+ * and the time a pack takes to file through one is longer than it looks from
+ * the front of it.
  */
-const RESPAWN = 1.5;
+const RESPAWN = 0.9;
 /**
  * Pickup radius, **measured in the road's plane**.
  *
@@ -62,8 +68,20 @@ const RESPAWN = 1.5;
  * leaves 2.03m of actual sideways reach, which is how a 2.5m radius quietly
  * became a 2.0m one and why rows had holes in them. The test compares
  * horizontal distance and gates the vertical separately: see `PICK_LIFT`.
+ *
+ * **Wider than the row's own spacing, deliberately**, and that is the number
+ * this was tuned to rather than a feel. One box in every row sits exactly on
+ * the racing line, which is the point of the row — and it is therefore the one
+ * box the whole field takes, every lap. A kart on the line whose reach stops
+ * short of the *next* box along is a kart that drives through a row of eight,
+ * seven of them still standing, and comes out with nothing; traced on a real
+ * race that happened at a row with 7 of 8 live and the player dead on the
+ * centreline. At 3.1m against a 3.05m spacing there is always a neighbour in
+ * range, and the pickup takes the nearest one that is still standing — so what
+ * a player sees is a hole where the on-line box was and the one beside it
+ * breaking instead, which is exactly what happened.
  */
-const PICK_RADIUS = 2.5;
+const PICK_RADIUS = 3.1;
 /** Vertical gate on the pickup, metres. Wide enough that a kart landing off a
  *  kerb still collects, tight enough that a box is not taken from a bridge. */
 const PICK_LIFT = 3.2;
@@ -106,29 +124,49 @@ const SHADOW_LIFT = 0.03;
  * span of ±9.9m against a 14.5m half-width, two thirds of the tarmac, so a car
  * on a wide entry passed a whole row cleanly and never knew a row was there.
  *
- * Seven, and spaced so that no line across the road misses one (see `LIM_EDGE`
- * and `PICK_RADIUS`). A row is meant to be a decision about *which* box, never
- * a decision about whether you get one.
+ * Eight is the *minimum* — one per kart in the field — and the actual count is
+ * whatever `ROW_SPACING` needs to reach both edges of the road at this point,
+ * so it is eight through the hairpin and ten across the start straight. Both
+ * ends are pinned to the tarmac edge. A row is meant to be a decision about
+ * *which* box, never a decision about whether you get one, and a field of eight
+ * arriving at a row of five is seven decisions and one shrug.
  */
-const ROW = 7;
+const ROW = 8;
+/**
+ * Metres between boxes in a row — the number the row is actually authored to.
+ *
+ * It has to stay under `PICK_RADIUS`, and not by a whisker. The box on the
+ * racing line is the one the whole field takes, so a kart on the line needs to
+ * be able to reach its *neighbour*, not merely the nearest half-gap; that is
+ * the difference between a row that supplies the pack and a row that supplies
+ * whoever gets there first.
+ */
+const ROW_SPACING = 2.95;
 /**
  * Rows of boxes per lap.
  *
  * Four on a 2.2km lap is one every twenty-two seconds of driving *if you take
  * every single one*, and nobody does — the pack thins each row as it goes
- * through. Six puts a row roughly every three hundred and sixty metres, which
- * is the cadence that keeps a slot filled without the circuit reading as a
- * warehouse aisle.
+ * through. Ten puts a row every two hundred and twenty metres, which is five
+ * and a half seconds at racing speed.
+ *
+ * That sounds like a lot until you measure the lap: this circuit is 2.2km, and
+ * Mario Kart 8's are a third of that with two or three sets each — so ten here
+ * is *the same density per second of driving*, not a heavier one. And the
+ * number is not a taste: what a slot spends its empty time on, measured over
+ * full races, is the run between throwing an item at a real target and reaching
+ * the next row. At four rows the autopiloted player held an item for 14% of a
+ * race, at six for 39%, at eight for 58%. The cadence is the item economy.
  */
-const ROWS = 6;
+const ROWS = 10;
 /**
  * Metres of tarmac left outside the outermost box in a row.
  *
  * Small on purpose: this is what "spans the road" means, and it used to be 2.6
- * *before* the cyclic layout took another half-spacing off the top. See the
- * placement loop — the outermost box lands between `lim - step` and `lim`
- * depending on where the racing line is, and `PICK_RADIUS` has to cover the
- * difference.
+ * *before* the cyclic layout took another half-spacing off the top, so the
+ * outermost box sat at ±9.9m on a road 14.5m wide to the edge. The row's ends
+ * are pinned here now, so this is the whole margin there is — 1.2m in from the
+ * tarmac edge, with `PICK_RADIUS` reaching well past it.
  */
 const LIM_EDGE = 1.2;
 
@@ -173,6 +211,18 @@ export interface ItemBox {
   groundQuat_up: THREE.Vector3;
   /** Absolute spline distance, for the pickup broadphase. */
   distance: number;
+  /**
+   * True for the singles out on the shortcut gravel and hard on the outside of
+   * the tight corners — the ones you have to *leave the line* to reach.
+   *
+   * It matters to more than bookkeeping. A detour box is almost never taken, so
+   * it is almost always sitting there available, and anything asking "when is
+   * the next box" gets a permanent yes from it. `gapAhead` skips them for
+   * exactly that reason: the CPU that clears its slot on the approach to a row
+   * would otherwise clear it four more times a lap for boxes it is not going
+   * anywhere near, and throw away most of the items it draws.
+   */
+  detour: boolean;
   /** Seconds until it comes back; 0 means it is there now. */
   respawn: number;
   /** 0..1 scale-in on respawn, and the bob/spin phase so a row is not in step. */
@@ -185,6 +235,19 @@ export interface BoxField {
   rebuild(track: Track, line: RacingLine): void;
   /** Box indices whose centre is within `PICK_RADIUS` of this lap distance. */
   candidates(distance: number): readonly number[];
+  /**
+   * Metres of road from this lap distance to the next box that is *actually
+   * there* — respawning ones do not count.
+   *
+   * This exists for the CPU item policy, and the behaviour it enables is the
+   * single biggest thing keeping a slot full: arriving at a row of boxes with
+   * your hands already occupied wastes the row, so a driver holding something
+   * it has found no use for spends it just before the row rather than carrying
+   * it through. That is what a good Mario Kart player does and it is why the
+   * gap between "used my item" and "have another one" collapses to the length
+   * of the reel.
+   */
+  gapAhead(distance: number): number;
   take(index: number): void;
   fixedUpdate(dt: number): void;
   update(dt: number, time: number): void;
@@ -334,7 +397,7 @@ export function createBoxField(ctx: GameContext): BoxField {
     return sum / 7;
   }
 
-  function addBox(distance: number, lateral: number): void {
+  function addBox(distance: number, lateral: number, detour = false): void {
     const spline = ctx.track!.spline;
     const s = spline.atDistance(distance);
     // The shadow belongs under the box, not under the centreline — on a banked
@@ -354,6 +417,7 @@ export function createBoxField(ctx: GameContext): BoxField {
       groundQuat,
       groundQuat_up: s.up.clone().normalize(),
       distance: ((distance % trackLength) + trackLength) % trackLength,
+      detour,
       respawn: 0,
       pop: 1,
       // A deterministic phase from the position: a row must not pulse in step,
@@ -375,34 +439,117 @@ export function createBoxField(ctx: GameContext): BoxField {
     const verge = track.course.vergeWidth ?? 5;
 
     // ── rows on the straights ────────────────────────────────────────────
+    //
+    // **One row per segment of the lap, not the six flattest points on it.**
+    //
+    // The old version scored every eight metres of circuit, sorted by flatness
+    // and took the best four that were a minimum distance apart. Both halves of
+    // that were wrong and the second one silently. Sorting globally means the
+    // rows land wherever the *straights* happen to be, so a circuit with its
+    // straights bunched together gets its item boxes bunched together too — on
+    // Cone Canyon the first row of the lap ended up three hundred and seventy
+    // metres past the line, and a race opens with every one of eight karts
+    // holding nothing for the first eighteen seconds of it. And the min-gap
+    // filter fails *quietly*: ask for six rows a sixth of a lap apart and the
+    // loop simply runs out of candidates and hands back four, with nothing
+    // anywhere saying the circuit is now under-supplied.
+    //
+    // Cutting the lap into `ROWS` equal segments and taking the flattest point
+    // inside each one cannot do either. The cadence is guaranteed — a row every
+    // `L / ROWS` metres whatever the layout — and the flatness test still picks
+    // the best *place* within each segment, which is what it was ever good for.
     const STEP = 8;
-    const n = Math.max(8, Math.floor(L / STEP));
-    const scored: Array<{ d: number; score: number }> = [];
-    for (let i = 0; i < n; i++) {
-      const d = (i / n) * L;
-      // Skip the grid: eight karts three abreast do not need a wall of boxes
-      // in front of them before the lights have gone out.
-      const fromStart = ((d - start) % L + L) % L;
-      if (fromStart < 70 || fromStart > L - 45) continue;
-      scored.push({ d, score: flatness(d, 45) });
-    }
-    scored.sort((a, b) => a.score - b.score);
+    /** Metres of clear road after the start line. Eight karts three abreast do
+     *  not need a wall of boxes in front of them before the lights go out. */
+    const GRID_CLEAR = 90;
+    /** ...and before it, so the last row of a lap and the first of the next are
+     *  a proper interval apart across the line rather than back to back. */
+    const LINE_CLEAR = 170;
+    // The cadence is an exact `L / ROWS`, **including across the start line**.
+    // Carving the grid's clearance out of the usable length instead and
+    // splitting what was left put a 572m hole between the last row of a lap and
+    // the first of the next — a fifteen-second dry stretch once a lap, in
+    // exactly the place a player has just crossed the line and is looking for
+    // something to happen.
+    const segLen = L / ROWS;
+    // How far from the middle of its segment a row may wander to find straight
+    // road, as a fraction of the segment. Deliberately small: an even cadence
+    // is worth more to the item economy than a perfectly straight row, and a
+    // wide roam lets two neighbouring rows drift towards each other and open a
+    // hole somewhere else.
+    const ROAM = 0.15;
+    /**
+     * ...and how much straighter it has to be to bother.
+     *
+     * Flatness alone is not enough, and the first cut of this proved it: taking
+     * the flattest point in each segment put two rows 135m apart and left a
+     * 544m hole on the other side of the lap, because the flattest point in one
+     * segment was at its right-hand end and the flattest in the next was at its
+     * left. The cadence is the whole reason the rows are segmented, so the
+     * distance from the middle of the segment is scored *against* the flatness
+     * rather than merely bounded by it. Flatness is normalised across the
+     * window first, so this weight means what it says whatever the units of
+     * curvature happen to be: a candidate out at the edge of its roaming range
+     * has to be better than everything else in the window by 0.85 of the whole
+     * spread before it wins.
+     */
+    const CENTRE_PULL = 0.85;
+
+    const reach = segLen * ROAM;
+    /**
+     * Where the first segment is centred, and with it every other one.
+     *
+     * Two clearances pull in opposite directions around the same piece of road:
+     * nothing within `GRID_CLEAR` *after* the line, and nothing within
+     * `LINE_CLEAR` *before* it, because a row there is a row standing in front
+     * of a forming grid. Sliding the whole even cadence satisfies both without
+     * breaking the cadence — which is the thing that carving a dead zone out of
+     * the middle of it could not do.
+     */
+    const first = clamp(segLen * 0.5,
+      GRID_CLEAR + reach,
+      Math.max(GRID_CLEAR + reach, segLen - LINE_CLEAR - reach));
 
     const chosen: number[] = [];
-    // Six rows will not fit with a sixth of a lap between each of them, and the
-    // loop fails *silently* if they do not — it simply stops early and the
-    // circuit quietly goes back to four. An eighth of a lap leaves the sort
-    // free to pick the six straightest places without ever bunching two rows
-    // into the same straight.
-    const minGap = L / 8;
-    for (const cand of scored) {
-      if (chosen.length >= ROWS) break;
-      let ok = true;
-      for (const c of chosen) {
-        const gap = Math.abs(spline.signedDistance(c, cand.d));
-        if (gap < minGap) { ok = false; break; }
+    const window: Array<{ d: number; flat: number }> = [];
+    for (let r = 0; r < ROWS; r++) {
+      const centre = first + r * segLen;
+      window.length = 0;
+      let fmin = Infinity;
+      let fmax = -Infinity;
+      for (let u = -reach; u <= reach; u += STEP) {
+        const flat = flatness(start + centre + u, 45);
+        if (flat < fmin) fmin = flat;
+        if (flat > fmax) fmax = flat;
+        window.push({ d: centre + u, flat });
       }
-      if (ok) chosen.push(cand.d);
+      const spread = fmax - fmin || 1;
+      let bestD = centre;
+      let bestScore = Infinity;
+      for (const c of window) {
+        const u = (c.d - centre) / reach;
+        const score = (c.flat - fmin) / spread + CENTRE_PULL * u * u;
+        if (score < bestScore) { bestScore = score; bestD = c.d; }
+      }
+      chosen.push(((start + bestD) % L + L) % L);
+      /**
+       * **The opening row is a double rank.**
+       *
+       * Every other row on the circuit meets a field that has spread out along
+       * the road; this one meets all eight machines side by side with all eight
+       * hands empty, and the pack funnels down the racing line, so the middle of
+       * the row is stripped by the front of it and the back of it drives through
+       * a hole. Traced on a real start, the eighth kart was still empty-handed
+       * nine seconds in and did not draw anything until the second row.
+       *
+       * A second rank forty-six metres on — a lag of a bit over a second, which
+       * is roughly how long a pack takes to file through one — makes the opening
+       * settlement complete: everybody has something by the first corner, which
+       * is what the first corner of a kart race is *for*. Mario Kart doubles its
+       * opening set for the same reason, and it is the only row on any circuit
+       * that needs it.
+       */
+      if (r === 0) chosen.push(((start + bestD + 46) % L + L) % L);
     }
     chosen.sort((a, b) => a - b);
 
@@ -413,35 +560,41 @@ export function createBoxField(ctx: GameContext): BoxField {
       // outermost box from being unreachable against the barrier; everything
       // between here and the centreline is covered by a box.
       const lim = Math.max(3, half - LIM_EDGE);
-      // Boxes distributed *cyclically* across the road, so the row can be slid
-      // sideways onto the racing line without any of them falling off the end.
-      // The obvious version — fixed slots at even spacing, drop anything that
-      // ends up outside — silently produced short rows all the way round the
-      // circuit, because a row that already spans exactly -lim to +lim loses a
-      // box to any shift at all.
-      const span = lim * 2;
-      const step = span / ROW;
-      // The invariant the whole row rests on: half the spacing must be inside
-      // the pickup radius, or there is a line down the road that misses. At
-      // ROW=7 on a 29m road that is 2.07m against 2.5m, and it only gets safer
-      // as the road narrows.
-      // ...and slide the whole row sideways so that one of the five sits
-      // exactly on the racing line. That is the entire design of these rows: a
-      // leader defending their line pays *nothing* to take an item, which is
-      // correct, because what the table gives them for it is a banana. A row
-      // pinned to the centreline instead makes every driver leave the line to
-      // take a box, and the item economy stops being about position at all.
-      const onLine = clamp(line.lateralAt(d), -lim, lim);
-      // Slide the whole row so that one box sits exactly on the racing line.
-      const slot = Math.round((onLine + lim) / step - 0.5);
-      const shift = onLine + lim - (slot + 0.5) * step;
-      for (let k = 0; k < ROW; k++) {
-        // Wrapped into [-lim, lim]: a box pushed off the right-hand end of the
-        // road comes back on at the left, and the row stays seven wide and
-        // evenly spaced whatever the line is doing here.
-        let u = (k + 0.5) * step + shift;
-        u -= Math.floor(u / span) * span;
-        addBox(d, u - lim);
+      /**
+       * **Both ends pinned, and a box exactly on the racing line.**
+       *
+       * The row used to be a *cyclic* grid slid sideways until one node landed
+       * on the line, which sounds equivalent to this and is not. A cyclic grid
+       * of `ROW` nodes over a span of `2 lim` has an arbitrary phase, so the
+       * outermost node on one side sits anywhere from `lim` to `lim - step`
+       * inwards — a whole spacing of tarmac, three metres of it, that no box
+       * covers and that changes from row to row for no reason a player could
+       * ever learn. Traced over a race that is exactly what a missed row looks
+       * like: a kart out at 10.6m off the centreline, five of seven boxes still
+       * standing, and the nearest one eight metres away.
+       *
+       * So: node 0 is at `-lim` and node `n-1` is at `+lim`, always, and the
+       * racing line gets a node of its own by letting the two halves of the row
+       * carry a different number of intervals.
+       *
+       * ...and `n` is **derived from the width, not fixed**. A constant count
+       * on a road that runs from 21m to 29m across is a constant count at two
+       * different spacings, and the wide end came out at 3.8m — past the
+       * pickup reach, which is the one number the row has to stay inside. The
+       * row is authored as a *spacing* and the count follows; on this circuit
+       * that is eight boxes at the hairpin and ten on the start straight.
+       */
+      const onLine = clamp(line.lateralAt(d), -lim * 0.6, lim * 0.6);
+      const n = clamp(Math.round((lim * 2) / ROW_SPACING) + 1, ROW, ROW + 4);
+      // How many of the n-1 intervals go to the left of the line. Clamped two
+      // off each end: one interval carrying a whole half-road is how you get a
+      // gap wider than a kart can reach across.
+      const nL = Math.max(2, Math.min(n - 3,
+        Math.round(((onLine + lim) / (2 * lim)) * (n - 1))));
+      const stepL = (onLine + lim) / nL;
+      const stepR = (lim - onLine) / (n - 1 - nL);
+      for (let k = 0; k < n; k++) {
+        addBox(d, k <= nL ? -lim + k * stepL : onLine + (k - nL) * stepR);
       }
     }
 
@@ -453,15 +606,14 @@ export function createBoxField(ctx: GameContext): BoxField {
       for (let k = 1; k <= 2; k++) {
         const d = from + ((to - from) * k) / 3;
         const s = spline.atDistance(d);
-        addBox(d, sc.side * (s.width * 0.5 + verge * 0.5));
+        addBox(d, sc.side * (s.width * 0.5 + verge * 0.5), true);
       }
     }
 
     // The two tightest corners get a box hard on the outside: taking it means
     // giving up the apex, and everyone can see you do it.
     const corners: Array<{ d: number; k: number }> = [];
-    for (let i = 0; i < n; i++) {
-      const d = (i / n) * L;
+    for (let d = 0; d < L; d += STEP) {
       corners.push({ d, k: spline.atDistance(d).curvature });
     }
     corners.sort((a, b) => Math.abs(b.k) - Math.abs(a.k));
@@ -474,7 +626,7 @@ export function createBoxField(ctx: GameContext): BoxField {
       if (!ok) continue;
       picked.push(c.d);
       const s = spline.atDistance(c.d);
-      addBox(c.d, Math.sign(c.k) * (s.width * 0.5 - 1.6));
+      addBox(c.d, Math.sign(c.k) * (s.width * 0.5 - 1.6), true);
     }
 
     // ── broadphase bins ──────────────────────────────────────────────────
@@ -507,6 +659,22 @@ export function createBoxField(ctx: GameContext): BoxField {
         for (let i = 0; i < list.length; i++) _found.push(list[i]!);
       }
       return _found;
+    },
+
+    gapAhead(distance: number): number {
+      const L = trackLength;
+      const d = ((distance % L) + L) % L;
+      let best = Infinity;
+      // A linear walk of forty-odd boxes, called five times a second per racer.
+      // A sorted array and a binary search would be faster and would then need
+      // the respawn state folded back in by hand; this stays correct for free.
+      for (let i = 0; i < boxes.length; i++) {
+        const b = boxes[i]!;
+        if (b.respawn > 0 || b.detour) continue;
+        const gap = ((b.distance - d) % L + L) % L;
+        if (gap < best) best = gap;
+      }
+      return best;
     },
 
     take(index: number): void {

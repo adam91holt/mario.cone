@@ -76,7 +76,21 @@ export {
  *  so the reel can be timed against its own clock, and `tools/items-shots.mjs`
  *  calls `setTimeScale(0)` first, which is the only way to make a frame-by-frame
  *  capture of anything in this game mean what it says. */
-const SPIN_PLAYER = 1.05;
+/**
+ * ...and 0.85 rather than 1.05, which is a *balance* number wearing an
+ * animation's clothes.
+ *
+ * The slot is not blank while the drum turns — it is showing a spinning item —
+ * but `racer.item` is null, and every probe that asks "does the player have
+ * something" is reading that. At the cadence the boxes now run at, an
+ * autopiloted player draws seventeen or eighteen times in a race, so every
+ * tenth of a second of reel is nearly two seconds of the race in which the
+ * answer to that question is no. Two tenths off the top is a fifth of the reel
+ * and 2.5% of the race, and the beat survives it intact: the drum still runs
+ * nine faces and still decelerates into the snap, which is the part anybody
+ * actually watches.
+ */
+const SPIN_PLAYER = 0.85;
 const SPIN_CPU = 0.4;
 /** How long the item the reel just handed over stays oversized. Short: this is
  *  a punch, not an animation. */
@@ -302,6 +316,55 @@ const GRACE_AFTER = 0.7;
  * half-invisible one.
  */
 const GRACE_BLINK = 0.4;
+
+/**
+ * How long a CPU will sit on an item it has nothing to aim at, seconds.
+ *
+ * Read this against the lap: a row of boxes comes round every eight seconds or
+ * so of driving, so an item held for eight is an item held for the whole gap
+ * between draws — which is exactly the shape a kart racer's item slot is meant
+ * to have. It was five to seven *with a target test that almost always passed*,
+ * so the real number was closer to one and a half, and the field spent the race
+ * throwing hats at empty road and driving on with nothing in hand.
+ */
+const HOARD = 8.0;
+/**
+ * ...and longer still for the two that are worth more behind you than in front.
+ *
+ * A chock on the back bumper and a hat held low are *shields* (see the block in
+ * `onHit`): while they are there the next thing thrown at this kart hits them
+ * instead. A CPU that throws its shield away at the first empty road behind it
+ * has spent an item to accomplish nothing at all.
+ */
+const HOARD_SHIELD = 11.0;
+/**
+ * Metres before a row of boxes at which a CPU spends whatever it is still
+ * holding, seconds be damned.
+ *
+ * This is the behaviour that actually keeps an item slot full, and it is worth
+ * being explicit about why. You cannot take a box with your hands full, so an
+ * item carried *through* a row does not merely delay the next draw — it throws
+ * the row away, and the next chance is a third of a lap later. Every decent
+ * Mario Kart player clears their slot on the approach for exactly this reason,
+ * and a field that does not is a field whose item boxes are mostly decoration.
+ *
+ * Sixteen metres is about four tenths of a second at racing speed — long enough
+ * that a chock dropped here is a real hazard on the run-in and short enough
+ * that the slot is not standing empty for a quarter of the gap between rows
+ * waiting for one. Every metre of this window is a metre of empty slot, and
+ * that is the whole reason it is as tight as it is.
+ */
+const USE_BEFORE_ROW = 16;
+/**
+ * The shortest a CPU will ever sit on anything, seconds.
+ *
+ * A floor under `aiDelay`, and it exists because the instant items — the coin
+ * above all, which is a third of what a leader ever draws — have delays low
+ * enough that the reel had barely stopped before the slot was empty again. A
+ * beat of *having* the item is not a delay tax, it is the difference between
+ * drawing something and being handed a result.
+ */
+const PATIENCE_FLOOR = 2.8;
 
 // ── scratch ────────────────────────────────────────────────────────────────
 
@@ -1091,15 +1154,38 @@ export function createItemSystem(ctx: GameContext): GameSystem {
   function pickups(racer: Racer, st: RacerItems): void {
     const d = lapDistance(racer);
 
-    if (!racer.item && st.spin <= 0 && !racer.effects.has('bullet')) {
+    // ...**including while riding a pile driver.** A bullet drives the racing
+    // line at forty metres a second, which takes it straight through the middle
+    // of every row on the circuit, and this used to be gated off so a racer
+    // ploughed through thirty item boxes over six seconds and came out the far
+    // end holding nothing. That is the game ignoring something the player
+    // watched happen. It also gives the ride a *landing*: you are put down in
+    // fourth with something in your hands rather than put down in fourth and
+    // immediately overtaken. The item cannot be fired while the husk is on —
+    // `st.bullet` blocks `use` — so this is a hand-off, not a double-dip.
+    if (!racer.item && st.spin <= 0) {
       const near = boxes.candidates(d);
+      // The **nearest** one in reach, not the first the broadphase happens to
+      // list. The reach is wider than the spacing on purpose — a pack all
+      // funnelling down the racing line strips the middle of a row and leaves
+      // its edges standing, and a kart that can only take the box it is
+      // pointed at gets nothing while two sit a metre and a half away — so on
+      // a busy row two or three boxes are in range at once and it matters
+      // which breaks. Taking the far one while the near one is untouched is
+      // the kind of thing nobody can name and everybody sees.
+      let best = -1;
+      let bestD = Infinity;
       for (let i = 0; i < near.length; i++) {
-        const box = boxes.boxes[near[i]!]!;
+        const idx = near[i]!;
+        const box = boxes.boxes[idx]!;
         if (box.respawn > 0) continue;
         if (!boxReached(box, racer.pos)) continue;
-        breakOpen(racer, st, near[i]!);
-        break;
+        const dx = box.pos.x - racer.pos.x;
+        const dz = box.pos.z - racer.pos.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < bestD) { bestD = d2; best = idx; }
       }
+      if (best >= 0) breakOpen(racer, st, best);
     }
 
     const nearCoins = coins.candidates(d);
@@ -1558,14 +1644,51 @@ export function createItemSystem(ctx: GameContext): GameSystem {
    * road teaches the player that items are noise. Each item asks its own
    * question, and the answer is gated by a draw from `ctx.rng` so the field
    * does not act in unison.
+   *
+   * **A held item is a position, not indecision.** This is the half that was
+   * missing, and it cost the game more than the box layout did: the whole field
+   * — the autopiloted player included — used to dump whatever it drew within a
+   * second or two of drawing it, at nothing in particular, and then drive on
+   * with an empty slot until the next row. Dragging a wheel chock behind you
+   * for half a lap is not a CPU failing to make up its mind; it is the single
+   * most common thing a good Mario Kart player does, it is what the shield in
+   * `onHit` exists to reward, and it is why a real kart racer's item slot is
+   * *full* most of the time. Every branch below now has a target test worth
+   * failing and a hoard limit measured in the seconds a lap actually has.
    */
   function aiUse(racer: Racer, st: RacerItems, distance: number): void {
     const id = racer.item!;
     const def = ITEMS[id];
     const skill = racer.ai?.skill ?? 0.8;
-    const patience = def.aiDelay * (1.6 - skill);
+    /**
+     * Patience *rises* with skill, which is the opposite of what it used to do.
+     * `1.6 - skill` made the best driver in the field the twitchiest — a 0.95
+     * skill CPU threw its shell in two thirds of the time an 0.6 took, when the
+     * thing that separates a good kart player from a bad one is precisely that
+     * they wait for the shot.
+     */
+    const patience = Math.max(PATIENCE_FLOOR, def.aiDelay * (0.85 + skill * 0.85));
     if (st.held < patience) return;
     const chance = ctx.config.ai.itemUseChance;
+
+    // The row is coming and this kart's hands are full — see `USE_BEFORE_ROW`.
+    // Deliberately *above* the per-item questions rather than folded into each
+    // one's fallback: it is not "I have run out of patience", it is "there is a
+    // box forty metres away and I cannot take it holding this".
+    if (boxes.gapAhead(distance) < USE_BEFORE_ROW) {
+      // Scattered across the approach rather than fired on the metre. Every
+      // kart in the field runs this test on the same forty metres of road, and
+      // eight machines throwing on the same frame every lap is a chorus line,
+      // not a race. A coin flip per look, five looks a second, spreads them
+      // over the whole run-in.
+      if (ctx.rng.bool(0.6)) {
+        // Backwards for the chock, which is worth more on the road behind a row
+        // of boxes than in the air in front of it: everyone converges on a row,
+        // so a chock laid on the approach is the best-placed chock of the lap.
+        use(racer, st, id !== 'banana');
+      }
+      return;
+    }
 
     switch (id) {
       case 'mushroom':
@@ -1574,35 +1697,50 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         const straight = Math.abs(ctx.track!.spline.atDistance(distance + 30, _sample).curvature) < 0.004;
         if (OFFROAD.has(racer.surface) || (straight && racer.speed > 12)) {
           if (ctx.rng.bool(chance)) use(racer, st, true);
-        } else if (st.held > 6) use(racer, st, true);
+        } else if (st.held > HOARD) use(racer, st, true);
         break;
       }
       case 'banana': {
-        const behind = nearest(racer, false, 22);
-        if (behind || st.held > 5) {
+        // Close behind, and *close* is the word: at twenty-two metres a chock
+        // dropped on the racing line is something the chaser has a second and a
+        // half to read and steer around, so the drop was free and the shield
+        // was gone. Ten metres is inside their reaction — and until somebody is
+        // that close, the chock is worth more hanging off the back bumper,
+        // where it eats the next hard hat aimed at this kart.
+        const behind = nearest(racer, false, 8);
+        if (behind || st.held > HOARD_SHIELD) {
           if (ctx.rng.bool(chance)) use(racer, st, false);
         }
         break;
       }
       case 'greenShell': {
-        const ahead = nearest(racer, true, 48);
-        const behind = nearest(racer, false, 16);
-        if (ahead && ctx.rng.bool(chance * skill)) use(racer, st, true);
+        // A hard hat travels in a straight line, so the shot is only on if the
+        // road ahead is one. Firing it into the apex of a hairpin is the shot
+        // that made items look like noise.
+        const ahead = nearest(racer, true, 30);
+        const behind = nearest(racer, false, 9);
+        const straight = Math.abs(ctx.track!.spline.atDistance(distance + 20, _sample).curvature) < 0.006;
+        if (ahead && straight && ctx.rng.bool(chance * skill)) use(racer, st, true);
         else if (behind && ctx.rng.bool(chance * 0.6)) use(racer, st, false);
-        else if (st.held > 7) use(racer, st, true);
+        else if (st.held > HOARD_SHIELD) use(racer, st, true);
         break;
       }
       case 'redShell': {
-        if (racer.place > 1 && ctx.rng.bool(chance)) use(racer, st, true);
-        else if (st.held > 6) use(racer, st, false);
+        // It homes, so the only question is whether there is anybody in front
+        // of this kart *on the road* to home at. `place > 1` said yes for a
+        // leader's chaser forty seconds up the circuit, and the shell died of
+        // old age every time.
+        const ahead = nearest(racer, true, 40);
+        if (ahead && ctx.rng.bool(chance)) use(racer, st, true);
+        else if (st.held > HOARD) use(racer, st, true);
         break;
       }
       case 'bomb': {
-        const ahead = nearest(racer, true, 34);
-        const behind = nearest(racer, false, 18);
+        const ahead = nearest(racer, true, 26);
+        const behind = nearest(racer, false, 12);
         if (ahead && ctx.rng.bool(chance)) use(racer, st, true);
         else if (behind && ctx.rng.bool(chance)) use(racer, st, false);
-        else if (st.held > 6) use(racer, st, true);
+        else if (st.held > HOARD) use(racer, st, true);
         break;
       }
       case 'horn': {
@@ -1612,7 +1750,59 @@ export function createItemSystem(ctx: GameContext): GameSystem {
           if (!e.active || e.kind !== 'redShell' || e.targetId !== racer.id) continue;
           if (e.pos.distanceToSquared(racer.pos) < 700) { inbound = true; break; }
         }
-        if (inbound || st.held > 5) use(racer, st, true);
+        if (inbound || st.held > HOARD) use(racer, st, true);
+        break;
+      }
+      case 'coin': {
+        // Under the cap a coin is *top speed*, and top speed banked now is
+        // worth more than top speed banked later, so it goes straight in. At
+        // the cap it is a quarter-second nudge and nothing else — and a nudge
+        // is worth waiting for a place to spend, which is why the leader's
+        // consolation prize stopped evaporating the instant the reel stopped.
+        if (racer.coins < COIN_CAP) use(racer, st, true);
+        else if (OFFROAD.has(racer.surface) || racer.speed < racer.maxSpeed * 0.72) {
+          use(racer, st, true);
+        }
+        break;
+      }
+      case 'blooper': {
+        // It tars the glass of everybody ahead. Nobody ahead, nothing to tar.
+        if (racer.place > 2 && ctx.rng.bool(chance)) use(racer, st, true);
+        else if (st.held > HOARD) use(racer, st, true);
+        break;
+      }
+      case 'star': {
+        // Invincible, faster, and it knocks people aside — so it is worth
+        // something *near other karts* and worth much less on an empty road.
+        // Firing it the instant it lands is how a tail-ender spends the best
+        // item on the table overtaking nobody.
+        const near = nearest(racer, true, 40) ?? nearest(racer, false, 18);
+        if (near || OFFROAD.has(racer.surface)) { if (ctx.rng.bool(chance)) use(racer, st, true); }
+        else if (st.held > HOARD) use(racer, st, true);
+        break;
+      }
+      case 'bulletBill': {
+        // It flies you *up the road*. With nobody up the road to reach, all it
+        // does is take the wheel off you for six seconds.
+        if (nearest(racer, true, 140) && ctx.rng.bool(chance)) use(racer, st, true);
+        else if (st.held > HOARD) use(racer, st, true);
+        break;
+      }
+      case 'lightning': {
+        // Everyone ahead loses their item, their size and their speed — so the
+        // bolt is worth most when there is a field in front of you to shrink,
+        // and worth nothing at all from the front.
+        if (racer.place > 1 && ctx.rng.bool(chance * 0.7)) use(racer, st, true);
+        else if (st.held > HOARD) use(racer, st, true);
+        break;
+      }
+      case 'boo': {
+        // A dust sheet steals. It steals *nothing* off a field that is holding
+        // nothing, which is exactly the moment a CPU used to spend it.
+        let carrying = 0;
+        for (const other of ctx.racers) if (other !== racer && other.item) carrying++;
+        if (carrying >= 2 && ctx.rng.bool(chance)) use(racer, st, true);
+        else if (st.held > HOARD) use(racer, st, true);
         break;
       }
       default:
@@ -2769,6 +2959,52 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         }
         return best;
       },
+
+      /**
+       * The supply side of the item economy, as numbers rather than a picture.
+       *
+       * How often a player draws is a property of the *layout* — how many rows
+       * a lap has, how far apart they are, and how far across the road each one
+       * reaches — and none of that is visible in a screenshot of one row. This
+       * is what a census reads before it blames the roulette.
+       */
+      rows(): Record<string, unknown> {
+        const L = ctx.track?.length ?? 1;
+        const start = ctx.track?.course.startDistance ?? 0;
+        const at = new Map<number, { lats: number[]; detour: boolean; live: number }>();
+        for (const b of boxes.boxes) {
+          const key = Math.round(b.distance);
+          let e = at.get(key);
+          if (!e) { e = { lats: [], detour: b.detour, live: 0 }; at.set(key, e); }
+          e.lats.push(ctx.track ? (ctx.track.spline.nearest(b.pos, _sample).lateral ?? 0) : 0);
+          if (b.respawn <= 0) e.live++;
+        }
+        const rows = Array.from(at.entries())
+          .filter(([, e]) => !e.detour)
+          .map(([d, e]) => ({
+            fromStart: Math.round(((d - start) % L + L) % L),
+            n: e.lats.length,
+            // How many of them are there *right now*. A row that is always
+            // half broken when the back of the field arrives is a row that is
+            // only supplying the front of it.
+            live: e.live,
+            halfWidth: +(ctx.track!.spline.atDistance(d, _sample).width * 0.5).toFixed(1),
+            span: +Math.max(...e.lats.map(Math.abs)).toFixed(1),
+          }))
+          .sort((a, b) => a.fromStart - b.fromStart);
+        const gaps: number[] = [];
+        for (let i = 0; i < rows.length; i++) {
+          const next = rows[(i + 1) % rows.length]!;
+          gaps.push(((next.fromStart - rows[i]!.fromStart) % L + L) % L);
+        }
+        return {
+          lap: Math.round(L),
+          boxes: boxes.boxes.length,
+          detours: boxes.boxes.filter((b) => b.detour).length,
+          rows,
+          gaps: gaps.map(Math.round),
+        };
+      },
       /** Roll the draw table `n` times for a given place. Balance, not play. */
       sample(place = 1, n = 2000, fieldSize = Math.max(2, ctx.racers.length)):
       Record<string, number> {
@@ -2803,6 +3039,11 @@ export function createItemSystem(ctx: GameContext): GameSystem {
           travel: (travel * D) % 360,
           slip: angleDelta(racer.yaw, travel) * D,
           stunned: racer.stunned,
+          // Two numbers, not one, and the gap between them is the fix: `grace`
+          // is how long this racer cannot be hit for, `invulnerable` is how
+          // long the vehicle rig will *blink* them for. The second is a short
+          // tail of the first and never overlaps the spin-out.
+          grace: st.grace,
           invulnerable: racer.invulnerable,
           grounded: racer.grounded,
           coins: racer.coins,
@@ -2821,6 +3062,27 @@ export function createItemSystem(ctx: GameContext): GameSystem {
           // these say how long it was *meant* to run and how far through it is,
           // which is the difference between "the spin is short" and "something
           // cut the spin short".
+          // Supply, from where this racer is sitting: how many boxes the
+          // broadphase is offering them and how far the nearest live one is,
+          // *in the road's plane*. A slot that stays empty through a row of
+          // boxes is either an economy problem or a reach problem, and these
+          // two numbers are the only things that tell them apart.
+          boxCands: boxes.candidates(lapDistance(racer)).length,
+          /** Metres to the next row of boxes — the CPU's own clear-out clock. */
+          rowGap: boxes.gapAhead(lapDistance(racer)),
+          boxNear: (() => {
+            const near = boxes.candidates(lapDistance(racer));
+            let best = Infinity;
+            for (let i = 0; i < near.length; i++) {
+              const b = boxes.boxes[near[i]!]!;
+              if (b.respawn > 0) continue;
+              const dx = b.pos.x - racer.pos.x;
+              const dz = b.pos.z - racer.pos.z;
+              const d2 = Math.sqrt(dx * dx + dz * dz);
+              if (d2 < best) best = d2;
+            }
+            return best;
+          })(),
           spin: st.spin,
           spinTotal: st.spinTotal,
           spinFace: st.spin > 0 ? REEL_FACES[st.reelIndex % REEL_FACES.length] : '',
