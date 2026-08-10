@@ -26,7 +26,27 @@ export interface Roller {
   reset(text: string): void;
 }
 
-const SWAP = 0.34;
+const SWAP = 0.3;
+
+/**
+ * How far a face travels, as a percentage of the numeral's own box.
+ *
+ * **This is the whole bug the last review caught, and it was a geometry
+ * mistake, not a timing one.** The travel was 82%, chosen as "most of the way
+ * out of frame" — but the box a percentage resolves against is the *holder*,
+ * and what fills it is a `glyphs.ts` run whose viewBox carries a 14-unit pad
+ * above the cap and a 13-unit extrusion plus a pad below it. The ink therefore
+ * occupies about 91% of the box, so 82% of travel put the numeral 90% of its
+ * own height off-centre: a six-pixel sliver of a 135-pixel digit hanging on the
+ * frame edge. Photographed at the FINAL LAP crossing the position plate showed
+ * the ordinal "ND" and nothing else — the single most important number on the
+ * HUD, blank at the single most dramatic moment of the race.
+ *
+ * At 46% the *worst* frame of a swap has one face half in and one face half
+ * out, which is what a mechanical counter looks like mid-click. There is no
+ * frame of this animation, at any dt, in which the window holds nothing.
+ */
+const TRAVEL = 46;
 
 /**
  * Both faces of the roller are **drawn numerals**, not text nodes.
@@ -95,18 +115,25 @@ export function createRoller(root: HTMLElement): Roller {
       // A percentage resolves against this element's own height, which is the
       // glyph height, at every resolution.
       const away = dir >= 0 ? -1 : 1;
-      const out = ease.inQuad(t);
+      // The outgoing face leaves early and quickly — it is already the past by
+      // the time the swap is a third done — so the two numerals are never both
+      // at full strength in the same frame.
+      const out = ease.outQuad(Math.min(1, t * 1.6));
       prev.set('transform',
-        `translateY(${(away * out * 82).toFixed(2)}%) scale(${(1 - out * 0.26).toFixed(3)})`);
-      prev.set('opacity', (1 - Math.min(1, out * 1.6)).toFixed(3));
+        `translateY(${(away * out * TRAVEL).toFixed(2)}%) scale(${(1 - out * 0.26).toFixed(3)})`);
+      prev.set('opacity', (1 - out).toFixed(3));
 
       // ...and the new one arrives from the other side with a little overshoot,
       // which is the whole difference between a value updating and a value
       // *landing*.
-      const inT = ease.outBack(Math.min(1, t * 1.18));
+      //
+      // It never starts from nothing: at 0.34 of opacity on the first frame it
+      // is already a legible numeral behind the one leaving, so the window is
+      // occupied from the first frame of the swap to the last.
+      const inT = ease.outBack(Math.min(1, t * 1.35));
       cur.set('transform',
-        `translateY(${(-away * (1 - inT) * 82).toFixed(2)}%) scale(${(0.72 + inT * 0.28).toFixed(3)})`);
-      cur.set('opacity', Math.min(1, t * 3.4).toFixed(3));
+        `translateY(${(-away * (1 - inT) * TRAVEL).toFixed(2)}%) scale(${(0.78 + inT * 0.22).toFixed(3)})`);
+      cur.set('opacity', Math.min(1, 0.34 + t * 4).toFixed(3));
 
       if (t >= 1) {
         cur.set('transform', 'none');

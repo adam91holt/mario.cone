@@ -48,8 +48,18 @@ export const CSS_BANNERS = `
    Drawn glyphs, so all this rule sets is a height, the ink colour the face
    takes, and the heat coming off it. The outline and the bevel are geometry —
    see glyphs.ts. */
+/* **Smaller than it was, because it is not the only thing counting.** At 14.2u
+   the numeral was 27% of the frame's height and it spanned everything between
+   the gantry banner and the player's own kart — the start line, the chequer and
+   the road ahead, all behind a digit, at the moment the player is timing a
+   rocket start. It is also the *second* thing on screen saying the same word:
+   race/stage.ts hangs a five-lamp start board above it, which is the object a
+   kart racer actually times its launch against. So the numeral is the caption
+   and the board is the signal, and the caption is sized like one. See the
+   report — where the two of them belong relative to each other is a decision
+   that spans two modules, and this is the half of it that lives here. */
 #hud .cd .n {
-  height: calc(var(--u) * 14.2); color: #FFF8F0;
+  height: calc(var(--u) * 10.6); color: #FFF8F0;
   filter: drop-shadow(0 0 calc(var(--u) * .9) rgba(255,180,60,.75));
 }
 #hud .cd.go .n { color: #8CFF5A;

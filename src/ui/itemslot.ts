@@ -51,6 +51,61 @@ import {
  */
 const FALLBACK_SPIN = 1.05;
 
+// ── the spin, as a function of the race rather than of the frame rate ──────
+//
+// **The drum's position is derived, not integrated, and that is the whole fix.**
+//
+// What was here before advanced `drumPhase` by `speed * dt` inside `update`, and
+// `update` is the *render* clock. `window.__GAME.step()` — how every capture,
+// every trace and every reviewer's bench drives this game — runs the simulation
+// with no render at all, so a roulette that the item system ran for a full 1.05
+// seconds of race handed this widget about 0.067 seconds of `dt` to spend on it.
+// Measured, not guessed: the drum crossed three faces in a fourteen-face spin and
+// then sat still while a second of race went past, and the answer appeared with
+// no wheel behind it. The animation was not slow, it was *unaddressed* — nothing
+// was ever wrong in real time, and nothing was ever right in a photograph.
+//
+// So the drum is now a pure function of how far through the spin the *simulation*
+// is: `item:reel` states the time left on every face of the item system's own
+// reel, and the position, the speed and the blur all fall out of that one number.
+// A single frame rendered anywhere in the spin is therefore the frame that spin
+// should show, whether sixty of them were drawn or one.
+
+/** Faces the drum travels in a nominal spin, before it is squared to land. */
+const SPIN_CELLS = 14;
+/** Deceleration: velocity falls as (1-u)^(SPIN_EASE-1) across the spin. */
+const SPIN_EASE = 2.4;
+/** ...and the creep it keeps to the last frame, so it never looks parked. */
+const SPIN_CREEP = 0.06;
+/**
+ * How far the wheel is allowed to creep past the end of its own curve, in cells.
+ *
+ * The curve is parameterised on the *simulation's* remaining time and is only
+ * interpolated by `dt` between one `item:reel` and the next — and those two
+ * clocks are not the same clock. `advance(0.11, 30)` renders three frames of
+ * 36.7ms while stepping four fixed steps of 8.3ms, so the render side runs ten
+ * per cent fast and the interpolation reaches the end of the spin about a tenth
+ * of a second before the item system does. Measured: the wheel stopped dead on
+ * the last face and sat there for five frames before the answer clunked in.
+ *
+ * So the overrun creeps rather than parking, and it is chased rather than
+ * ramped, so it asymptotes instead of hitting a wall and parking anyway. A fifth
+ * of a cell is the ceiling because that is how much of the *landing* cell can be
+ * pulled into the window while it is still showing the wrap face — and the
+ * bottom 28% of the window is under the housing's own lip shadow, so a fifth of
+ * a cell of it is never actually seen.
+ */
+const SPIN_OVERRUN = 0.2;
+/** Seconds the final face takes to clunk into the answer. */
+const LAND_TIME = 0.17;
+
+/** 0..1 of the travel, against 0..1 of the spin. Eases out; never quite stops. */
+const spinShape = (u: number): number =>
+  (1 - Math.pow(1 - u, SPIN_EASE)) * (1 - SPIN_CREEP) + u * SPIN_CREEP;
+/** ...and its derivative, which is the smear. */
+const spinRate = (u: number): number =>
+  SPIN_EASE * Math.pow(1 - u, SPIN_EASE - 1) * (1 - SPIN_CREEP) + SPIN_CREEP;
+
 // ── the charge collar ──────────────────────────────────────────────────────
 //
 // The mini-turbo meter, moved here off the speedometer that used to carry it.
@@ -108,6 +163,9 @@ const SLOT_RADIUS_U = 1.28;
 // through the whole drum.
 const DRUM_INSET = 0.42;
 const DRUM_CELL = SLOT_U - DRUM_INSET * 2;
+/** One icon size for the drum and for the settled face, so the two are the same
+ *  picture in the same place and the landing hand-over is invisible. */
+const ICON_U = 4.9;
 /** How far the collar's box extends past the socket, and where its line sits. */
 const COLLAR_OUT = 0.62;
 const COLLAR_GAP = 0.3;
@@ -192,11 +250,18 @@ export const CSS_ITEM = `
   position: relative;
   width: calc(var(--u) * ${SLOT_U}); height: calc(var(--u) * ${SLOT_U});
   border-radius: calc(var(--u) * ${SLOT_RADIUS_U});
+  /* **Opaque.** The well used to be built from two translucent layers, so what
+     an item was photographed against was whatever the camera happened to be
+     pointed at: pale blue over the sky at the top of this circuit and near-black
+     over the tarmac in the canyon. An item frame is a machine, not a window —
+     the icon needs one ground, everywhere on the lap, or the same shell is a
+     different picture twice a corner. */
   background:
-    linear-gradient(163deg, rgba(96,107,128,.62), rgba(23,27,37,.8)),
     repeating-linear-gradient(128deg,
-      rgba(255,107,26,.2) 0 calc(var(--u) * .55),
-      rgba(0,0,0,0) calc(var(--u) * .55) calc(var(--u) * 1.1));
+      rgba(255,124,44,.09) 0 calc(var(--u) * .55),
+      rgba(0,0,0,0) calc(var(--u) * .55) calc(var(--u) * 1.1)),
+    radial-gradient(126% 100% at 50% 24%, rgba(150,172,205,.2), rgba(0,0,0,0) 60%),
+    linear-gradient(163deg, #333B49, #0E1218);
   box-shadow:
     inset 0 0 0 calc(var(--u) * .2) rgba(255,195,0,.95),
     inset 0 0 0 calc(var(--u) * .34) rgba(20,24,34,.85),
@@ -205,50 +270,110 @@ export const CSS_ITEM = `
   display: grid; place-items: center;
   overflow: hidden;
 }
-/* **An empty socket looks empty.**
+/* ── the shutter ──────────────────────────────────────────────────────────
+   **The empty state is an object, not an absence.**
 
-   What used to sit here was a hazard "?" — the *same glyph the world paints on
-   an uncollected item box*. So the one question this widget exists to answer,
-   "have I got something or not", was answered with the picture of the thing you
-   get something from: hold nothing and the slot showed a question mark; drive at
-   a box and the box showed a question mark. Two states, one picture.
+   This is the widget's most-photographed frame by a distance. A player holds
+   nothing for most of a lap, so eighteen of nineteen organic race frames catch
+   this socket empty — and what they caught was a near-black square with a
+   yellow border in the dead centre of the top edge, which reads as a texture
+   that failed to load rather than as a slot with nothing in it. Two previous
+   attempts at "empty" both worked the same seam and both landed in the same
+   place: a hazard "?" (the *same* glyph the world paints on an uncollected
+   box, so two different states wore one picture), then a deeper, darker recess
+   (which is just a better-lit hole).
 
-   Empty is now a state of the housing rather than a symbol in it: the well goes
-   deep and dark, the hazard floor shows through the way the inside of a real
-   socket does, and the ring drops off the boil. Holding something lights the
-   ring and puts an object in the light. Nothing has to be read. */
-/* **The housing stays lit; it is the *well* that goes dark.** The first cut of
-   this dropped the hazard ring to 52% along with everything else, and
-   photographed against a bright sky the whole object turned into a grey
-   rounded rectangle with a brown smear in it — not "an empty socket" but "an
-   element that failed to load", in the most looked-at position on the screen,
-   for the eighty percent of a lap the player is holding nothing. An empty
-   frame in a first-party racer is still *drawn*: full rim, full bevel, and a
-   recess behind it deep enough that the absence is obviously an absence. So
-   the ring keeps most of its heat, the orange in the housing texture is pulled
-   back from the value where it reads as dirt on the glass, and the well gets a
-   proper radial floor. */
-#hud .slot.empty {
-  background:
-    radial-gradient(125% 105% at 50% 34%, rgba(0,0,0,.1), rgba(0,0,0,.6) 78%),
-    linear-gradient(163deg, rgba(84,96,119,.72), rgba(16,20,29,.9)),
-    repeating-linear-gradient(128deg,
-      rgba(255,107,26,.2) 0 calc(var(--u) * .55),
-      rgba(0,0,0,0) calc(var(--u) * .55) calc(var(--u) * 1.1));
-  box-shadow:
-    inset 0 0 0 calc(var(--u) * .2) rgba(255,195,0,.82),
-    inset 0 0 0 calc(var(--u) * .34) rgba(20,24,34,.85),
-    inset 0 calc(var(--u) * .46) calc(var(--u) * 1.2) rgba(0,0,0,.6),
-    inset 0 calc(var(--u) * -.5) calc(var(--u) * 1.1) rgba(0,0,0,.5),
-    inset 0 calc(var(--u) * .38) 0 calc(var(--u) * -.3) rgba(255,255,255,.16),
-    0 calc(var(--u) * .34) calc(var(--u) * .9) rgba(0,0,0,.45);
+   The answer is not a symbol in the well and it is not a better hole: it is
+   that the machine has a *door*. Empty means the roller shutter is down —
+   painted steel slats with a hazard band across them, the same object a road
+   crew locks a tool store with. It is lit, it has a silhouette, it reads at a
+   glance from across the room, and it can never be mistaken for something
+   sitting in the slot because it spans the housing edge to edge.
+
+   And it *moves*: the shutter rolls up out of the way the instant a box is
+   taken and drops back when the item is spent, so getting an item opens a
+   machine instead of tinting a plate. See "shut" in the update loop. */
+#hud .slot .shut {
+  position: absolute; inset: calc(var(--u) * ${DRUM_INSET});
+  border-radius: calc(var(--u) * ${SLOT_RADIUS_U - DRUM_INSET});
+  overflow: hidden;
+  /* Six slats. A lit hairline along the top of each, a body that falls away
+     under it, and a hard seam at the bottom — which is what makes a flat
+     gradient read as pressed steel rather than as stripes.
+
+     **Painted at shut-door values, not at road-sign values.** The first cut of
+     this shutter was lit like an item: pale steel slats at #C3CEDE with a
+     saturated safety-orange band across them, and photographed after a reset —
+     with "item: null" and "coins: 0" — it was a fully realised object with the same
+     visual weight as a shell sitting in the socket. That is the one thing the
+     empty state cannot be. "I have nothing" has to read differently from "I
+     have something" *at a glance and out of the corner of an eye*, so the door
+     is now a dark closed door: the same object, the same slats, the same
+     hazard band, all of it two stops down and out of the light. What it must
+     not be is a hole — it still has a lit edge on every slat, so it reads as
+     shut rather than as missing. */
+  background: repeating-linear-gradient(180deg,
+    #6C7789 0 calc(var(--u) * .08),
+    #4A5262 calc(var(--u) * .08) calc(var(--u) * .46),
+    #333A48 calc(var(--u) * .46) calc(var(--u) * .9),
+    #12161D calc(var(--u) * .9) calc(var(--u) * .99));
 }
-/* **Nothing is in it, so nothing is drawn in it.** The first attempt at this put
-   a slab of hazard tape on the floor of the well, and photographed at socket
-   size that slab read as *an object sitting in the slot* — which is the same
-   mistake as the question mark, made in a different material. An empty socket is
-   an empty socket: a deep dark recess with the housing's own hazard texture
-   running down it, and a ring that has gone off the boil. */
+/* **The housing is not lit when there is nothing in it.**
+   The socket wears a hazard-yellow ring, and that ring is the loudest thing
+   about the widget — it was on all race, whether the player was holding a
+   bullet bill or holding nothing, which is exactly the tell that was missing.
+   Empty, the ring drops to the same cold steel the door is made of and the
+   socket stops advertising. The instant an item lands the gold comes back, and
+   the difference between the two frames is unmistakable at any size. */
+#hud .slot.empty {
+  box-shadow:
+    inset 0 0 0 calc(var(--u) * .2) rgba(122,134,154,.72),
+    inset 0 0 0 calc(var(--u) * .34) rgba(18,22,30,.9),
+    inset 0 calc(var(--u) * -.62) calc(var(--u) * 1.1) rgba(0,0,0,.55),
+    0 calc(var(--u) * .34) calc(var(--u) * .9) rgba(0,0,0,.5);
+}
+/* The key light, from the top left, same as every other painted surface in this
+   game. Without it the slats are a flat grille and the socket is a vent. */
+#hud .slot .shut::before {
+  content: ''; position: absolute; inset: 0;
+  background:
+    radial-gradient(120% 90% at 26% 8%, rgba(255,255,255,.15), rgba(255,255,255,0) 62%),
+    linear-gradient(163deg, rgba(255,240,214,.05), rgba(0,0,0,.34) 76%);
+}
+/* ...and the recess. The shutter sits *inside* the housing, so it is in the
+   housing's shadow at the top and bottom lips. */
+#hud .slot .shut::after {
+  content: ''; position: absolute; inset: 0;
+  box-shadow:
+    inset 0 calc(var(--u) * .34) calc(var(--u) * .7) rgba(0,0,0,.5),
+    inset 0 calc(var(--u) * -.34) calc(var(--u) * .7) rgba(0,0,0,.55);
+}
+/* The hazard bar across the middle. Edge to edge on purpose: a mark that
+   stopped short of the sides would read as an object lying in the slot, which
+   is exactly the mistake the hazard "?" made. Orange rather than the ring's
+   yellow, so the bar and the housing are two parts and not one smear.
+
+   **Not called "band".** banners.ts owns "#hud .band" — the lap banner — and
+   holds it at "opacity: 0" until it has something to announce, so the first cut
+   of this bar was correctly built, correctly placed, and invisible in every
+   photograph taken of it. One flat namespace under "#hud" is what the whole
+   instrument set shares, and a widget-agnostic class name inside it is a
+   collision waiting for the next widget. */
+/* ...and it is *painted on a shut door*, not lit like a signal. At full safety
+   orange this band was the brightest thing in the socket, which is how an empty
+   slot ended up weighing the same as a held item. Drained to the ochre a hazard
+   stripe goes when the sun is off it, and narrower, it still says "closed" and
+   it no longer says "look here". */
+#hud .slot .shut .hazard {
+  position: absolute; left: 0; right: 0; top: 50%;
+  height: calc(var(--u) * 1.2); margin-top: calc(var(--u) * -.6);
+  background: repeating-linear-gradient(128deg,
+    #8A5A2C 0 calc(var(--u) * .44), #151922 calc(var(--u) * .44) calc(var(--u) * .88));
+  box-shadow:
+    inset 0 calc(var(--u) * .1) 0 rgba(255,255,255,.1),
+    0 calc(var(--u) * -.11) 0 rgba(8,10,14,.92),
+    0 calc(var(--u) * .11) 0 rgba(8,10,14,.92);
+}
 /* A socket that is deciding is *lit*. The ring goes white-hot while the drum
    runs, so the state is carried by the housing as well as by the motion inside
    it — which is what makes a single photograph of it unambiguous. */
@@ -261,10 +386,21 @@ export const CSS_ITEM = `
     0 0 calc(var(--u) * 1.5) rgba(255,236,170,.55);
 }
 
-#hud .reel { position: relative; width: calc(var(--u) * 4.9); height: calc(var(--u) * 4.9); }
+/* **The settled face and a face on the drum are the same object in the same
+   place.** The reel's window is exactly one drum cell tall and its icon is
+   exactly a drum icon, so when the wheel finishes rolling the answer into the
+   window this layer can be switched on underneath it and the drum switched off
+   with nothing moving by a pixel. That invisible handover is what lets the reel
+   *land* on the item rather than cut to it. */
+#hud .reel {
+  position: relative;
+  width: calc(var(--u) * ${DRUM_CELL}); height: calc(var(--u) * ${DRUM_CELL});
+}
 #hud .reel .face { position: absolute; inset: 0; }
 #hud .reel svg {
-  position: absolute; inset: 0; width: 100%; height: 100%; display: none;
+  position: absolute; left: 50%; top: 50%; display: none;
+  width: calc(var(--u) * ${ICON_U}); height: calc(var(--u) * ${ICON_U});
+  margin: calc(var(--u) * ${-ICON_U / 2});
   filter: drop-shadow(0 calc(var(--u) * .16) 0 rgba(0,0,0,.45));
 }
 #hud .reel svg.on { display: block; }
@@ -275,22 +411,31 @@ export const CSS_ITEM = `
   border-radius: calc(var(--u) * ${SLOT_RADIUS_U - DRUM_INSET});
   overflow: hidden; display: none;
 }
+/* Carried through the landing clunk as well: the class means "the wheel is what
+   is in this socket", and the last face rolling into place is still the wheel. */
 #hud .slot.spinning .drum { display: block; }
-/* The settled face, the hazard "?" and the count all belong to a socket that has
-   finished deciding. While it is deciding, the drum is the only thing in it. */
+/* The settled face and the count belong to a socket that has finished deciding.
+   While it is deciding, the drum is the only thing in it. */
 #hud .slot.spinning .reel { opacity: 0; }
 #hud .slot .strip { position: absolute; left: 0; right: 0; top: 0; }
 #hud .slot .strip i {
-  display: grid; place-items: center;
+  position: relative; display: grid; place-items: center;
   /* One cell per window, so a whole number of cells travelled always puts a
      face dead centre — which is what makes the deceleration land somewhere
      rather than stopping wherever it happened to be. */
   height: calc(var(--u) * ${DRUM_CELL});
 }
-#hud .slot .strip i svg {
-  width: calc(var(--u) * 4.6); height: calc(var(--u) * 4.6); display: block;
+#hud .slot .strip i > svg {
+  width: calc(var(--u) * ${ICON_U}); height: calc(var(--u) * ${ICON_U}); display: block;
   filter: drop-shadow(0 calc(var(--u) * .16) 0 rgba(0,0,0,.45));
 }
+/* The landing cell. It is the wrap copy of the first face for the whole spin —
+   which is all it has ever been — and on the settle its face is switched to
+   whatever was actually drawn, one cell below the window where nothing can see
+   it change. The wheel then rolls that last cell up into place, and the item the
+   player is holding is the item the wheel stopped on. */
+#hud .slot .strip i.land > svg { display: none; }
+#hud .slot .strip i.land > svg.on { display: block; }
 /* The lip. A drum whose faces stay bright to the rim of the window reads as a
    list being scrolled; one that goes under a shadow at the top and bottom reads
    as something turning inside a housing. */
@@ -312,6 +457,20 @@ export const CSS_ITEM = `
 #hud .slot .glow {
   position: absolute; inset: -22%; opacity: 0; mix-blend-mode: screen;
   background: radial-gradient(circle, rgba(255,236,186,.95), rgba(255,236,186,0) 62%);
+}
+/* The landing ring. The wheel stopping is the beat this whole widget exists for
+   and it used to be carried by a scale pop alone — which is invisible in a still
+   frame, because a still frame has nothing to compare the scale to. A ring
+   leaving the housing is the same beat with a shape: it is outside the socket,
+   so it cannot be confused with the item that just arrived, and it is the
+   release half of the same gesture the mini-turbo collar already makes, so the
+   two moments this socket has to announce are announced the same way. */
+#hud .slot-wrap .flare {
+  position: absolute; inset: calc(var(--u) * -.3);
+  border-radius: calc(var(--u) * ${SLOT_RADIUS_U + 0.3});
+  box-shadow: 0 0 0 calc(var(--u) * .2) rgba(255,246,214,.95),
+              0 0 calc(var(--u) * 1.3) rgba(255,232,160,.6);
+  opacity: 0; pointer-events: none;
 }
 #hud .slot-wrap .count {
   position: absolute; right: calc(var(--u) * -.34); bottom: calc(var(--u) * -.3);
@@ -336,11 +495,20 @@ export interface ItemSlot {
 
 export function createItemSlot(ctx: GameContext): ItemSlot {
   const collarD = collarPath();
-  /** The drum's faces, plus a copy of the first so the wrap is a continuation. */
   const drumFaces = REEL_FACES.map((e) => e.id);
   const DRUM_N = drumFaces.length;
-  const drumCells = [...drumFaces, drumFaces[0]!]
-    .map((id) => `<i>${itemIconSvg(id)}</i>`).join('');
+  /**
+   * The drum: one cell per face, and one more on the end.
+   *
+   * That last cell has always been the wrap copy of the first face, so the roll
+   * from the bottom of the strip back to the top is a continuation rather than a
+   * jump backwards through the whole wheel. It now carries every icon in the game
+   * instead of one, because it is also the cell the answer lands in — switching
+   * a face that is sitting a whole cell below the window costs nothing and is
+   * seen by nobody, and it is what lets the wheel stop *on* the item.
+   */
+  const drumCells = drumFaces.map((id) => `<i>${itemIconSvg(id)}</i>`).join('')
+    + `<i class="land">${ITEM_IDS.map(itemIconSvg).join('')}</i>`;
 
   const root = fromHtml(`
     <div class="slot-wrap" data-item-slot>
@@ -359,8 +527,10 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
           <div class="face b">${ITEM_IDS.map(itemIconSvg).join('')}</div>
         </div>
         <div class="drum"><div class="strip">${drumCells}</div></div>
+        <div class="shut"><div class="hazard"></div></div>
         <div class="sweep"></div>
       </div>
+      <div class="flare"></div>
       <div class="count"></div>
     </div>
   `);
@@ -370,6 +540,8 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
   const strip = bind(q(root, '.strip'));
   const sweep = bind(q(root, '.sweep'));
   const glow = bind(q(root, '.glow'));
+  const shut = bind(q(root, '.shut'));
+  const landRing = bind(q(root, '.flare'));
   const count = bind(q(root, '.count'));
   const countText = glyphBox(q(root, '.count'));
   const collarSvg = bind(q<SVGElement>(root, '.collar'));
@@ -409,22 +581,52 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
     layers.push({ box: bind(box), faces, shown: '' });
   }
 
+  /** The face switcher for the drum's landing cell. See `drumCells`. */
+  const landFaces = new Map<string, SVGElement>();
+  for (const svg of Array.from(q(root, '.strip .land').querySelectorAll<SVGElement>('svg'))) {
+    landFaces.set(svg.dataset.face ?? '', svg);
+  }
+  /** What the landing cell is showing. Defaults to the first face, which is what
+   *  makes it the wrap copy for every revolution before the last one. */
+  let landShown = drumFaces[0]!;
+  landFaces.get(landShown)?.classList.add('on');
+  function setLandFace(id: ItemId): void {
+    if (id === landShown) return;
+    landFaces.get(landShown)?.classList.remove('on');
+    landShown = id;
+    landFaces.get(id)?.classList.add('on');
+  }
+
   let front = 0;
   /** 0..1 through the current icon-to-icon slide. */
   let roll = 1;
   let rollDur = 0.1;
 
   let spinning = false;
-  let spinTime = 0;
   /** This spin's length and what is left of it, both stated by the item system. */
   let spinDur = FALLBACK_SPIN;
   let spinLeft = 0;
   /** True until the first `item:reel` lands, which is what the drum aligns to. */
   let alignPending = false;
+  /** The face the wheel opened on, and the exact travel from it. */
+  let spinFrom = 0;
+  let spinCells = SPIN_CELLS;
   /** Where the drum is, in cells travelled. Fractional — that is the point. */
   let drumPhase = 0;
   /** ...and how fast, in cells per second, which is what drives the smear. */
   let spinSpeed = 0;
+  /** Cells travelled in this spin, monotonic, and how far past its own curve
+   *  the wheel has crept while waiting for the settle. See SPIN_OVERRUN. */
+  let spinTravel = 0;
+  let drumOver = 0;
+
+  /** Seconds left of the clunk that rolls the answer into the window. */
+  let landing = 0;
+  let landFrom = 0;
+  /** What the clunk is landing on, held until it has finished landing on it. */
+  let landItem: ItemId | null = null;
+  /** ...and the ring that leaves the housing when it does. */
+  let landFlare = 0;
 
   let heldId: ItemId | null = null;
   let heldCount = 0;
@@ -434,6 +636,8 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
   let glowAmount = 0;
   let jitter = 0;
   let clock = 0;
+  /** The roller shutter, 0 down and 1 clear of the window. */
+  let shutOpen = 0;
 
   /** Collar state: how far round it is drawn, and how lit it is. */
   let collar = 0;
@@ -454,7 +658,25 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
   let unit = unitPx();
   unsubs.push(ctx.bus.on('engine:resize', () => { unit = unitPx(); }));
 
-  function showFace(id: ItemId | null, dur: number): void {
+  /**
+   * Put a face in the socket.
+   *
+   * `snap` writes the arrival straight to its resting place instead of rolling
+   * it in, and **an arriving item always snaps.** The roll is integrated from
+   * `update`'s `dt`, and `dt` is the render clock: a reviewer who puts an item
+   * in the player's hand and then draws a frame — `__ITEMS.give` then
+   * `render()`, which is exactly how this widget is inspected — gets one frame's
+   * worth of a fifth-of-a-second slide, so the icon is written at four per cent
+   * opacity, a whole cell below the window, and the socket photographs empty
+   * with a faint coloured wash on it. That is not a slow animation, it is an
+   * item that does not appear, and it is what the last review saw.
+   *
+   * Nothing is lost by snapping, because the arrival already has motion that
+   * does not depend on a clock: the wheel rolls the answer into the window (see
+   * `landing`) and the housing punches. The roll is kept for the *departure* —
+   * an item leaving the socket has no such gesture of its own.
+   */
+  function showFace(id: ItemId | null, dur: number, snap = false): void {
     const key = id ?? '';
     const cur = layers[front]!;
     if (cur.shown === key) return;
@@ -463,8 +685,32 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
     next.shown = key;
     if (key) next.faces.get(key)?.classList.add('on');
     front ^= 1;
-    roll = 0;
+    roll = snap ? 1 : 0;
     rollDur = dur;
+    if (snap) {
+      layers[front]!.box.set('transform', 'none');
+      layers[front]!.box.set('opacity', '1');
+      layers[front ^ 1]!.box.set('transform', 'translateY(-100%)');
+      layers[front ^ 1]!.box.set('opacity', '0');
+    }
+  }
+
+  /**
+   * Square the wheel's travel so that the spin ends on the *last* face.
+   *
+   * The cell after it is the landing cell, so a spin that stops square on
+   * `DRUM_N - 1` is a spin whose next cell can be made into the answer — which
+   * is the whole difference between a wheel that stops and a wheel that stops on
+   * something. The nominal travel is nudged to the nearest whole number of
+   * revolutions that satisfies it, so the spin is never visibly longer or
+   * shorter for the sake of the arithmetic.
+   */
+  function squareTravel(from: number): void {
+    spinFrom = ((from % DRUM_N) + DRUM_N) % DRUM_N;
+    const want = (((DRUM_N - 1 - spinFrom) % DRUM_N) + DRUM_N) % DRUM_N;
+    let cells = want;
+    while (cells < SPIN_CELLS - DRUM_N / 2) cells += DRUM_N;
+    spinCells = cells;
   }
 
   function setGlow(hex: number, amount: number): void {
@@ -474,22 +720,38 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
   }
 
   unsubs.push(ctx.bus.on<{
-    racer: Racer; phase: 'start' | 'settle'; duration?: number;
+    racer: Racer; phase: 'start' | 'settle'; duration?: number; item?: ItemId;
   }>('item:roulette', (e) => {
     if (!e.racer.isPlayer) return;
     if (e.phase === 'start') {
       spinning = true;
-      spinTime = 0;
       spinDur = e.duration && e.duration > 0.05 ? e.duration : FALLBACK_SPIN;
       spinLeft = spinDur;
       alignPending = true;
+      spinTravel = 0;
+      drumOver = 0;
+      landing = 0;
+      landItem = null;
+      squareTravel(drumPhase);
+      drumPhase = spinFrom;
       setGlow(0xFFF0C4, 0.55);
     } else {
-      // The icon itself comes from the racer's own state on the next frame —
-      // one source of truth for what is in the slot. All this has to do is stop
-      // the drum.
       spinning = false;
       spinLeft = 0;
+      // A settle carrying no item is the contract's "the reel stopped and there
+      // is nothing in the slot" — lightning mid-draw, the flag, or the bench
+      // putting something straight into the hand. There is nothing to land on,
+      // so the wheel simply goes.
+      if (e.item) {
+        // The answer goes into the cell below the window and the wheel rolls it
+        // up. Started from at most a cell and a bit out, so a spin that was cut
+        // short — a slot-stop, or a reel event that never arrived — still gets a
+        // short travel into place rather than a lap of the drum.
+        setLandFace(e.item);
+        landItem = e.item;
+        landFrom = Math.max(drumPhase, DRUM_N - 1.35);
+        landing = LAND_TIME;
+      }
     }
   }));
 
@@ -509,7 +771,10 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       alignPending = false;
       // Lands within a step of the start, long before a frame is drawn, so the
       // alignment is never a visible jump.
-      drumPhase = ((e.index % DRUM_N) + DRUM_N) % DRUM_N;
+      squareTravel(e.index);
+      spinTravel = 0;
+      drumOver = 0;
+      drumPhase = spinFrom;
     }
   }));
 
@@ -549,6 +814,19 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       boostFlare = 0;
       drumPhase = 0;
       spinSpeed = 0;
+      spinTravel = 0;
+      drumOver = 0;
+      landing = 0;
+      landItem = null;
+      landFlare = 0;
+      landFrom = 0;
+      spinFrom = 0;
+      spinCells = SPIN_CELLS;
+      setLandFace(drumFaces[0]!);
+      shutOpen = 0;
+      shut.set('transform', 'none');
+      landRing.set('opacity', '0');
+      sweep.set('opacity', '0');
       collarBed.set('opacity', '0');
       collarHalo.set('opacity', '0');
       collarTicks.set('opacity', '0');
@@ -581,38 +859,68 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       const n = player?.itemCount ?? 0;
 
       // ── the drum ─────────────────────────────────────────────────────────
+      //
+      // Position, speed and smear are all read off how far through the spin the
+      // *simulation* is, never accumulated across frames — see the note on
+      // `SPIN_CELLS`. `spinLeft` is restated by every `item:reel` and only
+      // interpolated by `dt` between them, so the wheel is smooth at sixty
+      // frames a second and still correct on a single frame drawn after a
+      // thousand simulation steps with nothing rendered in between.
       if (spinning) {
-        spinTime += dt;
-        spinLeft = spinLeft > dt ? spinLeft - dt : 0;
-        // A roulette always ends in a `settle`, but a belt is cheaper than an
-        // investigation: if one were ever dropped the drum would turn over an
-        // empty socket for the rest of the race.
-        if (spinTime > spinDur * 3 + 1) spinning = false;
-        // Fourteen faces a second at the top of the spin, easing to about three
-        // as it runs out of road. Never to zero: the drum is stopped by the
-        // settle, not by running down, and a wheel that has already coasted to a
-        // halt before the answer arrives has told the player the answer early.
+        const u = clamp01(1 - spinLeft / Math.max(0.05, spinDur));
+        // See SPIN_OVERRUN: the curve can run out before the settle arrives.
+        if (u > 0.99) drumOver += (SPIN_OVERRUN - drumOver) * Math.min(1, dt * 5);
+        const target = spinCells * spinShape(u) + drumOver;
+        // **Chased toward the simulation's answer, not integrated toward it.**
         //
-        // The ratio is the *item system's* remaining time over its own stated
-        // total, so a slot-stop — which drops `remaining` from most of a second
-        // to eighty milliseconds between one step and the next — throws the
-        // wheel straight onto the brakes. Chased rather than assigned, so that
-        // brake is a hard deceleration and not a discontinuity: a wheel whose
-        // speed changes instantly is a wheel that has been edited, not stopped.
-        const u = clamp01(spinLeft / Math.max(0.05, spinDur));
-        const want = 3 + 11 * u * u;
-        spinSpeed += (want - spinSpeed) * Math.min(1, dt * 20);
-        drumPhase += spinSpeed * dt;
-        if (drumPhase >= DRUM_N) drumPhase -= DRUM_N;
+        // `dt` here is the *wall* clock — the engine's own loop hands `update`
+        // the real frame delta whatever the simulation is doing, and under a
+        // capture that delta is a screenshot's worth of software rasterising,
+        // hundreds of milliseconds at a time. Anything that spends `dt` as if it
+        // were race time is therefore wrong in both directions at once: it
+        // sprints while the harness is busy and stalls while it steps. So the
+        // *position* comes from the item system's own remaining time and this
+        // is only the smoothing between one face of its reel and the next.
+        //
+        // The chase does the right thing at both ends of that range by
+        // construction: at 16ms it closes a third of the gap, which turns eight
+        // to twenty reel ticks a second into continuous motion, and at anything
+        // over about 45ms it saturates, so a single frame drawn after a long
+        // step lands exactly on the position that spin should be showing.
+        spinTravel += (target - spinTravel) * Math.min(1, dt * 22);
+        drumPhase = (spinFrom + spinTravel) % DRUM_N;
+        spinSpeed = (spinCells * spinRate(u)) / Math.max(0.05, spinDur);
         jitter = 1;
+      } else if (landing > 0) {
+        // The clunk. One cell, eased out, onto the face the draw actually made.
+        landing = Math.max(0, landing - dt);
+        const p = ease.outQuart(1 - landing / LAND_TIME);
+        const span = DRUM_N - landFrom;
+        drumPhase = landFrom + span * p;
+        spinSpeed = span * 4 * (1 - p) * (1 - p) * (1 - p);
+        jitter = Math.max(0, jitter - dt * 9);
+        if (landing <= 0 && landItem) {
+          // Hand over. The drum's landing cell and the settled face are the same
+          // icon at the same size in the same place, so switching one off and
+          // the other on moves nothing — which is why this reads as the wheel
+          // stopping rather than as a cut to a different widget.
+          showFace(landItem, 0.14, true);
+          heldId = landItem;
+          punch = 1;
+          landFlare = 1;
+          ejecting = 0;
+          setGlow(ITEMS[landItem].color, 1);
+          landItem = null;
+        }
       } else {
         jitter = Math.max(0, jitter - dt * 6);
       }
-      slot.cls('spinning', spinning);
-      if (spinning) {
+      const wheeling = spinning || landing > 0 || landItem !== null;
+      slot.cls('spinning', wheeling);
+      if (wheeling) {
         // Percentages of the strip's own height, which is (N+1) cells — the
-        // extra cell is the wrap copy, and the travel never reaches it except
-        // on the way round.
+        // extra one is the landing cell, and the travel only reaches it on the
+        // way round or on the way in.
         strip.set('transform', `translateY(${(-drumPhase * (100 / (DRUM_N + 1))).toFixed(3)}%)`);
         // **Smeared by how fast it is going.**
         //
@@ -623,16 +931,29 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
         // function of the speed and nothing else, so every frame of the spin
         // looks like a spin and the first frame that does not is the answer.
         // Scaled by the HUD unit so it is the same smear at any resolution.
-        const blur = Math.min(2.4, spinSpeed * 0.17) * (unit / 17);
+        const blur = Math.min(3, spinSpeed * 0.1) * (unit / 17);
         strip.set('filter', blur > 0.15 ? `blur(${blur.toFixed(2)}px)` : 'none');
+      } else {
+        strip.set('filter', 'none');
       }
 
       // ── what is actually in the slot ─────────────────────────────────────
-      if (!spinning && id !== heldId) {
+      if (!wheeling && id !== heldId) {
         if (id) {
-          // It landed. This is the beat the whole widget exists for.
-          showFace(id, 0.2);
+          // An item that arrived without a wheel behind it: the reviewer's
+          // bench, a steal, a lightning strike redistributing the field. It
+          // *snaps* — see `showFace` — and the housing carries the beat.
+          //
+          // The door snaps with it, and for the same reason: a shutter that
+          // takes a tenth of a second to clear is a shutter that is still down
+          // on the one frame a bench draws after putting something in the
+          // player's hand. That is the widget photographing empty while holding
+          // an item all over again, one layer further up, and the whole point of
+          // this pass is that it cannot happen from any direction.
+          shutOpen = 1;
+          showFace(id, 0.2, true);
           punch = 1;
+          landFlare = Math.max(landFlare, 0.8);
           setGlow(ITEMS[id].color, 1);
           ejecting = 0;
         } else if (heldId) {
@@ -664,19 +985,40 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
 
       if (ejecting > 0) ejecting = Math.max(0, ejecting - dt * 4.5);
 
-      // The empty housing waits for the spent item to finish leaving, or the
-      // well goes dark behind an icon that is still on its way out.
-      slot.cls('empty', !heldId && !spinning && ejecting <= 0);
+      // The shutter waits for the spent item to finish leaving, or the door
+      // comes down on an icon that is still on its way out of the socket.
+      const loaded = !!heldId || wheeling || ejecting > 0;
+      slot.cls('empty', !loaded);
       count.set('opacity', heldCount > 1 ? '1' : '0');
+
+      // ── the shutter ──────────────────────────────────────────────────────
+      // Up fast, because it is opening on a decision that has already been made;
+      // down a little slower, because a door that is dropped is a door, and a
+      // door that is snapped shut is a shutter effect. Both short enough that no
+      // photograph of this socket ever catches it looking undecided.
+      // Travel is a hundred and sixteen per cent of the shutter's own height,
+      // not a hundred and one: the shutter is inset inside the housing, so
+      // clearing the *window* takes its own height plus both insets. At 101% a
+      // sliver of the bottom slat — the dark seam — parked across the top of the
+      // socket and read as a chip out of the hazard ring in every frame with an
+      // item in it.
+      shutOpen = loaded
+        ? Math.min(1, shutOpen + dt / 0.1)
+        : Math.max(0, shutOpen - dt / 0.15);
+      shut.set('transform', shutOpen > 0.999
+        ? 'translateY(-116%)'
+        : `translateY(${(-116 * ease.outCubic(shutOpen)).toFixed(2)}%)`);
 
       // ── motion ───────────────────────────────────────────────────────────
       if (roll < 1) {
         roll = Math.min(1, roll + dt / Math.max(0.04, rollDur));
         const e = ease.outQuart(roll);
         // The reel runs upward: the old face leaves through the top of the
-        // socket as the new one arrives from underneath it.
-        layers[front]!.box.set('transform', `translateY(${((1 - e) * 108).toFixed(1)}%)`);
-        layers[front ^ 1]!.box.set('transform', `translateY(${(-e * 108).toFixed(1)}%)`);
+        // socket as the new one arrives from underneath it. A whole window, not
+        // a hundred and eight per cent of one — the box is exactly one drum cell
+        // now, so a full travel is exactly the wheel's own step.
+        layers[front]!.box.set('transform', `translateY(${((1 - e) * 100).toFixed(1)}%)`);
+        layers[front ^ 1]!.box.set('transform', `translateY(${(-e * 100).toFixed(1)}%)`);
         layers[front]!.box.set('opacity', Math.min(1, e * 2.2).toFixed(2));
         layers[front ^ 1]!.box.set('opacity', Math.max(0, 1 - e * 1.6).toFixed(2));
       }
@@ -693,24 +1035,45 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       // Idle float, so a held item never looks pasted on. Deliberately tiny:
       // this is a readout, and a readout that wanders is a readout that is hard
       // to read.
-      const bob = heldId && !spinning ? Math.sin(clock * 2.3) * 2.2 : 0;
+      const bob = heldId && !wheeling ? Math.sin(clock * 2.3) * 2.2 : 0;
       reel.set('transform',
-        `translateY(${bob.toFixed(2)}%) scale(${(1 + punch * 0.22).toFixed(3)})`);
+        `translateY(${bob.toFixed(2)}%) scale(${(1 + punch * 0.2).toFixed(3)})`);
       // **Written here rather than left to `.slot.spinning .reel`.** The stack
       // carries an inline opacity, and an inline style beats a stylesheet rule
       // every time — so the settled icon would sit visible underneath a
       // transparent drum for the whole spin. The eject is the roller's job now;
       // this is only the drum's mask.
-      reel.set('opacity', spinning ? '0' : '1');
+      reel.set('opacity', wheeling ? '0' : '1');
 
       glow.set('opacity', glowAmount > 0.004 ? (glowAmount * 0.95).toFixed(3) : '0');
       if (glowAmount > 0.004) {
         glow.set('transform', `scale(${(0.7 + (1 - glowAmount) * 0.7).toFixed(3)})`);
       }
 
+      // The landing ring: a full ring blowing off the housing as the wheel
+      // stops. Same gesture as the collar's mini-turbo release, on purpose —
+      // this socket has exactly two things to announce and they announce alike.
+      if (landFlare > 0) {
+        landFlare = Math.max(0, landFlare - dt * 3.2);
+        landRing.set('opacity', (landFlare * landFlare * 0.95).toFixed(3));
+        landRing.set('transform', `scale(${(1 + (1 - landFlare) * 0.3).toFixed(3)})`);
+      } else {
+        landRing.set('opacity', '0');
+      }
+
       if (jitter > 0.004) {
+        // The scanner, while the wheel is running.
         sweep.set('opacity', (0.75 * jitter).toFixed(2));
         sweep.set('transform', `translateY(${(((clock * 220) % 160) - 6).toFixed(1)}%)`);
+      } else if (shutOpen < 0.02) {
+        // ...and the idle sheen on the closed shutter. A still frame of this
+        // game should still be a frame of something running, and this socket is
+        // shut for most of a lap — a slow specular pass down the slats every few
+        // seconds is the cheapest possible statement that the machine is on.
+        const ph = (clock * 0.3) % 1;
+        const vis = ph < 0.44 ? Math.sin((ph / 0.44) * Math.PI) : 0;
+        sweep.set('opacity', vis > 0.02 ? (vis * 0.26).toFixed(3) : '0');
+        if (vis > 0.02) sweep.set('transform', `translateY(${((ph / 0.44) * 160 - 24).toFixed(1)}%)`);
       } else {
         sweep.set('opacity', '0');
       }

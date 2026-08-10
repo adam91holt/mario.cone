@@ -295,6 +295,34 @@ const SECTORS = 8;
  * with one batch per sector, which is exactly where the culling pays.
  */
 const PER_BATCH = 70;
+/**
+ * ...and the same trade counted in triangles.
+ *
+ * Instance count on its own is the wrong half of the question, and it was
+ * wrong by a lot. Measured on a settled racing frame: `crowd0`, `crowd1`,
+ * `crowd2`, `standCrowd`, `standCrowdS` and `terraceCrowd` have between one and
+ * fifteen instances each, so every one of them came out as a *single* batch
+ * spanning the whole lap — a bounding sphere twelve hundred metres across, which
+ * no frustum test can ever reject and which the draw-distance check below can
+ * never trip either, because the sphere's own radius is added to the limit. The
+ * result was **250,000 triangles of spectator drawn every frame regardless of
+ * where the camera was pointed**, out of a frame that totalled 688,000: a third
+ * of the game's geometry, most of it standing behind the player.
+ *
+ * A bank of fifty people is 4,500 triangles. Fifteen of them is worth splitting;
+ * a thousand traffic cones at ninety triangles each is not. So a kind is split
+ * on whichever of the two budgets asks for more batches — count for the cheap
+ * carpets, triangles for the heavy furniture — and the crowd lands one bank or
+ * two per sector, which is exactly where the culling starts paying.
+ *
+ * Six thousand is chosen against the actual numbers rather than as a round one:
+ * it is what puts each of the three spectator clusters onto its own sector
+ * (53k-68k triangles apiece, so eight batches), and it also breaks up the
+ * fifteen twenty-one-metre light towers, which were one batch spanning the lap
+ * for the same reason. It leaves the cheap carpets alone — a thousand cones
+ * were already eight batches on instance count and stay there.
+ */
+const TRIS_PER_BATCH = 6000;
 
 export interface KindOptions {
   material: THREE.Material;
@@ -371,7 +399,13 @@ export class Batcher {
       // Nothing else will ever hold it, so let it go here.
       if (k.total === 0) { k.geo.dispose(); continue; }
 
-      const want = Math.max(1, Math.min(SECTORS, Math.ceil(k.total / PER_BATCH)));
+      const tris = (k.geo.index
+        ? k.geo.index.count
+        : (k.geo.getAttribute('position')?.count ?? 0)) / 3;
+      const want = Math.max(1, Math.min(SECTORS, Math.max(
+        Math.ceil(k.total / PER_BATCH),
+        Math.ceil((k.total * tris) / TRIS_PER_BATCH),
+      )));
       const per = Math.ceil(SECTORS / want);
       const groups: THREE.Matrix4[][] = [];
       for (let i = 0; i < SECTORS; i += per) {
