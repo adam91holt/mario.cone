@@ -23,7 +23,7 @@ import * as THREE from 'three';
 import { clamp, clamp01, damp, ease } from '../core/math.ts';
 import {
   addProjectileGlow, addProjectileShadow,
-  buildBanana, buildBlast, buildBlooper, buildBomb, buildBoo, buildBurst,
+  buildBlast, buildBurst, buildChock, buildDustSheet, buildGasBottle, buildSprayer,
   buildRing, buildScorch, buildShell, cloneWithMaterials, setColor, setOpacity,
   setRimStrength,
 } from './models.ts';
@@ -32,7 +32,7 @@ import type { GameContext, Racer, SplineSample } from '../types.ts';
 
 export type EntityKind =
   | 'banana' | 'greenShell' | 'redShell' | 'bomb'
-  | 'blast' | 'ring' | 'ghost' | 'squid' | 'burst' | 'scorch';
+  | 'blast' | 'ring' | 'sheet' | 'sprayer' | 'burst' | 'scorch';
 
 export interface Entity {
   kind: EntityKind;
@@ -176,7 +176,22 @@ export function refreshSunDirection(ctx: GameContext): void {
  */
 export function shadowOffset(height: number, up: THREE.Vector3, out: THREE.Vector3):
 THREE.Vector3 {
-  const k = height / Math.max(0.25, _sunDir.y);
+  // The throw, softened. A geometric projection is correct and, past about a
+  // metre of height, unreadable: this sun sits at 34° above the horizon, so an
+  // item box floating a metre and a half up throws its shadow two and a half
+  // metres up the road, which from a chase camera lands *behind the box* and
+  // reads as nothing at all. Photographed from overhead the same shadow is
+  // obviously there and obviously detached.
+  //
+  // The direction is what has to agree with the rest of the frame — a blob
+  // pooled dead under a floating object next to a kart shadow raked two metres
+  // sideways is the arrangement that looks broken. The *distance* only has to
+  // be enough to say "this thing is in the air". So the throw is compressed
+  // toward an asymptote a shade over a kart's width: a coin sitting at 40cm is
+  // untouched, and the box goes from 2.57m to 0.99m, which stays under the
+  // object that cast it from every angle a player can reach.
+  const raw = height / Math.max(0.25, _sunDir.y);
+  const k = raw / (1 + raw / 1.6);
   out.set(-_sunDir.x * k, 0, -_sunDir.z * k);
   return out.addScaledVector(up, -out.dot(up));
 }
@@ -215,18 +230,18 @@ export function createEntityField(ctx: GameContext): EntityField {
   const pools = new Map<EntityKind, THREE.Object3D[]>();
   /** Kinds whose material state is animated per copy, so each needs its own. */
   const PRIVATE: ReadonlySet<EntityKind> =
-    new Set<EntityKind>(['bomb', 'blast', 'ring', 'ghost', 'squid', 'burst', 'scorch']);
+    new Set<EntityKind>(['bomb', 'blast', 'ring', 'sheet', 'sprayer', 'burst', 'scorch']);
 
   function init(): void {
     if (prototypes.size) return;
-    prototypes.set('banana', buildBanana());
+    prototypes.set('banana', buildChock());
     prototypes.set('greenShell', buildShell(0x46D63C, 0x2C9A2A));
     prototypes.set('redShell', buildShell(0xF03A2E, 0x7E1610, true));
-    prototypes.set('bomb', buildBomb());
+    prototypes.set('bomb', buildGasBottle());
     prototypes.set('blast', buildBlast());
     prototypes.set('ring', buildRing(0xFF8A2A));
-    prototypes.set('ghost', buildBoo());
-    prototypes.set('squid', buildBlooper());
+    prototypes.set('sheet', buildDustSheet());
+    prototypes.set('sprayer', buildSprayer());
     prototypes.set('burst', buildBurst());
     prototypes.set('scorch', buildScorch());
 
@@ -253,7 +268,7 @@ export function createEntityField(ctx: GameContext): EntityField {
     // them at once.
     for (const [kind, count] of [
       ['banana', 6], ['greenShell', 4], ['redShell', 4], ['bomb', 3], ['burst', 5],
-      ['blast', 2], ['ring', 2], ['ghost', 1], ['squid', 1], ['scorch', 3],
+      ['blast', 2], ['ring', 2], ['sheet', 1], ['sprayer', 1], ['scorch', 3],
     ] as Array<[EntityKind, number]>) {
       for (let i = 0; i < count; i++) pools.get(kind)!.push(makeNode(kind));
     }
@@ -534,8 +549,8 @@ export function createEntityField(ctx: GameContext): EntityField {
           e.scale = ease.outCubic(clamp01(e.age / 0.42));
           rideOwner(e);
           break;
-        case 'ghost':
-        case 'squid': {
+        case 'sheet':
+        case 'sprayer': {
           e.pos.addScaledVector(e.vel, dt);
           e.spin += dt * 2.4;
           break;
@@ -696,11 +711,26 @@ export function createEntityField(ctx: GameContext): EntityField {
           // range keeps a bright bead of the item's own colour on screen all the
           // way to the impact, without inflating the object itself — the model
           // stays the right size for the road it is skittering along.
+          //
+          // **...and it holds a *minimum*, not a licence to grow.** The clamp
+          // used to top out at 3.7 — a 1.7m ball of light around a 0.75m hat —
+          // and it started growing from the first metre, so the frames where
+          // the shell is closest to the player, which are the ones that decide
+          // whether the throw read at all, were the frames where the object was
+          // most completely hidden inside its own glow. It now stays inside the
+          // brim until the shell is twenty-five metres out and never gets past
+          // half again the model, which is enough to keep a bead of the item's
+          // colour on screen without replacing the item with it.
           const glow = node.getObjectByName('glow');
           if (glow) {
             const range = Math.sqrt(node.position.distanceToSquared(ctx.camera.position));
-            glow.scale.setScalar(clamp(0.85 + range * 0.048, 0.85, 3.7));
+            glow.scale.setScalar(clamp(0.85 + (range - 25) * 0.026, 0.85, 1.95));
           }
+          // The launch stretch. For the first fifth of a second the hat is
+          // oversized and shrinking back, which is the only part of a throw the
+          // player can see from behind their own machine — see `muzzle`.
+          const born = Math.max(0, 0.2 - e.age) / 0.2;
+          if (born > 0) node.scale.setScalar(1.3 * (1 + born * born * 0.55));
           groundShadow(e, node);
           flightTrail(e, node, dt);
           break;
@@ -746,12 +776,12 @@ export function createEntityField(ctx: GameContext): EntityField {
           setRimStrength(node, a * 1.2);
           break;
         }
-        case 'ghost':
+        case 'sheet':
           node.rotation.set(0, e.yaw + Math.sin(e.spin) * 0.4, 0);
           node.position.y += Math.sin(time * 3 + e.ownerId) * 0.25;
           setOpacity(node, clamp01(e.life) * 0.8);
           break;
-        case 'squid':
+        case 'sprayer':
           node.rotation.set(-0.25, e.yaw, Math.sin(e.spin * 1.6) * 0.2);
           node.position.y += Math.sin(time * 4 + e.ownerId) * 0.3;
           setOpacity(node, clamp01(e.life * 1.5));

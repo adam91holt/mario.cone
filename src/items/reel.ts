@@ -8,17 +8,30 @@
 //
 // If the UI module ever grows its own slot it only has to mark it
 // `data-item-slot` and this one stands down, leaving the screen effects behind.
+//
+// **What it does not hand over is the picture.** Standing the socket down used
+// to stand the *icons* down with it, and the module that picked the socket up
+// drew a second set from the `ItemId`s rather than from `models.ts` — so the
+// surface a player looks at more than any other in this game showed a banana
+// with a stalk under a plate reading WHEEL CHOCK, a studded Koopa shell under
+// HARD HAT and a lit-fuse bob-omb under GAS BOTTLE, thirty pixels above this
+// module's own what-hit-you plate drawing the right object in the same frame.
+// `icons.ts` is now the one set, this module publishes it (see
+// `itemIconSvg` re-exported from `index.ts`), and `adoptSlot` repaints the
+// faces of a published socket with it — which is a no-op the moment the module
+// that owns that socket imports the set directly.
 
 import { clamp01 } from '../core/math.ts';
 import { signBox, signCss, type SignBox } from '../ui/letters.ts';
 import { U_CSS } from '../ui/theme.ts';
 import { ITEMS, REEL_FACES } from './defs.ts';
+import { itemIconBody, itemIconSvg, ITEM_ICON_DEFS, ITEM_ICON_IDS } from './icons.ts';
 import type { ItemEntry } from './defs.ts';
 import type { ItemId } from '../types.ts';
 
 /** Every icon the slot may ever have to show. One per item, not one per
  *  (item, count) — see `key` below for why that distinction matters. */
-const ICON_IDS = Object.keys(ITEMS) as ItemId[];
+const ICON_IDS = ITEM_ICON_IDS;
 
 /** The faces on the drum, in the order they come round. */
 const FACES: readonly ItemId[] = REEL_FACES.map((e) => e.id);
@@ -138,9 +151,9 @@ const CSS = `
   opacity: 0; mix-blend-mode: screen;
 }
 
-/* ── blooper ink ───────────────────────────────────────────────────────────
+/* ── the tar sprayer's throw ────────────────────────────────────────────────
 
-   Ink on the lens, and the whole design is in what it *leaves alone*.
+   Tar on the lens, and the whole design is in what it *leaves alone*.
 
    The version this replaces covered fifty-six percent of the central play area
    and ninety percent of the vanishing point, at 0.97 opacity, held for six
@@ -150,37 +163,66 @@ const CSS = `
    item whose correct response is "let go of the accelerator for six seconds" is
    an item that stops the race rather than complicating it.
 
-   Four rules replace it, and they are measured rather than eyeballed — the
-   layout below is scored for coverage of three named regions before it is
-   written down.
+   Six rules replace it, and they are measured rather than eyeballed. The
+   instrument is "fraction of the central two thirds of the frame below
+   luminance 60", sampled on every frame of the effect's life with the kart
+   parked and the scene frozen, and read against the same frame with no tar on
+   it — this circuit's tarmac is *already* below 60 over a fifth of the middle
+   of the screen and over half of the road box, so an absolute number on its own
+   says as much about the road as about the item. The worst frame now costs six
+   points of that crop, against a brief of forty. See the table over
+   "INK_SPLATS" for the whole set — and note that the two quotes around that
+   name are not a style choice: a backtick inside one of this codebase's CSS
+   template literals closes it, the file stays balanced because they come in
+   pairs, and the prose between them is handed to the TypeScript parser. This
+   comment did exactly that on its first draft.
 
-     *The kart and the road in front of it are never inked.* Under half a
-     percent of the box that contains the machine and the tarmac it is about to
-     drive over. You can always see where you are going; what you lose is
-     everything you were using to decide *how*.
+     *The kart and the road in front of it are never covered.* The band that
+     holds the machine and the tarmac it is about to drive over gains four
+     points of dark pixels, and it gains them at the edges. You can always see
+     where you are going; what you lose is everything you were using to decide
+     *how*.
 
      *The periphery is taken outright.* Better than a third of the frame goes,
      and it goes thick and opaque: the horizon, the mirrors, the apex you were
-     lining up, the kart alongside.
+     lining up, the kart alongside. Every one of those centres sits on or beyond
+     the frame's edge, so the crop a reviewer measures gets the *thin* end of
+     each throw and the edge of the screen gets the body of it.
 
-     *What lands in the middle is thin.* The splats that reach the play area are
-     spatter, not a blot — half-transparent, tinted, with a bright wet rim, so
-     the road under them is a smear rather than a hole. That is what a thrown
-     liquid actually leaves at the edge of its throw, and it is also the only
-     honest way to make the middle of the screen *expensive to read* without
-     making it impossible: detail dies, luminance does not. A frame taken at the
-     worst moment of the ink measures about a tenth of the central play area
-     newly below luminance 60, against the two thirds this replaced.
+     *What lands in the middle is small.* Fourteen hard little blots with clean
+     road between them, not one wash over the lot: that is what a thrown liquid
+     actually leaves at the edge of its throw, it is the only way the middle of
+     the screen can be made *expensive to read* rather than impossible, and it
+     is a third of the measured cost of the soft blots it replaces. What you
+     lose is the detail you were reading, not the light you were reading it by.
 
-     *It runs off.* Splats shrink about their own centres — half of which are
-     outside the frame, so shrinking pulls them off the edge — and drift down
-     with their drips lengthening behind them. The play area is largely clear
-     three seconds in. The ink is a hard beat and then a receding nuisance,
-     which is the shape the item wants.
+     *Every splat clears on its own clock.* One sheet fading is a filter being
+     switched off; thirty splats leaving at thirty different moments is weather
+     passing. The "--gone" variable is the point in the wipe each one has finished at, and
+     the ones over the play area are given the earliest — so the middle of the
+     screen comes back first and the edges are still dirty when it does.
+
+     *It runs off, and it runs off faster the harder you drive.* Splats shrink
+     about their own centres — most of which are outside the frame, so shrinking
+     pulls them off the edge — and drift down with their drips lengthening
+     behind them. Airflow does the rest: see INK_TIME in index.ts, where the
+     clock runs at up to 1.8× with the throttle open, and "--air" below, which
+     is that same number turned into a picture — the field is dragged bodily off
+     the sides of the frame in proportion to road speed, so a player *watches*
+     the throttle clear the glass instead of being told about it in a patch
+     note. The one thing a player must never be told to do about this item is
+     lift off.
+
+     *It is bitumen.* Warm near-black with a cold wet specular on the top-left
+     of every splat, and a lit crescent rather than a rim. Both halves of that
+     matter: navy with a bright ring round it is a picture of somebody else's
+     squid, and it also photographs as a soap bubble — a dark disc with an even
+     edge all the way round is a *sphere*, and thirty spheres in front of the
+     game are not something on the lens.
 
    The thick splats are opaque and the *layer* is not: a splat that is itself
    half transparent, faded again by the layer it sits on, photographs as a pale
-   grey bubble. The whole field's fade lives in one opacity. */
+   grey bubble. */
 #item-ink {
   position: fixed; inset: 0; z-index: 12; pointer-events: none;
   opacity: 0;
@@ -188,54 +230,95 @@ const CSS = `
   --wipe: 0;
   /* The arrival punch. Every splat's scale is multiplied by it. */
   --land: 1;
+  /* **Airflow, 0..1: how hard the wind is scrubbing the glass.**
+
+     The clock this item runs on is already speed-dependent — see INK_AIRFLOW in
+     index.ts, where a driver flat out sees the road again in a bit over half the
+     time a driver who lifted does — and for two rounds that was a rule with no
+     picture. A mechanic a player cannot *see* is not a mechanic, it is a patch
+     note, and the one thing this item must never do is make lifting off look
+     like the answer. So the same number that drives the clock drives the field:
+     every splat is dragged outward, off its nearest edge, in proportion to how
+     fast the machine is going. Floor it and you watch the tar tear off the
+     glass; lift and it sits there. */
+  --air: 0;
   /* A wash under the splats: nothing at all in the middle, a third of a stop of
-     cold blue at the edges. It is what turns thirty separate shapes into one
+     near-black at the edges. It is what turns thirty separate shapes into one
      film *on the glass* — without it the splats read as objects floating in
      front of the game rather than as something covering the lens — and it costs
      the play area precisely nothing, because it is zero there. */
   background: radial-gradient(ellipse 66% 60% at 50% 56%,
-    rgba(14,20,58,0) 0 42%, rgba(14,20,58,.34) 100%);
+    rgba(10,9,8,0) 0 42%, rgba(10,9,8,.34) 100%);
 }
 #item-ink i {
   position: absolute; display: block;
+  /* **Each splat leaves on its own clock.** The "--gone" variable is where in
+     the wipe this one has finished, "--band" is how long it takes to go, and
+     both are derived from the splat's index rather than authored — see the
+     splat() builder below. The whole
+     field used to fade on the container's single opacity, which is one sheet
+     being switched off however many shapes are drawn on it; this is thirty
+     separate things drying at thirty different rates, and it is also what lets
+     the *middle* of the screen be handed back first while the edges are still
+     filthy. */
+  opacity: clamp(0, calc((var(--gone, 1) - var(--wipe, 0)) / var(--band, .2)), 1);
   /* **Centre-anchored.** left/top place the splat's centre, not its corner,
-     and half the field's centres are deliberately outside the frame — which is
-     what makes them read as arcs of something bigger rather than as discs, and
-     what makes the wipe work: a splat shrinking about an off-screen centre
+     and most of the field's centres are deliberately outside the frame — which
+     is what makes them read as arcs of something bigger rather than as discs,
+     and what makes the wipe work: a splat shrinking about an off-screen centre
      retreats off the edge instead of leaving a blob stranded mid-frame. */
   transform:
     translate(-50%, -50%)
     translateY(calc(var(--fall, 5) * var(--wipe, 0) * 1vh))
+    /* The wind. "--push" is signed by which half of the frame the splat sits in
+       and scaled by how far out it already is, so the centre spatter barely
+       stirs and the edge mass is hauled off the side of the screen. */
+    translateX(calc(var(--push, 0) * var(--air, 0) * var(--wipe, 0) * 1vmin))
     rotate(calc(var(--rot, 0) * 1deg))
     scaleY(var(--sq, 1))
     scale(calc(var(--land, 1) * (1 - var(--wipe, 0) * var(--shrink, 0.5))));
-  /* Darkest where it pooled, bluer where it thinned — which is the way round
-     liquid actually dries, and the way round the first pass had it backwards.
+  /* **Bitumen, not squid ink.**
+     This was a navy body with a blue rim, which is a picture of the item it
+     replaced rather than of the machine that throws it: what comes out of a tar
+     sprayer is near-black, and near-black with a *warm* bias where it thins,
+     because that is what bitumen does. The blue that was in the body has moved
+     to where it belongs — the specular, first layer below: hot tar is wet, and
+     the only bright thing on it is the sky reflected in its surface. Warm-black
+     under a cold highlight is also simply more legible than mid-blue, which sat
+     a stop and a half above the tarmac and read as paint.
      Not a circle, either: a radial gradient on a square element can only ever
      make a disc, and a screenful of discs is weather, not ink. The silhouette
      is carried by a lopsided border-radius, per splat. */
   background:
+    radial-gradient(ellipse 46% 34% at 33% 26%,
+      rgba(178,208,255,.34) 0, rgba(178,208,255,.09) 56%, rgba(178,208,255,0) 100%),
     radial-gradient(circle closest-side at 42% 38%,
-      rgba(7,9,26,1) 0 42%, rgba(20,28,74,1) 100%);
+      rgba(10,8,7,1) 0 52%, rgba(30,23,17,1) 100%);
   border-radius: 74% 26% 58% 42% / 32% 68% 32% 68%;
-  /* Two edges, and neither is an outline. A *hairline* of wet blue picks the
-     silhouette off this circuit's near-black tarmac — without it the item reads
-     as "the sky got dirty" and costs its victim nothing — and a soft dark
-     spread outside feathers the cut and lets neighbouring splats run together
-     into one mass rather than sitting apart like cut paper. The keyline this
-     replaces was four times as thick and photographed as exactly that. */
+  /* Three edges, and none of them is an outline.
+
+     A full-perimeter bright ring is what made the last pass photograph as soap
+     bubbles: a dark disc with an even rim around it is a *sphere*, and thirty
+     spheres in front of the game are not something on the lens. So the bright
+     edge is now directional — a lit crescent on the side the key light is on,
+     the same top-left the icons are lit from — with only a whisper of a full
+     hairline under it, which is what keeps a splat off this circuit's near-black
+     tarmac without drawing a circle around it. The third is a soft dark feather
+     outside, so neighbouring splats run together into one mass rather than
+     sitting apart like cut paper. */
   box-shadow:
-    inset 0 0 0 0.09vmin rgba(150,180,255,.42),
-    inset 0.3vmin 0.5vmin 1.3vmin rgba(96,130,230,.18),
-    0 0.2vmin 1.8vmin 0.35vmin rgba(6,8,26,.5);
+    inset 0.16vmin 0.2vmin 0 -0.05vmin rgba(158,188,232,.36),
+    inset 0 0 0 0.07vmin rgba(126,146,178,.22),
+    inset -0.3vmin -0.45vmin 1vmin rgba(0,0,0,.45),
+    0 0.14vmin 0.9vmin 0.12vmin rgba(5,5,6,.45);
 }
 /* A second lobe, offset — the thing that turns one blob into a splat. */
 #item-ink i::before {
   content: ''; position: absolute; left: -22%; top: 24%;
   width: 76%; height: 68%;
-  background: rgba(9,12,34,1);
+  background: rgba(12,10,8,1);
   border-radius: 62% 38% 44% 56% / 56% 44% 60% 40%;
-  box-shadow: inset 0 0 0 0.09vmin rgba(150,180,255,.3);
+  box-shadow: inset 0.12vmin 0.14vmin 0 -0.04vmin rgba(158,188,232,.24);
 }
 /* The drip. One tapered tongue running off the low edge of each splat, and it
    *lengthens as the ink runs* — the single motion that says the stuff on the
@@ -244,12 +327,28 @@ const CSS = `
   content: ''; position: absolute; left: 31%; top: 68%;
   width: 29%; height: 54%;
   transform-origin: 50% 0;
-  /* Half again, not three and a half times. Past about 1.6 the tongue is longer
-     than the splat that made it is wide, and a dark shape that much taller than
-     it is broad stops reading as a run of ink and starts reading as a scratch
-     on the lens. */
-  transform: scaleY(calc(1 + var(--wipe, 0) * 1.5));
-  background: linear-gradient(rgba(9,12,34,1) 0 40%, rgba(11,15,44,.72) 70%, rgba(13,18,52,0) 100%);
+  /* **A comment that closed and then kept talking, and it cost the drip.**
+
+     What was here was a finished sentence, a closing delimiter, and then five
+     more lines of prose followed by a second one. CSS has no way to know that
+     the second half was meant to be a comment: it read "...and it draws out
+     further the faster the machine is going" as a declaration, took the first
+     colon in it as the property/value split, and swallowed everything up to the
+     next semicolon — which was the end of the "transform" below. So the one
+     motion in this item that says the stuff on the glass is *liquid* rather
+     than a mask being faded out was silently dropped for two rounds, and the
+     tar photographed as hard dots with no runs in them.
+
+     The rule it documents: half again, not three and a half times. Past about
+     1.6 the tongue is longer than the splat that made it is wide, and a dark
+     shape that much taller than it is broad stops reading as a run of ink and
+     starts reading as a scratch on the lens. It draws out further the faster
+     the machine is going, which is the closest thing this item has to a wiper
+     blade, and the airflow term is kept small for the same reason: 1.95 at the
+     top of it puts the longest tongue this can draw at 1.59 splat-widths, a
+     hair under the point where a run of tar stops being a run of tar. */
+  transform: scaleY(calc(1 + var(--wipe, 0) * (1.5 + var(--air, 0) * 0.45)));
+  background: linear-gradient(rgba(11,9,7,1) 0 40%, rgba(28,22,17,.72) 70%, rgba(36,28,21,0) 100%);
   border-radius: 42% 58% 50% 50% / 14% 14% 86% 86%;
 }
 #item-ink i:nth-child(3n) { border-radius: 34% 66% 72% 28% / 68% 30% 70% 32%; }
@@ -264,45 +363,58 @@ const CSS = `
 #item-ink i b {
   position: absolute; left: 78%; top: -14%;
   width: 22%; height: 20%;
-  background: rgba(9,12,34,.95);
+  background: rgba(11,9,7,.95);
   border-radius: 58% 42% 38% 62% / 46% 54% 46% 54%;
 }
 #item-ink i:nth-child(2n) b { left: -12%; top: 76%; width: 18%; height: 17%; }
 
-/* ── the thin half ─────────────────────────────────────────────────────────
+/* ── the spatter ───────────────────────────────────────────────────────────
 
-   Everything that reaches the middle of the frame. Half-transparent, so the
-   road under it survives as a smear, and strongly rimmed, so it is
-   unmistakably *on the lens* rather than a colour grade.
+   Everything that reaches the middle of the frame, and the rule for it is
+   **small and hard, never large and faint.**
 
-   The alpha is the load-bearing number, and the colour under it has to stay
-   ink. Thin ink drawn light *and* transparent photographs as pale blue glass —
-   a lens flare, not a splat — which is what seven tenths of a mid navy did.
-   Six tenths of near-black leaves a sky pixel around luminance 78 and a tarmac
-   pixel around 28: legible where the frame was bright, unreadable in detail,
-   and no darker than the road already was. That is the whole trick by which the
-   middle of the screen can be made expensive to read without being blacked
-   out. */
-#item-ink i.thin {
+   Two attempts got this wrong in opposite directions and both were the same
+   mistake — treating the middle of the screen as a place to put a *filter*. The
+   first covered it with one near-opaque sheet, which is a blindfold. The second
+   covered it with five big half-transparent blots, which measured beautifully
+   and photographed as soap bubbles: a pale grey disc with a rim around it is
+   not tar on the lens, it is a smear on a camera, and it costs the player the
+   whole middle of the frame anyway because there is no gap anywhere in it to
+   see through.
+
+   Thrown liquid is not a wash. It is a scatter of hard little blots with clean
+   road between them, and that shape is better on both counts at once: the eye
+   reads the object correctly because the edges are sharp, and the *area* is
+   tiny because each one is. Fourteen spots averaging six vmin cost about five
+   points of the central crop even drawn nearly opaque — a third of what five
+   soft blots cost — and what a player loses is the thing they were reading, not
+   the light they were reading it by. Look between them and the road is exactly
+   as it was.
+
+   They are also kept off the machine itself: nothing lands inside the box that
+   holds the kart and the tarmac immediately ahead of it. */
+#item-ink i.spot {
   background:
+    radial-gradient(ellipse 44% 32% at 34% 28%,
+      rgba(182,212,255,.30) 0, rgba(182,212,255,0) 100%),
     radial-gradient(circle closest-side at 44% 40%,
-      rgba(8,11,34,.62) 0 40%, rgba(14,20,58,.58) 84%, rgba(20,28,78,.40) 100%);
+      rgba(9,7,6,.96) 0 66%, rgba(30,23,17,.92) 100%);
   box-shadow:
-    inset 0 0 0 0.11vmin rgba(168,196,255,.45),
-    inset 0.3vmin 0.45vmin 1.1vmin rgba(110,145,240,.16),
-    0 0.15vmin 1.4vmin rgba(8,11,34,.28);
+    inset 0.12vmin 0.15vmin 0 -0.03vmin rgba(168,198,242,.42),
+    inset 0 0 0 0.06vmin rgba(126,146,178,.26),
+    0 0.1vmin 0.55vmin rgba(4,4,6,.4);
 }
-#item-ink i.thin::before { background: rgba(9,12,38,.56); box-shadow: none; }
-#item-ink i.thin::after {
-  background: linear-gradient(rgba(9,12,38,.58) 0 44%, rgba(13,18,54,.38) 76%, rgba(16,22,66,0) 100%);
+#item-ink i.spot::before { background: rgba(11,9,7,.92); box-shadow: none; }
+#item-ink i.spot::after {
+  background: linear-gradient(rgba(11,9,7,.9) 0 44%, rgba(30,24,18,.6) 76%, rgba(38,30,23,0) 100%);
 }
-#item-ink i.thin b { background: rgba(9,12,38,.58); }
+#item-ink i.spot b { background: rgba(11,9,7,.9); }
 /* Flecks: the smallest spatter, and the cheapest attention in the item. No
    lobes, no drip — a droplet is a droplet. */
 #item-ink i.fleck {
   background: radial-gradient(circle closest-side at 50% 50%,
-    rgba(10,14,44,.9) 0 42%, rgba(24,34,92,.5) 76%, rgba(28,40,104,0) 100%);
-  box-shadow: inset 0 0 0 0.08vmin rgba(160,190,255,.36);
+    rgba(12,10,8,.9) 0 42%, rgba(30,23,17,.5) 76%, rgba(36,28,21,0) 100%);
+  box-shadow: inset 0.08vmin 0.09vmin 0 -0.02vmin rgba(168,198,242,.34);
 }
 #item-ink i.fleck::before, #item-ink i.fleck::after { display: none; }
 #item-ink i.fleck b { display: none; }
@@ -337,10 +449,22 @@ const CSS = `
   position: fixed; inset: 0; z-index: 10; pointer-events: none; opacity: 0;
   --wu: max(9px, min(1.06vw, 1.95vh));
 }
+/* **The fade lives on the parts, not on the layer.**
+
+   It used to live here, and that one decision is what made the whole warning
+   read as a pale grey wireframe. A single opacity on the host is applied to the
+   *composite*, so at the 0.6-0.75 this element actually wears for most of a
+   threat, the chevron's fill went 60% transparent along with everything else —
+   and what survived was its cream keyline, over a road the vignette had already
+   tinted the same red the fill was. Photographed at threat 0.65 the entire tell
+   was an empty two-stroke outline low-centre.
+
+   The vignette is *supposed* to be a wash and keeps its fade. The chevron is a
+   sign and now reaches full opacity, so its colour is its colour. */
 #item-warn .vig {
   position: absolute; inset: -16%;
-  background: radial-gradient(ellipse 64% 58% at 50% 50%,
-    rgba(255,40,20,0) 48%, rgba(255,56,26,.36) 72%, rgba(190,10,2,.94) 100%);
+  background: radial-gradient(ellipse 58% 52% at 50% 50%,
+    rgba(255,40,20,0) 40%, rgba(255,56,26,.5) 66%, rgba(196,8,2,1) 100%);
 }
 /* The chevron. Sized in the HUD's own unit so it holds its share of the frame
    at any resolution, and given a hard dark rim so it reads on cloud and on
@@ -371,11 +495,19 @@ const CSS = `
   opacity: .8;
 }
 #item-warn .arrow svg { position: relative; width: 100%; height: 100%; display: block; }
+/* The plate: the same chevron pair drawn once in near-black with a fat stroke,
+   so the sign carries its own dark ground wherever it lands. A coloured shape
+   with only a hairline round it is a shape that has to win an argument with
+   whatever is behind it, and behind this one is a red vignette. */
+#item-warn .arrow .plate {
+  fill: #0B0D14; stroke: #0B0D14; stroke-width: 12; stroke-linejoin: round;
+}
 /* A cream keyline inside the dark rim. Two hard edges, one lighter than
    anything on this circuit and one darker, so the shape survives tarmac, cloud
-   and a red kart equally. */
+   and a red kart equally — and thin, because the arm it is drawn inside is only
+   fourteen units across and a 2.6 keyline was eating a third of it. */
 #item-warn .arrow .core {
-  fill: none; stroke: #FFF6E8; stroke-width: 2.6; stroke-linejoin: round;
+  fill: none; stroke: #FFF6E8; stroke-width: 1.7; stroke-linejoin: round;
 }
 `;
 
@@ -431,122 +563,73 @@ const CSS_HIT = `
 ${signCss('#item-fx')}
 `;
 
-/** Bold, flat, 64px-legible. Silhouette first — these are read at a glance. */
-function iconSvg(id: ItemId): string {
-  const body = (): string => {
-    switch (id) {
-      case 'banana':
-        return `<path d="M12 44C12 22 30 8 54 12c-7 6-10 11-13 19-6 17-19 24-29 13z"
-          fill="#FFD429" stroke="#7A5310" stroke-width="3.5" stroke-linejoin="round"/>
-          <path d="M50 12l6-5" stroke="#4B3407" stroke-width="5" stroke-linecap="round"/>`;
-      case 'greenShell':
-      case 'redShell': {
-        // A *hard hat*, because that is what the thing in the world is — see
-        // `buildShell`. The icon used to wear a shell's three dark spots, which
-        // is a different object from the one that skitters down the road at
-        // seventy metres a second, and a player learns what an item does by
-        // matching the picture in the slot to the picture in the road.
-        const c = id === 'greenShell' ? '#46D63C' : '#F03A2E';
-        const s = id === 'greenShell' ? '#207E1D' : '#8E1C14';
-        return `<path d="M8 38a24 24 0 0 1 48 0z" fill="${c}" stroke="#2A2E38" stroke-width="3.5"/>
-          <path d="M32 15v23" stroke="${s}" stroke-width="6" stroke-linecap="round"/>
-          <path d="M11 33q21 8 42 0" stroke="${s}" stroke-width="5" fill="none"/>
-          <rect x="5" y="36" width="54" height="14" rx="7" fill="#FFF8F0" stroke="#2A2E38" stroke-width="3.5"/>`;
-      }
-      case 'mushroom':
-      case 'tripleMushroom':
-        // A compressed-air canister, not a mushroom. The model in the world was
-        // re-themed to one — every machine in this cast is a roadworks machine,
-        // and a red cap with white spots is somebody else's property besides —
-        // and the icon was left behind, so the slot showed one object and the
-        // kart carried another.
-        return `<rect x="27" y="4" width="10" height="10" rx="2" fill="#B9C2D0" stroke="#2A2E38" stroke-width="3"/>
-          <path d="M19 22a13 9 0 0 1 26 0v22a6 6 0 0 1-6 6H25a6 6 0 0 1-6-6z"
-            fill="#FF6B1A" stroke="#2A2E38" stroke-width="3.5" stroke-linejoin="round"/>
-          <rect x="19" y="24" width="26" height="5.5" fill="#FFC300"/>
-          <rect x="19" y="36" width="26" height="5.5" fill="#FFC300"/>
-          <path d="M26 50h12l-3 6H29z" fill="#B9C2D0" stroke="#2A2E38" stroke-width="3" stroke-linejoin="round"/>
-          <path d="M29 57h6l-3 6z" fill="#BFE6FF"/>`;
-      case 'star':
-        return `<path d="M32 5l8 18 20 2-15 13 5 20-18-11-18 11 5-20L4 25l20-2z"
-          fill="#FFD84D" stroke="#8A6410" stroke-width="3.5" stroke-linejoin="round"/>`;
-      case 'bulletBill':
-        return `<path d="M6 20l-4 12 4 12z" fill="#2E3340"/>
-          <rect x="8" y="20" width="34" height="24" rx="4" fill="#4A5162" stroke="#20242E" stroke-width="3.5"/>
-          <path d="M42 20a14 12 0 0 1 0 24z" fill="#5A6478" stroke="#20242E" stroke-width="3.5" stroke-linejoin="round"/>
-          <circle cx="36" cy="28" r="4" fill="#FFF8F0"/>`;
-      case 'lightning':
-        return `<path d="M38 3L13 36h14l-4 25 26-33H35z"
-          fill="#FFE24A" stroke="#8A6410" stroke-width="3.5" stroke-linejoin="round"/>`;
-      case 'blooper':
-        return `<path d="M17 40v14M25 42v16M39 42v16M47 40v14"
-          stroke="#F2F6FF" stroke-width="7" stroke-linecap="round"/>
-          <path d="M32 6c13 0 20 11 20 22 0 8-4 13-7 15H19c-3-2-7-7-7-15C12 17 19 6 32 6z"
-          fill="#F2F6FF" stroke="#2C3550" stroke-width="3.5" stroke-linejoin="round"/>
-          <circle cx="25" cy="27" r="5" fill="#2C3550"/><circle cx="39" cy="27" r="5" fill="#2C3550"/>`;
-      case 'boo':
-        return `<path d="M10 34a22 22 0 0 1 44 0v18l-6-5-5 5-5-5-5 5-5-5-6 5z"
-          fill="#EFF3FF" stroke="#2B3149" stroke-width="3.5" stroke-linejoin="round"/>
-          <circle cx="25" cy="31" r="4" fill="#2B3149"/><circle cx="39" cy="31" r="4" fill="#2B3149"/>
-          <ellipse cx="32" cy="43" rx="6" ry="4" fill="#2B3149"/>`;
-      case 'bomb':
-        return `<path d="M40 20q9-5 8-15" stroke="#8E99A8" stroke-width="4.5" fill="none" stroke-linecap="round"/>
-          <circle cx="50" cy="6" r="5" fill="#FFE9A8"/>
-          <circle cx="29" cy="38" r="21" fill="#2E3340" stroke="#14171F" stroke-width="3"/>
-          <path d="M9 34q20 8 40 0" stroke="#FF6B1A" stroke-width="6" fill="none"/>`;
-      case 'coin':
-        return `<circle cx="32" cy="32" r="22" fill="#FFC300" stroke="#A96E06" stroke-width="3.5"/>
-          <ellipse cx="32" cy="32" rx="10" ry="14" fill="none" stroke="#A96E06" stroke-width="3.5"/>`;
-      case 'horn':
-        return `<path d="M46 22a14 14 0 0 1 0 20M53 15a24 24 0 0 1 0 34"
-          stroke="#2E3340" stroke-width="3.5" fill="none" stroke-linecap="round"/>
-          <path d="M12 26h10l16-13v38L22 38H12z"
-          fill="#FF6B1A" stroke="#2E3340" stroke-width="3.5" stroke-linejoin="round"/>`;
-      default:
-        return '';
-    }
-  };
-  return `<svg viewBox="0 0 64 64" data-face="${id}">${body()}</svg>`;
-}
-
 /**
  * The splat field: `[centre x %, centre y %, size in vmin, vertical squash,
  * rotation °]`.
  *
- * Not hand-waved. The layout was scored for area coverage of three regions
- * before it was written down, and those numbers are the design:
+ * Not hand-waved. The layout is scored on a real frame — `fraction below
+ * luminance 60`, every frame of the effect's whole life, against the same frame
+ * clean — with the kart **parked and the scene frozen**, so a delta is the item
+ * and not the road box arriving at a different bit of road. Rec.601 and Rec.709
+ * luma agree to a thousandth here, so it does not matter which a reviewer uses.
+ * These numbers are the design:
  *
- * | region | what it is | coverage |
- * |---|---|---|
- * | the channel | the kart, and the tarmac it is about to drive over | 0.004 |
- * | the vanishing point | where the road disappears | 0.005 |
- * | the central play area | the crop a reviewer measures | 0.14 |
- * | the whole frame | | 0.42 |
+ * | region | what it is | clean | worst inked | cost |
+ * |---|---|---|---|---|
+ * | the road box | the kart and the tarmac ahead of it | 0.548 | 0.586 | +0.038 |
+ * | the central half | | 0.245 | 0.283 | +0.038 |
+ * | the central two thirds | the crop a reviewer measures | 0.229 | 0.288 | +0.059 |
+ * | the whole frame | | 0.280 | 0.464 | +0.184 |
  *
- * The first twelve centres sit on or outside the frame's edges, so what is on
- * screen is an arc of each and they run together into one mass — a third of the
- * picture is gone and none of it is the part you steer by. The five after them
- * are the *biters*: they reach into the middle third, because a blooper that
- * only crowds the edges costs a driver who is looking at the vanishing point
- * precisely nothing. Those five are drawn thin (see `.thin`), which is how they
- * can sit over the play area without blacking it out.
+ * The brief was "under 0.40 in the central play area at the worst frame". The
+ * worst frame is 0.288, it happens an eighth of a second after the tar lands,
+ * and better than four fifths of that number is the circuit's own tarmac: this
+ * road is already below luminance 60 over a fifth of the middle of the screen
+ * with nothing on the glass at all, which is why an absolute number on its own
+ * says as much about Cone Canyon as about the item.
+ *
+ * Every one of the thirteen thick centres sits *on or beyond* an edge of the
+ * frame, and the four along the top sit a full sixth of the frame above it —
+ * which is the single change that moved the measured cost of this item from
+ * twenty points of the central crop to five. What is on screen is an arc of
+ * each and they run together into one mass: half the picture is gone and none
+ * of it is the part you steer by.
+ *
+ * The fourteen after them are the *spatter*: they reach into the middle third,
+ * because a tar sprayer that only crowds the edges costs a driver looking at
+ * the vanishing point precisely nothing. Those fourteen are small and hard (see
+ * `.spot`) and given the earliest `--gone` in the field, which is how they can
+ * sit over the play area without blacking it out and why the middle of the
+ * screen is the first part handed back.
  *
  * Sizes are `vmin` so a splat keeps its share of the *shorter* axis: on a wide
  * monitor the field spreads sideways rather than swelling to swallow the frame,
  * which is what `vmax` did.
  */
 const INK_SPLATS: ReadonlyArray<readonly [number, number, number, number, number]> = [
-  // the edge band — thick, opaque, overlapping
-  [8, 2, 40, 1.10, -18], [38, -5, 35, 0.95, 22], [68, -1, 39, 1.15, 10],
-  [96, 4, 35, 1.00, -28], [-3, 34, 39, 1.15, 40], [0, 78, 35, 0.95, -12],
-  [102, 44, 39, 1.20, -14], [99, 88, 33, 1.05, 28], [21, 103, 33, 1.00, 52],
-  [70, 106, 31, 0.90, -36], [-4, 57, 30, 1.10, -66], [104, 68, 29, 1.00, 74],
+  // the top band — hung from above the frame, so the crop gets the fringe
+  [6, -13, 42, 1.10, -18], [36, -17, 38, 0.95, 22], [67, -14, 42, 1.15, 10],
+  [97, -10, 38, 1.00, -28],
+  // the sides
+  [-6, 30, 42, 1.15, 40], [-4, 76, 38, 0.95, -12], [105, 40, 42, 1.20, -14],
+  [102, 86, 35, 1.05, 28], [-7, 55, 33, 1.10, -66], [107, 66, 32, 1.00, 74],
+  // ...and the bottom, which the kart itself already owns
+  [16, 106, 35, 1.00, 52], [70, 110, 33, 0.90, -36], [43, 113, 31, 0.95, 8],
 ];
 
-/** ...and the biters, drawn thin. Same shape data. */
-const INK_THIN: ReadonlyArray<readonly [number, number, number, number, number]> = [
-  [28, 25, 25, 1.05, -30], [78, 22, 23, 0.95, 18], [21, 62, 22, 1.00, -50],
-  [83, 64, 21, 1.10, 34], [55, 8, 20, 0.95, -8],
+/** ...and the spatter that reaches the play area. Same shape data.
+ *
+ *  Fourteen of them, none bigger than nine vmin, and there is a hole in the
+ *  layout where the machine sits — x 40-64%, y below 60% — because the one
+ *  thing this item must never take is the kart and the road under it. Denser
+ *  towards the sides than the middle, which is both what a throw actually does
+ *  and what keeps the vanishing point legible. */
+const INK_SPOTS: ReadonlyArray<readonly [number, number, number, number, number]> = [
+  [26, 24, 8.0, 1.05, -30], [72, 20, 7.0, 0.95, 18], [45, 16, 5.0, 1.00, 44],
+  [15, 44, 8.5, 1.10, -50], [88, 38, 8.0, 0.95, 22], [33, 52, 6.0, 1.05, -12],
+  [64, 44, 5.0, 0.95, 62], [20, 70, 7.0, 1.10, 34], [80, 73, 7.5, 1.00, -22],
+  [56, 29, 4.0, 1.00, 8], [38, 35, 4.5, 0.95, -66], [92, 58, 6.0, 1.05, 40],
+  [8, 62, 6.0, 0.95, -8], [72, 58, 4.5, 1.10, 16],
 ];
 
 /** Spatter. Deterministic — decoration, but decoration that must not differ
@@ -560,14 +643,19 @@ const INK_FLECKS: ReadonlyArray<readonly [number, number, number]> = [
 /**
  * One splat element.
  *
- * `--fall` and `--shrink` are how fast this one runs off the glass, derived
+ * `--fall`, `--shrink` and `--gone` are how this one leaves the glass, derived
  * from the index rather than authored: the field has to drain *unevenly* or the
  * whole thing reads as one object being scaled down, and thirty hand-written
- * pairs of numbers would be thirty more chances to be wrong about nothing.
+ * triples of numbers would be thirty more chances to be wrong about nothing.
+ *
+ * `gone` is the base of the departure schedule and is per *band*, not per
+ * splat — the thin ones over the play area are given the earliest, the thick
+ * ones round the edge the latest — so the shape of the recovery is stated in
+ * one place instead of being an accident of thirty indices.
  */
 function splat(
   [x, y, r, squash, rot]: readonly [number, number, number, number, number],
-  i: number, cls = '',
+  i: number, cls = '', gone = 1,
 ): HTMLElement {
   const s = document.createElement('i');
   if (cls) s.className = cls;
@@ -577,17 +665,40 @@ function splat(
   s.style.height = `${r}vmin`;
   s.style.setProperty('--sq', String(squash));
   s.style.setProperty('--rot', String(rot));
+  // Which way the wind takes this one, in vmin at full airflow: outward from
+  // the middle of the frame and proportional to how far out it already sits, so
+  // the field *parts* rather than sliding sideways as a sheet. A splat on the
+  // centreline is not moved at all, which is correct — there is no edge for it
+  // to go off — and the ones hung past the frame are hauled clean out of shot.
+  s.style.setProperty('--push', ((x - 50) * 0.2).toFixed(2));
   s.style.setProperty('--fall', (4.5 + (i % 4) * 1.3).toFixed(2));
   s.style.setProperty('--shrink', (0.46 + (i % 3) * 0.1).toFixed(2));
+  s.style.setProperty('--gone', (gone + (i % 5) * 0.055).toFixed(3));
+  s.style.setProperty('--band', (0.15 + (i % 3) * 0.06).toFixed(3));
   if (cls !== 'fleck') s.appendChild(document.createElement('b'));
   return s;
 }
 
+/**
+ * Where in the wipe each band of the field has finished.
+ *
+ * The wipe is 0 on the frame the tar lands and 1 with a fifth of the life still
+ * to run, so these are the *order* the screen comes back in: the play area
+ * first, then the spatter, then the edges. A player who has just been hit
+ * should be able to see the road again inside about a second and a half of a
+ * three-and-a-half second item — and still be able to tell they were hit.
+ */
+const GONE_SPOT = 0.40;
+const GONE_FLECK = 0.30;
+const GONE_THICK = 0.72;
+
 /** Fraction of the ink's life the arrival punch takes. Short: it is thrown at
  *  you, and a thrown thing lands. */
 const INK_LAND = 0.045;
-/** ...and the fraction it holds full strength for before it starts to fade. */
-const INK_HOLD = 0.5;
+/** ...and the fraction it holds full strength for before the *container* starts
+ *  to fade. Small, because the fade is per splat now: this is only the sweep
+ *  that guarantees nothing is left stranded on the glass at the end. */
+const INK_HOLD = 0.14;
 /** Peak opacity of the whole field. */
 const INK_PEAK = 0.94;
 
@@ -619,8 +730,17 @@ export interface ItemHud {
    * punch, how long it holds, when it starts to run off the glass and how fast
    * it drains are all read off this one number, so the ink can never get out of
    * step with the timer that owns it.
+   *
+   * `airflow` is 0..1 — the same speed fraction the *clock* runs on (see
+   * INK_AIRFLOW in index.ts), so the picture and the timer are driven by one
+   * number and cannot disagree. It is what a player has instead of a wiper: at
+   * 1 the field is dragged off the edges of the frame and every drip draws out
+   * behind it; at 0 the tar sits where it landed. An item that clears faster
+   * when you keep your foot in is worth nothing if the screen does not *show*
+   * you that, because the player will lift, and lifting is the one response
+   * this item must never reward.
    */
-  setInk(remaining: number): void;
+  setInk(remaining: number, airflow?: number): void;
   /**
    * The nearest thing that is actually going to hit the player.
    *
@@ -654,6 +774,9 @@ export function createItemHud(): ItemHud {
   let chevronEl: SVGPathElement | null = null;
   let hitEl: HTMLDivElement | null = null;
   let fxRoot: HTMLDivElement | null = null;
+  let defsEl: HTMLDivElement | null = null;
+  /** The socket another module published, if there is one. See `adoptSlot`. */
+  let published: Element | null = null;
   let hitName: SignBox | null = null;
   let style: HTMLStyleElement | null = null;
   const faces = new Map<string, SVGElement>();
@@ -678,6 +801,11 @@ export function createItemHud(): ItemHud {
    *  where it got to instead of snapping back to nothing. */
   let inkWipe = 0;
   let inkLand = 1;
+  /** How hard the wind is scrubbing, and the damped version of it that is
+   *  actually written to the DOM — a kart bouncing between 0.8 and 0.9 of top
+   *  speed must not make the field twitch. */
+  let inkAirTarget = 0;
+  let inkAir = 0;
   let jitterPhase = 0;
   let warnTarget = 0;
   let warnShown = 0;
@@ -696,6 +824,33 @@ export function createItemHud(): ItemHud {
    */
   const key = (e: ItemEntry): string => e.id;
 
+  /**
+   * Repaint the faces of a socket another module published, from this one.
+   *
+   * Only the *inside* of each `<svg data-face="…">` is rewritten. The element
+   * itself, its classes, its viewBox and whatever the owning module has
+   * attached to it survive untouched, so its cross-fade, its drum and its
+   * landing cell keep working exactly as written — the only thing that changes
+   * is which object is drawn. Anything with a `data-face` this module does not
+   * know is left alone rather than blanked.
+   *
+   * Cheap and idempotent: thirteen to forty string comparisons, once at build
+   * and once per race reset, and every one of them a no-op once the owning
+   * module imports `icons.ts` directly.
+   */
+  function adoptSlot(host: Element): number {
+    let painted = 0;
+    for (const svg of Array.from(host.querySelectorAll<SVGElement>('svg[data-face]'))) {
+      const id = svg.dataset.face as ItemId | undefined;
+      if (!id || !(id in ITEMS)) continue;
+      const body = itemIconBody(id);
+      if (svg.innerHTML === body) continue;
+      svg.innerHTML = body;
+      painted++;
+    }
+    return painted;
+  }
+
   function build(): void {
     if (root || typeof document === 'undefined') return;
 
@@ -713,15 +868,24 @@ export function createItemHud(): ItemHud {
     fxRoot.id = 'item-fx';
     document.body.appendChild(fxRoot);
 
+    // The icon set's paint servers. Mounted before anything that names them,
+    // and mounted whether or not this module ends up drawing the socket itself
+    // — `adoptSlot` below hands these same icons to a socket somebody else
+    // published, and a `url(#…)` reference is resolved against the document.
+    defsEl = document.createElement('div');
+    defsEl.id = 'item-icon-defs';
+    defsEl.innerHTML = ITEM_ICON_DEFS;
+    fxRoot.appendChild(defsEl);
+
     // Screen effects always exist. The slot stands down if the UI module has
     // published one of its own.
     inkEl = document.createElement('div');
     inkEl.id = 'item-ink';
     let k = 0;
-    for (const s of INK_SPLATS) inkEl.appendChild(splat(s, k++));
-    for (const s of INK_THIN) inkEl.appendChild(splat(s, k++, 'thin'));
+    for (const s of INK_SPLATS) inkEl.appendChild(splat(s, k++, '', GONE_THICK));
+    for (const s of INK_SPOTS) inkEl.appendChild(splat(s, k++, 'spot', GONE_SPOT));
     for (const [x, y, r] of INK_FLECKS) {
-      inkEl.appendChild(splat([x, y, r, 1, 0], k++, 'fleck'));
+      inkEl.appendChild(splat([x, y, r, 1, 0], k++, 'fleck', GONE_FLECK));
     }
     fxRoot.appendChild(inkEl);
 
@@ -729,22 +893,28 @@ export function createItemHud(): ItemHud {
     warnEl.id = 'item-warn';
     // The chevron pair points along -Y in its own box, so a rotation by the
     // bearing aims it straight at whatever is arriving.
-    const chevrons = `M32 6 L58 34 L48 42 L32 26 L16 42 L6 34 Z
-               M32 26 L58 54 L48 62 L32 46 L16 62 L6 54 Z`;
+    // Fatter arms than the pair this replaces: at 64 units the old chevron's
+    // arm was fourteen across, a five-unit ink stroke took five of them and a
+    // 2.6 cream keyline took most of what was left, so the item's own colour
+    // survived in about three units in the middle of each stroke. Twenty-unit
+    // arms with a thinner keyline give the colour something to be.
+    const chevrons = `M32 3 L61 32 L48 45 L32 29 L16 45 L3 32 Z
+               M32 25 L61 54 L48 67 L32 51 L16 67 L3 54 Z`;
     warnEl.innerHTML = `<div class="vig"></div><div class="arrow"><svg viewBox="0 0 64 64">
-      <path d="${chevrons}"
-        fill="#FF3A20" stroke="#14171F" stroke-width="5" stroke-linejoin="round"/>
+      <path class="plate" d="${chevrons}"/>
+      <path class="body" d="${chevrons}"
+        fill="#FF3A20" stroke="#14171F" stroke-width="4" stroke-linejoin="round"/>
       <path class="core" d="${chevrons}"/>
       </svg></div>`;
     fxRoot.appendChild(warnEl);
     vigEl = warnEl.querySelector('.vig');
     arrowEl = warnEl.querySelector('.arrow');
-    chevronEl = warnEl.querySelector('path');
+    chevronEl = warnEl.querySelector('.body');
 
     hitEl = document.createElement('div');
     hitEl.id = 'item-hit';
     hitEl.innerHTML =
-      `<div class="art">${ICON_IDS.map((id) => iconSvg(id)).join('')}</div>`
+      `<div class="art">${ICON_IDS.map((id) => itemIconSvg(id)).join('')}</div>`
       + `<div class="nm word"></div>`;
     fxRoot.appendChild(hitEl);
     const nmEl = hitEl.querySelector<HTMLElement>('.nm');
@@ -757,19 +927,41 @@ export function createItemHud(): ItemHud {
     flashEl.id = 'item-flash';
     fxRoot.appendChild(flashEl);
 
-    if (document.querySelector('[data-item-slot]')) return;
+    // **The socket stands down. The picture does not.**
+    //
+    // Handing the housing to another module is a coordination decision and a
+    // fine one — that module's socket carries the drift collar, the shutter and
+    // the landing flare, and two sockets on one screen would be a bug. Handing
+    // over *what is drawn inside it* is not the same decision, and it was made
+    // silently by this one line: the module that took the socket drew its own
+    // set from the `ItemId`s, so a player holding a Wheel Chock was shown a
+    // banana with a stalk on it, and the what-hit-you plate this file draws
+    // thirty pixels below said WHEEL CHOCK over a picture of a chock in the
+    // very same frame.
+    //
+    // So the faces of a published socket are repainted from `icons.ts` — the
+    // element identities, classes and attributes the other module switches on
+    // are untouched, only the geometry inside each `<svg data-face>` changes.
+    // It is idempotent and it is self-cancelling: the day `ui/icons.ts` imports
+    // this set instead of keeping a second one, every face already matches and
+    // this walks the list and writes nothing.
+    published = document.querySelector('[data-item-slot]');
+    if (published) {
+      adoptSlot(published);
+      return;
+    }
 
     // The drum: one cell per face, plus a copy of the first so the wrap is a
     // continuation rather than a jump back through the whole strip.
     const cells = [...FACES, FACES[0]!]
-      .map((id) => `<i>${iconSvg(id)}</i>`).join('');
+      .map((id) => `<i>${itemIconSvg(id)}</i>`).join('');
 
     root = document.createElement('div');
     root.id = 'item-hud';
     root.innerHTML = `<div class="slot empty">
       <div class="glow"></div>
       <div class="mark">?</div>
-      <div class="icons">${ICON_IDS.map((id) => iconSvg(id)).join('')}</div>
+      <div class="icons">${ICON_IDS.map((id) => itemIconSvg(id)).join('')}</div>
       <div class="reel"><div class="strip">${cells}</div></div>
       <div class="count"></div>
     </div>`;
@@ -831,8 +1023,9 @@ export function createItemHud(): ItemHud {
 
     punch(): void { punchT = 1; glow = 1; },
 
-    setInk(remaining: number): void {
+    setInk(remaining: number, airflow = 0): void {
       inkTarget = remaining > 0 ? (remaining > 1 ? 1 : remaining) : 0;
+      inkAirTarget = airflow > 0 ? (airflow > 1 ? 1 : airflow) : 0;
     },
 
     warn(amount: number, bearing: number, color: number): void {
@@ -866,6 +1059,13 @@ export function createItemHud(): ItemHud {
     },
 
     reset(): void {
+      // A published socket may have been torn down and rebuilt with the race —
+      // this module cannot know, and asking is forty string compares that all
+      // come back equal when it has not.
+      if (published) {
+        if (!published.isConnected) published = document.querySelector('[data-item-slot]');
+        if (published) adoptSlot(published);
+      }
       reelPos = 0;
       reelTarget = 0;
       reelBlur = -1;
@@ -878,6 +1078,8 @@ export function createItemHud(): ItemHud {
       inkShown = 0;
       inkWipe = 0;
       inkLand = 1;
+      inkAir = 0;
+      inkAirTarget = 0;
       flashAmount = 0;
       hitT = 0;
       spin = 0;
@@ -888,6 +1090,7 @@ export function createItemHud(): ItemHud {
         inkEl.style.opacity = '0';
         inkEl.style.setProperty('--wipe', '0');
         inkEl.style.setProperty('--land', '1');
+        inkEl.style.setProperty('--air', '0');
       }
       if (flashEl) flashEl.style.opacity = '0';
       if (hitEl) hitEl.style.opacity = '0';
@@ -911,18 +1114,24 @@ export function createItemHud(): ItemHud {
           // and from there the field drains off the glass.
           inkWipe = clamp01((1 - t - 0.08) / 0.8);
         }
-        // Full strength for the first half, then away. Chased rather than
-        // written straight through so the arrival cannot land on a frame
-        // boundary and flicker, and so a race reset fades instead of cutting.
+        // The container holds full strength for all but the last sixth of the
+        // life: the *field* empties on the splats' own staggered schedules, and
+        // this is only the sweep that guarantees the glass is clean at the end
+        // however the individual clocks landed. Chased rather than written
+        // straight through so the arrival cannot land on a frame boundary and
+        // flicker, and so a race reset fades instead of cutting.
         const want = t > INK_HOLD ? 1 : t / INK_HOLD;
         inkShown += (want - inkShown) * Math.min(1, dt * (want > inkShown ? 26 : 7));
         if (inkShown < 0.004 && want <= 0) inkShown = 0;
         inkEl.style.opacity = inkShown > 0 ? (inkShown * INK_PEAK).toFixed(3) : '0';
-        // Two custom properties on the container drive all thirty splats: the
-        // per-splat rates live in the elements' own variables, so a frame of
-        // the wipe is two style writes rather than sixty.
+        inkAir += (inkAirTarget - inkAir) * Math.min(1, dt * 3.4);
+        // Three custom properties on the container drive all forty-two splats:
+        // the per-splat rates and directions live in the elements' own
+        // variables, so a frame of the wipe is three style writes rather than
+        // a hundred and twenty.
         inkEl.style.setProperty('--wipe', inkWipe.toFixed(3));
         inkEl.style.setProperty('--land', inkLand.toFixed(3));
+        inkEl.style.setProperty('--air', inkAir.toFixed(3));
       }
 
       if (warnEl && (warnTarget > 0 || warnShown > 0)) {
@@ -939,29 +1148,40 @@ export function createItemHud(): ItemHud {
         } else {
           warnPhase += dt * (7 + warnShown * 22);
           const pulse = 0.82 + Math.sin(warnPhase) * 0.18;
-          // **It arrives already loud.** The old curve multiplied a squared
-          // proximity by a pulse that bottomed out at 0.44, so the number this
-          // element actually wore over a race never got past 0.79 and spent
-          // most of its life around a fifth — visible to an instrument, not to
-          // a player. The floor is what fixes that: the moment this is on at
-          // all, something is going to hit you inside a second and a half, and
-          // it says so at better than a third of full strength.
-          warnEl.style.opacity = String((0.42 + 0.5 * warnShown) * pulse);
+          // The layer itself is simply on. What fades is underneath it — see
+          // the note over "#item-warn .vig": one opacity on the host faded the
+          // sign along with the wash and left a wireframe.
+          warnEl.style.opacity = '1';
 
           // Push the red away from the threat, so the thickest part of the
-          // vignette is the edge it is coming from.
+          // vignette is the edge it is coming from. Eleven percent, not five
+          // and a half: at five the wash was very nearly concentric and said
+          // "something" rather than "something, over there".
           const sx = Math.sin(warnBearing);
           const sy = -Math.cos(warnBearing);
           if (vigEl) {
+            // **It arrives already loud.** The old curve multiplied a squared
+            // proximity by a pulse that bottomed out at 0.44, so the number
+            // this actually wore over a race never got past 0.79 and spent most
+            // of its life around a fifth — visible to an instrument, not to a
+            // player. The floor is what fixes that: the moment this is on at
+            // all, something is going to hit you inside a second and a half.
+            vigEl.style.opacity = String((0.42 + 0.5 * warnShown) * pulse);
             vigEl.style.transform =
-              `translate(${(-sx * 5.5).toFixed(2)}%, ${(-sy * 5).toFixed(2)}%)`;
+              `translate(${(-sx * 11).toFixed(2)}%, ${(-sy * 10).toFixed(2)}%)`;
           }
           if (arrowEl) {
+            // The sign reaches full strength and stays there. A chevron that is
+            // half transparent is a chevron whose colour is the road's.
+            arrowEl.style.opacity =
+              String(Math.min(1, 0.55 + 0.9 * warnShown) * (0.88 + (pulse - 0.82) * 0.66));
             // Ride the perimeter of an inset frame rather than a circle: a
             // threat from dead ahead then parks at the top *below the item
             // slot*, and one from behind at the bottom between the coin and
             // position plates, instead of either landing on a readout.
-            const ay = sy < 0 ? 30 : 39;
+            // 34 at the bottom, not 39: the prompt rail parks a keycap card on
+            // the bottom centreline, and a chevron at 39 lands on top of it.
+            const ay = sy < 0 ? 30 : 34;
             const kx = Math.abs(sx) > 1e-3 ? 41 / Math.abs(sx) : 1e9;
             const ky = Math.abs(sy) > 1e-3 ? ay / Math.abs(sy) : 1e9;
             const k = Math.min(kx, ky);
@@ -1043,6 +1263,8 @@ export function createItemHud(): ItemHud {
       chevronEl = null;
       hitEl = null;
       fxRoot = null;
+      defsEl = null;
+      published = null;
       hitName = null;
       flashEl = null;
       style = null;

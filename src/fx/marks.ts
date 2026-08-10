@@ -44,6 +44,21 @@ const MAX_FADE = 0.62;
  * costs two multiplies and turns every break into a taper.
  */
 const RUN_IN = 2;
+/**
+ * ...and the quads a ribbon spends ramping back *down* when the wheel lifts.
+ *
+ * The other end of the same defect, and the half that was missing. `RUN_IN`
+ * turned every restart into a taper and left every *finish* as a transverse
+ * cut at full strength — so a corner collected arcs that faded in beautifully
+ * and then stopped dead, and the thing a 9x crop found on the tarmac was a
+ * straight black edge exactly one quad wide, square across the direction of
+ * travel. A tyre stops laying rubber the way it starts: by running out.
+ *
+ * Done by reaching back and re-weighting the last few quads rather than by
+ * stamping a new one, because there is nothing left to stamp — the wheel has
+ * already gone.
+ */
+const RUN_OUT = 3;
 /** Beyond this a racer was moved, not driven — break the ribbon. */
 const BREAK = 26;
 /**
@@ -116,6 +131,19 @@ interface Track {
   x: number; y: number; z: number;
   /** Quads laid since this ribbon started, capped at `RUN_IN`. */
   run: number;
+  /**
+   * Ring-buffer slots of this ribbon's last few quads, newest last, so `lift`
+   * can taper them out. Fixed length `RUN_OUT` and reused in place — a ribbon
+   * per wheel per racer means sixteen of these and none of them may allocate
+   * while the game is running.
+   */
+  tail: Int32Array;
+  /** ...and the stamp id each of those slots carried when this ribbon wrote
+   *  it. A slot another wheel has since overwritten fails the check and is
+   *  left alone, which is what keeps a taper from erasing somebody else's
+   *  mark once the buffer has wrapped. */
+  tailStamp: Int32Array;
+  tailCount: number;
 }
 
 export interface TyreMarks {
@@ -205,6 +233,9 @@ export function createTyreMarks(ctx: GameContext, maxQuads: number): TyreMarks {
   mesh.userData.noShadow = true;
 
   const tracks = new Map<number, Track>();
+  /** Which ribbon last wrote each ring-buffer slot. See `Track.tailStamp`. */
+  const owner = new Int32Array(maxQuads).fill(-1);
+  let stamp = 0;
   let write = 0;
   let written = 0;
   let now = 0;
@@ -217,6 +248,7 @@ export function createTyreMarks(ctx: GameContext, maxQuads: number): TyreMarks {
   }
 
   function quad(
+    t: Track,
     ax: number, ay: number, az: number,
     bx: number, by: number, bz: number,
     rx: number, ry: number, rz: number,
@@ -237,8 +269,44 @@ export function createTyreMarks(ctx: GameContext, maxQuads: number): TyreMarks {
       tints[o + k * 3 + 2] = tint.b;
     }
     markDirty(v);
+    // Remember who laid this slot, and hand the ribbon its slot back so `lift`
+    // can find it again. Newest last; the oldest falls off the front.
+    stamp++;
+    owner[write] = stamp;
+    if (t.tailCount < RUN_OUT) {
+      t.tail[t.tailCount] = write;
+      t.tailStamp[t.tailCount] = stamp;
+      t.tailCount++;
+    } else {
+      for (let k = 1; k < RUN_OUT; k++) {
+        t.tail[k - 1] = t.tail[k]!;
+        t.tailStamp[k - 1] = t.tailStamp[k]!;
+      }
+      t.tail[RUN_OUT - 1] = write;
+      t.tailStamp[RUN_OUT - 1] = stamp;
+    }
     write = (write + 1) % maxQuads;
     if (written < maxQuads) written++;
+  }
+
+  /**
+   * Fade a ribbon's last few quads out, so it runs out instead of stopping.
+   *
+   * The ramp is applied to whatever strength each quad already carries rather
+   * than to a fresh value: the last quads of a short ribbon are still inside
+   * the run-*in*, and multiplying keeps the two tapers from fighting.
+   */
+  function runOut(t: Track): void {
+    const n = t.tailCount;
+    for (let i = 0; i < n; i++) {
+      const slot = t.tail[i]!;
+      if (owner[slot] !== t.tailStamp[i]) continue;   // overwritten since
+      const k = 1 - (i + 1) / (n + 1);                // oldest keeps most
+      const v = slot * 4;
+      for (let c = 0; c < 4; c++) fades[v + c] = (fades[v + c] ?? 0) * k;
+      markDirty(v);
+    }
+    t.tailCount = 0;
   }
 
   return {
@@ -247,14 +315,22 @@ export function createTyreMarks(ctx: GameContext, maxQuads: number): TyreMarks {
     stroke(id, nx, ny, nz, rx, ry, rz, halfWidth, strength, tint): void {
       let t = tracks.get(id);
       if (!t) {
-        t = { live: false, x: 0, y: 0, z: 0, run: 0 };
+        t = {
+          live: false, x: 0, y: 0, z: 0, run: 0,
+          tail: new Int32Array(RUN_OUT), tailStamp: new Int32Array(RUN_OUT), tailCount: 0,
+        };
         tracks.set(id, t);
       }
       const dx = nx - t.x, dy = ny - t.y, dz = nz - t.z;
       const d2 = dx * dx + dy * dy + dz * dz;
       if (!t.live || d2 > BREAK * BREAK) {
+        // A teleport breaks the ribbon exactly as a lift does, so it gets the
+        // same run-out — otherwise a reset or a rescue leaves a full-strength
+        // stub on the road where the machine used to be.
+        if (t.live) runOut(t);
         t.live = true;
         t.run = 0;
+        t.tailCount = 0;
         t.x = nx; t.y = ny; t.z = nz;
         return;
       }
@@ -263,13 +339,16 @@ export function createTyreMarks(ctx: GameContext, maxQuads: number): TyreMarks {
       const ramp = t.run >= RUN_IN ? 1 : (t.run + 1) / (RUN_IN + 1);
       const s = strength * ramp * MAX_FADE;
       if (t.run < RUN_IN) t.run++;
-      quad(t.x, t.y, t.z, nx, ny, nz, rx, ry, rz, halfWidth, s, tint);
+      quad(t, t.x, t.y, t.z, nx, ny, nz, rx, ry, rz, halfWidth, s, tint);
       t.x = nx; t.y = ny; t.z = nz;
     },
 
     lift(id): void {
       const t = tracks.get(id);
-      if (t) { t.live = false; t.run = 0; }
+      if (!t || !t.live) return;
+      runOut(t);
+      t.live = false;
+      t.run = 0;
     },
 
     update(elapsed): void {
@@ -295,6 +374,8 @@ export function createTyreMarks(ctx: GameContext, maxQuads: number): TyreMarks {
 
     reset(): void {
       tracks.clear();
+      owner.fill(-1);
+      stamp = 0;
       write = 0;
       written = 0;
       dirtyLo = Infinity;

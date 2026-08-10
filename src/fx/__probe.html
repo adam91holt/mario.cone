@@ -1,0 +1,92 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>fx atlas proof sheet</title>
+<!--
+  The instrument behind the claim "no straight edge is traceable at 9x".
+
+  Not part of the game and never loaded by it: open it through the dev server
+  as /src/fx/__probe.html?cell=puff&zoom=9 and it builds the real atlas, blows
+  one cell up, and prints two measurements next to the picture —
+
+    window.__PROFILE   the angular-mean alpha against radius, which is what the
+                       whole SURFACE_FX table in index.ts is calibrated to; a
+                       change to a cloud cell that moves this curve is a change
+                       to every alpha in that table.
+    window.__RADII     the silhouette radius at 720 angles. A facetted rim shows
+                       up here as a long run of near-zero curvature — a 16-gon
+                       is 22.5 degrees of straight line, forty-five samples. The
+                       clouds run four to seven, which is what a circle does.
+
+  Reading the geometry is what let a polygon live in this module for two rounds.
+  Photograph it instead.
+-->
+<style>
+  body { margin: 0; background: #2b2f38; }
+  canvas { display: block; image-rendering: pixelated; }
+</style>
+<canvas id="sheet"></canvas>
+<script type="module">
+  import { createAtlas, CELL, ATLAS_COLS } from '/src/fx/atlas.ts';
+  const t0 = performance.now();
+  const tex = createAtlas();
+  window.__BUILD_MS = Math.round((performance.now() - t0) * 10) / 10;
+  const src = tex.image;
+  const SIZE = src.width / ATLAS_COLS;
+  window.__ATLAS_SIZE = SIZE;
+
+  // Draw one cell magnified onto the sheet, over a mid grey so alpha reads.
+  const params = new URLSearchParams(location.search);
+  const cell = params.get('cell') ?? 'puff';
+  const zoom = Number(params.get('zoom') ?? 9);
+  const bg = params.get('bg') ?? '#4a4f5a';
+  const idx = CELL[cell];
+  const col = idx % ATLAS_COLS;
+  const row = Math.floor(idx / ATLAS_COLS);
+
+  const out = document.getElementById('sheet');
+  out.width = SIZE * zoom;
+  out.height = SIZE * zoom;
+  const c = out.getContext('2d');
+  c.fillStyle = bg;
+  c.fillRect(0, 0, out.width, out.height);
+  c.imageSmoothingEnabled = params.get('smooth') !== '0';
+  c.drawImage(src, col * SIZE, row * SIZE, SIZE, SIZE, 0, 0, out.width, out.height);
+  window.__READY = true;
+
+  // Measured radial profile + a silhouette trace, so "is it a polygon" has a
+  // number behind it as well as a picture.
+  const probe = document.createElement('canvas');
+  probe.width = SIZE; probe.height = SIZE;
+  const pc = probe.getContext('2d');
+  pc.drawImage(src, col * SIZE, row * SIZE, SIZE, SIZE, 0, 0, SIZE, SIZE);
+  const data = pc.getImageData(0, 0, SIZE, SIZE).data;
+  const h = SIZE / 2;
+  const alphaAt = (x, y) => {
+    const xi = Math.round(x), yi = Math.round(y);
+    if (xi < 0 || yi < 0 || xi >= SIZE || yi >= SIZE) return 0;
+    return data[(yi * SIZE + xi) * 4 + 3] / 255;
+  };
+  const radii = [];
+  const N = 720;
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2;
+    // Walk out until alpha drops under a visible threshold.
+    let r = 0;
+    for (let t = 0; t < h; t += 0.25) {
+      if (alphaAt(h + Math.cos(a) * t, h + Math.sin(a) * t) < 0.06) { r = t; break; }
+      r = t;
+    }
+    radii.push(r / h);
+  }
+  const prof = [];
+  for (let t = 0; t <= 1.0001; t += 0.05) {
+    let s = 0;
+    for (let i = 0; i < 180; i++) {
+      const a = (i / 180) * Math.PI * 2;
+      s += alphaAt(h + Math.cos(a) * t * h, h + Math.sin(a) * t * h);
+    }
+    prof.push([+t.toFixed(2), +(s / 180).toFixed(3)]);
+  }
+  window.__PROFILE = prof;
+  window.__RADII = radii;
+</script>

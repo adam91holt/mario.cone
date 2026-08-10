@@ -185,67 +185,76 @@ export function setColor(root: THREE.Object3D, color: number): void {
   });
 }
 
-// ── banana ─────────────────────────────────────────────────────────────────
+// ── wheel chock ────────────────────────────────────────────────────────────
 
 /**
- * A swept arc whose radius tapers to a point at both ends.
+ * The thing you leave on the road behind you: a **wheel chock**.
  *
- * The number that decides whether this reads as a banana or as a sausage is the
- * ratio of the arc's *sagitta* — how far the belly bows away from the chord —
- * to the thickness of the tube. Below about three the eye gives up and calls it
- * a bent pill, which is exactly what the first version of this was: a 138°
- * sweep at 0.17 thick, a ratio of 2.4, photographed trailing behind a kart as a
- * flat yellow lozenge. A 172° sweep at 0.125 puts it near five, and the
- * crescent survives being seen from a chase camera at forty metres.
+ * This was a banana — a literal yellow crescent with a brown stalk, lying on
+ * the tarmac of a circuit whose cast, whose drivers and whose corner names are
+ * all roadworks. The slot said "Wheel Chock", the road showed a piece of fruit,
+ * and the item everybody in a kart racer meets first was the one place the
+ * whole joke stopped.
  *
- * The tips also lift off the road, because a banana resting on its belly is the
- * silhouette everybody actually pictures.
+ * A chock is the better object for the job as well as the honest one. What a
+ * dropped item has to do is read, from a chase camera, as *something to go
+ * round*, in the half second before a wheel finds it — and a hazard-yellow
+ * wedge with a black tread bar across it is a shape whose entire meaning in the
+ * real world is "this stops a wheel". The banana relied on a fruit-shaped
+ * silhouette that a moving camera flattens into a lozenge; the wedge relies on
+ * a hard triangular profile and a flat top plane that catches the key light,
+ * neither of which needs to be recognised from a particular angle.
+ *
+ * Sized to the banana it replaces — about 1.15m nose to tail, a third of the
+ * width of the widest machine in the cast. Big enough to be an obstacle, small
+ * enough not to read as scenery.
  */
-function bananaGeometry(): THREE.BufferGeometry {
-  const pts: THREE.Vector3[] = [];
-  // Sized so the finished crescent is about 1.15m tip to tip — a third of the
-  // width of the widest machine in the cast, which is where a banana stops
-  // looking like a piece of scenery and starts looking like a thing you drop.
-  const R = 0.58;
-  /** Half the arc, radians. */
-  const SWEEP = 1.5;
-  for (let i = 0; i <= 8; i++) {
-    const a = (-1 + (i / 8) * 2) * SWEEP;
-    pts.push(new THREE.Vector3(
-      Math.sin(a) * R,
-      (1 - Math.cos(a)) * 0.26,
-      -Math.cos(a) * R,
-    ));
-  }
-  const curve = new THREE.CatmullRomCurve3(pts);
-  const geo = new THREE.TubeGeometry(curve, 26, 0.115, 8, false);
-  const pos = geo.attributes.position as THREE.BufferAttribute;
-  const uv = geo.attributes.uv as THREE.BufferAttribute;
-  const centre = new THREE.Vector3();
-  const v = new THREE.Vector3();
-  for (let i = 0; i < pos.count; i++) {
-    const u = uv.getX(i);
-    curve.getPointAt(Math.min(0.999, Math.max(0.001, u)), centre);
-    // Fat in the middle, pinched at the tips, with the stalk end a little
-    // blunter than the flower end.
-    const s = Math.pow(Math.sin(Math.PI * u), 0.42) * (0.8 + 0.34 * u);
-    v.fromBufferAttribute(pos, i).sub(centre).multiplyScalar(s).add(centre);
-    pos.setXYZ(i, v.x, v.y, v.z);
-  }
-  geo.computeVertexNormals();
-  // Centre the arc on its own bounding box in Z, so an orbiting or trailing
-  // banana turns about itself rather than swinging round its belly.
-  geo.translate(0, 0.13, R * 0.47);
-  return geo;
+function chockProfile(): THREE.Shape {
+  const s = new THREE.Shape();
+  // Side view: X down the road, Y up. The blunt face is at +X, the nose at -X.
+  s.moveTo(-0.58, 0);
+  s.lineTo(0.5, 0);
+  s.lineTo(0.5, 0.4);
+  // The cradle. Dished rather than straight, because the face a chock presents
+  // to a tyre is a curve — and because a slight concavity puts a soft shadow
+  // along the top of the wedge that a flat ramp does not get.
+  s.quadraticCurveTo(-0.02, 0.16, -0.58, 0.04);
+  s.closePath();
+  return s;
 }
 
-export function buildBanana(): THREE.Object3D {
+export function buildChock(): THREE.Object3D {
   const g = new THREE.Group();
-  addMesh(g, bananaGeometry(), plastic(0xFFD429, 0.38, 0.11));
-  // The stalk, on the tip at +X. Small, dark, and the one asymmetry that stops
-  // the crescent reading as a croissant.
-  addMesh(g, new THREE.ConeGeometry(0.07, 0.24, 6), plastic(0x6B4A18, 0.7, 0.02),
-    [0.55, 0.35, 0.26], [0.3, 0, -1.15]);
+  const bodyMat = plastic(0xFFD429, 0.42, 0.12);
+  const gripMat = plastic(0x2A2E38, 0.6, 0.02);
+  const steelMat = plastic(0x9AA5B4, 0.42, 0.05);
+
+  const geo = new THREE.ExtrudeGeometry(chockProfile(), {
+    depth: 0.54, bevelEnabled: true, bevelSize: 0.035,
+    bevelThickness: 0.035, bevelSegments: 1,
+  });
+  // Extruded along +Z from the shape plane: centre it across the road and stand
+  // it on the tarmac.
+  geo.translate(0, 0.035, -0.27);
+  addMesh(g, geo, bodyMat);
+
+  // The rubber foot. Dark, and it is what stops the wedge looking like it is
+  // hovering a centimetre off the road on a bright surface.
+  addMesh(g, roundedBox(1.12, 0.07, 0.6, 0.03), gripMat, [-0.03, 0.035, 0]);
+
+  // Two tread bars across the cradle, angled with it. From directly above —
+  // which is most of the frames a dropped item is seen in — these are the whole
+  // read: a yellow rectangle is a plank, a yellow rectangle with two black bars
+  // across it is a chock.
+  for (const [x, y] of [[0.3, 0.34], [-0.06, 0.21]] as const) {
+    addMesh(g, roundedBox(0.13, 0.055, 0.5, 0.025), gripMat, [x, y, 0], [0, 0, -0.34]);
+  }
+
+  // The grab loop on the blunt end. One vertical shape on an object that is
+  // otherwise all horizontals, so the silhouette from the side has a top edge
+  // that is not a straight line.
+  addMesh(g, new THREE.TorusGeometry(0.11, 0.03, 6, 14), steelMat, [0.44, 0.5, 0]);
+
   mergeStatic(g);
   castShadows(g, true, false);
   return g;
@@ -418,24 +427,60 @@ export function buildStar(): THREE.Object3D {
   return g;
 }
 
-// ── bob-omb ────────────────────────────────────────────────────────────────
+// ── gas bottle ─────────────────────────────────────────────────────────────
 
-export function buildBomb(): THREE.Object3D {
+/**
+ * The one that goes off: a **gas bottle**.
+ *
+ * It was a black sphere with a lit fuse and a wind-up key's worth of personality
+ * — somebody else's object, sitting in the middle of a road crew's circuit. A
+ * bottle of propane left lying about a work site is the same idea told in this
+ * game's own words, and it is a *better* silhouette for what the item does: a
+ * sphere reads the same from every angle and therefore reads as nothing in
+ * particular, while an upright cylinder with a valve on top is unmistakably an
+ * object standing on the road, and unmistakably one you do not want to be near.
+ *
+ * The fuse becomes the valve lamp. It keeps the node name `spark`, because the
+ * entity layer pulses it by name and the *behaviour* — brighter and faster the
+ * closer this is to going off — is exactly right for a warning light.
+ */
+export function buildGasBottle(): THREE.Object3D {
   const g = new THREE.Group();
-  const body = plastic(0x2E3340, 0.34, 0.03);
-  addMesh(g, new THREE.SphereGeometry(0.36, 16, 12), body, [0, 0.36, 0]);
-  // A hazard band, because everything in this world is a roadworks machine.
-  addMesh(g, new THREE.TorusGeometry(0.355, 0.055, 6, 20), plastic(0xFF6B1A, 0.4, 0.16),
-    [0, 0.36, 0], [Math.PI / 2, 0, 0]);
-  addMesh(g, new THREE.CylinderGeometry(0.05, 0.065, 0.26, 6), plastic(0x8E99A8, 0.5, 0.02),
-    [0.08, 0.76, 0], [0, 0, -0.45]);
+  const body = plastic(0x2E3340, 0.34, 0.05);
+  const band = plastic(0xFF6B1A, 0.4, 0.18);
+  const steel = plastic(0x9AA5B4, 0.44, 0.04);
+
+  // The bottle. Squat rather than tall: a slim cylinder photographed from a
+  // chase camera at forty metres is a line, and a line is not a thing.
+  addMesh(g, new THREE.CylinderGeometry(0.29, 0.29, 0.56, 16), body, [0, 0.34, 0]);
+  const shoulder = addMesh(g,
+    new THREE.SphereGeometry(0.29, 16, 8, 0, TAU, 0, Math.PI * 0.5), body, [0, 0.62, 0]);
+  shoulder.scale.y = 0.66;
+  // The foot ring, which is what a gas bottle actually stands on.
+  addMesh(g, new THREE.CylinderGeometry(0.31, 0.31, 0.08, 16), body, [0, 0.04, 0]);
+
+  // Two hazard bands. They are the identification at distance, when the valve
+  // and the collar have mipmapped away to nothing — and they are the same
+  // language the canister and the pile driver are painted in.
+  for (const y of [0.18, 0.5]) {
+    addMesh(g, new THREE.CylinderGeometry(0.298, 0.298, 0.09, 16), band, [0, y, 0]);
+  }
+
+  // The neck, the handwheel and the collar that protects them.
+  addMesh(g, new THREE.CylinderGeometry(0.075, 0.095, 0.16, 10), steel, [0, 0.78, 0]);
+  addMesh(g, new THREE.TorusGeometry(0.09, 0.026, 5, 12), steel, [0, 0.86, 0],
+    [Math.PI / 2, 0, 0]);
+  addMesh(g, new THREE.TorusGeometry(0.17, 0.032, 6, 16), band, [0, 0.8, 0],
+    [Math.PI / 2, 0, 0]);
+
   mergeStatic(g);
   castShadows(g, true, false);
 
-  // The fuse spark keeps its own material: it is pulsed per bomb, per frame.
-  const spark = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), glowMaterial(0xFFE9A8, 0.9));
+  // The valve lamp keeps its own material: it is pulsed per bottle, per frame.
+  const spark = new THREE.Mesh(new THREE.SphereGeometry(0.105, 8, 6),
+    glowMaterial(0xFFC24A, 0.9));
   spark.name = 'spark';
-  spark.position.set(0.18, 0.88, 0);
+  spark.position.set(0, 0.98, 0);
   spark.userData.noShadow = true;
   g.add(spark);
   return g;
@@ -608,65 +653,138 @@ export function buildBulletHusk(): THREE.Object3D {
   return g;
 }
 
-// ── blooper ────────────────────────────────────────────────────────────────
+// ── tar sprayer ────────────────────────────────────────────────────────────
 
-export function buildBlooper(): THREE.Object3D {
+/**
+ * The machine that throws the tar: a **road sprayer**, launched over the field.
+ *
+ * This was a squid with two eyes and six tentacles. There is no reading of a
+ * roadworks circuit in which the thing that dirties everybody's windscreen is a
+ * cephalopod, and the item's own screen effect had already been built as tar on
+ * the glass — so the object in the air was the last part still telling the other
+ * studio's joke.
+ *
+ * A hand sprayer is the right shape as well as the right idea: a drum on a pair
+ * of wheels with a spray bar under it is a *machine*, so it reads as something
+ * that was thrown rather than something that is alive, and the nozzles pointing
+ * down say what is about to happen to everyone in front. It is only ever seen
+ * from behind and below, arcing away up the road, so the silhouette is all
+ * horizontal — drum, bar, wheels — against the sky.
+ */
+export function buildSprayer(): THREE.Object3D {
   const g = new THREE.Group();
-  const skin = plastic(0xF2F6FF, 0.5, 0.1);
-  const head = addMesh(g, new THREE.SphereGeometry(0.62, 16, 12), skin, [0, 0.2, 0]);
-  head.scale.set(1, 1.22, 0.94);
-  // Tentacles, splayed. They are the read at distance, so they are long.
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * TAU;
-    const t = addMesh(g, new THREE.ConeGeometry(0.11, 0.9, 6), skin,
-      [Math.sin(a) * 0.3, -0.45, Math.cos(a) * 0.3],
-      [Math.cos(a) * 0.32, 0, -Math.sin(a) * 0.32]);
-    t.scale.y = 1 + (i % 2) * 0.35;
+  const shellMat = plastic(0x39404F, 0.42, 0.06);
+  const band = plastic(0xFF6B1A, 0.4, 0.18);
+  const steel = plastic(0x9AA5B4, 0.44, 0.05);
+  const rubber = plastic(0x1E222C, 0.7, 0.02);
+
+  // The drum, lying across the direction of travel.
+  addMesh(g, new THREE.CylinderGeometry(0.42, 0.42, 0.92, 14), shellMat, [0, 0.62, 0],
+    [0, 0, Math.PI / 2]);
+  for (const x of [-0.26, 0.26]) {
+    addMesh(g, new THREE.CylinderGeometry(0.435, 0.435, 0.13, 14), band, [x, 0.62, 0],
+      [0, 0, Math.PI / 2]);
   }
+  // The filler cap on top, so the drum has an up.
+  addMesh(g, new THREE.CylinderGeometry(0.12, 0.14, 0.1, 10), steel, [0.1, 1.02, 0]);
+
+  // The spray bar and its nozzles — the business end, and the only part of this
+  // that has to be legible when it is a handful of pixels over the horizon.
+  addMesh(g, roundedBox(1.06, 0.09, 0.11, 0.04), steel, [0, 0.2, 0.1]);
+  for (const x of [-0.36, 0, 0.36]) {
+    addMesh(g, new THREE.ConeGeometry(0.075, 0.14, 8), steel, [x, 0.12, 0.1],
+      [Math.PI, 0, 0]);
+  }
+
+  // Wheels, on a cross axle under the drum.
+  for (const z of [-0.3, 0.32]) {
+    addMesh(g, new THREE.CylinderGeometry(0.19, 0.19, 0.1, 12), rubber, [0, 0.19, z],
+      [0, 0, Math.PI / 2]);
+  }
+  // The push handle, folded back. One diagonal on a machine of horizontals.
+  for (const x of [-0.3, 0.3]) {
+    addMesh(g, new THREE.CylinderGeometry(0.035, 0.035, 0.8, 6), steel,
+      [x, 0.78, -0.42], [0.7, 0, 0]);
+  }
+  addMesh(g, new THREE.CylinderGeometry(0.04, 0.04, 0.66, 6), band, [0, 1.02, -0.66],
+    [0, 0, Math.PI / 2]);
+
   mergeStatic(g);
   castShadows(g, true, false);
 
-  const dark = plastic(0x2C3550, 0.4, 0.02);
-  for (const sx of [-1, 1]) {
-    const e = addMesh(g, new THREE.SphereGeometry(0.2, 10, 8), plastic(0xFFFFFF, 0.3, 0.1),
-      [sx * 0.26, 0.28, 0.52]);
-    e.scale.z = 0.55;
-    const p = addMesh(g, new THREE.SphereGeometry(0.1, 8, 6), dark, [sx * 0.28, 0.26, 0.66]);
-    p.scale.z = 0.5;
-  }
+  // The plume. Not additive — this is the one effect in the module that has to
+  // read as something *dark* leaving the machine, so it is a plain transparent
+  // cone under the bar, wide end down.
+  const plume = new THREE.Mesh(
+    new THREE.ConeGeometry(0.5, 1.05, 10, 1, true),
+    new THREE.MeshBasicMaterial({
+      // Bitumen. It was navy, which is the colour of the thing this replaced
+      // rather than of the thing it is — and the plume and the tar it puts on
+      // the glass have to be the same substance or the item is two objects.
+      color: 0x1B140E, transparent: true, opacity: 0.34,
+      depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
+    }));
+  plume.position.set(0, -0.4, 0.1);
+  plume.rotation.x = Math.PI;
+  plume.name = 'plume';
+  plume.userData.noShadow = true;
+  g.add(plume);
   return g;
 }
 
-// ── boo ────────────────────────────────────────────────────────────────────
+// ── dust sheet ─────────────────────────────────────────────────────────────
 
-export function buildBoo(): THREE.Object3D {
+/**
+ * What hides you while you rummage through somebody's toolbox: a **dust sheet**.
+ *
+ * It was a boo — a white blob with two eyes and a mouth. The eyes were the whole
+ * problem: they made the object a *character*, and a character from a game this
+ * one is not. A sheet does the same job in this world's own language, and the
+ * job is unchanged: a pale, half-there shape draped over the machine that says
+ * "you cannot be seen and neither can they see you coming".
+ *
+ * What replaces the face is the hem. A rectangle of canvas hanging in the air
+ * would be a flag; a *draped* one — high in the middle, scalloped along the
+ * bottom, with brass eyelets catching the light where it hangs — is a dust sheet
+ * with something under it, which is exactly the read.
+ */
+export function buildDustSheet(): THREE.Object3D {
   const g = new THREE.Group();
-  const skin = new THREE.MeshStandardMaterial({
-    color: 0xEFF3FF, emissive: 0xBFD2FF, emissiveIntensity: 0.35,
-    roughness: 0.6, transparent: true, opacity: 0.72, depthWrite: false,
+  const canvas = new THREE.MeshStandardMaterial({
+    color: 0xF2EADA, emissive: 0xD8CDB4, emissiveIntensity: 0.3,
+    roughness: 0.85, transparent: true, opacity: 0.72, depthWrite: false,
   });
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.55, 16, 12), skin);
-  head.position.y = 0.55;
-  g.add(head);
-  // A scalloped skirt: three lobes hanging off the underside.
-  for (let i = 0; i < 3; i++) {
-    const a = (i / 3) * TAU + 0.5;
-    const lobe = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 8), skin);
-    lobe.position.set(Math.sin(a) * 0.3, 0.18, Math.cos(a) * 0.3);
-    lobe.scale.y = 1.5;
+  // The drape: taller than it is wide, so it hangs rather than floats.
+  const drape = new THREE.Mesh(new THREE.SphereGeometry(0.55, 16, 12), canvas);
+  drape.position.y = 0.55;
+  drape.scale.set(1, 1.06, 0.92);
+  g.add(drape);
+  // The hem. Five lobes at uneven heights — cloth that has been thrown over
+  // something does not hang level, and the unevenness is what stops the
+  // silhouette reading as a dome.
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * TAU + 0.5;
+    const lobe = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 8), canvas);
+    lobe.position.set(Math.sin(a) * 0.36, 0.2 - (i % 2) * 0.08, Math.cos(a) * 0.34);
+    lobe.scale.set(0.9, 1.5 + (i % 3) * 0.25, 0.9);
     g.add(lobe);
   }
-  const dark = new THREE.MeshBasicMaterial({ color: 0x2B3149, toneMapped: false });
-  for (const sx of [-1, 1]) {
-    const e = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 6), dark);
-    e.position.set(sx * 0.2, 0.62, 0.46);
-    e.scale.set(0.8, 1.25, 0.5);
-    g.add(e);
+  // One corner caught and lifted, which is the only asymmetry it needs.
+  const corner = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.44, 7), canvas);
+  corner.position.set(-0.44, 0.72, 0.24);
+  corner.rotation.set(0.3, 0, 0.9);
+  g.add(corner);
+
+  // Eyelets. Small, dark, unlit rings along the hem — the detail that names the
+  // object, in the same way the two dots used to name the one it replaces.
+  const brass = new THREE.MeshBasicMaterial({ color: 0x6E5B36, toneMapped: false });
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * TAU + 0.9;
+    const eye = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.018, 5, 10), brass);
+    eye.position.set(Math.sin(a) * 0.4, 0.1 + (i % 2) * 0.06, Math.cos(a) * 0.38);
+    eye.rotation.set(Math.PI / 2, 0, 0);
+    g.add(eye);
   }
-  const mouth = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), dark);
-  mouth.position.set(0, 0.4, 0.46);
-  mouth.scale.set(1, 0.55, 0.4);
-  g.add(mouth);
   g.traverse((o) => { o.userData.noShadow = true; });
   return g;
 }
@@ -803,26 +921,65 @@ export function buildBlast(): THREE.Object3D {
  * almost no contrast left to spend.
  *
  * Multiply blending has no such problem. The falloff is carried in the vertex
- * colour — 1 at the rim, which is a no-op, down to `darkness` at the centre —
+ * colour — 1 at the rim, which is a no-op, down to `darkness` at the middle —
  * so the disc scales the road's own brightness instead of trying to out-paint
  * it, needs no texture, and stays a shadow on tarmac, on dirt and on paint.
+ *
+ * **It needs a core, and for two rounds it did not have one.** The build this
+ * replaces was a single triangle fan: one dark vertex at the centre, `seg` pale
+ * ones round the rim, and a linear ramp between them. Exactly one *point* of
+ * that disc ever reached `darkness`. Integrated over the area — which is what a
+ * photograph measures — a fan from 0.20 to 1.0 multiplies the road by 0.73, so
+ * a shadow authored at "take four fifths of the light away" delivered "take a
+ * quarter of it away, in the middle, fading to nothing", and every item in the
+ * game photographed as floating: five boxes in an overhead frame with hard
+ * black kart shadows beside them and not one of their own, three hats orbiting
+ * a kart that was casting one.
+ *
+ * So it is built as concentric rings instead, with the inner 55% *solid* at
+ * `darkness` and the feather spent on the outer 45%. Same vertex format, same
+ * material, one draw call — the mean is now 0.35 rather than 0.73 for the same
+ * authored number, and the disc reads as a shadow because it has a body.
  */
 export function contactShadowGeometry(radius: number, darkness = 0.34, seg = 22): THREE.BufferGeometry {
-  const pos = new Float32Array(seg * 3 * 3);
-  const col = new Float32Array(seg * 3 * 3);
+  // Radius and shade at each ring. The first two carry the same value, which is
+  // what makes the core solid; the last is 1, which under multiply blending is
+  // a no-op and therefore an invisible edge.
+  const rings: ReadonlyArray<readonly [number, number]> = [
+    [0, darkness],
+    [0.55, darkness],
+    [0.80, darkness + (1 - darkness) * 0.40],
+    [1, 1],
+  ];
+  // One triangle per segment for the inner fan, two for each of the two bands.
+  const tris = seg * 5;
+  const pos = new Float32Array(tris * 3 * 3);
+  const col = new Float32Array(tris * 3 * 3);
   let k = 0;
+  const put = (x: number, y: number, c: number): void => {
+    pos[k] = x; pos[k + 1] = y; pos[k + 2] = 0;
+    col[k] = c; col[k + 1] = c; col[k + 2] = c;
+    k += 3;
+  };
   for (let i = 0; i < seg; i++) {
     const a0 = (i / seg) * TAU;
     const a1 = ((i + 1) / seg) * TAU;
-    const tri = [
-      [0, 0, darkness],
-      [Math.cos(a0) * radius, Math.sin(a0) * radius, 1],
-      [Math.cos(a1) * radius, Math.sin(a1) * radius, 1],
-    ] as const;
-    for (const [x, y, c] of tri) {
-      pos[k] = x; pos[k + 1] = y; pos[k + 2] = 0;
-      col[k] = c; col[k + 1] = c; col[k + 2] = c;
-      k += 3;
+    const c0 = Math.cos(a0), s0 = Math.sin(a0);
+    const c1 = Math.cos(a1), s1 = Math.sin(a1);
+    // The solid middle.
+    put(0, 0, rings[0]![1]);
+    put(c0 * rings[1]![0] * radius, s0 * rings[1]![0] * radius, rings[1]![1]);
+    put(c1 * rings[1]![0] * radius, s1 * rings[1]![0] * radius, rings[1]![1]);
+    // ...and the two feather bands outside it.
+    for (let b = 1; b < rings.length - 1; b++) {
+      const [ri, vi] = rings[b]!;
+      const [ro, vo] = rings[b + 1]!;
+      put(c0 * ri * radius, s0 * ri * radius, vi);
+      put(c0 * ro * radius, s0 * ro * radius, vo);
+      put(c1 * ro * radius, s1 * ro * radius, vo);
+      put(c0 * ri * radius, s0 * ri * radius, vi);
+      put(c1 * ro * radius, s1 * ro * radius, vo);
+      put(c1 * ri * radius, s1 * ri * radius, vi);
     }
   }
   const geo = new THREE.BufferGeometry();
@@ -1022,16 +1179,17 @@ export function buildStarAura(): THREE.Object3D {
 }
 
 /**
- * Boo's shroud: what a racer looks like while they are the ghost.
+ * The sheet's shroud: what a racer looks like while they are under it.
  *
  * The user has to be able to see that *they* are the one who has gone
  * spectral — the alternative is an item whose only tell is a stolen shell four
- * seconds later. A pale rim and a boo riding shotgun does it in one frame.
+ * seconds later. A pale rim and a corner of canvas flapping alongside does it
+ * in one frame.
  */
-export function buildBooShroud(): THREE.Object3D {
+export function buildSheetShroud(): THREE.Object3D {
   const g = new THREE.Group();
   // A *tight* rim, and no face-on core at all. The star can afford a lit core
-  // because a star is meant to be blinding; boo cannot, because boo lasts four
+  // because a star is meant to be blinding; this cannot, because it lasts four
   // and a half seconds and the player has to keep driving through it. At power
   // 3.0 with a 0.05 core this photographed as an opaque milky bubble with the
   // kart nowhere to be seen — which is not "spectral", it is "broken".
@@ -1045,14 +1203,14 @@ export function buildBooShroud(): THREE.Object3D {
 
   // The passenger sits *outboard*. On the axis it read as a white growth on top
   // of whatever machine was underneath it — photographed over a road cone, the
-  // boo's head and the cone's tip fused into one pale lump and neither shape
+  // sheet and the cone's tip fused into one pale lump and neither shape
   // survived. Off to one side and level with the roofline it is plainly a
   // second object, riding along, which is the whole joke.
-  const boo = buildBoo();
-  boo.name = 'rider';
-  boo.scale.setScalar(0.7);
-  boo.position.set(0.95, 1.55, -0.35);
-  g.add(boo);
+  const sheet = buildDustSheet();
+  sheet.name = 'rider';
+  sheet.scale.setScalar(0.7);
+  sheet.position.set(0.95, 1.55, -0.35);
+  g.add(sheet);
 
   g.traverse((o) => { o.userData.noShadow = true; });
   return g;
@@ -1218,6 +1376,8 @@ export interface BoxMaterials {
   shell: THREE.MeshStandardMaterial;
   core: THREE.MeshBasicMaterial;
   glyph: THREE.MeshBasicMaterial;
+  /** The chips a broken box throws. Opaque and lit — see `makeBoxMaterials`. */
+  shard: THREE.MeshStandardMaterial;
   /** Advance the iridescence. Visual only. */
   tick(t: number): void;
   dispose(): void;
@@ -1343,15 +1503,30 @@ export function makeBoxMaterials(): BoxMaterials {
 
   const glyph = boxGlyphMaterial();
 
+  /**
+   * What the box comes apart into.
+   *
+   * Opaque and lit, deliberately — the shell is glass and the shards are not.
+   * A shatter made of translucent pieces of the same material photographs as
+   * the box going slightly blurry; a spray of hard hazard-yellow chips reads,
+   * on the single frame most players ever see of it, as a thing being broken.
+   */
+  const shard = new THREE.MeshStandardMaterial({
+    color: 0xFFC300, emissive: 0xFF8A2A, emissiveIntensity: 0.55,
+    roughness: 0.32, metalness: 0, flatShading: true,
+  });
+
   return {
     shell,
     core,
     glyph,
+    shard,
     tick(t: number): void { uTime.value = t; },
     dispose(): void {
       tex.dispose();
       shell.dispose();
       core.dispose();
+      shard.dispose();
       glyph.map?.dispose();
       glyph.dispose();
     },
@@ -1384,7 +1559,12 @@ export function boxHaloMaterial(): THREE.MeshBasicMaterial {
     // White, because the hue arrives per instance — see `boxHue` and
     // `setColorAt` in the box field. A tinted base would multiply into it and
     // pull every box back toward the same warm smear.
-    color: 0xFFFFFF, vertexColors: true, transparent: true, opacity: 0.7,
+    // 0.55, not 0.7, and the disc it is painted on is now less than a third of
+    // the area it was — see HALO_R in boxes.ts. An additive glow that reaches
+    // past the object it belongs to does not read as that object glowing, it
+    // reads as a coloured light being shone on whatever is behind it, and what
+    // was behind it here was the racing line.
+    color: 0xFFFFFF, vertexColors: true, transparent: true, opacity: 0.55,
     blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
   });
 }

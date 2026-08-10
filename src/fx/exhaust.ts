@@ -97,6 +97,21 @@ const port = (over: Partial<ExhaustPort>): ExhaustPort => ({
  * Exhaust anchors per machine, read off the parts that make the hole in
  * `vehicles/registry.ts`.
  *
+ * ── how loud these are, and why they went up ──────────────────────────────
+ *
+ * Every `alpha` here is about 45% higher than it was, because the thing this
+ * table exists to prevent was still measurably happening: a review frame of
+ * three machines nose-to-tail at 54 m/s came back with *no exhaust on any of
+ * them*, and a chase frame on the racing line came back with no particles at
+ * all. The plumes were present and they were tuned to be so polite that they
+ * could not be seen — which for the one emitter that runs on every machine for
+ * the whole race is the same as not existing. A still frame of this game at
+ * full speed has to feel alive (ARCHITECTURE section 12) and this is the layer
+ * that carries it.
+ *
+ * The granularity rule below is untouched: still many small wisps, still none
+ * of them identifiable as an object. Only the optical depth went up.
+ *
  * The rule for how loud each one is: a machine's plume should say what kind of
  * engine it has without a word of text. The cone and the sedan run small petrol
  * engines and give a thin heat wisp; the truck and the digger run diesels and
@@ -115,18 +130,18 @@ export const EXHAUST: Record<VehicleId, ExhaustPort[]> = {
   cone: [
     port({
       x: 0.24, y: 0.52, z: -1.14, dx: 0.16, dy: 1.1, dz: -1,
-      size: 0.15, grow: 2.7, idle: 26, drive: 54, alpha: 0.145,
+      size: 0.15, grow: 2.7, idle: 26, drive: 54, alpha: 0.205,
     }),
     port({
       x: -0.24, y: 0.52, z: -1.14, dx: -0.16, dy: 1.1, dz: -1,
-      size: 0.15, grow: 2.7, idle: 26, drive: 54, alpha: 0.145,
+      size: 0.15, grow: 2.7, idle: 26, drive: 54, alpha: 0.205,
     }),
   ],
   // One pipe under the rear valance, at (0, 0.42, -1.86).
   car: [
     port({
       x: 0.18, y: 0.44, z: -1.92, dx: 0.14, dy: 1.1, dz: -1,
-      size: 0.17, grow: 2.8, idle: 28, drive: 58, alpha: 0.145,
+      size: 0.17, grow: 2.8, idle: 28, drive: 58, alpha: 0.205,
     }),
   ],
   // Diesel stack behind the cab, at (0.92, 2.95, 0.42), venting straight up.
@@ -140,7 +155,7 @@ export const EXHAUST: Record<VehicleId, ExhaustPort[]> = {
       // still satisfies the rule this module got wrong last round — nothing
       // airborne may be darker than the ground — with room to spare.
       size: 0.13, grow: 3.4, idle: 28, drive: 46, speed: 3.8, life: 0.56,
-      alpha: 0.155, color: 0x9DA3AE, tail: 0x818794,
+      alpha: 0.225, color: 0x9DA3AE, tail: 0x818794,
     }),
   ],
   // Stack on the engine deck at the back of the house, venting up.
@@ -148,7 +163,7 @@ export const EXHAUST: Record<VehicleId, ExhaustPort[]> = {
     port({
       x: 0.56, y: 2.06, z: -0.34, dx: 0.02, dy: 1, dz: -0.14,
       size: 0.12, grow: 3.4, idle: 26, drive: 44, speed: 3.4, life: 0.54,
-      alpha: 0.155, color: 0x9BA1AC, tail: 0x7F8591,
+      alpha: 0.225, color: 0x9BA1AC, tail: 0x7F8591,
     }),
   ],
   // The chimney, at (0, 2.72, 1.62). Steam: white, fat, and it climbs. Kept
@@ -159,7 +174,7 @@ export const EXHAUST: Record<VehicleId, ExhaustPort[]> = {
     port({
       x: 0, y: 2.84, z: 1.62, dx: 0, dy: 1, dz: -0.12,
       size: 0.15, grow: 3.6, idle: 34, drive: 54, speed: 5.0, life: 0.70,
-      alpha: 0.150, color: 0xFDFEFF, tail: 0xC9D2DE,
+      alpha: 0.235, color: 0xFDFEFF, tail: 0xC9D2DE,
     }),
   ],
   // Exhaust stubs either side of the cowl, blowing back along the fuselage.
@@ -167,12 +182,12 @@ export const EXHAUST: Record<VehicleId, ExhaustPort[]> = {
     port({
       x: 0.34, y: 0.86, z: 0.86, dx: 0.2, dy: 0.5, dz: -1,
       size: 0.09, grow: 3.0, idle: 30, drive: 60, speed: 5.0, life: 0.56,
-      alpha: 0.105, color: 0xDCE3EF, tail: 0xB4BDCC, hot: true,
+      alpha: 0.150, color: 0xDCE3EF, tail: 0xB4BDCC, hot: true,
     }),
     port({
       x: -0.34, y: 0.86, z: 0.86, dx: -0.2, dy: 0.5, dz: -1,
       size: 0.09, grow: 3.0, idle: 30, drive: 60, speed: 5.0, life: 0.56,
-      alpha: 0.105, color: 0xDCE3EF, tail: 0xB4BDCC, hot: true,
+      alpha: 0.150, color: 0xDCE3EF, tail: 0xB4BDCC, hot: true,
     }),
   ],
   // Turbine exhaust on the engine deck under the mast, blowing down the boom.
@@ -180,7 +195,7 @@ export const EXHAUST: Record<VehicleId, ExhaustPort[]> = {
     port({
       x: 0.28, y: 1.76, z: -0.72, dx: 0.24, dy: 0.4, dz: -1,
       size: 0.11, grow: 3.2, idle: 32, drive: 62, speed: 6.0, life: 0.62,
-      alpha: 0.105, color: 0xDEE5F1, tail: 0xB6BFCE, hot: true,
+      alpha: 0.150, color: 0xDEE5F1, tail: 0xB6BFCE, hot: true,
     }),
   ],
 };

@@ -46,6 +46,16 @@ export const MODE = {
 
 export type SpriteMode = (typeof MODE)[keyof typeof MODE];
 
+/**
+ * Cell and mode travel to the GPU in one float: `cell + mode * CELL_STRIDE`.
+ *
+ * 16 rather than the atlas's actual 12 cells, so the divide is a shift and the
+ * packing has slack for another row of the atlas without a shader change.
+ * `ADDITIVE_BIT` in `particles.ts` rides above the pair and must stay clear of
+ * `CELL_STRIDE * 3`.
+ */
+export const CELL_STRIDE = 16;
+
 const VERT = /* glsl */ `
 attribute vec3 iPos;
 attribute vec3 iVel;
@@ -71,14 +81,30 @@ uniform vec3 uCamVel;
  * which a spark should be longer than the kart.
  */
 uniform float uMaxStretch;
+/**
+ * How much of its width a velocity-mode quad gives up as it stretches, 0..1.
+ *
+ * A spark is a *point of light photographed while moving*. Smear a point across
+ * the frame and it gets longer; it does not get fatter. With the half-width
+ * held constant while the length ran out to the ceiling, what the additive
+ * layer actually drew was a capsule of constant thickness — measured on a
+ * mini-turbo, a two-metre cyan lozenge with parallel sides, and a handful of
+ * those lying on the road reads as neon paint rather than as sparks.
+ *
+ * Per layer rather than global, because the alpha layer's velocity quads are
+ * the opposite case: tyre smoke and the speed wake are *volumes* being dragged,
+ * and a volume that thins as it stretches is a volume that disappears exactly
+ * when the machine is going fast enough to need it. They keep their width.
+ */
+uniform float uStretchNarrow;
 
 varying vec2 vUv;
 varying vec4 vColor;
 
 void main() {
   float packed = iParams.w;
-  float mode = floor(packed * 0.125);
-  float cell = packed - mode * 8.0;
+  float mode = floor(packed * 0.0625);      // 1 / CELL_STRIDE
+  float cell = packed - mode * 16.0;
 
   // Named rad, not half: "half" is a reserved word in GLSL ES.
   float rad = iParams.x * 0.5;
@@ -104,7 +130,13 @@ void main() {
       // open. A spark keeping pace with the chase camera stays a point.
       vec3 vv = (modelViewMatrix * vec4(iVel - uCamVel, 0.0)).xyz;
       float vl = length(vv.xy);
-      along = rad + min(iParams.y * vl, uMaxStretch);
+      float draw = min(iParams.y * vl, uMaxStretch);
+      along = rad + draw;
+      // ...and it narrows as it lengthens. The ratio below is 0 for a sprite
+      // that is not moving across the frame and approaches 1 for one that is
+      // all trail, so a stationary spark keeps its full cross-section and a
+      // fast one is drawn as the thin streak it physically is.
+      rad *= 1.0 - uStretchNarrow * (draw / (draw + rad));
       if (vl > 1e-4) ax = vv.xy / vl;
     }
     vec2 ay = vec2(-ax.y, ax.x);
@@ -113,9 +145,11 @@ void main() {
 
   gl_Position = projectionMatrix * mv;
 
+  // The atlas is 4 columns by 3 rows. The v axis counts up from the bottom, so
+  // the row index has to be flipped against ATLAS_ROWS - 1.
   float col = mod(cell, 4.0);
   float row = floor(cell * 0.25);
-  vUv = (uv + vec2(col, 1.0 - row)) * vec2(0.25, 0.5);
+  vUv = (uv + vec2(col, 2.0 - row)) * vec2(0.25, 0.3333333);
   vColor = iColor;
 }`;
 
@@ -143,6 +177,9 @@ export interface SpriteLayerOptions {
   depthTest?: boolean;
   /** Ceiling on velocity stretch, metres of half-length. See `uMaxStretch`. */
   maxStretch?: number;
+  /** How much width a velocity quad trades for length, 0..1. See
+   *  `uStretchNarrow`. Default 0 — volumes keep their cross-section. */
+  stretchNarrow?: number;
 }
 
 export interface SpriteLayer {
@@ -205,6 +242,7 @@ export function createSpriteLayer(opts: SpriteLayerOptions): SpriteLayer {
       tAtlas: { value: opts.atlas },
       uCamVel: { value: camVel },
       uMaxStretch: { value: opts.maxStretch ?? 0.9 },
+      uStretchNarrow: { value: opts.stretchNarrow ?? 0 },
     },
     vertexShader: VERT,
     fragmentShader: FRAG,
@@ -243,7 +281,7 @@ export function createSpriteLayer(opts: SpriteLayerOptions): SpriteLayer {
       velData[i3] = vx; velData[i3 + 1] = vy; velData[i3 + 2] = vz;
       colData[i4] = r; colData[i4 + 1] = g; colData[i4 + 2] = b; colData[i4 + 3] = a;
       parData[i4] = size; parData[i4 + 1] = stretch; parData[i4 + 2] = rot;
-      parData[i4 + 3] = cell + mode * 8;
+      parData[i4 + 3] = cell + mode * CELL_STRIDE;
       count++;
     },
 
@@ -253,7 +291,10 @@ export function createSpriteLayer(opts: SpriteLayerOptions): SpriteLayer {
 
     commit(): void {
       geo.instanceCount = count;
-      mesh.visible = count > 0;
+      // `forceHidden` is the debug switch behind `__FX.layers(false)`. It has
+      // to be honoured here rather than by writing `visible` from outside,
+      // because this line runs every frame and would put it straight back.
+      mesh.visible = count > 0 && mesh.userData.forceHidden !== true;
       if (count === 0) return;
       posAttr.addUpdateRange(0, count * 3);
       velAttr.addUpdateRange(0, count * 3);

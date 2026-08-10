@@ -41,25 +41,31 @@ const D = (
 ): ItemDef => ({ id, name, color, accent, mode, aiDelay });
 
 /**
- * **The names are this game's, not another studio's.**
+ * **The names are this game's, not another studio's — and so are the objects.**
  *
  * The machines are a Road Cone, a Tipper Truck and a Shunter; the drivers are
  * Bollard, Tarmac, Hi-Vis and Skip; the circuits are Cone Canyon Speedway and
  * Saltpan Bypass — and the item set was Banana, Green Shell, Red Shell,
  * Mushroom, Star, Bullet Bill, Blooper, Boo and Bob-omb. The roadworks joke
- * that carries the entire cast stopped dead at the item box, and these are
- * *player-facing*: `reel.ts` prints the name on the what-hit-you plate.
+ * that carries the entire cast stopped dead at the item box.
  *
- * The `ItemId`s are untouched — they are a published contract, every module in
- * the game switches on them, and renaming them would be churn for no player.
- * Several of the models were re-themed long before the names caught up
- * (`models.ts`: the shell is a hard hat, the mushroom is a compressed-air
- * canister), so for most of the set this is the label finally agreeing with the
- * object it is under.
+ * The names went first. The *art* is the half that took a second pass, and
+ * until it landed this table was the worst of both: a plate reading WHEEL CHOCK
+ * over a yellow crescent with a stalk on it, DUST SHEET over a ghost with two
+ * eyes and a mouth, GAS BOTTLE over a black sphere with a lit fuse. A rename
+ * with the old object still under it is not a rename, it is a caption. Every
+ * model in `models.ts` is now the thing its label says — chock, hard hat,
+ * canister, gas bottle, tar sprayer, dust sheet, pile driver — and every icon
+ * on the what-hit-you plate is a picture of that model.
+ *
+ * The `ItemId`s are untouched — they are a published contract in `types.ts`,
+ * every module in the game switches on them, and renaming them would be churn
+ * for no player. `banana` is the id of a wheel chock, and that is fine; the
+ * *name* is what a player reads.
  */
 export const ITEMS: Record<ItemId, ItemDef> = {
-  // A yellow wedge lying flat on the tarmac that puts you sideways if you find
-  // it with a wheel. It was always a chock; it was only ever called a banana.
+  // A hazard-yellow wedge lying flat on the tarmac that puts you sideways if
+  // you find it with a wheel.
   banana:         D('banana', 'Wheel Chock', 0xFFD429, 0xC98A16, 'aim', 1.4),
   // The domed thing with the bright brim that skitters down the road — built as
   // a hard hat since the models were drawn.
@@ -76,10 +82,18 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   bulletBill:     D('bulletBill', 'Pile Driver', 0x4A5162, 0xFFF8F0, 'instant', 1.1),
   // Everyone on site shrinks, slows and loses what they were carrying.
   lightning:      D('lightning', 'Power Cut', 0xFFE24A, 0xFFFCE0, 'instant', 1.6),
-  // The white thing that sprays paint over everybody's windscreen.
-  blooper:        D('blooper', 'Line Marker', 0xF2F6FF, 0x2C3550, 'instant', 1.3),
-  // Translucent, white, floats, and while it is over you nobody can see you.
-  boo:            D('boo', 'Dust Sheet', 0xEFF3FF, 0x2B3149, 'instant', 1.2),
+  // A drum on two wheels with a spray bar under it, lobbed up the road at
+  // everybody ahead. It was called the Line Marker for one round, which was the
+  // wrong half of the trade: what lands on the glass is *tar*, near-black and
+  // wet, and no line marker throws that. The machine and the mess it makes are
+  // one object again — see `buildSprayer` and the note over "#item-ink".
+  // The accent is what the machine *throws*, and it is bitumen — near-black
+  // with a warm bias — not the navy it was. Navy on a screen effect is squid
+  // ink wearing a new label, which is the half of the rename that a colour
+  // picker can undo on its own.
+  blooper:        D('blooper', 'Tar Sprayer', 0xFF8A2A, 0x1B140E, 'instant', 1.3),
+  // Canvas, translucent, floats, and while it is over you nobody can see you.
+  boo:            D('boo', 'Dust Sheet', 0xF2EADA, 0x6E5B36, 'instant', 1.2),
   bomb:           D('bomb', 'Gas Bottle', 0x2E3340, 0xFF6B1A, 'aim', 1.0),
   // Stays. The purse is called coins everywhere in this game — on the HUD, in
   // `coin:get`, in the racer record — and renaming the item and not the purse

@@ -39,7 +39,7 @@ import {
   type Entity, type EntityField,
 } from './entities.ts';
 import {
-  buildBanana, buildBomb, buildBooShroud, buildBulletHusk, buildMushroom,
+  buildChock, buildGasBottle, buildSheetShroud, buildBulletHusk, buildMushroom,
   buildShell, buildStarAura, cloneWithMaterials, contactShadow, setRimStrength,
   STAR_SPARKS,
 } from './models.ts';
@@ -47,6 +47,22 @@ import { createItemHud, type ItemHud } from './reel.ts';
 import type {
   GameContext, GameSystem, ItemId, Racer, SplineSample, Surface,
 } from '../types.ts';
+
+/**
+ * **The item picture, published — one set, for the whole game.**
+ *
+ * Anything that draws an item anywhere (a socket, a drum, a hit plate, a menu
+ * card, a coin readout) imports these rather than keeping a set of its own. The
+ * round this was added, two sets existed and they disagreed about what the
+ * items *are*: this module's drew the objects in `models.ts` — a wheel chock, a
+ * hard hat, a dust sheet, a gas bottle, a tar sprayer — and the other drew the
+ * `ItemId`s, which still read `banana`, `greenShell`, `boo`, `bomb`, `blooper`
+ * and are not the objects. `ITEMS[id].name` and `models.ts` are the authority
+ * on what an item is; `icons.ts` is the authority on what it looks like flat.
+ */
+export {
+  itemIconSvg, itemIconBody, ITEM_ICON_DEFS, ITEM_ICON_IDS,
+} from './icons.ts';
 
 // ── tuning ─────────────────────────────────────────────────────────────────
 
@@ -97,14 +113,29 @@ const BULLET_TIME = 6.0;
 const BULLET_RAMP = 0.75;
 const SHRUNK_TIME = 7.0;
 /**
- * How long a blooper's ink lasts.
+ * How long a screenful of tar lasts, **at a standstill**.
  *
- * Five, not six, and the number is smaller than the change: the ink now runs
- * off the glass over its own lifetime rather than sitting at full strength for
- * the whole of it, so the *heavy* part of a blooper is the first second and a
- * half and the rest is a receding nuisance. See the note over `#item-ink`.
+ * Three and a half, not six, and the number is smaller than the change: the tar
+ * runs off the glass over its own lifetime rather than sitting at full strength
+ * for the whole of it, and every splat leaves on its own clock, so the heavy
+ * part of a hit is the first second and the rest is a receding nuisance. See
+ * the note over `#item-ink`.
  */
-const INK_TIME = 5.0;
+const INK_TIME = 3.5;
+
+/**
+ * ...and how much faster it goes when you keep your foot in.
+ *
+ * The one thing an obscure-the-screen item must never do is make lifting off
+ * the right answer. Airflow is this game's version of the wipe: the clock runs
+ * at 1× stopped and 1.8× flat out, so the driver who keeps the throttle open
+ * through it sees the road again in about half the time the driver who backs
+ * off does — and the skill the item tests is nerve rather than patience.
+ *
+ * Read off `speed`, which is simulation truth, so it is deterministic; the HUD
+ * only ever sees the fraction that is left.
+ */
+const INK_AIRFLOW = 0.8;
 const BOO_TIME = 4.5;
 const BOMB_FUSE = 2.6;
 const BLAST_RADIUS = 7.4;
@@ -265,6 +296,8 @@ const _pos = new THREE.Vector3();
 const _vis = new THREE.Vector3();
 const _vel = new THREE.Vector3();
 const _hue = new THREE.Color();
+/** Constant, and never written — the target the star's flash lerps toward. */
+const _white = new THREE.Color(0xFFFFFF);
 const _m = new THREE.Matrix4();
 const _quat = new THREE.Quaternion();
 const _lean = new THREE.Quaternion();
@@ -276,6 +309,9 @@ const PITCH_AXIS = new THREE.Vector3(1, 0, 0);
 const _ground = new THREE.Vector3();
 const _shadow = new THREE.Vector3();
 const _off = new THREE.Vector3();
+/** The muzzle's own scratch. Deliberately not shared with `_off`, which is
+ *  written from `update`, because this one is written from the fixed step. */
+const _muz = new THREE.Vector3();
 const _sample: SplineSample = {
   pos: new THREE.Vector3(), tangent: new THREE.Vector3(),
   right: new THREE.Vector3(), up: new THREE.Vector3(),
@@ -1041,7 +1077,45 @@ export function createItemSystem(ctx: GameContext): GameSystem {
 
   function launchPoint(racer: Racer, forward: boolean, out: THREE.Vector3): THREE.Vector3 {
     forwardOf(racer, _fwd);
-    return out.copy(racer.pos).addScaledVector(_fwd, forward ? 2.6 : -2.8);
+    // 3.3 forward, not 2.6. A shell leaves at seventy-six metres a second and
+    // the kart it left is doing fifty, so for the first fifth of a second the
+    // two are only about ten metres apart — and ten metres down the road, from
+    // a chase camera, is *directly over the machine's roof*. Photographed frame
+    // by frame, a thrown hat was a green lump sitting on top of the player's own
+    // cone at 0ms and still there at 200ms, and the first frame it read as a
+    // separate object at all was 700ms. Three quarters of a kart further out
+    // costs the throw nothing and buys the whole first tenth of a second.
+    return out.copy(racer.pos).addScaledVector(_fwd, forward ? 3.3 : -2.9);
+  }
+
+  /**
+   * **The muzzle.** What it looks like when something leaves the kart.
+   *
+   * Every launch in this module used to be a spawn and nothing else: one frame
+   * the item was in the hand, the next it was an object in the road, and the
+   * moment in between — the one the player pressed a button for — had no
+   * picture at all. A kart racer sells a throw with a *flash at the muzzle*,
+   * because that is the only part of it guaranteed to happen where the player
+   * is already looking.
+   *
+   * Three parts, all cheap: a burst in the item's own bright colour left
+   * standing at the launch point (so it slides backwards as the kart drives
+   * out of it, which is the recoil read), a puff of dust off the road under it,
+   * and a kick on the lens for the player. Nothing in the simulation reads any
+   * of it, but it is spawned from the fixed step so a replay of the same seed
+   * throws the same shot.
+   */
+  function muzzle(racer: Racer, id: ItemId, at: THREE.Vector3, forward: boolean): void {
+    const bright = brightOf(id);
+    entities.spawn('burst', {
+      // ownerId -1 on purpose: a burst that rides its owner would be dragged
+      // along with the kart, and the whole point of this one is that the kart
+      // leaves it behind.
+      ownerId: -1, pos: at, life: 0.26, color: bright, scale: forward ? 0.9 : 0.7,
+    });
+    ctx.fx?.spawn('sparks', at, { color: bright, scale: 0.42 });
+    ctx.fx?.spawn('dust', _muz.set(at.x, racer.pos.y - 0.5, at.z), { scale: 0.34 });
+    if (racer.isPlayer) ctx.fx?.shake(0.14, 0.12);
   }
 
   function use(racer: Racer, st: RacerItems, forward: boolean): void {
@@ -1069,6 +1143,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
           ownerId: racer.id, pos: _pos, vel: _vel, life: 26, arm: 0.65,
           radius: 1.5, groundY,
         });
+        muzzle(racer, id, _pos, forward);
         break;
       }
 
@@ -1077,12 +1152,18 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         // speed it always did — it is a mine you leave in the road for whoever
         // is chasing you, and it stops being one if it outruns them.
         launchPoint(racer, forward, _pos);
-        _pos.y = racer.pos.y - 0.36;
+        // On the deck from the first frame. It used to be born level with the
+        // kart's waist and damp down to the road over half a second, which is
+        // the half second it spends in front of the chase camera — so a hat
+        // left the machine at roof height and only found the tarmac once it was
+        // too far away to see it arrive.
+        _pos.y = groundY + 0.16;
         _vel.copy(_fwd).multiplyScalar(forward ? PROJECTILE_SPEED.shell : -PROJECTILE_SPEED.shell * 0.46);
         entities.spawn('greenShell', {
           ownerId: racer.id, pos: _pos, vel: _vel, life: 9, arm: 0.35,
           radius: 1.6, groundY,
         });
+        muzzle(racer, id, _pos, forward);
         break;
       }
 
@@ -1102,11 +1183,12 @@ export function createItemSystem(ctx: GameContext): GameSystem {
           // Nothing ahead, or laid backwards: it flies as a plain shell, which
           // is exactly what a red shell with nobody to chase should do.
           launchPoint(racer, forward, _pos);
-          _pos.y = racer.pos.y - 0.36;
+          _pos.y = groundY + 0.16;
           _vel.copy(_fwd).multiplyScalar(forward ? PROJECTILE_SPEED.shell : -PROJECTILE_SPEED.shell * 0.46);
           entities.spawn('greenShell', {
             ownerId: racer.id, pos: _pos, vel: _vel, life: 8, arm: 0.35, radius: 1.6, groundY,
           });
+          muzzle(racer, id, _pos, forward);
           break;
         }
         const s = ctx.track!.spline.nearest(racer.pos, _sample);
@@ -1115,6 +1197,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
           ownerId: racer.id, pos: _pos, life: 13, arm: 0.25, radius: 1.9,
           targetId: target.id, dist: s.distance + 3, lat: s.lateral ?? 0,
         });
+        muzzle(racer, id, _pos, true);
         break;
       }
 
@@ -1125,6 +1208,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
           ownerId: racer.id, pos: _pos, vel: _vel, life: BOMB_FUSE, arm: 0.4,
           radius: 1.9, groundY,
         });
+        muzzle(racer, id, _pos, forward);
         break;
       }
 
@@ -1288,7 +1372,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       ctx.bus.emit('item:effect', { racer, effect: 'inked', on: true });
     }
     forwardOf(user, _fwd);
-    entities.spawn('squid', {
+    entities.spawn('sprayer', {
       ownerId: user.id,
       pos: _pos.copy(user.pos).addScaledVector(_fwd, 3).setY(user.pos.y + 2.6),
       vel: _vel.copy(_fwd).multiplyScalar(26).setY(1.5),
@@ -1319,7 +1403,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     st.booSteal = 1.1;
 
     forwardOf(user, _fwd);
-    entities.spawn('ghost', {
+    entities.spawn('sheet', {
       ownerId: user.id,
       pos: _pos.copy(user.pos).setY(user.pos.y + 1.4),
       vel: _vel.copy(_fwd).multiplyScalar(victim ? 22 : 8).setY(1.2),
@@ -1521,7 +1605,11 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     }
 
     if (st.ink > 0) {
-      st.ink = Math.max(0, st.ink - dt);
+      // Airflow. `maxSpeed` is the racer's own, so a shrunk or bogged machine
+      // does not get the fast wipe for driving flat out at nothing.
+      const flow = 1 + INK_AIRFLOW
+        * clamp01(racer.speed / Math.max(1, racer.maxSpeed));
+      st.ink = Math.max(0, st.ink - dt * flow);
       if (st.ink === 0) {
         racer.effects.delete('inked');
         ctx.bus.emit('item:effect', { racer, effect: 'inked', on: false });
@@ -1799,10 +1887,10 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     let proto = heldProtos.get(key);
     if (proto) return proto;
     switch (id) {
-      case 'banana': proto = buildBanana(); break;
+      case 'banana': proto = buildChock(); break;
       case 'greenShell': proto = buildShell(0x46D63C, 0x2C9A2A); break;
       case 'redShell': proto = buildShell(0xF03A2E, 0x7E1610, true); break;
-      case 'bomb': proto = buildBomb(); break;
+      case 'bomb': proto = buildGasBottle(); break;
       case 'mushroom':
       case 'tripleMushroom': proto = buildMushroom(); break;
       default: return null;
@@ -2021,6 +2109,34 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       const cyc = 0.5 + 0.5 * Math.sin(visualTime * 4.6);
       _hue.setHSL(lerp(0.095, 0.148, cyc), lerp(0.98, 0.72, cyc), lerp(0.56, 0.80, cyc));
 
+      /**
+       * **The flash — and it is the only thing that puts the star on the kart.**
+       *
+       * Everything above this line lights the air *around* the machine: a
+       * fresnel shell, a pool on the road, a swarm of stars. Photographed on
+       * this circuit, that was not enough and could not be. Cone Canyon's dirt,
+       * its barriers, its cranes and the player's own road cone are all tan and
+       * safety orange; a gold rim around an orange kart on an orange verge is a
+       * gold rim on an orange frame, and from another racer's screen — where the
+       * whole question is *which one of us is untouchable right now* — it says
+       * nothing at all. The kart itself never changed colour.
+       *
+       * `uCore` is what the shell gives off face-on, and it is normally held at
+       * a whisker above nothing precisely so the machine inside stays legible.
+       * Opening it right up for a *twentieth of a second*, four and a bit times
+       * a second, buys the read without paying the silhouette for it: on the
+       * flash frames the kart is washed in the star's own colour and pushed
+       * toward white, and in between — which is three quarters of the time — it
+       * is the machine the player is steering, entirely unobscured. That is the
+       * strobe every invincibility in this genre has had since 1985, and it is
+       * loud from a hundred metres away in somebody else's mirror.
+       */
+      const beat = (visualTime * 5) % 1;
+      const flash = beat < 0.36 ? Math.sin((beat / 0.36) * Math.PI) : 0;
+      // ...and the flash goes white-hot rather than merely brighter gold. White
+      // is the one value nothing on this course owns.
+      if (flash > 0) _hue.lerp(_white, flash * 0.55);
+
       const shell = st.aura.getObjectByName('shell') as THREE.Mesh | undefined;
       if (shell) {
         const m = shell.material as THREE.ShaderMaterial;
@@ -2031,6 +2147,13 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         // an item you cannot drive. The stars orbiting outside the shell are
         // what say "invincible"; the shell only has to say "lit".
         m.uniforms.uStrength!.value = fade * (0.80 + Math.sin(visualTime * 16) * 0.20);
+        // 0.34 at the peak, not 0.62. The flash has to *wash* the machine, not
+        // delete it: at 0.62 the additive term put the cone above white and the
+        // stripes, the face and the silhouette went with it, which is the exact
+        // failure the low base value in `rimMaterial` exists to avoid. At 0.34
+        // the kart is plainly a different colour for those seventy
+        // milliseconds and is plainly still a kart.
+        m.uniforms.uCore!.value = 0.03 + flash * flash * 0.34 * fade;
       }
       const pool = st.aura.getObjectByName('pool') as THREE.Mesh | undefined;
       if (pool) {
@@ -2160,7 +2283,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       huskProto = buildBulletHusk();
       huskProto.visible = false;
       rig.add(huskProto);
-      shroudProto = buildBooShroud();
+      shroudProto = buildSheetShroud();
       shroudProto.visible = false;
       rig.add(shroudProto);
       // Carried items reuse the projectile models, except the mushroom, which
@@ -2303,12 +2426,23 @@ export function createItemSystem(ctx: GameContext): GameSystem {
 
       const player = ctx.player;
       if (player) {
-        // The *fraction of the blooper's life still to run*, not an opacity.
-        // How the ink lands, holds, runs off the glass and fades is a picture,
-        // and it belongs to the thing that draws it; all this end owes it is an
-        // honest clock. See `ItemHud.setInk`.
+        // The *fraction of the tar's life still to run*, not an opacity. How the
+        // ink lands, holds, runs off the glass and fades is a picture, and it
+        // belongs to the thing that draws it; all this end owes it is an honest
+        // clock. See `ItemHud.setInk`.
+        //
+        // The second number is the airflow, and it is deliberately the *same
+        // expression* the clock above runs on rather than an eyeballed
+        // approximation of it: the rule is "keep your foot in and the screen
+        // clears in half the time", and a player only ever learns that from
+        // watching the tar tear off the glass as the speed comes up. Two
+        // different speed curves for the rule and the picture would be a lie
+        // told at sixty frames a second.
         const st = states.get(player.id);
-        hud.setInk(st ? clamp01(st.ink / INK_TIME) : 0);
+        hud.setInk(
+          st ? clamp01(st.ink / INK_TIME) : 0,
+          clamp01(player.speed / Math.max(1, player.maxSpeed)),
+        );
       }
       hud.update(dt);
     },
@@ -2603,6 +2737,13 @@ export function createItemSystem(ctx: GameContext): GameSystem {
           hit: st.hitTime > 0 ? st.hitKind : '',
           hitLeft: st.hitTime,
           effects: Array.from(racer.effects),
+          // Seconds of tar left on the glass, and the fraction of its life that
+          // is. The ink is the one effect in this module whose whole design is a
+          // *shape over time*, and an instrument that can only see "inked: yes"
+          // cannot tell a screenful that clears in a second and a half from one
+          // that sits there for six. Anything measuring the item reads these.
+          ink: st.ink,
+          inkFrac: st.ink > 0 ? st.ink / INK_TIME : 0,
           // The reel, in the terms the beat is judged on. A critic timing the
           // roulette off `racer.item` alone can only see the frame it landed;
           // these say how long it was *meant* to run and how far through it is,
