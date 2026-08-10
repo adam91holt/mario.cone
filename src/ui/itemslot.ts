@@ -586,7 +586,9 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
   let drumPhase = 0;
   /** ...and how fast, in cells per second, which is what drives the smear. */
   let spinSpeed = 0;
-  /** How far the wheel has crept past the end of its own curve. See SPIN_OVERRUN. */
+  /** Cells travelled in this spin, monotonic, and how far past its own curve
+   *  the wheel has crept while waiting for the settle. See SPIN_OVERRUN. */
+  let spinTravel = 0;
   let drumOver = 0;
 
   /** Seconds left of the clunk that rolls the answer into the window. */
@@ -697,6 +699,7 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       spinDur = e.duration && e.duration > 0.05 ? e.duration : FALLBACK_SPIN;
       spinLeft = spinDur;
       alignPending = true;
+      spinTravel = 0;
       drumOver = 0;
       landing = 0;
       landItem = null;
@@ -740,6 +743,8 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       // Lands within a step of the start, long before a frame is drawn, so the
       // alignment is never a visible jump.
       squareTravel(e.index);
+      spinTravel = 0;
+      drumOver = 0;
       drumPhase = spinFrom;
     }
   }));
@@ -780,6 +785,7 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       boostFlare = 0;
       drumPhase = 0;
       spinSpeed = 0;
+      spinTravel = 0;
       drumOver = 0;
       landing = 0;
       landItem = null;
