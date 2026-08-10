@@ -1236,20 +1236,28 @@ export function buildScorch(): THREE.Object3D {
  * background, for as long as you let it live. The entity animates all three off
  * one age.
  */
+/* **Five points, and the box's own colours.** This was a six-point star in flat
+ * additive #FFF8F0 with a white core and a white ring, and the game's other
+ * star — the spin-out cell in `fx/atlas.ts` — is five-point. Two star shapes in
+ * one game is two studios; and additive near-white over a lit road adds almost
+ * no contrast, which is why the biggest break effect in the game photographed
+ * as a flat grey star-in-a-ring ghost. It now breaks in the colours the box is
+ * made of and the shards are painted in: a white-hot core, a hazard-gold star
+ * and a safety-orange shockwave. */
 export function buildBurst(): THREE.Object3D {
   const g = new THREE.Group();
-  const geo = new THREE.ExtrudeGeometry(starShape(1, 0.34, 6), {
+  const geo = new THREE.ExtrudeGeometry(starShape(1, 0.38, 5), {
     depth: 0.06, bevelEnabled: false,
   });
   geo.center();
-  const a = new THREE.Mesh(geo, glowMaterial(0xFFF8F0, 1));
+  const a = new THREE.Mesh(geo, glowMaterial(0xFFD84D, 1));
   a.name = 'star';
   g.add(a);
   const b = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 8), glowMaterial(0xFFF8F0, 0.9));
   b.name = 'core';
   g.add(b);
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.86, 1.0, 30),
-    glowMaterial(0xFFF8F0, 0.9));
+    glowMaterial(0xFF8A2A, 0.9));
   ring.name = 'ring';
   g.add(ring);
   g.traverse((o) => { o.userData.noShadow = true; });
@@ -1527,18 +1535,39 @@ export interface BoxMaterials {
  * a row is a bug and not a flourish.
  */
 export function boxHue(t: number, out: THREE.Color): THREE.Color {
-  const h = t * 0.16 + 0.27;
+  const w = 0.5 + 0.5 * Math.cos(TAU * (t * 0.16 + 0.27));
+  // Safety orange to hazard yellow, and a lift toward warm white at the top of
+  // the sweep. Must stay in step with `mcHue` in the shell shader below.
+  const k = w * w * 0.42;
   return out.setRGB(
-    0.55 + 0.45 * Math.cos(TAU * h),
-    0.55 + 0.45 * Math.cos(TAU * (h + 0.33)),
-    0.55 + 0.45 * Math.cos(TAU * (h + 0.67)),
+    1.0,
+    (0.42 + (0.77 - 0.42) * w) * (1 - k) + 0.95 * k,
+    (0.06 * (1 - w)) * (1 - k) + 0.86 * k,
   );
 }
 
 /**
- * The box shell: glassy, and *iridescent* — the hue sweeps around the cube with
- * view angle and with time. That shimmer is the single cue that says "pick this
- * up" from across the circuit, and a flat translucent cube does not have it.
+ * The box shell: painted, and *iridescent within the palette* — the sheen
+ * sweeps across the cube with view angle and with time. That shimmer is the
+ * single cue that says "pick this up" from across the circuit, and a flat
+ * matte cube does not have it.
+ *
+ * **It used to be glass, and it was the wrong material for this game.** At 0.58
+ * opacity over a full-rainbow hue sweep, adding up to 0.92 of a near-white tint
+ * on top, the item box was the only translucent object in the cast and the
+ * palest thing in every frame it appeared in: photographed on the racing line
+ * it was a washed-out off-white cube with faint pink and cyan tints and a
+ * bleached orange "?", surrounded by opaque saturated machines on rich dark
+ * asphalt. ARCHITECTURE section 12 is explicit — bold flat colour, materials
+ * that read as painted vinyl or plastic, and a palette anchored on safety
+ * orange and hazard yellow — and the object the player chases hardest was the
+ * one thing in the game ignoring all three.
+ *
+ * So: near-opaque, painted, and the sweep runs orange to yellow to warm white
+ * instead of round the whole colour wheel. The sheen multiplies the painted
+ * face and only the grazing rim gets a real lift, which puts the glow *inside*
+ * the silhouette rather than washing it out. It is still unmistakably alive and
+ * it is now unmistakably this game's object.
  *
  * Done by patching the standard material rather than writing a custom shader,
  * so the box still takes the scene's own lighting, fog and tone mapping.
@@ -1550,20 +1579,21 @@ export function makeBoxMaterials(): BoxMaterials {
   const shell = new THREE.MeshStandardMaterial({
     color: 0xFFF8F0,
     map: tex,
+    // Still nominally transparent, at a tenth: enough that the backing lamp and
+    // the far face are *sensed* through the near one, not enough to stop the
+    // cube being a solid painted object. The whole read was "glass" and it is
+    // now "moulded plastic with a light inside".
     transparent: true,
-    // 0.58, not 0.9. This is the number that decides whether the cube is glass
-    // or painted plastic, and at 0.9 — over a face texture that was itself more
-    // than half solid orange — it was plastic. You have to be able to see the
-    // far side of the box through the near one; that is the whole read.
-    opacity: 0.58,
-    roughness: 0.1,
+    opacity: 0.90,
+    // Painted vinyl, not polished glass.
+    roughness: 0.34,
     metalness: 0.0,
-    emissive: 0xFFFFFF,
-    // An item box is a light source in every kart racer ever made: it has to
-    // hold its colour in the shadow of a canyon wall, and a purely lit box goes
-    // brown there and stops looking like a pickup. Pulled back with the opacity
-    // so the glass is lit rather than painted.
-    emissiveIntensity: 0.38,
+    // Warm, not white. An item box is a light source in every kart racer ever
+    // made: it has to hold its colour in the shadow of a canyon wall, and a
+    // purely lit box goes brown there and stops looking like a pickup. A
+    // *white* emissive did the opposite and desaturated it in daylight.
+    emissive: 0xFFB25A,
+    emissiveIntensity: 0.30,
     emissiveMap: tex,
     depthWrite: false,
     side: THREE.DoubleSide,
@@ -1610,8 +1640,13 @@ export function makeBoxMaterials(): BoxMaterials {
         varying vec3 vMcNormal;
         varying vec3 vMcView;
         varying float vMcSeed;
+        // The house sweep: safety orange to hazard yellow, lifting toward warm
+        // white at the top of it. Kept in step with boxHue() on the CPU side,
+        // which the halo instance colours are drawn from.
         vec3 mcHue( float h ) {
-          return 0.55 + 0.45 * cos( 6.28318 * ( h + vec3( 0.0, 0.33, 0.67 ) ) );
+          float w = 0.5 + 0.5 * cos( 6.28318 * h );
+          vec3 warm = mix( vec3( 1.0, 0.42, 0.06 ), vec3( 1.0, 0.77, 0.0 ), w );
+          return mix( warm, vec3( 1.0, 0.95, 0.86 ), w * w * 0.42 );
         }`)
       .replace('#include <dithering_fragment>', `#include <dithering_fragment>
         // Fresnel sweeps the hue *across each face* as well as round the
@@ -1625,8 +1660,15 @@ export function makeBoxMaterials(): BoxMaterials {
         // Held below a blow-out: the shimmer has to sit *on* the faces, not
         // erase them. A box that clips to white loses its frame, which is the
         // only thing holding its silhouette together at distance.
-        gl_FragColor.rgb += mcTint * ( mcF * 0.62 + 0.30 );
-        gl_FragColor.a = clamp( gl_FragColor.a + mcF * mcF * 0.42, 0.0, 1.0 );`);
+        // **Tint the paint, do not add light to it.** Adding up to 0.92 of a
+        // near-white hue on top of a lit face is what bleached a safety-orange
+        // object into the palest thing in the frame. The sweep now multiplies
+        // the face — so it saturates rather than washes — and only the grazing
+        // rim gets an additive lift, which is where a moulded plastic edge
+        // catches the sun anyway.
+        gl_FragColor.rgb *= mix( vec3( 1.0 ), mcTint, 0.88 );
+        gl_FragColor.rgb += mcTint * ( mcF * mcF * 0.38 );
+        gl_FragColor.a = clamp( gl_FragColor.a + mcF * mcF * 0.30, 0.0, 1.0 );`);
   };
 
   // The light *behind* the glyph, not the thing in the middle of the box. It

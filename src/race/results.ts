@@ -20,7 +20,7 @@
 
 import { clamp01, ease, formatTime } from '../core/math.ts';
 import { glyphBox, ordinalWord, type GlyphBox } from '../ui/glyphs.ts';
-import { bind, fromHtml, q, rgba, type Bound } from '../ui/theme.ts';
+import { bind, fromHtml, hazardCss, q, rgba, type Bound } from '../ui/theme.ts';
 import { vehicleMark } from '../ui/menus/art.ts';
 import { signBox } from './letters.ts';
 import { createHint, createMenu, type Menu, type MenuOption, type Sfx } from './menu.ts';
@@ -44,8 +44,7 @@ export const CSS_RESULTS = `
    what a sign in this world is fixed to. */
 #race .results .edge {
   position: absolute; top: 0; bottom: 0; width: calc(var(--u) * .55);
-  background: repeating-linear-gradient(115deg,
-    #FF6B1A 0 calc(var(--u) * .7), #14171F calc(var(--u) * .7) calc(var(--u) * 1.4));
+  background: ${hazardCss()};
   opacity: .9;
 }
 #race .results .edge.l { left: 0; }

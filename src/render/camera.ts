@@ -149,7 +149,6 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
   //   `countdown` the same number, spent on a little more lens and a little
   //               more height while the lights are on, so the field the player
   //               has to get past is in the frame they are staring at.
-  //   `podium`    the winner, orbited slowly behind the results sheet.
   //   `finish`    the player's own crossing. This was the one the director had
   //               been describing in full — racer, place, podium, hold, even
   //               how far past the line the machine will be when the shot
@@ -171,12 +170,9 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
    *  because the flag must not snap the lens forward on the one frame the
    *  player is trying to read the first corner. */
   let gridFrame = 0;
-  /** The machine the results sheet is composed on, and the orbit's own clock. */
-  let podiumRacer: Racer | null = null;
-  let podiumT = 0;
 
   ctx.bus.on<{ shot: string; back?: number; racerId?: number; podium?: boolean }>(
-    'camera:shot', ({ shot, back, racerId, podium }) => {
+    'camera:shot', ({ shot, back, podium }) => {
       if (shot === 'grid' || shot === 'countdown') {
         shotBack = Math.max(0, back ?? 0);
         return;
@@ -189,12 +185,6 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
         // win: a podium gets the whole orbit, anything else gets two thirds of
         // it. It is still a composed shot; it is just not a celebration.
         celebScale = podium ? 1 : 0.65;
-        return;
-      }
-      if (shot === 'podium') {
-        podiumRacer = null;
-        for (const r of ctx.racers) if (r.id === racerId) { podiumRacer = r; break; }
-        podiumT = 0;
       }
     },
   );
@@ -231,9 +221,6 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
     // aim is derived from the camera→kart vector, so the hand-off stays smooth
     // wherever in the sweep it happens.
     if (p === 'countdown' || p === 'racing') introActive = false;
-    // The podium shot belongs to the sheet and to nothing else. Anything that
-    // puts the game back on a circuit gives the lens back to the player.
-    if (p !== 'results' && p !== 'finished') podiumRacer = null;
   });
 
   ctx.bus.on('race:intro', () => { introActive = true; introT = 0; });
@@ -527,58 +514,28 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
     if (t >= 1) introActive = false;
   }
 
-  // ── the podium ───────────────────────────────────────────────────────────
-
-  /**
-   * The results sheet's backdrop: a slow orbit around whoever won.
+  /* **There is no podium shot, and there is no window for one.**
    *
-   * The sheet's scrim was built semi-transparent through the middle on purpose
-   * — "the centre stays open enough to read the confetti and the machine it is
-   * falling on" — and until now what showed through that window was wherever
-   * the chase rig happened to stop, which is empty road with a stationary kart
-   * somewhere off frame. The director has always asked for this shot and named
-   * the winner in the ask.
+   * A `podium` shot lived here: a 2.4-second orbit closing from 9.5m/4.2m to
+   * 7.2m/2.9m on the winning machine, armed by the director on `race:results`,
+   * built in full and wired at both ends. The comment above it explained that
+   * the results sheet's scrim "was built semi-transparent through the middle on
+   * purpose", so the orbit had something to be seen through.
    *
-   * Deliberately slow and deliberately low: this is a backdrop behind a table
-   * of numbers, so it must never pull the eye off them. A quarter of a radian a
-   * second is about a lap of the machine every twenty-five seconds, which reads
-   * as *alive* and not as motion.
+   * It has not been true for a long time. `race/results.ts` is a full-frame
+   * document — eight result plates, a championship panel, a header and a button
+   * row, from 2.1u to 2.1u — over a scrim that is rgba(5,7,11,.97) from 68%
+   * outward. Photographed three times, the only backdrop visible anywhere was a
+   * blurred sliver of kerb along the bottom edge with no machine in it. The
+   * shot was composed, paid for every frame the sheet was up, and delivered to
+   * nobody — which is exactly the bug ARCHITECTURE section 7 names for an
+   * emit with no listener, pointed the other way.
+   *
+   * Opening a real window means shrinking the one surface on that sheet that is
+   * the point of it, so the shot goes instead. The lens keeps whatever the
+   * finish shot left it on, which is a composed orbit of the player's own
+   * crossing — and that one is seen, because it plays before the sheet lands.
    */
-  function updatePodium(dt: number, alpha: number): void {
-    const target = podiumRacer;
-    if (!target) return;
-    podiumT += dt;
-
-    _pos.lerpVectors(target.prevPos, target.pos, clamp01(alpha));
-    // From behind the machine and swinging round to its flank. Eased in, so the
-    // curtain opens onto a lens that is already moving rather than one that
-    // starts on the frame the sheet lands.
-    const a = target.yaw + Math.PI + ease.outCubic(clamp01(podiumT / 2.4)) * 0.5
-      + podiumT * 0.25;
-    const dist = lerp(9.5, 7.2, ease.outCubic(clamp01(podiumT / 3)));
-    const lift = lerp(4.2, 2.9, ease.outCubic(clamp01(podiumT / 3)));
-
-    _desired.set(_pos.x - Math.sin(a) * dist, _pos.y + lift, _pos.z - Math.cos(a) * dist);
-    const surfY = surfaceYAt(_desired.x, _desired.z, _desired.y);
-    if (_desired.y < surfY + 1.1) _desired.y = surfY + 1.1;
-    cam.position.copy(_desired);
-
-    _anchor.copy(_pos);
-    _anchor.y += lookHeight + 0.35;
-    setFov(C.fov - 6);
-    fov = C.fov - 6;
-    frame(_anchor, 0, 0, WORLD_UP, 0);
-
-    // Keep the chase rig primed off the same pose, so anything that hands the
-    // lens back — a reviewer setting a mode, the next race — resumes from where
-    // the orbit left it instead of snapping out of a stale one.
-    rigYaw = target.yaw;
-    distance = baseDist;
-    height = baseHeight;
-    boomX = cam.position.x - _pos.x;
-    boomZ = cam.position.z - _pos.z;
-    camY = cam.position.y;
-  }
 
   // ── main ─────────────────────────────────────────────────────────────────
 
@@ -600,8 +557,6 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
       swingDir = 0; swingNext = 0; swingU = 0; swingHop = 0; swingDepth = 1; swing = 0;
       celebT = -1;
       celebScale = 1;
-      podiumRacer = null;
-      podiumT = 0;
       // `shotBack` is deliberately not cleared here: the director emits
       // `camera:shot` from inside its own reset at order 70, before this one,
       // so clearing it would throw away the number that has just arrived.
@@ -639,15 +594,6 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
       if (celebT >= 0) celebT += dt;
 
       if (introActive) { updateIntro(dt, racer); return; }
-
-      // The `podium` shot: the results sheet's backdrop. Only ever while the
-      // sheet is actually up, and only from `chase` — a reviewer who has asked
-      // for `overhead`, or a player holding look-behind, has said what they
-      // want the lens to do.
-      if (podiumRacer && mode === 'chase' && (phase === 'results' || phase === 'finished')) {
-        updatePodium(dt, alpha);
-        return;
-      }
 
       // How much of the grid framing is on. See `gridFrame`.
       gridFrame = damp(gridFrame,

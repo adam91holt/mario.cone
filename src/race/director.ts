@@ -1068,9 +1068,11 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     ensureCup();
     cup.apply(rows);
     setPhase('results');
-    // The sheet is a dark scrim over whatever the lens happened to be looking at
-    // when the last machine stopped. Ask for the winner instead; see askCamera.
-    askCamera('podium', { racerId: rows[0]?.id ?? ctx.player?.id ?? 0 });
+    // **No shot is asked for here.** There was one — `podium`, the winner
+    // orbited behind the sheet — and `render/camera.ts` answered it in full,
+    // under a results sheet that covers the frame from edge to edge at 97%
+    // opacity. See the note where that shot used to live. The lens keeps the
+    // finish orbit, which the player actually sees.
     endSlowMo();
     if (!overlay) return;
     overlay.ticker.clear();
@@ -1471,7 +1473,17 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
       lapPeak.clear();
       formT = -1;
       navLatch = 0;
-      paused = false;
+      // **The pause has to be *lifted*, not just forgotten.** ARCHITECTURE §11a
+      // tells every consumer to stand off on the `race:pause` edges, and this
+      // line used to drop `paused` on the floor without announcing it — so a
+      // player who paused and chose RESTART got a running race with the mixer
+      // still ducked and the CONTROLS card welded fully opaque over the frame
+      // for the rest of it. Reproduced: `{ cardOpacity: "1", phase: "racing" }`.
+      // An edge contract with a silent exit is not a contract.
+      if (paused) {
+        paused = false;
+        ctx.bus.emit('race:pause', { on: false });
+      }
       winnerTime = 0;
       lastFinishTime = 0;
       startHeld.clear();

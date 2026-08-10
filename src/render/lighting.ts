@@ -58,7 +58,7 @@ const SHADOW_EXTENT: Record<QualitySettings['tier'], number> = {
  * narrow on purpose — courses get an opinion about *where* the sun is, not about
  * whether the game has shadows.
  */
-const SUN_ELEVATION = { min: 0.50, max: 0.60 };
+export const SUN_ELEVATION = { min: 0.50, max: 0.60 };
 
 /**
  * House rotation applied on top of whatever azimuth a course asks for.
@@ -68,15 +68,104 @@ const SUN_ELEVATION = { min: 0.50, max: 0.60 };
  * quarter turn puts the light across the road instead, so shadows rake sideways
  * and a player reads them in peripheral vision.
  */
-const AZIMUTH_TRIM = Math.PI * 0.5;
+export const AZIMUTH_TRIM = Math.PI * 0.5;
 
 const WHITE = new THREE.Color(0xffffff);
 /** Scratch for the fallback fog colour — no allocation on a quality change. */
 const _fogColour = new THREE.Color();
 
 /** Defaults for a course whose theme leaves the sky out. */
-const DEFAULT_SKY = { top: 0x2e86d6, bottom: 0xbfe7ff, horizon: 0xffe2b0 };
-const DEFAULT_SUN = { color: 0xfff2d8, intensity: 2.6, azimuth: 0.7, elevation: 0.85 };
+export const DEFAULT_SKY = { top: 0x2e86d6, bottom: 0xbfe7ff, horizon: 0xffe2b0 };
+export const DEFAULT_SUN = { color: 0xfff2d8, intensity: 2.6, azimuth: 0.7, elevation: 0.85 };
+/** House gain on the course's declared sun intensity. */
+export const SUN_GAIN = 1.16;
+
+/**
+ * **There is one sun in this game, and this is it.**
+ *
+ * Everything that models light off a course theme derives it here: the three
+ * real lights below, and `render/ground.ts`, which bakes the same rig into the
+ * landscape's vertices because the landscape is drawn unlit. They used to be
+ * three separate derivations — this file, `render/ground.ts` and a second one
+ * inside `track/terrain.ts` that skipped the house trim and the elevation clamp
+ * altogether and modelled the desert with a sun sixty-five degrees away from
+ * the one modelling everything standing on it. A constant two modules have to
+ * agree on belongs to neither of them, so it lives here and they import it.
+ */
+export interface SunRig {
+  /** World-space direction *toward* the sun, trimmed and clamped. */
+  dir: THREE.Vector3;
+  /** Key colour, already carrying intensity and the house gain. */
+  key: THREE.Color;
+  /** ...and the same thing split, for a real `DirectionalLight`. */
+  keyColor: THREE.Color;
+  keyIntensity: number;
+  /** The two ends of the hemisphere fill, at unit intensity. */
+  hemiSky: THREE.Color;
+  hemiGround: THREE.Color;
+  /** The cold grazing rim, and where it comes from. */
+  rim: THREE.Color;
+  rimDir: THREE.Vector3;
+  /** The theme's own colours, resolved against the defaults. */
+  zenith: THREE.Color;
+  horizon: THREE.Color;
+  haze: THREE.Color;
+  ground: THREE.Color;
+}
+
+export function makeSunRig(): SunRig {
+  return {
+    dir: new THREE.Vector3(),
+    key: new THREE.Color(),
+    keyColor: new THREE.Color(),
+    keyIntensity: 1,
+    hemiSky: new THREE.Color(),
+    hemiGround: new THREE.Color(),
+    rim: new THREE.Color(),
+    rimDir: new THREE.Vector3(),
+    zenith: new THREE.Color(),
+    horizon: new THREE.Color(),
+    haze: new THREE.Color(),
+    ground: new THREE.Color(),
+  };
+}
+
+/** Resolve a course theme into the one rig. Allocation-free with an `out`. */
+export function sunRig(theme: CourseTheme, out: SunRig = makeSunRig()): SunRig {
+  const s = { ...DEFAULT_SKY, ...(theme.sky ?? {}) };
+  const su = { ...DEFAULT_SUN, ...(theme.sun ?? {}) };
+
+  const az = su.azimuth + AZIMUTH_TRIM;
+  const el = clamp(su.elevation, SUN_ELEVATION.min, SUN_ELEVATION.max);
+  out.dir.set(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az))
+    .normalize();
+
+  out.zenith.setHex(s.top);
+  out.horizon.setHex(s.bottom);
+  out.haze.setHex(s.horizon ?? s.bottom);
+  out.ground.setHex(theme.ground ?? 0xc9a063);
+
+  out.keyColor.setHex(su.color);
+  out.keyIntensity = su.intensity * SUN_GAIN;
+  out.key.copy(out.keyColor).multiplyScalar(out.keyIntensity);
+
+  // Fill picks its two ends off the theme: sky above, ground below. Saturated
+  // on purpose — a neutral hemisphere light is what makes a scene look like a
+  // render instead of a painting — and weighted toward the sky end, because the
+  // whole point of the fill is that the *shaded* side of a safety-orange cone
+  // comes back blue rather than brown.
+  out.hemiSky.copy(out.horizon).lerp(out.zenith, 0.58);
+  // Bounce off sand is warm but not *orange*: the ground already is, and
+  // multiplying the two turns the desert into a traffic cone.
+  out.hemiGround.copy(out.ground).lerp(WHITE, 0.18).multiplyScalar(0.58);
+
+  // The rim mirrors the sun across the vertical axis and sits low, so it grazes
+  // rather than lights. Its colour is the sky's own blue, pushed.
+  out.rim.copy(out.zenith).lerp(WHITE, 0.34);
+  out.rimDir.set(-out.dir.x, 0.20, -out.dir.z).normalize();
+
+  return out;
+}
 
 export function createLightingSystem(ctx: GameContext): GameSystem {
   const group = new THREE.Group();
@@ -121,7 +210,7 @@ export function createLightingSystem(ctx: GameContext): GameSystem {
   group.add(rim);
 
   // ── scratch ──────────────────────────────────────────────────────────────
-  const _dir = new THREE.Vector3();
+  const rig = makeSunRig();
   const _fwd = new THREE.Vector3();
   const _centre = new THREE.Vector3();
   const _xAxis = new THREE.Vector3();
@@ -129,49 +218,31 @@ export function createLightingSystem(ctx: GameContext): GameSystem {
   const _up = new THREE.Vector3(0, 1, 0);
   let boost = 0;
 
-  function sunDirection(az: number, el: number, out: THREE.Vector3): THREE.Vector3 {
-    return out.set(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az))
-      .normalize();
-  }
-
   function applyTheme(theme: CourseTheme): void {
-    const s = { ...DEFAULT_SKY, ...(theme.sky ?? {}) };
-    atmos.uZenith.value.setHex(s.top);
-    atmos.uHorizon.value.setHex(s.bottom);
-    atmos.uHaze.value.setHex(s.horizon ?? s.bottom);
+    // One derivation, shared with the landscape bake. See `sunRig`.
+    sunRig(theme, rig);
 
-    const su = { ...DEFAULT_SUN, ...(theme.sun ?? {}) };
+    atmos.uZenith.value.copy(rig.zenith);
+    atmos.uHorizon.value.copy(rig.horizon);
+    atmos.uHaze.value.copy(rig.haze);
+
     // A 50-degree sun flattens everything and leaves nothing under the karts.
     // Courses get a say, but not enough of one to lose the shadows — and the
     // house quarter-turn puts what is left across the road rather than down it.
-    sunDirection(
-      su.azimuth + AZIMUTH_TRIM,
-      clamp(su.elevation, SUN_ELEVATION.min, SUN_ELEVATION.max),
-      _dir,
-    );
-    atmos.uSunDir.value.copy(_dir);
-    atmos.uSunColor.value.setHex(su.color);
+    atmos.uSunDir.value.copy(rig.dir);
+    atmos.uSunColor.value.copy(rig.keyColor);
 
-    sun.color.setHex(su.color);
-    sun.intensity = su.intensity * 1.16;
-    sun.position.copy(_dir).multiplyScalar(200);
+    sun.color.copy(rig.keyColor);
+    sun.intensity = rig.keyIntensity;
+    sun.position.copy(rig.dir).multiplyScalar(200);
 
-    // The rim mirrors the sun across the vertical axis and sits low, so it
-    // grazes rather than lights. Its colour is the sky's own blue, pushed.
-    rim.position.set(-_dir.x, 0.20, -_dir.z).normalize().multiplyScalar(200);
-    rim.color.copy(atmos.uZenith.value).lerp(WHITE, 0.34);
+    rim.position.copy(rig.rimDir).multiplyScalar(200);
+    rim.color.copy(rig.rim);
 
-    // Fill picks its two ends off the theme: sky above, ground below. Saturated
-    // on purpose — a neutral hemisphere light is what makes a scene look like a
-    // render instead of a painting — and weighted toward the sky end, because
-    // the whole point of the fill is that the *shaded* side of a safety-orange
-    // cone comes back blue rather than brown.
-    hemi.color.copy(atmos.uHorizon.value).lerp(atmos.uZenith.value, 0.58);
-    // Bounce off sand is warm but not *orange*: the ground already is, and
-    // multiplying the two turns the desert into a traffic cone. Held well below
-    // the sky end so a vertical surface reads cool rather than neutral.
-    hemi.groundColor.setHex(theme.ground ?? 0xc9a063)
-      .lerp(WHITE, 0.18).multiplyScalar(0.58);
+    hemi.color.copy(rig.hemiSky);
+    // Held well below the sky end so a vertical surface reads cool rather than
+    // neutral.
+    hemi.groundColor.copy(rig.hemiGround);
 
     // Distance. `far` is treated as a visibility hint rather than a hard plane:
     // the atmosphere is exponential, so there is no wall for things to pop

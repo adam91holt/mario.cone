@@ -99,15 +99,27 @@ export const config = {
       counterSteer: 0.34,
       yawKick: 1.60,         // ...and again, briefly, as the drift snaps in
       kickTime: 0.22,
-      chargeRate: 2.00,
+      chargeRate: 2.10,
       airChargeMul: 0.55,    // charge still builds over jumps, slower
       entryScrub: 0.012,     // committing costs a sliver of speed
-      // Charge accrues at ~2.2/s for a mid-handling kart, so these read as
-      // roughly 0.35s / 0.8s / 1.35s of committed drift. Measured against the
-      // sharpest bend on Cone Canyon — a 42m-radius hairpin entered at 58 m/s —
-      // a held drift survives well past four seconds, so all three tiers are
-      // reachable there and tier two is routine on an ordinary corner. Tiers you
-      // cannot reach are two thirds of the system no player will ever see.
+      // Charge accrues at ~2.3/s for a mid-handling kart, so these read as
+      // roughly 0.35s / 0.63s / 0.98s of committed drift.
+      //
+      // **Measured, twice, because the last two waves shipped a one-tier
+      // system.** With the table at 0.80 / 1.75 / 3.00 a full field over ninety
+      // seconds of Cone Canyon produced 135 blue mini-turbos, 12 green and *no
+      // purple*, on a game whose engine-class screen says "the real game.
+      // Mini-turbos or nothing" — two thirds of the system, a config entry, a
+      // crown of embers in fx and a third ring colour on the item socket, none
+      // of it ever reachable.
+      //
+      // The tier table was only half of it. The bench said 87 of 147 drifts
+      // were ending on the AI's own over-rotation fuse at four tenths of a
+      // second — see `ai/driver.ts` — so no threshold at any height was going
+      // to be reached. Both were changed together and re-measured on two seeds:
+      // **237 blue, 154 green, 31 purple**, with the field's off-road time
+      // *down* from the run that produced the 135/12/0. Blue is still the
+      // common one and purple is still something you earn.
       //
       // **`color` here is the whole game's answer for that tier, not the sim's
       // private one.** A mini-turbo is signalled in two places at once — sparks
@@ -130,12 +142,14 @@ export const config = {
       // default nobody had cause to revisit.
       tiers: [
         { at: 0.80, boost: 0.68, power: 24, color: 0x4FC3F7, name: 'blue' },
-        { at: 1.75, boost: 1.20, power: 34, color: 0x3CFF6B, name: 'green' },
-        { at: 3.00, boost: 1.85, power: 46, color: 0xE040FB, name: 'purple' },
+        { at: 1.45, boost: 1.20, power: 34, color: 0x3CFF6B, name: 'green' },
+        { at: 2.25, boost: 1.85, power: 46, color: 0xE040FB, name: 'purple' },
       ],
       // Charge stops accruing a little past purple, so anything normalising it
-      // for a meter or a spark colour has a fixed range to work against.
-      chargeCap: 3.45,
+      // for a meter or a spark colour has a fixed range to work against. Moves
+      // with the tier table — a cap far above the top tier makes the charge
+      // ring crawl through its last third with nothing left to earn.
+      chargeCap: 2.70,
       // Body roll. The loudest visual tell the drift has: a kart that stays flat
       // through a slide reads as a decal skating on ice. The chassis is thrown
       // *outward*, away from the direction of the drift, and the amount tracks
@@ -413,6 +427,28 @@ export const config = {
       '200cc': { speedMul: 1.24, aiSkill: 0.96 },
     },
     defaultClass: '150cc',
+    /**
+     * Which of the five bulbs are lit at each beat of the countdown.
+     *
+     * Indexed by the beat — `startLights[3]` is what "3" looks like. Symmetric,
+     * filling inward: the board is *filling up*, and the middle bulb landing is
+     * the last thing before the flag.
+     *
+     * **There are two five-bulb start boards in this game and they are the same
+     * board.** One is screen-space, over the grid camera (`race/stage.ts`); the
+     * other is the physical rig hanging off the gantry the player is staring
+     * straight at (`track/gantry.ts`). Photographed together at the beat "1",
+     * the screen board had five red lamps lit and the gantry board — a painted
+     * texture, memoised in a cache, subscribed to nothing — had five dead
+     * maroon ones directly below it. A dead traffic signal over a start grid is
+     * worse than no signal, so the table lives here, where neither module owns
+     * it and both can read it.
+     */
+    startLights: {
+      3: [0, 4],
+      2: [0, 1, 3, 4],
+      1: [0, 1, 2, 3, 4],
+    } as Record<number, readonly number[]>,
     points: [15, 12, 10, 8, 6, 4, 2, 1],
     rocketStart: { window: [0.28, 0.02], boost: { time: 1.5, power: 42 }, burnout: 1.2 },
   },

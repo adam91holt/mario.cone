@@ -128,24 +128,23 @@ export function buildTerrain(
     landmarks: t.landmarks ?? [],
   };
   // The landscape is the largest thing on screen every single frame, so it is
-  // deliberately the cheapest thing to shade: the key light and sky fill are
-  // baked into vertex colours at build time and both meshes ship unlit. Nothing
-  // drives out here — the barrier is the boundary — so no shadow ever falls on
-  // it, and on the software renderer the review harness uses this is worth more
-  // than any triangle budget. Baking both meshes with the same function is also
-  // what keeps the seam between them invisible.
+  // deliberately the cheapest thing to shade: its light is baked into vertex
+  // colours at build time and it ships unlit. **`render/ground.ts` owns that
+  // bake** — and the material, and which of the two meshes receives a shadow
+  // map. What ships from here is albedo and a placeholder material, replaced on
+  // `track:built` before the first frame is drawn.
   const tex = makeGroundTexture();
   tex.repeat.set(1 / 42, 1 / 42);
   tex.anisotropy = 2;
   const mat = new THREE.MeshBasicMaterial({ map: tex, vertexColors: true });
 
-  parent.add(buildSkirt(spline, o, mat, course));
-  parent.add(buildField(spline, o, mat, course));
+  parent.add(buildSkirt(spline, o, mat));
+  parent.add(buildField(spline, o, mat));
 }
 
 /** The embankment either side of the circuit, swept along the spline. */
 function buildSkirt(
-  spline: TrackSpline, o: TerrainOptions, mat: THREE.Material, course: CourseDef,
+  spline: TrackSpline, o: TerrainOptions, mat: THREE.Material,
 ): THREE.Mesh {
   const L = spline.length;
   const step = 6;
@@ -215,7 +214,6 @@ function buildSkirt(
   geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geo.setIndex(indices);
   geo.computeVertexNormals();
-  bakeLighting(geo, course);
   geo.computeBoundingSphere();
 
   const mesh = new THREE.Mesh(geo, mat);
@@ -223,52 +221,29 @@ function buildSkirt(
   return mesh;
 }
 
-/**
- * Bake the course's key light and sky fill into vertex colours.
+/* The landscape's *light* is not built here.
  *
- * This mirrors the lighting module's rig — warm directional sun, hemisphere
- * fill, cool rim — evaluated per vertex with Lambert's 1/pi, so an unlit mesh
- * lands within a percent or two of the lit surfaces it touches. If the lighting
- * rig changes shape, this is the one place that has to follow it; the seam at
- * the shoulder is what tells you it has drifted.
+ * It used to be: a `bakeLighting` pass right below this line evaluated a second
+ * lighting rig — its own hemisphere colours, its own rim, and the course's raw
+ * theme azimuth and elevation with neither the house quarter-turn nor the
+ * elevation clamp `render/lighting.ts` applies to the sun everything else in
+ * the game is lit by. Measured, the two suns were sixty-five degrees apart, so
+ * the desert and the buttes were modelled by one sun and every object standing
+ * on them by another.
+ *
+ * It was also dead. `render/ground.ts` re-derives every one of these vertex
+ * colours from scratch the moment the track is built — albedo from the
+ * course's own surface ramp, light from the one shared rig — so nothing this
+ * pass wrote ever reached a screen. Two lighting rigs, and the wrong one was
+ * the one nobody could see.
+ *
+ * What is left here is albedo (`colourFor`) and geometry. If the ground system
+ * ever fails to run, the landscape comes back flat rather than wrong.
  */
-const HEMI_SKY = new THREE.Color(0xbfe7ff);
-const HEMI_GROUND = new THREE.Color(0x8a6b3f);
-const HEMI_I = 1.15;
-const RIM = new THREE.Color(0xbfd8ff);
-const RIM_I = 0.55;
-const RIM_DIR = new THREE.Vector3(-0.5, 0.4, -1).normalize();
-
-function bakeLighting(geo: THREE.BufferGeometry, course: CourseDef): void {
-  const sunDef = course.theme?.sun;
-  const az = sunDef?.azimuth ?? 0.7;
-  const el = sunDef?.elevation ?? 0.85;
-  const sunI = sunDef?.intensity ?? 2.6;
-  const sun = new THREE.Color(sunDef?.color ?? 0xfff2d8);
-  const sx = Math.cos(el) * Math.cos(az), sy = Math.sin(el), sz = Math.cos(el) * Math.sin(az);
-
-  const n = geo.getAttribute('normal');
-  const c = geo.getAttribute('color');
-  const INV_PI = 1 / Math.PI;
-  for (let i = 0; i < c.count; i++) {
-    const nx = n.getX(i), ny = n.getY(i), nz = n.getZ(i);
-    const key = Math.max(0, nx * sx + ny * sy + nz * sz) * sunI;
-    const rim = Math.max(0, nx * RIM_DIR.x + ny * RIM_DIR.y + nz * RIM_DIR.z) * RIM_I;
-    const hemi = 0.5 + 0.5 * ny;
-    const r = (HEMI_GROUND.r + (HEMI_SKY.r - HEMI_GROUND.r) * hemi) * HEMI_I
-      + sun.r * key + RIM.r * rim;
-    const g = (HEMI_GROUND.g + (HEMI_SKY.g - HEMI_GROUND.g) * hemi) * HEMI_I
-      + sun.g * key + RIM.g * rim;
-    const b = (HEMI_GROUND.b + (HEMI_SKY.b - HEMI_GROUND.b) * hemi) * HEMI_I
-      + sun.b * key + RIM.b * rim;
-    c.setXYZ(i, c.getX(i) * r * INV_PI, c.getY(i) * g * INV_PI, c.getZ(i) * b * INV_PI);
-  }
-  c.needsUpdate = true;
-}
 
 /** Everything from the embankment out to the fog. */
 function buildField(
-  spline: TrackSpline, o: TerrainOptions, mat: THREE.Material, course: CourseDef,
+  spline: TrackSpline, o: TerrainOptions, mat: THREE.Material,
 ): THREE.Mesh {
   const half = o.size * 0.5;
   // Enough resolution that a butte reads as a block with faces rather than as a
@@ -334,7 +309,6 @@ function buildField(
   geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geo.setIndex(indices);
   geo.computeVertexNormals();
-  bakeLighting(geo, course);
   geo.computeBoundingSphere();
 
   const mesh = new THREE.Mesh(geo, mat);

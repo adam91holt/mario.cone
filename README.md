@@ -56,6 +56,10 @@ loads on a phone and runs offline.
 
 ### It was built by agents working in parallel
 
+**→ [How it works, with diagrams](docs/how-it-works.md)** — the build board, the
+review loop, the critic protocol, and why a pass that owns the whole repo had to
+exist.
+
 This repo is an experiment in whether a large number of AI agents can build
 something to a genuinely high bar without a human reviewing each change.
 
@@ -160,6 +164,23 @@ the opposite convention on every count. The keyboard mapping had been written to
 match the comment.
 
 ![The staggered grid under the gantry](docs/media/grid.jpg)
+
+---
+
+## The prompts
+
+Nobody hand-wrote the TypeScript in this repository. It was built by agents
+working from a conversation, so the prompts are closer to the source than `src/`
+is — and they are committed here alongside it, refreshed as the build runs.
+
+- **[`docs/session/prompts.md`](docs/session/prompts.md)** — every prompt and
+  reply, in order.
+- **[`docs/session/session.jsonl`](docs/session/session.jsonl)** — the same
+  thing with the structure intact: messages, tool calls, tool results. Long tool
+  output is truncated with a marker; message text never is.
+
+Most of the turns are the build loop waking itself on a schedule rather than a
+person typing.
 
 ---
 

@@ -31,6 +31,9 @@ import type {
   GameContext, QualitySettings, RaceConfig, VehicleId,
 } from './types.ts';
 
+/** The player's driver name. See the note in `buildField`. */
+const PLAYER_NAME = 'Foreman';
+
 const CPU_NAMES = [
   'Bollard', 'Barrier', 'Hi-Vis', 'Gravel', 'Detour',
   'Tarmac', 'Skip', 'Sandbag', 'Beacon', 'Chevron', 'Grader',
@@ -122,22 +125,28 @@ async function boot(): Promise<void> {
     for (let i = 0; i < cfg.racerCount; i++) {
       const isPlayer = i === 0;
       const def = isPlayer ? getVehicle(cfg.vehicleId) : cpuPool[(i - 1) % cpuPool.length]!;
-      // **The player is named after their machine.**
+      // **Every racer has a driver name and a machine, and the player is no
+      // exception.**
       //
-      // Seven CPUs are named out of the roadworks vocabulary — Bollard,
-      // Hi-Vis, Tarmac, Skip — and the player was 'You', which made their own
-      // line the one row in the results table in a different naming system:
-      // 5TH SKIP / 6TH YOU / 7TH HI-VIS. Worse, ROAD CONE — a name the player
-      // meets on the roster tile, in the dossier headline, in the breadcrumb
-      // tray and on the launch card — never appeared again once the curtain
-      // closed, so a whole screen of choosing survived the hand-off as a colour
-      // chip and nothing else.
+      // This has now been wrong twice in opposite directions. It was 'You',
+      // which made the player's own line the one row in the results table in a
+      // different naming system — 5TH SKIP / 6TH YOU / 7TH HI-VIS. The fix for
+      // that named the player after their machine, and that put the same fault
+      // back the other way up: every rival row printed two facts (a silhouette
+      // and a driver), and the player's row printed one fact twice — a car icon
+      // next to the word SEDAN.
       //
-      // Nothing is lost by dropping 'You': every readout that has to say "this
-      // is you" already does it in paint. The results row has `.you` (a lit
-      // gold plate), the championship row has it too, the ticker flags it, and
-      // the minimap blip is the player's own livery.
-      const name = isPlayer ? def.name : CPU_NAMES[(i - 1) % CPU_NAMES.length]!;
+      // The reason the machine name went in was that ROAD CONE vanished at the
+      // curtain, and that reason is gone: the chosen machine now rides the
+      // whole race as its own silhouette, on the grid, in the chase camera, on
+      // the HUD and in the results row's own `vehicleMark`. So the machine is
+      // said in paint, where it is said for everybody, and the *driver* is
+      // said in words.
+      //
+      // FOREMAN, because the cast is named out of the roadworks vocabulary —
+      // Bollard, Barrier, Hi-Vis, Gravel, Detour, Tarmac, Skip — and the one
+      // name in that world that means "the one running this" is the player's.
+      const name = isPlayer ? PLAYER_NAME : CPU_NAMES[(i - 1) % CPU_NAMES.length]!;
       const racer = createRacer(i, name, def.id, { ...def.stats }, isPlayer);
 
       if (!isPlayer) {

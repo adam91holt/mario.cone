@@ -97,8 +97,42 @@ const _s = new THREE.Vector3();
 const _axis = new THREE.Vector3(0, 1, 0);
 const _off = new THREE.Vector3();
 const _sq = new THREE.Quaternion();
+const _probe = new THREE.Vector3();
+const _ground = new THREE.Vector3();
+
+/**
+ * Where a spilled coin comes to rest, measured from the coin's own centre.
+ *
+ * The disc is lathed to a 0.47m radius and stands on edge, so anything under
+ * that is a coin buried in the tarmac. It was 0.42 — *and* it was measured from
+ * a datum 0.55m below the road, because the spill was handed `racer.pos.y -
+ * 0.55` once, at the moment of the hit, and then the coins flew several metres
+ * sideways onto a road that is crowned and banked. What landed was a clean
+ * hard-edged semicircle sitting in the racing line with nothing under it: the
+ * road plane cutting a coin in half, photographed at the finish.
+ */
+const LOOSE_REST = 0.50;
 
 export function createCoinField(ctx: GameContext): CoinField {
+  /**
+   * The drivable surface directly under a world position.
+   *
+   * The same query `render/contact.ts` settles a racer's shadow with, and the
+   * same crown term the laid-out field is built through — so a dropped coin and
+   * a field coin two metres away agree about where the road is. Called only for
+   * coins that are actually in the air, which is a handful at a time.
+   */
+  function surfaceY(x: number, z: number, y: number): number {
+    const track = ctx.track;
+    if (!track) return y;
+    const s = track.sample(_probe.set(x, y, z));
+    const lat = s.lateral ?? 0;
+    _ground.copy(s.pos).addScaledVector(s.right, lat).addScaledVector(
+      s.up, roadCrown(lat, s.width, track.course.vergeWidth ?? 5),
+    );
+    return _ground.y;
+  }
+
   const coins: FieldCoin[] = [];
   const loose: LooseCoin[] = [];
   for (let i = 0; i < LOOSE_MAX; i++) {
@@ -300,11 +334,17 @@ export function createCoinField(ctx: GameContext): CoinField {
         c.life -= dt;
         if (c.life <= 0) { c.active = false; continue; }
         if (c.arm > 0) c.arm = Math.max(0, c.arm - dt);
-        if (c.pos.y > c.groundY + 0.42) {
+        if (c.pos.y > c.groundY + LOOSE_REST) {
           c.vel.y -= 26 * dt;
           c.pos.addScaledVector(c.vel, dt);
-          if (c.pos.y <= c.groundY + 0.42) {
-            c.pos.y = c.groundY + 0.42;
+          // The road under a coin is not the road under the racer it came out
+          // of: it is crowned, it is banked, and the coin has travelled. Ask
+          // where *this* coin is, every step it is in the air, so it lands on
+          // the surface rather than through it — and so the blob it drops on
+          // the way down is on the tarmac the whole time.
+          c.groundY = surfaceY(c.pos.x, c.pos.z, c.pos.y);
+          if (c.pos.y <= c.groundY + LOOSE_REST) {
+            c.pos.y = c.groundY + LOOSE_REST;
             // One small bounce, then it lies there and waits to be swept up.
             c.vel.multiplyScalar(0.25);
             c.vel.y = Math.abs(c.vel.y) * 0.35;

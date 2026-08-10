@@ -261,6 +261,41 @@ export class Ground {
     return this.height(d, s.pos.y, x, z) - sink;
   }
 
+  /**
+   * How uneven the ground is across a footprint, in metres of height difference.
+   *
+   * A prop is placed at a *point* and drawn with an *extent*, and the two only
+   * agree where the ground is flat. On a quarry wall they do not: a
+   * twenty-four-metre quarry bench or a twelve-metre block of blasted rock
+   * anchored halfway up a forty-five degree face has most of itself hanging in
+   * open sky, which is what the first settled frame of Jackhammer Quarry showed
+   * — a cascade of pale grey boxes and thin flat platforms projecting off the
+   * cliff with daylight underneath them, dead centre against the sky.
+   *
+   * Four samples on a ring, because the answer wanted is "can this stand here",
+   * not a gradient. Build time only, like everything else in this file.
+   */
+  levelness(x: number, z: number, radius: number): number {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2;
+      const h = this.terrainAt(x + Math.cos(a) * radius, z + Math.sin(a) * radius);
+      if (h < lo) lo = h;
+      if (h > hi) hi = h;
+    }
+    return hi - lo;
+  }
+
+  /** The landscape's height function at a world position, sink apart. */
+  private terrainAt(x: number, z: number): number {
+    _v.set(x, 0, z);
+    const s = this.spline.nearest(_v, this.s);
+    _v.set(x - s.pos.x, 0, z - s.pos.z);
+    const d = Math.max(0, _v.length() - (s.width * 0.5 + this.verge));
+    return this.height(d, s.pos.y, x, z);
+  }
+
   /** Metres beyond the shoulder at a world position — "is this clear of the road". */
   clearance(x: number, z: number): number {
     _v.set(x, 0, z);

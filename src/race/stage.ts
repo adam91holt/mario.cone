@@ -23,10 +23,12 @@
 // All three animate off integrated `dt` and nothing else — see the note in
 // `results.ts`.
 
+import { config } from '../core/config.ts';
 import { clamp01, ease } from '../core/math.ts';
 import { glyphBox } from '../ui/glyphs.ts';
 import {
-  bind, curtainCss, curtainTransform, CURTAIN_IN, CURTAIN_OUT, fromHtml, q, rgba, type Bound,
+  bind, curtainCss, curtainTransform, CURTAIN_IN, CURTAIN_OUT, fromHtml, hazardCss,
+  q, rgba, type Bound,
 } from '../ui/theme.ts';
 import { signBox } from './letters.ts';
 
@@ -235,8 +237,7 @@ export const CSS_STAGE = `
 #racefin .bar::after {
   content: ''; position: absolute; left: 0; right: 0;
   height: calc(var(--u) * .16);
-  background: repeating-linear-gradient(115deg,
-    #FF6B1A 0 calc(var(--u) * .55), #14171F calc(var(--u) * .55) calc(var(--u) * 1.1));
+  background: ${hazardCss(0.786)};
   opacity: .9;
 }
 #racefin .bar.t::after { bottom: 0; }
@@ -395,14 +396,14 @@ export function createCard(): Card {
 
 // ── the start lights ───────────────────────────────────────────────────────
 
-/** Which bulbs are lit at each beat. Symmetric, filling inward: the board is
- *  *filling up*, and the middle bulb landing is the last thing before the
- *  flag. */
-const BEAT_BULBS: Record<number, number[]> = {
-  3: [0, 4],
-  2: [0, 1, 3, 4],
-  1: [0, 1, 2, 3, 4],
-};
+/**
+ * Which bulbs are lit at each beat.
+ *
+ * `config.race.startLights`, not a table of this module's own: the gantry hangs
+ * a five-bulb board of its own over the grid two hundred pixels below this one,
+ * and two boards counting the same race in must count it the same way.
+ */
+const BEAT_BULBS = config.race.startLights;
 
 export interface Lights {
   readonly root: HTMLElement;
@@ -434,7 +435,7 @@ export function createLights(): Lights {
   let goT = -1;
   let shown = -1;
 
-  function setBulbs(on: number[], green: boolean): void {
+  function setBulbs(on: readonly number[], green: boolean): void {
     for (let i = 0; i < bulbs.length; i++) {
       const lit = on.includes(i);
       const b = bulbs[i]!;

@@ -295,6 +295,47 @@ function hslToHex(h: number, s: number, l: number): number {
 // front-end holds for as long as the launch card needs to be read, the race
 // holds for exactly as long as it takes to tear down three layers.
 
+// ── the hazard stripe ──────────────────────────────────────────────────────
+//
+// The diagonal tape that frames the whole game: down both edges of the results
+// sheet, along the leading edge of the curtain blade, inside the finish
+// letterbox, and along the top and bottom rails of every front-end screen.
+//
+// It was written out four times. Three of them agreed to the character —
+// `#FF6B1A` and `#14171F`, 115 degrees, a 0.7u band — and the fourth was the
+// one the player meets *first*: the menu rail, at hazard yellow, 114 degrees,
+// a 0.78u band. Title, machine, circuit and class are framed in one colour;
+// twenty seconds later the letterbox and the results sheet frame the same
+// player in another. Same device, same frame, different hue.
+//
+// Safety orange wins, on two counts. Three of the four already use it, so it is
+// the smaller move; and it is what the tape is on the objects the game is made
+// of — the barrier panels and the chevron boards are orange-on-ink, and the
+// yellow in this palette is spent on the *lit* things: the plate's header
+// strip, the cursor ring, the drift charge. A frame is not a light.
+export const HAZARD = {
+  /** Degrees. Runs up to the right, so it reads as tape rather than as a comb. */
+  angle: 115,
+  /** Width of one bar, in `--u`. The pitch is twice this. */
+  band: 0.7,
+  hi: '#FF6B1A',
+  lo: '#14171F',
+};
+
+/**
+ * `background` for a run of hazard tape.
+ *
+ * `scale` stretches the band for a surface that wants a coarser pitch — the
+ * front-end rails are the full width of a 16:9 frame and a 0.7u band on one
+ * reads as texture rather than as tape.
+ */
+export function hazardCss(scale = 1): string {
+  const a = (HAZARD.band * scale).toFixed(3);
+  const b = (HAZARD.band * scale * 2).toFixed(3);
+  return `repeating-linear-gradient(${HAZARD.angle}deg, ${HAZARD.hi} 0 calc(var(--u) * ${a}), `
+    + `${HAZARD.lo} calc(var(--u) * ${a}) calc(var(--u) * ${b}))`;
+}
+
 /** Seconds the blades take to close, and to open again. */
 export const CURTAIN_IN = 0.3;
 export const CURTAIN_OUT = 0.42;
@@ -333,8 +374,7 @@ ${scope} ${sel}.r { right: -${CURTAIN_OUTSET}%;
    the end you are meant to stop at. */
 ${scope} ${sel}::after {
   content: ''; position: absolute; top: 0; bottom: 0; width: calc(var(--u) * .62);
-  background: repeating-linear-gradient(115deg,
-    #FF6B1A 0 calc(var(--u) * .7), #14171F calc(var(--u) * .7) calc(var(--u) * 1.4));
+  background: ${hazardCss()};
 }
 ${scope} ${sel}.l::after { right: calc(var(--u) * -.62); }
 ${scope} ${sel}.r::after { left: calc(var(--u) * -.62); }

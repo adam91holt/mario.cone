@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import { TrackSpline } from './spline.ts';
 import { buildRoad, type PadRuntime } from './road.ts';
 import { buildBarriers } from './barriers.ts';
-import { buildGantry } from './gantry.ts';
+import { buildGantry, type GantryLights } from './gantry.ts';
 import { buildTerrain } from './terrain.ts';
 import { surfaceHeight } from './geom.ts';
 import { getCourse } from './courses/index.ts';
@@ -28,13 +28,35 @@ export interface TrackSystem extends GameSystem {
   readonly track: Track | null;
 }
 
+/** Seconds the gantry board holds green after the flag before going dark. */
+const GO_HOLD = 1.6;
+
 export function createTrackSystem(ctx: GameContext): TrackSystem {
   let group: THREE.Group | null = null;
   let track: Track | null = null;
   let pads: PadRuntime[] = [];
   let padTexture: THREE.Texture | null = null;
   let banner: THREE.Object3D | null = null;
+  let lights: GantryLights | null = null;
   let clock = 0;
+  /** Seconds since the flag, while the board holds green. -1 when it is dark. */
+  let goT = -1;
+
+  /**
+   * The gantry board answers the countdown.
+   *
+   * Subscribed here rather than inside `gantry.ts` because the board is rebuilt
+   * with the track and the bus is not — one subscription for the life of the
+   * system, pointed at whichever board is currently hanging over the grid.
+   */
+  ctx.bus.on<{ n: number }>('race:countdown', ({ n }) => {
+    if (n > 0) lights?.beat(n); else lights?.go();
+  });
+  // The flag. The board holds green for the moment the field launches and then
+  // gets out of the way — five bright lamps over a race in progress is a
+  // signal that has stopped meaning anything.
+  ctx.bus.on('race:racing', () => { goT = 0; });
+  ctx.bus.on('race:intro', () => { goT = -1; lights?.clear(); });
 
   function disposeGroup(g: THREE.Object3D): void {
     g.traverse((o) => {
@@ -64,7 +86,11 @@ export function createTrackSystem(ctx: GameContext): TrackSystem {
 
     const road = buildRoad(spline, course, group);
     buildBarriers(spline, course, road.corners, group);
-    banner = buildGantry(spline, course, group, course.name).banner;
+    const gantry = buildGantry(spline, course, group, course.name);
+    banner = gantry.banner;
+    lights = gantry.lights;
+    lights.clear();
+    goT = -1;
     buildTerrain(spline, course, group);
 
     pads = road.pads;
@@ -168,9 +194,19 @@ export function createTrackSystem(ctx: GameContext): TrackSystem {
         banner.rotation.x = Math.sin(clock * 1.3) * 0.035;
         banner.rotation.z = Math.sin(clock * 0.9 + 1.1) * 0.012;
       }
+      if (goT >= 0) {
+        goT += dt;
+        if (goT > GO_HOLD) { goT = -1; lights?.clear(); }
+      }
+    },
+
+    reset(): void {
+      goT = -1;
+      lights?.clear();
     },
 
     dispose() {
+      lights = null;
       if (group) {
         disposeGroup(group);
         ctx.scene.remove(group);

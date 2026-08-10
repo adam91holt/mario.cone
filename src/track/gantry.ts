@@ -11,6 +11,7 @@
 // instance of the same unit box, which keeps the structure at two draw calls.
 
 import * as THREE from 'three';
+import { config } from '../core/config.ts';
 import { makeBannerTexture, makeConcreteTexture, makeLightBoardTexture } from './textures.ts';
 import { surfacePoint } from './geom.ts';
 import type { CourseDef } from '../types.ts';
@@ -47,6 +48,32 @@ export interface GantryResult {
   group: THREE.Group;
   /** Sways a little every frame; a dead-still banner reads as a photograph. */
   banner: THREE.Object3D;
+  /** The five bulbs on the board. Driven by the countdown — see `GantryLights`. */
+  lights: GantryLights;
+}
+
+/**
+ * The start-light board hanging over the grid.
+ *
+ * It was a painted texture with five dead lenses, memoised in the texture
+ * cache, so it *could not* change — while a second five-bulb board two hundred
+ * pixels above it counted the race in correctly. The physical rig over the grid
+ * is the one the player's eye goes to, and it was the one thing on the start
+ * straight with a job it never did.
+ *
+ * The housing stays painted. The lamps are five emissive discs standing a
+ * centimetre proud of it, hidden until the count arms and hidden again once the
+ * flag has fallen, so they cost nothing for the rest of the race. The beat
+ * table is `config.race.startLights`, which is also what `race/stage.ts` draws
+ * its board from: two boards, one truth.
+ */
+export interface GantryLights {
+  /** 3, 2, 1 — the beat currently showing. */
+  beat(n: number): void;
+  /** The flag. Every bulb goes green. */
+  go(): void;
+  /** Dark, and out of the draw. */
+  clear(): void;
 }
 
 export function buildGantry(
@@ -156,7 +183,7 @@ export function buildGantry(
   group.add(banner);
 
   // Start lights, hung in the middle where the grid can see them.
-  const lights = new THREE.Mesh(
+  const board = new THREE.Mesh(
     new THREE.PlaneGeometry(6.4, 1.6),
     new THREE.MeshStandardMaterial({
       map: makeLightBoardTexture(),
@@ -164,9 +191,10 @@ export function buildGantry(
       side: THREE.DoubleSide,
     }),
   );
-  lights.position.set(0, H - 3.4, 0.1);
-  lights.castShadow = true;
-  group.add(lights);
+  board.position.set(0, H - 3.4, 0.1);
+  board.castShadow = true;
+  group.add(board);
+  const lights = buildLamps(board);
   for (const side of [-1, 1]) {
     const hang = new THREE.Mesh(
       new THREE.BoxGeometry(0.12, 2.1, 0.12),
@@ -177,5 +205,44 @@ export function buildGantry(
   }
 
   parent.add(group);
-  return { group, banner };
+  return { group, banner, lights };
 }
+
+/** Lamp colours. Unlit on purpose — a bulb is a light source, not a surface. */
+const LAMP_RED = 0xFF2A16;
+const LAMP_GREEN = 0x3CFF6B;
+
+/** The five lenses, at the same pitch `makeLightBoardTexture` paints them. */
+function buildLamps(board: THREE.Mesh): GantryLights {
+  const geo = new THREE.CircleGeometry(0.44, 14);
+  const red = new THREE.MeshBasicMaterial({ color: LAMP_RED, toneMapped: false });
+  const green = new THREE.MeshBasicMaterial({ color: LAMP_GREEN, toneMapped: false });
+  const bulbs: THREE.Mesh[] = [];
+  for (let i = 0; i < 5; i++) {
+    const m = new THREE.Mesh(geo, red);
+    // The board is 6.4 wide and the texture paints five lenses on its own
+    // fifths, so the lamps land on the painted ones rather than beside them.
+    m.position.set((i + 0.5) * (6.4 / 5) - 3.2, 0, 0.03);
+    m.visible = false;
+    m.frustumCulled = false;
+    board.add(m);
+    bulbs.push(m);
+  }
+
+  const set = (on: readonly number[], mat: THREE.Material): void => {
+    for (let i = 0; i < bulbs.length; i++) {
+      const b = bulbs[i]!;
+      b.visible = on.includes(i);
+      b.material = mat;
+    }
+  };
+
+  return {
+    beat(n: number): void { set(config.race.startLights[n] ?? [], red); },
+    go(): void { set(ALL_BULBS, green); },
+    clear(): void { set(NONE, red); },
+  };
+}
+
+const ALL_BULBS = [0, 1, 2, 3, 4] as const;
+const NONE: readonly number[] = [];

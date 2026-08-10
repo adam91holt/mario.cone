@@ -37,7 +37,7 @@
 // Trebuchet, because a sentence is not a job for hand-authored path data.
 
 import {
-  U_CSS, hexCss, C, curtainCss, cursorChevronCss, cursorRing, hintCss, plateCss, MAP,
+  U_CSS, hexCss, C, curtainCss, cursorChevronCss, cursorRing, hintCss, plateCss, MAP, hazardCss,
 } from '../theme.ts';
 import { signRun } from '../letters.ts';
 import { signCss } from '../letters.ts';
@@ -106,9 +106,11 @@ export const CSS_MENU = `
 #menu .rail.bot { bottom: 0; }
 #menu .rail i {
   position: absolute; top: 0; bottom: 0; left: 0; width: 300%;
-  background: repeating-linear-gradient(114deg,
-    ${hexCss(C.yellow)} 0 calc(var(--u) * .78),
-    #14171E calc(var(--u) * .78) calc(var(--u) * 1.56));
+  /* The house hazard tape — see "hazardCss" in ui/theme.ts. This rail used to
+     be the one surface in the game that framed itself in yellow at a different
+     angle and a different pitch, and it is the first thing a player ever sees.
+     Now the title screen and the results sheet are taped with the same tape. */
+  background: ${hazardCss(1.114)};
   opacity: .92;
 }
 
@@ -416,8 +418,7 @@ ${cursorChevronCss('#menu', '.rove')}
 #menu .mark-wrap .board::before,
 #menu .mark-wrap .board::after {
   content: ''; position: absolute; left: 0; right: 0; height: calc(var(--u) * .34);
-  background: repeating-linear-gradient(114deg,
-    ${hexCss(C.orange)} 0 calc(var(--u) * .7), #14171E calc(var(--u) * .7) calc(var(--u) * 1.4));
+  background: ${hazardCss()};
 }
 #menu .mark-wrap .board::before { top: 0; border-radius: calc(var(--u) * 1) calc(var(--u) * 1) 0 0; }
 #menu .mark-wrap .board::after { bottom: 0; border-radius: 0 0 calc(var(--u) * 1) calc(var(--u) * 1); }

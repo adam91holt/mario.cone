@@ -710,7 +710,11 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     const drop = Math.min(racer.coins, SPILL);
     if (drop <= 0) return;
     racer.coins -= drop;
-    coins.spill(racer.pos, racer.id, drop, racer.pos.y - 0.55);
+    // The ground datum is a starting guess only — `coins.spill` re-resolves it
+    // against the real crowned, banked surface under each coin every step it is
+    // in the air, because three coins thrown sideways out of one hit land on
+    // three different bits of road.
+    coins.spill(racer.pos, racer.id, drop, racer.pos.y);
     ctx.bus.emit('coin:lose', { racer, count: drop, total: racer.coins });
   }
 

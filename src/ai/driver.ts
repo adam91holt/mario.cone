@@ -1501,14 +1501,27 @@ function driftControl(
     // about a second of drift and a tier-3 nearly two, and an over-rotating
     // slide that is *nearly* working is exactly the moment a real player holds
     // on through.
-    const patience = lerp(0.35, 0.75, p.driftLove)
+    const patience = lerp(0.45, 1.00, p.driftLove)
       * (drift.tier < b.driftAim ? 1.6 : 1);
-    // The inside fuse is shorter than the strain one: running out of road on
-    // the inside is a nearer problem than a corner opening up under you, and a
-    // driver who cannot pick the speed back up in a third of a second is not
-    // going to.
+    // The inside fuse used to be less than half the strain one, and the bench
+    // says that single number was the whole of the mini-turbo problem: over
+    // ninety seconds of eight-racer racing, 147 drifts ended and **87 of them
+    // ended here** — against 44 on the exit, 16 on a hit, and not one on
+    // `strain`, `past`, `end` or `slow`. At a fifth of a second of protection a
+    // committed slide simply did not survive long enough to bank anything: 135
+    // blue turbos, 12 green, no purple, in a game whose class screen says
+    // "mini-turbos or nothing".
+    //
+    // The file's own argument is the one that wins. A drift's arc *opens as the
+    // kart goes faster*, the speed floor below already asks for the speed the
+    // arc needs, and the throttle is a control the driver still has — so an
+    // over-rotating slide is a thing to drive out of, not to abandon. The fuse
+    // is now the same length as the strain one, which is to say: a driver gives
+    // up on the near problem and the far one after the same amount of trying,
+    // and a driver still chasing a tier keeps the 1.6x `patience` already
+    // grants them.
     const overStrained = b.driftGrace <= 0 && b.strain > patience;
-    const overInside = b.driftGrace <= 0 && b.inside > patience * 0.45;
+    const overInside = b.driftGrace <= 0 && b.inside > patience * 0.95;
     const strained = overStrained || overInside;
 
     const rate = K.drift.chargeRate * lerp(0.8, 1.2, racer.stats.handling) * 0.92;
@@ -1519,8 +1532,17 @@ function driftControl(
     const hangOn = lerp(6, 24, p.driftLove) * clamp01(speed / 45);
     const timeLeft = (remaining + hangOn) / Math.max(10, speed);
     const reachable = !!next && drift.charge + rate * timeLeft > next.at + 0.05;
-    const chasing = (drift.tier < b.driftAim && reachable) || (reachable && drift.tier < 3
-      && p.driftLove > 0.68);
+    // **One opinion about which tier this driver is chasing, and it is the
+    // plan's.** There used to be two: `driftAim`, which comes from
+    // `plan.tier[corner]` and is capped by how much straight there is after the
+    // exit to spend the boost on — and this second clause, which let anybody
+    // who loves drifting hold for a purple *whatever the plan said about room*.
+    // Measured, that is where the off-road time came from: the biggest boost in
+    // the game fired four metres before a braking zone cannot be undone, and
+    // physics drags the kart up to the boost speed whether or not the brake is
+    // down. Who chases purple is decided in `ai/knowledge.ts` by `appetite`,
+    // where it can be weighed against the road.
+    const chasing = drift.tier < b.driftAim && reachable;
 
     // Where the boost wants to land: on the exit, pointing down the next
     // straight. A driver who already has what they came for lets go here.

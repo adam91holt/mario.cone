@@ -127,8 +127,6 @@ export function createHudSystem(ctx: GameContext): GameSystem {
     box: bind(q(root, `.${name}`)),
     dx, dy,
     centred: name === 'tc',
-    /** Stays on screen when the rest of the set retires at the flag. */
-    keep: name === 'br',
     /**
      * This cluster's own phase in the impact shake.
      *
@@ -211,25 +209,40 @@ export function createHudSystem(ctx: GameContext): GameSystem {
    */
   let surgeHold = 0;
   /**
-   * How far the working instruments have retired, 0..1.
+   * How far the instruments have retired, 0..1.
    *
    * The race ends and the lap counter, the socket and the map stop being
    * information — there is no next corner, no next box, and nothing left to do
    * with either. Leaving them up is the interface still talking after the
-   * conversation is over. They fly back out the way they came in, and the place
-   * indicator stays: that one *is* the result.
+   * conversation is over. They fly back out the way they came in.
+   *
+   * **All five clusters, including the place indicator.** That one used to
+   * hold, on the argument that it *is* the result — and it was the right
+   * argument in a frame nobody else had claimed. `race/stage.ts` claims it:
+   * the finish beat drops letterbox bars over the top and bottom ninth of the
+   * screen and says so in its own comment ("its letterbox has to sit over the
+   * HUD's corners"). Measured, the bottom bar ate the bottom 63px of a 209px
+   * badge — photographed twice, once slicing a gold "1" through the middle with
+   * the "ST" gone and once cutting a "3" through the numeral's waist. So the
+   * race decided to cover the HUD and the HUD was never told to leave, and the
+   * player was shown where they finished through a guillotine.
+   *
+   * The beat says it better than the badge does: a plate across the middle of
+   * the frame reading 1ST PLACE with the time on it, a ticker naming the whole
+   * field home, and then the results sheet. Nothing is lost by going, and a set
+   * that leaves together is one gesture rather than four plates and a stump.
    */
   let retire = 0;
   /**
-   * ...and then the curtain closes, and even the place indicator goes.
+   * ...and the curtain, which retires the set whether or not the player
+   * finished.
    *
    * The race director announces `race:handoff` on the frame its blades start to
-   * close over the frame — "three live layers become one, behind a closed
-   * curtain" — and until now nothing in the game listened to it, so the one
-   * readout this HUD deliberately keeps up after the flag was still on screen
-   * behind the curtain and then underneath the results sheet. It is the only
-   * thing this module can do about furniture it does not own, and it is now
-   * done.
+   * close — "three live layers become one, behind a closed curtain". A race
+   * abandoned from the pause menu never sets `player.finished`, so without this
+   * the whole instrument set would ride the curtain down and reappear under the
+   * results sheet. It is the only thing this module can do about furniture it
+   * does not own.
    */
   let handed = false;
   /**
@@ -394,7 +407,7 @@ export function createHudSystem(ctx: GameContext): GameSystem {
         cornersHot = back > 0 || held > 0 || gone > 0 || shake > 0;
         for (const c of corners) {
           const b = c.centred ? held : back;
-          const leave = c.keep && !handed ? 0 : gone;
+          const leave = gone;
           let tx = (c.dx * b * 46) + (c.dx * leave * 46) + (c.centred ? -50 : 0);
           let ty = (c.dy * b * 60) + (c.dy * leave * 62);
           let rot = 0;
