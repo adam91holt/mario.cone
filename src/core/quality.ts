@@ -33,12 +33,43 @@
 // mean. A game that averages 12ms and stutters to 40ms every twentieth frame is
 // not a game running well, and a mean cannot say so.
 //
+// ── ...and the instrument must not throw away the evidence ─────────────────
+//
+// Twice now this file has been failed for a *gate* rather than for a ladder,
+// and both times the gate had the same shape: a threshold that a slow machine
+// could not cross, sitting in front of the machinery that exists for slow
+// machines. First a warm-up counted in 240 rendered frames — four seconds at
+// sixty and two minutes twenty at 1.7. Then, one layer down, a rule that any
+// frame longer than two seconds "was not a frame": on a machine delivering
+// frames 1.7 to 2.6 seconds apart, that discarded most of them, and the
+// seconds-counted warm-up it was feeding accrued **1.66 seconds in 200 seconds
+// of wall time**. The probe read `priming, samples 0` for three minutes.
+//
+// The rule now: **nothing about a frame's duration is ever evidence that it was
+// not a frame.** A frame is discarded only when something observable says the
+// page was not running through it — a `visibilitychange` edge, or the harness
+// having stepped the simulation inside the gap (`budget.benchSteps`). Both are
+// causes, not symptoms, and both are counted and reported in `probe()` as
+// `suspended` and `hijacked`, because an instrument that silently throws things
+// away is exactly how the last two rounds were lost.
+//
 // `budget.meanMs`, `meanSimMs` and `meanDrawMs` are still read, but only to
 // *attribute* a frame the wall clock has already convicted: work above about
 // two thirds of the frame means the CPU is the problem and says which half of
 // it, and work far below it means the cost is downstream — the GPU, or vsync.
 //
 // ── The three things that make a governor either useful or a menace ─────────
+//
+// **0. It must not be a cliff.** Every rung on this ladder keeps the shadow
+// map, the post stack and the atmosphere; what comes off is resolution, shadow
+// map *size*, particle density, draw distance and — at the floor — the bloom
+// pyramid. Nothing on it turns a feature off, which means nothing on it
+// recompiles the game: the previous floor rung took the program count from 75
+// to 110 and cost a 762ms frame, so the ladder's rescue move was the worst
+// hitch of the session, and it left the cone standing on the dirt casting no
+// shadow at all while `world/`, `track/` and `render/` all still believed in the
+// one shadow policy ARCHITECTURE §12 describes. A governor may spend the game's
+// looks; it may not contradict the game's art direction.
 //
 // **1. It must not oscillate.** A ladder that drops a rung, gets faster, climbs
 // back, gets slower and drops again is worse than no ladder at all: the player
@@ -204,9 +235,51 @@ function rung(
  * read 1383ms against the same rung's 683ms after twenty warm-up frames, and
  * the whole ladder looked twice as good as it is).
  *
- * See `tools/qualitydiff.mjs --cost` for the current run. The numbers move with
- * the course; the shape does not — every rung has to buy more than `FUTILE_GAIN`
- * or it is not a rung, and the futility check will now actually notice.
+ * **Each lever, isolated** (`__QUALITY.try`, frozen sim, median rAF period,
+ * three interleaved passes, against the 986ms top rung):
+ *
+ *   render scale 0.88 / 0.78 / 0.68 / 0.58 / 0.48   -16% / -24% / -36% / -46% / -54%
+ *   bloom off                                        -8%
+ *   aa off                                           -7%
+ *   drawDistance 0.5                                 -5%
+ *   shadow map 2048 -> 512                           -3%
+ *   shadow map 2048 -> 256                           -2%
+ *   shadows off entirely                            -13%   (and 462 draws -> 290)
+ *   postfx off entirely                             -35%   (the cliff; not taken)
+ *
+ * Two things fall straight out of that table. Resolution is not merely the best
+ * lever, it is worth more than every other lever on the ladder put together —
+ * so it leads every rung. And the shadow *map size* is nearly free in both
+ * directions: 2048 to 256 is two percent, which is why the ladder can hand the
+ * whole range back to the art direction and keep a real shadow at every rung
+ * for almost nothing. What shadows actually cost is the second draw of every
+ * caster (462 draw calls to 290), and that is a cost the game has decided to
+ * pay everywhere — see ARCHITECTURE §12.
+ *
+ * **The ladder itself**, walked strictly downwards on a fresh page — which is
+ * the only order that can answer the program question honestly, because an
+ * interleaved pass compiles the lower rungs' variants before it measures them:
+ *
+ *   rung 0  high    1147ms   —      456 draws  816k tris   84 programs
+ *   rung 1  high-    975ms   -15%   453 draws  810k tris   84
+ *   rung 2  med      719ms   -26%   431 draws  805k tris   84
+ *   rung 3  med-     576ms   -20%   429 draws  799k tris   84
+ *   rung 4  low      497ms   -14%   398 draws  779k tris   84
+ *   rung 5  floor    404ms   -19%   393 draws  780k tris   84
+ *                            -65% end to end
+ *
+ * Every step buys more than `FUTILE_GAIN`, which is the bar the ladder this
+ * replaces could not clear — its rung 3 to rung 4 measured *worse*. And the
+ * program count is **flat for the whole descent**, against 75 -> 101 before: the
+ * ladder no longer compiles anything, so it cannot hitch on the way down. (The
+ * one variant that used to appear at rung 3 — the composite drawn straight to
+ * the back buffer when `aa` goes off, which is a different program from the
+ * same composite drawn into a target — is now built at boot by
+ * `warmPrograms()` in `render/post.ts`.)
+ *
+ * The numbers move with the course; the shape does not. Every rung has to buy
+ * more than `FUTILE_GAIN` or it is not a rung, and the futility check will now
+ * actually notice — see where it sits relative to the panic branch.
  */
 const LADDER: readonly Rung[] = [
   rung('high', 'high', 1.00),
@@ -524,6 +597,9 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   /** ...and fixed steps the *harness* drove, as last seen. A frame whose gap
    *  contains any of those measured somebody else's work. */
   let seenBenchSteps = -1;
+  /** Latched between delivered frames: the harness stepped or drew inside this
+   *  gap. Cleared by the live frame that discards itself for it. */
+  let harnessSince = false;
 
   // ── was this a frame, or was the page not running ────────────────────────
   //
@@ -862,20 +938,30 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     calls: number;
     triangles: number;
     instances: number;
+    /** Drawable nodes. `instances / meshes` is the instancing audit: anything
+     *  that appears more than eight times should be a handful of meshes with a
+     *  lot of instances, never a lot of meshes. */
     meshes: number;
+    /** Top-level scene children that fell into this row — the vehicle roots are
+     *  unnamed, so all seven collapse into one, and the row means nothing
+     *  without knowing that. */
+    nodes: number;
     casts: number;
   }
   function audit(): { total: AuditRow; groups: AuditRow[] } {
     const rows = new Map<string, AuditRow>();
     const total: AuditRow = {
-      group: 'all', calls: 0, triangles: 0, instances: 0, meshes: 0, casts: 0,
+      group: 'all', calls: 0, triangles: 0, instances: 0, meshes: 0, nodes: 0, casts: 0,
     };
     const row = (name: string): AuditRow => {
       let r = rows.get(name);
       if (!r) {
-        r = { group: name, calls: 0, triangles: 0, instances: 0, meshes: 0, casts: 0 };
+        r = {
+          group: name, calls: 0, triangles: 0, instances: 0, meshes: 0, nodes: 0, casts: 0,
+        };
         rows.set(name, r);
       }
+      r.nodes++;
       return r;
     };
 
@@ -919,6 +1005,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       total.triangles += r.triangles;
       total.instances += r.instances;
       total.meshes += r.meshes;
+      total.nodes += r.nodes;
       total.casts += r.casts;
     }
     const groups = [...rows.values()].sort((a, b) => b.triangles - a.triangles);
@@ -957,7 +1044,16 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
             resumed = true;
           }
         };
-        const onShow = (): void => { resumed = true; pageHidden = false; };
+        // `persisted` only, and that word is doing real work: `pageshow` also
+        // fires on the *first* load, so without the test every session starts
+        // by reporting one suspended frame it never had. A restore from the
+        // back/forward cache is the case this is here for, and it is the only
+        // one that sets the flag.
+        const onShow = (e: Event): void => {
+          if (!(e as PageTransitionEvent).persisted) return;
+          resumed = true;
+          pageHidden = false;
+        };
         document.addEventListener('visibilitychange', onVisible);
         globalThis.addEventListener?.('pageshow', onShow);
         offVisibility = (): void => {
@@ -1011,7 +1107,12 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
          * measurement behind them is worth, and the measurement needs to move
          * one lever at a time against a frozen sim state — which no combination
          * of `set()` calls can do, because a rung moves five levers at once.
-         * This is how `tools/qualitydiff.mjs --cost` isolates them.
+         *
+         * The recipe, for whoever re-measures this after the course changes
+         * under them again: `__GAME.seek('racing')`, `step()` to a real racing
+         * moment, `__GAME.setTimeScale(0)` to freeze it, then `try()` each
+         * configuration and take the *median rAF period* over a few seconds,
+         * interleaved so page warm-up cannot flatter whichever went first.
          */
         try(trim: Partial<QualitySettings>, scale?: number): QualityProbe {
           auto = false;
@@ -1075,8 +1176,10 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       precompileLadder();
       // `benchSteps` is re-baselined rather than compared across the reset: the
       // harness took a great many of them getting here and the first live frame
-      // after a race build has no previous frame to be spoiled relative to.
+      // after a race build has no previous frame to be spoiled relative to
+      // (`lastFrameAt` is 0, so the next live frame takes no sample anyway).
       seenBenchSteps = -1;
+      harnessSince = false;
     },
 
     /**
@@ -1097,13 +1200,22 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       const live = b.liveFrames !== seenLive;
       seenLive = b.liveFrames;
 
-      // The harness stepping the simulation blocks the rAF loop for as long as
-      // it runs, so the frame that lands after it measures somebody else's
-      // work. Sampled here, once, whether or not this frame was live: a gap is
-      // spoiled by harness steps taken *anywhere inside it*.
-      const steps = b.benchSteps;
-      const hijack = seenBenchSteps >= 0 && steps !== seenBenchSteps;
-      seenBenchSteps = steps;
+      // ── did the harness touch anything since the last delivered frame ────
+      //
+      // Both kinds of harness work block the rAF loop for as long as they run:
+      // `step()` inside a `page.evaluate`, which renders nothing at all and can
+      // hold the thread for seconds, and `render()` bursts from a capture. The
+      // live frame that lands afterwards measures a gap made of somebody else's
+      // work. This is a **latch**, not a per-call test, precisely because
+      // `step()` never enters `update()`: the change is noticed on whichever
+      // call comes next — quite possibly a bench render — and has to survive
+      // until a *live* frame consumes it.
+      const benchFramesMoved = b.benchFrames !== benchFrames;
+      if (b.benchSteps !== seenBenchSteps) {
+        if (seenBenchSteps >= 0) harnessSince = true;
+        seenBenchSteps = b.benchSteps;
+      }
+      if (benchFramesMoved && benchFrames >= 0) harnessSince = true;
 
       let secs = 0;
       if (live) {
@@ -1114,10 +1226,11 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         // be: a frame is discarded because the page was not running through it,
         // never because it was long. A 2.4 second frame on a visible page is a
         // 2.4 second frame, and it is the whole reason this file exists.
-        const spoiled = resumed || pageHidden || hijack;
+        const spoiled = resumed || pageHidden || harnessSince;
         if (spoiled) {
           if (resumed || pageHidden) suspended++; else hijacked++;
           resumed = false;
+          harnessSince = false;
         } else if (gap > 0) {
           secs = gap / 1000;
           liveSeconds += secs;
@@ -1160,8 +1273,9 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // `benchFrames` only moves when `renderFrame` was called from outside the
       // rAF loop: the front end primes exactly one such frame per race start,
       // and the test harness renders them in bursts. Two inside a second and
-      // this page is a bench for good.
-      if (b.benchFrames !== benchFrames) {
+      // this page is a bench for good. (`benchFramesMoved` above is the same
+      // comparison, read before this block consumes it.)
+      if (benchFramesMoved) {
         if (benchFrames >= 0 && benchQuietFor < BENCH_BURST) benched = true;
         benchFrames = b.benchFrames;
         benchQuietFor = 0;

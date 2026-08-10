@@ -177,7 +177,10 @@ function diff(a, b) {
 }
 
 const TOP = 0;
-const BOTTOM = 4;
+/** The last rung, whatever the ladder currently is. Hardcoding an index here
+ *  meant that adding a rung silently stopped this tool testing the extreme —
+ *  which is the only pair worth testing. */
+const BOTTOM = (await page.evaluate(() => globalThis.__QUALITY?.ladder?.length ?? 5)) - 1;
 console.log(`\nqualitydiff — seed ${SEED}, ${COURSE}, ${SECONDS}s, rungs ${TOP} vs ${BOTTOM}\n`);
 
 const a = await run(TOP);

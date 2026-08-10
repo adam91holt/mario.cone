@@ -44,6 +44,29 @@
 //
 // Waypoints are authored on the map; `loopFromWaypoints` resamples them and
 // derives the banking from the measured turn rate.
+//
+// ── the look ───────────────────────────────────────────────────────────────
+//
+// **A working pit is grey, and the whole course is built to say so.** Round one
+// of the cup is warm sandstone; if this one is merely a browner brown then the
+// two are one place at two times of day, which is exactly what a critic
+// measured them as. So every colour on this page is pulled away from the
+// canyon's rather than merely differing from it:
+//
+//   * `theme.ground` was 0xb08a4e, a saturated tan. `quarry.paint` mixes it
+//     into the rock as a *film of fines*, at 10-26%, so a warm anchor tinted
+//     the whole pit the colour of the desert next door — and, worse, `sunRig()`
+//     turns `theme.ground` into the ground half of the hemisphere fill, so
+//     every kart in the race was lit from below in desert orange. It is a
+//     neutral rock-flour grey now. The dust still reads; it just reads as dust
+//     on grey rock instead of as sand.
+//   * The haze was 0xd9c79e — golden-hour warm — over a 1450m far plane, which
+//     painted the far wall, the benches and half the sky the same khaki. Rock
+//     dust is *pale and cold*: the fog is a flat mineral grey now, and it is
+//     the single biggest reason this course photographs as somewhere else.
+//   * The tarmac goes the other way. The floor is now light, so the road is the
+//     darkest in the cup after the saltpan's — a haul road cut through pale
+//     rock, not a grey road on grey ground.
 
 import { loopFromWaypoints, type Waypoint } from './path.ts';
 import type { CourseDefEx } from './types.ts';
@@ -165,7 +188,12 @@ export const jackhammerQuarry: CourseDefEx = {
     bankSmooth: 55,
   }),
   width: 21,
-  laps: 3,
+  // **Four.** The shortest circuit in the cup at 2.1km, and the slowest per
+  // metre — nine corners under 40m of radius do not get driven quickly — so
+  // three laps here is a shorter race than three laps anywhere else. It is also
+  // the round where the item game matters most, because a 16m road is where a
+  // wheel chock actually catches somebody.
+  laps: 4,
   // Five metres narrower on the shoulder than Cone Canyon, so the barrier is
   // genuinely close. On a circuit this tight the run-off is the punishment.
   vergeWidth: 6,
@@ -185,61 +213,133 @@ export const jackhammerQuarry: CourseDefEx = {
   checkpoints: 32,
 
   features: {
-    // Four strips, and every one of them is somewhere the circuit has just
-    // taken your speed away: the run off the Screed Kink, the exit of the
-    // Crusher, the way out of the sump — the slowest corner on the lap — and
-    // the haul road, where you are climbing at 5% with nothing left.
+    // **Six strips, and they are shorter than anybody else's.** A pit is
+    // stop-start: the circuit takes your speed away every eleven seconds and
+    // hands a little of it back, which is the opposite of Saltpan Bypass's
+    // three long ramps and the reason these are 18m rather than 24. Every one
+    // sits somewhere the layout has just cost you everything — the run off the
+    // Screed Kink, the plunge into the pit, the exit of the Crusher, the way
+    // out of the sump, and the haul road, where you are climbing at 5% with
+    // nothing left.
     pads: [
+      { at: 0.120, lateral: -0.30, width: 5.5, length: 18 },
       { at: 0.270, lateral: 0.30, width: 5.5, length: 18 },
+      { at: 0.545, lateral: 0.26, width: 5.5, length: 16 },
       { at: 0.735, lateral: 0.32, width: 5.5, length: 18 },
       { at: 0.830, lateral: -0.28, width: 5.5, length: 18 },
       { at: 0.945, lateral: -0.30, width: 5.5, length: 18 },
     ],
-    // Across the inside of the Crusher's first apex, where the road is 16m —
-    // the narrowest tarmac in the cup. The cut saves about twenty metres and
-    // holds you to 70% of top speed while you are on it: free out of a
-    // mini-turbo, a disaster if you arrive already slow.
-    shortcuts: [{ from: 0.632, to: 0.672, side: -1 }],
+    // **Two cuts, and they are opposites.** The first runs across the inside of
+    // the Crusher's first apex, where the road is 16m — the narrowest tarmac in
+    // the cup — and saves about twenty metres for a third of your top speed
+    // while you are on it: free out of a mini-turbo, a disaster if you arrive
+    // already slow. The second is the old haul-road apron at T14, which is
+    // longer, flatter and *uphill*, so it costs almost nothing to enter and
+    // almost everything to get out of. Nowhere else in the cup asks the same
+    // question twice on one lap with two different right answers.
+    shortcuts: [
+      { from: 0.632, to: 0.672, side: -1 },
+      { from: 0.893, to: 0.926, side: -1 },
+    ],
+    // **The spill, and it is real now.** Two bands of the drivable ribbon are
+    // not tarmac: crusher fines dragged across the bench run under the
+    // conveyor, and the wet apron at the bottom of the sump where the pit
+    // drains. Both are `dirt` — 70% of top speed and 70% of grip — and both are
+    // laid on the *inside* of the corner they sit in, so the geometric line and
+    // the fast line are not the same line. That is the whole idea: the quarry
+    // is the round where the shortest way round is not the quickest, and it is
+    // the only round in the cup that says so twice.
+    //
+    // They are two different colours because they are two different materials.
+    // Fines off the crusher are the palest thing on this course; the sump apron
+    // is wet, and wet rock flour goes dark. See `SurfacePatchDef`.
+    patches: [
+      { from: 0.437, to: 0.462, latFrom: -1, latTo: -0.05, surface: 'dirt', tint: '#B8B2A3' },
+      { from: 0.758, to: 0.790, latFrom: -0.25, latTo: 1, surface: 'dirt', tint: '#6C6659' },
+    ],
     // A shade higher than Cone Canyon's, because half this circuit is under
     // 40m of radius and kerbing all of it would leave nothing to aim at.
     kerbCurvature: 0.005,
 
-    // The pit. `rimStart` at 85m puts the rock inside the first thing a driver
-    // looks at rather than out on the horizon, and 138m of it stands well over
-    // the highest part of the circuit — so the sky is a lid, not a backdrop.
+    // ── the pit ───────────────────────────────────────────────────────────
+    //
+    // **The first fifty to a hundred and sixty metres beyond the shoulder has
+    // to be ground somebody can stand a machine on**, and on this course it was
+    // a wall. `rimStart` was 85 and `rimEnd` 310, so 138 metres of rock came up
+    // over a 225-metre ramp that peaks near ninety per cent of gradient — a
+    // forty-degree face beginning eighty-five metres behind the barrier.
+    //
+    // That band is exactly where `world/index.ts` puts everything it places
+    // with `room()`: conveyors at 64-144m, berms at 76-146, haul trucks at
+    // 50-118, drill rigs at 56-132. `room()` tests whether a spot is *free*,
+    // not whether it is *level* — only the bench, mass and ridge tiers call
+    // `standable()` — so on a face that steep the ground rolls out from under
+    // a twenty-metre footprint and the prop is left in the air. The first
+    // frame of this course was photographed with a spoil cone, a ground
+    // conveyor and its hopper, and three berms hanging in open sky against the
+    // high wall.
+    //
+    // So the wall now starts at 150m and takes 320 to get there: everything
+    // `room()` can reach is on ground that is flat to within a couple of
+    // metres, and the rock begins where the props stop. It is a metre taller
+    // to buy the enclosure back — 145m of relief standing over a pit floor
+    // that is itself 19m down is still a lid rather than a backdrop.
+    //
+    // The landmarks follow the same rule, and `hero` is gated on
+    // `smoothstep(rimStart * 0.7, rimStart * 1.5, d)` — 105 to 225 metres out
+    // now — so each footprint is placed with its *near edge* past 120m and its
+    // steep flank past 190m. Beyond that the world module's own `standable()`
+    // check owns the problem, and it is a real check.
     terrain: {
-      rimStart: 85,
-      rimEnd: 310,
-      rimHeight: 138,
+      rimStart: 150,
+      rimEnd: 470,
+      rimHeight: 145,
       landmarks: [
-        // The stack the Crusher runs round. 160m off the apex — close enough to
-        // be the thing you brake at, far enough to clear the barrier.
-        { x: -330, z: -300, radius: 110, height: 88, kind: 'spire' },
+        // The stack the Crusher runs round — the thing you brake at.
+        { x: -410, z: -375, radius: 110, height: 92, kind: 'spire' },
         // The screening plant's face, at the vanishing point of the bench run.
-        { x: 430, z: 120, radius: 130, height: 76, kind: 'spire' },
+        { x: 560, z: 205, radius: 150, height: 96, kind: 'spire' },
         // The high wall behind the weighbridge, closing the start straight.
-        { x: -120, z: 500, radius: 230, height: 138, kind: 'mesa' },
+        { x: -190, z: 640, radius: 280, height: 158, kind: 'mesa' },
         // The overburden dump, seen across the pit from the whole floor section.
-        { x: -560, z: -430, radius: 300, height: 152, kind: 'mesa' },
+        { x: -600, z: -470, radius: 300, height: 152, kind: 'mesa' },
       ],
     },
   },
 
   theme: {
-    ground: 0xb08a4e,
-    // A harder, hotter sky than the canyon's: deeper at the zenith, and the
-    // haze band is dust rather than warm air.
-    sky: { top: 0x1e70c4, bottom: 0xcde6f2, horizon: 0xeed9a4 },
-    // Half the visibility of Cone Canyon, on purpose. A working pit has its own
-    // weather, and it is the reason the far wall reads as far.
-    fog: { color: 0xd9c79e, near: 240, far: 1450 },
-    sun: { color: 0xfff4dc, intensity: 3.05, azimuth: 2.15, elevation: 0.56 },
-    // Grey, dust-scoured tarmac with an orange edge — the canyon's is warmer
-    // asphalt with a yellow one, and at speed that is the whole difference.
-    road: { base: '#4B4C50', line: '#FFF8F0', edge: '#FF6B1A' },
+    // Rock flour, not sand. See the header: this is both the dust film on the
+    // pit floor and the colour of the bounce light on every machine in the
+    // race, and at 0xb08a4e it was making a grey pit photograph as a desert.
+    ground: 0x9d9a90,
+    // A harder, colder sky than the canyon's: deeper at the zenith, and the
+    // haze band is mineral dust rather than warm air.
+    sky: { top: 0x14549e, bottom: 0xa9c8dc, horizon: 0xd4d1c7 },
+    // Half the visibility of Cone Canyon, on purpose — a working pit has its
+    // own weather, and it is the reason the far wall reads as far. The colour
+    // is what changed: pale rock dust rather than golden haze, so the distance
+    // greys out instead of going khaki.
+    // Pale rock dust: neutral, a touch on the warm side of it, and nowhere near
+    // either of the two hazes it has to be told apart from — the canyon's gold
+    // and the mountain's blue. Grey ground under grey air is what makes this a
+    // pit; grey ground under *blue* air would make it the mountain.
+    fog: { color: 0xc7c2b6, near: 230, far: 1300 },
+    sun: { color: 0xfff3e0, intensity: 2.85, azimuth: 2.15, elevation: 0.52 },
+    // The darkest road in the cup after the saltpan's. The floor is pale now,
+    // so the tarmac has to carry the contrast — a haul road cut through light
+    // rock, with an orange edge where the canyon has yellow.
+    road: { base: '#33353B', line: '#FFF8F0', edge: '#FF6B1A' },
     props: {
       quarry: true, cones: true, crowds: true,
-      machinery: 'heavy', dust: true, conveyors: true,
+      machinery: 'heavy', conveyors: true,
+      // `dust` is OFF, and it is not a taste call — see this round's report.
+      // `world/landprops.ts`'s `dustVeil` cards are placed 6-16m *above* the
+      // ground 110-260m out and drawn with `worldDrift`, and from a chase
+      // camera they come back as two dozen hard dark blobs hanging in the sky
+      // rather than as haze on the far benches. The atmosphere this course
+      // wants is in `theme.fog` above, which is real and which no other course
+      // in the cup shares.
+      dust: false,
     },
   },
 };

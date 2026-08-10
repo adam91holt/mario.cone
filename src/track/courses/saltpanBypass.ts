@@ -42,6 +42,20 @@
 //
 // The pan is flat. Four metres of elevation across the whole lap, which is what
 // a dry lake is, and what makes the horizon do the work instead of the terrain.
+//
+// **Two laps.** Every other round in the cup runs three or four; this one is
+// 3.3 kilometres of road taken at sixty metres a second with one braking point
+// on it, and a third lap of that is not a third act, it is the same lap again.
+// Two also changes what the race *is*: there is no settling-in lap here, the
+// pack is still eight wide at the first chicane, and the only overtaking place
+// on the circuit gets used four times instead of six.
+//
+// The look is the other half of the design. A dry lake is the highest-key
+// landscape there is — near-white ground throwing light back up into everything
+// standing on it, a cobalt zenith because there is nothing in the air, and no
+// haze worth the name out to three kilometres. Black bitumen on white salt is
+// the highest road-to-ground contrast in the game, and that contrast is what
+// keeps a 36m ribbon readable at 60 m/s.
 
 import { loopFromWaypoints, type Waypoint } from './path.ts';
 import type { CourseDefEx } from './types.ts';
@@ -164,7 +178,9 @@ export const saltpanBypass: CourseDefEx = {
     bankSmooth: 70,
   }),
   width: 32,
-  laps: 3,
+  // Two. See the header — 3.3km at 60 m/s, and the third lap is the second one
+  // again.
+  laps: 2,
   // Twelve metres of salt crust either side. Running wide out here does not end
   // your race the way it does in the quarry — it just costs you the corner, and
   // that is the trade a wide-open circuit is supposed to offer.
@@ -173,7 +189,7 @@ export const saltpanBypass: CourseDefEx = {
   offSurface: 'sand',
   walls: true,
   // Low barriers. On a lake bed there is nothing to armco against, and a 1.5m
-  // wall running the length of a 1.3km circuit would fence in the one view the
+  // wall running the length of a 3.3km circuit would fence in the one view the
   // course is built around.
   wallHeight: 1.1,
   groundSize: 6400,
@@ -182,19 +198,39 @@ export const saltpanBypass: CourseDefEx = {
   checkpoints: 40,
 
   features: {
-    // Three strips. Two on the north S, laid where the racing line already is,
-    // so they reward the driver who aimed the sweepers properly rather than
-    // handing speed to whoever is nearest the middle. The third is the way out
-    // of the chicane, which is the only place on the lap anybody is slow.
+    // **Three strips, and they are the longest in the cup.** Thirty-two metres
+    // of ramp against Jackhammer Quarry's eighteen, because the question a fast
+    // circuit asks is not "can you get back on the throttle" — you never came
+    // off it — but "did you aim the sweeper properly two hundred metres ago".
+    // Two are on the north S, laid where the racing line already is, so they
+    // pay the driver who took the right line rather than whoever happened to be
+    // nearest the middle. The third is the way out of the chicane, which is the
+    // only place on the lap anybody is slow.
     pads: [
-      { at: 0.120, lateral: -0.32, width: 6.5, length: 24 },
-      { at: 0.270, lateral: 0.30, width: 6.5, length: 24 },
-      { at: 0.645, lateral: 0.26, width: 6.5, length: 22 },
+      { at: 0.120, lateral: -0.32, width: 7, length: 32 },
+      { at: 0.270, lateral: 0.30, width: 7, length: 32 },
+      { at: 0.645, lateral: 0.26, width: 7, length: 30 },
     ],
     // The closed carriageway: the crust runs straight on past the chicane's
     // first apex. It is 58% of top speed while you are on it, so from 60 m/s it
     // is a trap — and with a mushroom it is the fastest thing on the circuit.
     shortcuts: [{ from: 0.574, to: 0.606, side: 1 }],
+    // **The drift.** A dry lake is a wind machine, and what it moves is salt.
+    // A metre-deep windrow has blown across the *outside* half of the Brine
+    // Sweep — the longest single corner on the circuit, 272m of arc taken flat
+    // — and it is `sand`, which is 58% of top speed. Nothing is blocking the
+    // road: the fast line is still there, it is just narrower than it looks,
+    // and a kart pushed wide by a rival at 60 m/s finds out where the edge of
+    // it is. It is the only surface hazard in the cup that punishes *being
+    // overtaken* rather than braking late. See `SurfacePatchDef` for the frame.
+    //
+    // Near-white, because it is salt: on the darkest tarmac in the cup it is
+    // the most legible hazard in the game, visible from most of the sweeper
+    // before you reach it. You are meant to see it the whole way in and still
+    // have to decide how close to run to it.
+    patches: [
+      { from: 0.208, to: 0.252, latFrom: 0.40, latTo: 1, surface: 'sand', tint: '#E4DECA' },
+    ],
     // A third higher than Cone Canyon's threshold. At 0.0042 every 240m sweeper
     // on this course would grow a rumble strip and the two corners that matter
     // would stop standing out.
@@ -220,18 +256,23 @@ export const saltpanBypass: CourseDefEx = {
   },
 
   theme: {
-    ground: 0xe0dccc,
+    // Near-white evaporite, and the highest-value ground in the game by a
+    // distance. It is also, through `sunRig()`, the bounce light: a salt pan
+    // throws most of the sun back up at whatever is standing on it, which is
+    // why the karts here have almost no dark side and why nothing else in the
+    // cup can be lit this way.
+    ground: 0xe6e2d2,
     // Deep cobalt overhead falling to white at the horizon — the sky of a place
     // with nothing in the air and a lot of light coming back off the ground.
-    sky: { top: 0x1758c8, bottom: 0xe8f5ff, horizon: 0xffffff },
+    sky: { top: 0x0d49c4, bottom: 0xecf7ff, horizon: 0xffffff },
     // The clearest air in the cup by a distance. The far plane is 3000m and the
     // haze is set to reach exactly that, so the buttes stay legible and the
     // circuit's own scale is what the distance reads as.
-    fog: { color: 0xeaf1f6, near: 800, far: 3000 },
-    sun: { color: 0xfffcf2, intensity: 3.25, azimuth: 4.05, elevation: 0.58 },
+    fog: { color: 0xeef4f8, near: 900, far: 3000 },
+    sun: { color: 0xfffdf4, intensity: 3.3, azimuth: 4.05, elevation: 0.58 },
     // Fresh black bitumen on white salt: the highest road-to-ground contrast in
     // the game, which is what keeps a 36m-wide ribbon readable at 60 m/s.
-    road: { base: '#33353D', line: '#FFF8F0', edge: '#FFC300' },
+    road: { base: '#2B2D34', line: '#FFF8F0', edge: '#FFC300' },
     props: {
       saltpan: true, cones: true, crowds: true,
       windsocks: true, heatShimmer: true, surveyPegs: true,

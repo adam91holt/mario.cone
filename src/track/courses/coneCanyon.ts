@@ -25,6 +25,15 @@
 // Waypoints are authored on the map; `loopFromWaypoints` resamples them into
 // evenly spaced control points and derives the banking from the turn rate, so
 // the numbers below say what the corner *is*, not what the spline needs.
+//
+// **This is the warm one, and it is also the plain one.** Round one of a cup
+// teaches the vocabulary: three laps, four strips, one gravel cut, no surface
+// hazard on the racing line. Everything the other three rounds do differently
+// — four laps and six short strips in the pit, two laps and three long ramps on
+// the pan, five strips on the climb and none on the descent — is measured
+// against this. So the layout stays put; the only thing pushed here is the
+// palette, and it is pushed *away from the quarry's*: hot terracotta against
+// cold rock flour, gold haze against mineral grey.
 
 import { loopFromWaypoints, type Waypoint } from './path.ts';
 import type { CourseDefEx } from './types.ts';
@@ -169,11 +178,18 @@ export const coneCanyon: CourseDefEx = {
   },
 
   theme: {
-    ground: 0xc99a5b,
-    sky: { top: 0x2e86d6, bottom: 0xbfe7ff, horizon: 0xffe2b0 },
+    // Hot terracotta, pushed a full step off where it was. `theme.ground` is
+    // the far-field albedo *and* the ground half of the hemisphere fill, so
+    // this is also why everything on this circuit is lit warm from below — the
+    // opposite of the quarry, whose fill is neutral rock flour, and of the
+    // mountain, whose fill is cold schist.
+    ground: 0xcf8f4a,
+    sky: { top: 0x2e86d6, bottom: 0xbfe7ff, horizon: 0xffd79a },
     // Thinner haze than before: the mesas are the point of the horizon now, and
     // fog that reaches them at 400m turns the canyon back into a khaki blur.
-    fog: { color: 0xe0d2b4, near: 620, far: 2600 },
+    // Warm, and deliberately so — it is the tell that separates this round from
+    // round two at a glance, and round two's is a flat mineral grey.
+    fog: { color: 0xe7c99c, near: 620, far: 2600 },
     sun: { color: 0xfff2d8, intensity: 2.6, azimuth: 0.7, elevation: 0.85 },
     road: { base: '#3A3D46', line: '#FFF8F0', edge: '#FFC300' },
     props: { canyon: true, cones: true, crowds: true },

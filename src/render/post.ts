@@ -473,6 +473,53 @@ export function createPostStack(
   setSize();
   (fxaaMat.uniforms.uTexel!.value as THREE.Vector2).set(1 / width, 1 / height);
 
+  /**
+   * Compile every pass's program now, including the ones only a lower quality
+   * rung ever asks for.
+   *
+   * three keys its program cache on the *render target* as well as the
+   * material, because the output colour space and the tone mapping differ
+   * between drawing into a target and drawing into the back buffer. The
+   * composite is therefore two programs: one for `aa: true`, which lands in
+   * `ldrTarget` for FXAA to read, and one for `aa: false`, which goes straight
+   * to the screen. Only the first is ever built by a frame at the top rung — so
+   * the frame on which the quality ladder first gives up antialiasing compiles
+   * the largest shader in the game (atmosphere, bloom, film stock, vignette,
+   * dither, all in one pass) at the exact moment it is trying to rescue a
+   * machine that is already failing. Measured on the ladder walk: the program
+   * count went 84 -> 85 on that rung and nowhere else, which is one program more
+   * than a ladder is allowed to cost.
+   *
+   * Six compiles at boot, where nobody is watching, and the count is flat for
+   * the whole descent.
+   */
+  function warmPrograms(): void {
+    const prevTarget = renderer.getRenderTarget();
+    const prevMat = quad.material;
+    const passes: Array<[THREE.Material, Array<THREE.WebGLRenderTarget | null>]> = [
+      [brightMat, [mips[0]!]],
+      [downMat, [mips[1]!]],
+      [upMat, [mips[0]!]],
+      // Both, and this pair is the whole reason this function exists.
+      [compositeMat, [ldrTarget, null]],
+      [fxaaMat, [null]],
+    ];
+    for (const [mat, targets] of passes) {
+      quad.material = mat;
+      for (const target of targets) {
+        renderer.setRenderTarget(target);
+        try {
+          renderer.compile(quadScene, quadCam);
+        } catch {
+          // A warm-up that did not happen is a hitch later, not a broken game.
+        }
+      }
+    }
+    quad.material = prevMat;
+    renderer.setRenderTarget(prevTarget);
+  }
+  warmPrograms();
+
   function render(): void {
     setSize();
 

@@ -24,14 +24,51 @@ export interface BoostPadDef {
   length?: number;
 }
 
-/** A patch of the drivable ribbon that is not tarmac. */
+/**
+ * A patch of the drivable ribbon that is not tarmac.
+ *
+ * **This is live now, and the way it is live is the point.** For a whole round
+ * it was authored and not read: `sample()` decided a racer's surface purely
+ * from lateral distance, so three courses declared a spill, a windrow and a
+ * washout, wrote paragraphs about what each one asks of a driver, and all four
+ * bands returned `road` in the running game. The entire "2 spills / 1 drift /
+ * 1 washout" column the roster's cup order is built on was a comment.
+ *
+ * The wiring deliberately does **not** let that happen twice. `buildRoad`
+ * resolves each def into a `PatchRuntime` once, paints it from that, and hands
+ * the same array to `sample()`, which shares `patchScale()` with the paint. The
+ * spill a player can see and the spill the kart is standing on are therefore
+ * the same shape to the centimetre, including the tapered ends and the ragged
+ * edge — there is no second copy of the geometry to drift out of agreement.
+ *
+ * A patch overrides a boost strip where the two overlap, on the grounds that
+ * material on the road beats paint under it. Do not overlap them on purpose.
+ */
 export interface SurfacePatchDef {
+  /** Lap fraction of the leading edge, measured from the start line. */
   from: number;
   to: number;
-  /** Lateral band as fractions of the half width. */
+  /**
+   * Lateral band, as fractions of the half width, **in the spline's frame** —
+   * the same frame `ShortcutDef.side` uses and therefore the mirror of the
+   * driver's. `-1` is the driver's right edge, `+1` is the driver's left.
+   *
+   * The band is what is declared; what is *built* is that band with its ends
+   * faded in over a third of its length and its edge broken up by noise, so a
+   * spill fans out of the shoulder instead of starting at a ruled line. It
+   * never grows past the declaration, only inside it.
+   */
   latFrom: number;
   latTo: number;
   surface: Surface;
+  /**
+   * CSS colour of the material. There is no sensible default across four
+   * places — crusher fines on a grey pit floor, blown salt on a white lake and
+   * schist scree on a cold mountain are the same `dirt`/`sand` to physics and
+   * three different colours to a player — so each course names its own. Falls
+   * back to a generic per-surface tone.
+   */
+  tint?: string;
 }
 
 /** The gravel line across the inside of a corner: shorter, slower, marked. */
