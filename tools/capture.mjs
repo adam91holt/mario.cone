@@ -70,6 +70,103 @@ const log = (...a) => { if (!OPTIONS.quiet) console.log(...a); };
 // framerate-independent, so the settled frame is identical either way.
 const SETTLE = 0.9;
 
+// ── driving to the shot ────────────────────────────────────────────────────
+//
+// **A shot recipe that can land off-road is a recipe that will.** Three of the
+// nine frames on this sheet used to be composed by steering blind from a
+// standing start — `drift` held 0.85 of lock and the drift button for 4.2s and
+// photographed whatever that produced, which was the kart on the dirt shoulder
+// in eighth place with the WRONG WAY alarm across the middle of the frame.
+// `boost` did the same and landed twenty metres off the road grinding along a
+// barrier. `pack`, captioned "do the racers read apart from each other at
+// speed", put the player on autopilot from the back of the grid for sixteen
+// seconds and photographed them completely alone.
+//
+// Nine frames are the entire visual record this project is reviewed from, and a
+// third of them were of a kart that had left the circuit. So the recipes below
+// *drive to the shot*: hand the kart to the CPU driver, which knows the racing
+// line, and only take it back at the moment the shot needs a human input. The
+// helpers are here rather than inline because every recipe wants the same two
+// things — be somewhere real, and be somewhere real *with the field*.
+
+/** Autopilot up to speed on the racing line, then hand back to the recipe. */
+async function rideTo(game, seconds) {
+  await game.setAutopilot(true);
+  await game.step(seconds);
+  await game.setAutopilot(false);
+}
+
+/**
+ * Drive — really drive, on the CPU's own racing line — until the moment this
+ * shot is *of* actually happens, then stop.
+ *
+ * This is the difference between a recipe and a photograph. "Hold 0.85 of lock
+ * and the drift button for 4.2 seconds from a standing start" is not a
+ * description of a drift, it is a description of an input, and what it produced
+ * was a kart on the dirt shoulder in eighth place under a WRONG WAY alarm.
+ * "Keep going until the kart is sideways with a charge on it" is a description
+ * of the subject, and it cannot land anywhere else.
+ *
+ * Still deterministic: the same seed steps the same simulation and the
+ * predicate goes true on the same fixed step every run. It is only the *number*
+ * of seconds that stops being hardcoded, and that number was never the point.
+ */
+async function rideUntil(game, test, limit = 34, grain = 0.1) {
+  await game.setAutopilot(true);
+  for (let t = 0; t < limit; t += grain) {
+    await game.step(grain);
+    const snap = await game.snapshot();
+    const p = snap.racers.find((r) => r.isPlayer);
+    if (p && test(p, snap)) return p;
+  }
+  return null;
+}
+
+/**
+ * Let the visual springs settle **without moving the simulation.**
+ *
+ * `render()` runs every `update()` — camera boom, drift swing, FOV kick,
+ * particles — and never calls `stepFixed`, so the look of the world catches up
+ * while the world itself holds still. That distinction is the whole reason a
+ * shot of a transient state is possible at all: `advance(0.9)` settles the
+ * camera beautifully and spends nine tenths of a second of race doing it, which
+ * is longer than a mini-turbo charge lasts. The drift shot came back as the
+ * boost shot twice before this existed.
+ *
+ * **The time scale is what actually holds it still.** The engine's own rAF loop
+ * is still running in the page and steps the simulation off the *wall* clock —
+ * see the note on timing the reel in ARCHITECTURE.md — so twenty-eight round
+ * trips at 150-300ms each is four to eight seconds of real time, and four to
+ * eight seconds of race, quietly happening underneath a settle that believes it
+ * froze the frame. Measured: the `drift` shot photographed a genuine drift and
+ * then reported `driftTier: 0` and `boosting: false` in the index, because by
+ * the time the snapshot was taken the kart was a corner further on.
+ *
+ * Deliberately left frozen. The screenshot and the index snapshot happen after
+ * the recipe returns and cost another few hundred milliseconds each, so putting
+ * the clock back here would hand the race exactly the seconds this exists to
+ * take away from it. Every shot begins with `reset()`, and the race director
+ * puts `time.scale` back to 1 in its own reset — so the freeze cannot leak into
+ * the next recipe.
+ */
+async function settle(game, frames = 28) {
+  await game.setTimeScale(0);
+  for (let i = 0; i < frames; i++) await game.render();
+}
+
+/** Metres to the nearest other machine, and how many are within `r`. */
+function crowding(snap, r = 34) {
+  const me = snap.racers.find((x) => x.isPlayer);
+  if (!me) return 0;
+  let n = 0;
+  for (const o of snap.racers) {
+    if (o.isPlayer) continue;
+    const d = Math.hypot(o.pos[0] - me.pos[0], o.pos[2] - me.pos[2]);
+    if (d < r) n++;
+  }
+  return n;
+}
+
 const SHOTS = [
   {
     name: 'grid',
@@ -103,37 +200,46 @@ const SHOTS = [
     name: 'drift',
     caption: 'Mid-drift with a charged mini-turbo. Sparks, chassis angle, camera offset.',
     async run(game) {
-      // Hand-driven: autopilot picks its own line, and this shot needs a
-      // guaranteed committed drift.
+      // The subject is a committed, charged drift on the circuit — so drive
+      // until there is one. The CPU driver picks the corner, which is the whole
+      // point: the frame is of the game drifting, not of a script steering.
       await game.reset({ instant: true });
-      await game.setInput({ accel: 1 });
-      await game.step(3.2);
-      await game.setInput({ accel: 1, steer: 0.85, drift: true });
-      await game.step(1.0);
-      await game.advance(0.9);
+      await rideUntil(game,
+        (p) => p.drift.active && p.drift.tier >= 1 && p.surface === 'road');
+      // Settled without advancing the race. A settle long enough to let the
+      // camera springs arrive is also long enough for the drift to end and the
+      // mini-turbo to fire, and then this is the boost shot with a different
+      // caption — which is what the first two attempts at this recipe produced.
+      await settle(game);
     },
   },
   {
     name: 'boost',
     caption: 'The frame right after a mini-turbo fires. FOV kick, flames, speed cues.',
     async run(game) {
+      // Likewise: wait for a real mini-turbo to fire rather than manufacturing
+      // one at a place on the circuit that cannot absorb it.
       await game.reset({ instant: true });
-      await game.setInput({ accel: 1 });
-      await game.step(3.2);
-      await game.setInput({ accel: 1, steer: 0.85, drift: true });
-      await game.step(2.2);
-      // Release, then render immediately — the boost frame is the point.
-      await game.setInput({ accel: 1, steer: 0.2, drift: false });
-      await game.advance(0.3);
+      await rideUntil(game,
+        (p) => p.boost.time > 0 && String(p.boost.source ?? '').startsWith('drift'));
+      // Immediately — the boost frame is the point, and the kick decays.
+      await settle(game);
     },
   },
   {
     name: 'pack',
     caption: 'Mid-pack traffic. Do the racers read apart from each other at speed?',
     async run(game) {
+      // The subject of this shot is the *other* machines. The player starts
+      // eighth of eight, and eighth of eight on a clean lap is alone — this
+      // recipe used to photograph an empty circuit under a caption asking
+      // whether the racers read apart from each other. So it waits for traffic:
+      // three machines inside thirty-four metres, at speed, on the road.
       await game.reset({ instant: true });
-      await game.setAutopilot(true);
-      await game.step(16);
+      // Past the start-line scramble — everybody is crowded on the grid, and a
+      // photograph of the grid is a different shot on this sheet already.
+      await rideUntil(game,
+        (p, snap) => p.progress > 320 && p.speed > 42 && crowding(snap) >= 3, 40);
       await game.advance(SETTLE);
     },
   },
@@ -152,13 +258,57 @@ const SHOTS = [
     name: 'offroad',
     caption: 'Off the road surface. Does leaving the track look and feel punishing?',
     async run(game) {
+      // The one shot on this sheet that is *supposed* to end in the gravel —
+      // but from racing speed on a real part of the circuit, because the
+      // question is what leaving the road costs, not what a standing start into
+      // the verge looks like.
       await game.reset({ instant: true });
-      await game.setAutopilot(false);
-      await game.setInput({ accel: 1 });
-      await game.step(2.5);
+      await rideTo(game, 6);
       await game.setInput({ accel: 1, steer: -1 });
-      await game.step(1.4);
+      await game.step(1.2);
       await game.advance(0.8);
+    },
+  },
+  {
+    name: 'pause',
+    caption: 'Paused mid-race: the pause plate, and the controls card that now lives here.',
+    async run(game) {
+      // The controls card moved off the start grid and onto pause, and pause had
+      // no shot — so the card, the only place this game explains itself, was
+      // reviewable nowhere. It is also the one frame where two signs are on
+      // screen together, which is how the four hand-copies of the plate were
+      // caught disagreeing in the first place.
+      await game.reset({ instant: true });
+      await rideTo(game, 7);
+      await game.press('pause');
+      await game.advance(0.8);
+    },
+  },
+  {
+    name: 'finish',
+    caption: 'The seconds after the flag: held letterbox, finish lens, ticker filling in.',
+    async run(game) {
+      // The gap between the finish beat and the results sheet used to be a
+      // motionless kart in a ditch with no interface on it at all, for up to
+      // fourteen seconds, and nothing on this sheet photographed it. `__RACE.flag`
+      // is the director's own front door onto the branch: a race cannot be
+      // driven to a first place on demand.
+      await game.reset({ instant: true });
+      await rideTo(game, 9);
+      await game.evaluate(() => globalThis.__RACE.flag(1));
+      await game.step(3.4);
+      await game.advance(0.6);
+    },
+  },
+  {
+    name: 'results',
+    caption: 'The results sheet: finishing order, machines, championship, podium behind it.',
+    async run(game) {
+      await game.reset({ instant: true });
+      await rideTo(game, 9);
+      await game.evaluate(() => globalThis.__RACE.flag(1));
+      await game.step(11);
+      await game.advance(1.2);
     },
   },
   {
@@ -208,9 +358,14 @@ function makeGameProxy(page) {
     setCamera: (m) => call('setCamera', m),
     setQuality: (q) => call('setQuality', q),
     setAutopilot: (on) => call('setAutopilot', on),
+    setTimeScale: (s) => call('setTimeScale', s),
     seek: (p) => call('seek', p),
     stats: () => call('stats'),
     snapshot: () => call('snapshot'),
+    /** Run a function in the page. For the reviewer's-bench front doors —
+     *  `__RACE.flag()` and friends — which reach states no amount of driving
+     *  can. Everything a *player* can do goes through the harness above. */
+    evaluate: (fn) => page.evaluate(fn),
     errors: () => page.evaluate(() => window.__GAME?.errors ?? []),
   };
 }
@@ -219,7 +374,12 @@ async function withPage(fn) {
   const server = await createServer({
     root: ROOT,
     logLevel: 'error',
-    server: { host: '127.0.0.1', port: 0 },
+    // No HMR and no file watcher. A full sheet takes four minutes under
+    // software GL, and a source edit made while one is running otherwise
+    // navigates the page out from under it — the capture then fails on a
+    // timeout waiting for a `__GAME` that a half-saved module never installed,
+    // which reads exactly like a boot failure and is not one.
+    server: { host: '127.0.0.1', port: 0, hmr: false, watch: null },
     // A dev server needs no bundling pass, so iteration stays fast.
     optimizeDeps: { include: ['three'] },
   });

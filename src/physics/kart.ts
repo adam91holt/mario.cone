@@ -743,9 +743,27 @@ export function createKartPhysics(ctx: GameContext): GameSystem {
         racer.speed += K.accel * accelStat * coinAccel * curve * accelIn * dt;
       }
 
-      if (boosting && racer.speed < racer.maxSpeed) {
-        // A boost is an authority, not just a raised ceiling: it drags the kart
-        // up to its target whether or not the throttle is down.
+      if (boosting && brakeIn <= 0 && racer.speed < racer.maxSpeed) {
+        // A boost is an authority over the *throttle*, not over the driver: it
+        // drags the kart up to its target whether or not the accelerator is
+        // down, and stops the moment the brake is touched.
+        //
+        // **That second clause is new and it is the most expensive line in this
+        // file.** The pull closes 6% of the gap to the boost ceiling every
+        // fixed step — about 200 m/s² of authority against a brake worth 30 —
+        // so while a boost was lit the brake did *nothing at all*. Measured on
+        // Cone Canyon: a kart takes the pad at the end of the Detour Straight,
+        // goes to 80 m/s, and sits there for eight tenths of a second with the
+        // brake buried and the plan asking for 41, because it cannot slow down.
+        // It arrives at Digger's Elbow fifteen metres off the centreline of a
+        // nine-metre road. Every driver in the field did this at nearly every
+        // corner: a quarter to a third of the whole race spent on the dirt,
+        // twenty wall strikes each, and every review frame this game has ever
+        // produced was of a kart in gravel.
+        //
+        // A boost that cannot be spent is not a reward, it is a hazard the
+        // course lays in front of you. Choosing *where* to cash a mini-turbo is
+        // the mechanic; that choice needs a brake pedal that works.
         racer.speed = damp(racer.speed, racer.maxSpeed, K.boost.pull, dt);
       }
 

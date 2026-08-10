@@ -2853,12 +2853,25 @@ export function createFxSystem(ctx: GameContext): GameSystem {
    * full for a win, most of it for the rest of the podium, and a token amount
    * off it — the field is still finishing, and something should still land, but
    * nothing about the player's own frame should look like a party.
+   *
+   * **And it only ever answers for the player.** There was a second branch here
+   * that gave any *non*-player finish a flat 0.35 — and the burst is spawned on
+   * `player`, at the player's position, carrying the player's velocity, because
+   * that is the only anchor this effect has. So each of the seven CPUs crossing
+   * the line let off a hundred and fifty flakes and a white screen flash out of
+   * the player's own machine, at whatever point in the closing laps they
+   * happened to finish, while the player was still driving. It also quietly
+   * outranked the careful scale above: 0.35 for somebody else's race is three
+   * times the 0.12 the player's own sixth place asks for.
+   *
+   * `race:finish` fires once per racer, and all three modules that answer it now
+   * ask the same first question. The mixer cues nothing for a CPU, the director
+   * arms no finish beat for one, and this throws no confetti for one.
    */
   ctx.bus.on<{ racer: Racer; place: number; podium: boolean }>(
     'race:finish', ({ racer, place, podium }) => {
-      if (!racer.isPlayer) { pendConfetti = Math.max(pendConfetti, 0.35); return; }
-      const worth = podium ? (place === 1 ? 1 : 0.72) : 0.12;
-      pendConfetti = Math.max(pendConfetti, worth);
+      if (!racer.isPlayer) return;
+      pendConfetti = Math.max(pendConfetti, podium ? (place === 1 ? 1 : 0.72) : 0.12);
     },
   );
 

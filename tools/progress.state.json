@@ -1,6 +1,6 @@
 {
-  "phase": "Coherence pass — playing the whole game and closing the seams",
-  "phaseNote": "Wave 5 finished: themewire 6.5, flow 7.5, menus 7.0, all sent back, all with measured directives. Three of them point outside their own module — missing shadows, a finish nobody reacts to, events published with data no listener reads — so the next pass is the whole-game one, which owns everything.",
+  "phase": "Coherence complete — three waves to go",
+  "phaseNote": "Two rounds of whole-game judgement done. The race now has stakes and the camera now looks at the player. Next: perf and the course roster together, then the polish wave, then closing verdicts on wave 1.",
   "pieces": [
     {
       "id": "feel",
@@ -69,10 +69,10 @@
       "id": "ai",
       "name": "CPU racers",
       "scope": "src/ai",
-      "state": "fail",
+      "state": "review",
       "rounds": 2,
-      "verdict": "5.5/10 after two rounds. Rebuilt with awareness, knowledge and personality. CPUs now plan corners, use items and differ from each other.",
-      "gap": "The field spends ~17.5% of every race unintentionally in the gravel, falling off at the same two corners every lap. And every drift is released the instant tier 1 lands — a whole 8-kart race produces 128 blue mini-turbos, 1 orange and 0 purple."
+      "verdict": "Rubber-band cut. Finishing spread over 3 laps of Cone Canyon is now 1st 2:18.893, 8th +1:34.852 — was the entire field inside 0.811s.",
+      "gap": "Overcorrected into three clumps rather than a spread: 2nd/3rd/4th land within 0.16s of each other, 5th/6th/7th within 0.16s, and 8th is over a lap adrift."
     },
     {
       "id": "hud",
@@ -150,13 +150,25 @@
       "id": "coherence",
       "name": "Whole-game coherence",
       "scope": "everything",
-      "state": "build",
-      "rounds": 1,
-      "verdict": "Running now — the first whole-game pass this project has had.",
-      "gap": "Shadows have now failed three separate pieces: the menu stage, the world geometry, and the contact under every machine. No single module owns lighting, which is exactly why no piece critic could ever close it."
+      "state": "fail",
+      "rounds": 2,
+      "verdict": "7.0 then 6.5 across two rounds. The score fell because the critic got deeper, not because the game got worse: round 2 measured things round 1 never reached. Field spread fixed from 0.811s to 24-94s, the AI drifts, the review sheet stopped lying, and the four on-screen instruction languages collapsed onto one rail.",
+      "gap": "The race is composed like a spectator replay rather than something you are driving. The chase rig sat high and far with the kart at 4-8% of frame height, so every asset the game is proudest of played too small to land. Camera now fixed; the item slot is still an empty black square dead centre of the frame, and the results sheet covers the podium it just lit."
     }
   ],
   "log": [
+    {
+      "when": "2026-08-10 03:44 UTC",
+      "text": "Coherence pass complete. The field now finishes 24-94s apart instead of inside 0.811s, the AI charges mini-turbos, and the review sheet no longer captions frames that do not show what they claim."
+    },
+    {
+      "when": "2026-08-10 01:18 UTC",
+      "text": "Coherence round 1 scored 7.0/10 and named the real gap: the front-end is first-party and the race it launches into has no stakes. Round 2 is aimed at the racing, not the chrome."
+    },
+    {
+      "when": "2026-08-09 23:27 UTC",
+      "text": "Player feedback beat the critics: steering was mirrored and nothing said what the buttons were. Both fixed, verified and deployed. Coherence survey found 14 seams and the smoothing pass is underway."
+    },
     {
       "when": "2026-08-09 21:32 UTC",
       "text": "Wave 5 landed. Smoke passes at 62.6 m/s and 747k triangles. The review sheet confirms the critics: nothing in the frame casts a shadow, so the coherence pass goes next rather than more piece work."

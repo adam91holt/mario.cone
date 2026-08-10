@@ -181,9 +181,20 @@ const MISTAKE_NAMES = ['wide', 'late', 'lift'] as const;
  * histogram dominated by anything else is a bug, and the previous build's was
  * dominated by a run-off save that no longer exists.
  */
-const WHY_NAMES = ['strain', 'exit', 'end', 'past', 'slow', 'stray', 'hit'] as const;
+/*
+ * `strain` and `inside` used to be one bucket, and that hid the answer to the
+ * only question this histogram is kept to answer. They are two different
+ * failures: `strain` is the road opening up under a drift over a sustained
+ * fraction of a second, which is healthy and is how an esse ends; `inside` is
+ * the run-off predictor reporting that even the *widest* arc still available
+ * puts the kart off the inside kerb, which fires on a single step and is a
+ * driver who committed to a corner they cannot hold. Counted together they read
+ * as "drifts end on strain", which is the answer that stopped four separate
+ * attempts at the mini-turbo tiers from finding anything.
+ */
+const WHY_NAMES = ['strain', 'exit', 'end', 'past', 'slow', 'stray', 'hit', 'inside'] as const;
 const WHY_STRAIN = 0, WHY_EXIT = 1, WHY_END = 2, WHY_PAST = 3;
-const WHY_SLOW = 4, WHY_STRAY = 5, WHY_HIT = 6;
+const WHY_SLOW = 4, WHY_STRAY = 5, WHY_HIT = 6, WHY_INSIDE = 7;
 /** How many drift endings the bench keeps, for a per-corner histogram. */
 const LOG_SIZE = 64;
 
@@ -327,6 +338,26 @@ interface Brain {
    * out of and has to be released.
    */
   strain: number;
+  /**
+   * ...and the same clock for the *other* way a drift stops working: the arc
+   * driving the kart toward the inside of the corner.
+   *
+   * This used to have no clock at all — `insideEdge` released the drift on the
+   * single step it first became true. Once the bench was taught to count the
+   * two separately (`WHY_INSIDE`), the histogram came back unambiguous: across
+   * a whole race, on two seeds, **every driver ended between twelve and
+   * twenty-three drifts on `inside` and not one on `strain`**. That one
+   * instantaneous test was the entire reason no CPU in this game had ever fired
+   * a green mini-turbo, let alone a purple.
+   *
+   * It is also the wrong reflex. A drift's widest arc is
+   * `counterSteer * yawBonus * turnRate(v) / v`, and `turnRate` falls with
+   * speed slower than `v` rises — so the arc *opens as the kart goes faster*.
+   * The cure for over-rotating in a drift is throttle, not release. So this
+   * gets a short fuse, and while it is burning the speed floor below is allowed
+   * to ask for the speed the arc actually needs.
+   */
+  inside: number;
   /** Why the last drift ended. Bench only — nothing in the sim reads it. */
   driftWhy: string;
 
@@ -404,6 +435,7 @@ export function createAiDriver(ctx: GameContext, skill: number, linePreference: 
     driftTime: 0,
     driftAim: 0,
     strain: 0,
+    inside: 0,
     driftWhy: '',
     tailTime: 0,
     passTarget: -1,
@@ -470,6 +502,7 @@ function configure(
   b.driftTime = 0;
   b.driftAim = 0;
   b.strain = 0;
+  b.inside = 0;
   b.driftWhy = '';
   b.tailTime = 0;
   b.passTarget = -1;
@@ -685,7 +718,7 @@ function drive(
       noteEnd(b, WHY_HIT, racer.drift.tier, b.driftCorner);
     }
     b.driftCorner = -1; b.driftDir = 0; b.passTime = 0; b.tailTime = 0; b.pressLeft = 0;
-    b.driftArm = 0; b.strain = 0; b.driftTime = 0;
+    b.driftArm = 0; b.strain = 0; b.inside = 0; b.driftTime = 0;
     b.tuck = 0; b.save = 0; b.runoff = 0; b.runoffSide = 0;
     return;
   }
@@ -989,6 +1022,18 @@ function drive(
   // enough and the kart is forced to the inside however the stick is held.
   // Braking below that speed while sideways is therefore never the right answer,
   // and the plan already sits above it by construction. This is the floor.
+  //
+  // **A floor, never a raise.** This block is the last thing to touch
+  // `vTarget` — after the braking lookahead, after the run-off lift, after
+  // everything — and the cap on it used to be `plan.vAt(d) * 1.15`, which made
+  // it the last word rather than a floor under one. Fifteen per cent above the
+  // plan's own profile is faster than the plan has *ever* asked for at that
+  // station, so a driver who committed to a drift on the entry to the Chicane
+  // Cuts had the target pinned at 85 m/s for half a second while the plan
+  // wanted 45 and the predictor was reporting thirty metres of overshoot. It
+  // arrived at the esse having never lifted. The 1.15 is gone: the floor may
+  // hold a drift up to what the plan itself allows here and not one metre per
+  // second past it.
   if (drifting || b.driftArm > 0) {
     const kHere = Math.abs(plan.kAt(d + previewD));
     // A quarter above the bare minimum, so the stick lands inside the drift's
@@ -998,7 +1043,14 @@ function drive(
     // kerb while the driver counter-steers at it.
     const floor = speedForCurvature(ctx.config, kHere, racer.stats.handling,
       K.drift.counterSteer * K.drift.yawBonus * 1.25, topSpeed);
-    vTarget = Math.max(vTarget, Math.min(floor, plan.vAt(d) * 1.15));
+    // The one case where the plan is not the ceiling: the drift's own arc is
+    // already carrying the kart to the inside. The arc opens with speed, so
+    // here — and only here — the throttle is the correction and the plan's
+    // number is the thing holding the kart in the fault. It is bounded by the
+    // fuse in `driftControl`: a third of a second of this and the drift is
+    // released and the plan takes over again.
+    const cap = insideOfDrift ? Math.max(plan.vAt(d), floor) : plan.vAt(d);
+    vTarget = Math.max(vTarget, Math.min(floor, cap));
   }
   // Queued behind a kart we cannot pass: back off a fraction and take a run at
   // them next time the road opens, rather than sitting in their gearbox for
@@ -1419,11 +1471,26 @@ function driftControl(
     b.strain = tooTight && b.driftGrace <= 0
       ? b.strain + dt
       : Math.max(0, b.strain - dt * 2.5);
-    // ...and the fast version of the same thing. Over-rotating far enough to be
-    // about to run out of road on the *inside* is not a slow problem: the kart
-    // is already going somewhere the stick cannot bring it back from, and the
-    // only control left is to stand it up.
+    // ...and the other way a drift stops working: over-rotating far enough to
+    // be about to run out of road on the *inside*.
+    //
+    // **This is the one that was actually happening, and it had no fuse.** It
+    // released the drift on the single step it first went true, and once the
+    // bench separated the two endings the histogram was unanswerable: twelve to
+    // twenty-three `inside` bails per driver per race and *zero* `strain` ones,
+    // on both seeds, across the whole field. Two thirds of the mini-turbo
+    // system — every green and every purple this game has ever advertised —
+    // died on this line.
+    //
+    // A fuse, because it is not the emergency it was written as. The stick
+    // cannot open the arc past `widestK`, true; but `widestK` is
+    // `counterSteer * yawBonus * turnRate(v) / v`, and turn rate falls with
+    // speed more slowly than speed rises — so **the arc opens as the kart goes
+    // faster**, and the throttle is a control the driver still has. The speed
+    // floor below reads `b.inside` and asks for the speed the arc needs; this
+    // gives that a third of a second to work before giving up on the charge.
     const insideEdge = b.runoff > 2.0 && b.runoffSide !== drift.dir;
+    b.inside = insideEdge ? b.inside + dt : Math.max(0, b.inside - dt * 3);
     // How long a driver will sit in an over-rotating drift before giving up on
     // it. This is the single number that separates the `drifter` from the rest:
     // a purple needs 1.9s of charge, and only somebody willing to hold a slide
@@ -1436,7 +1503,13 @@ function driftControl(
     // on through.
     const patience = lerp(0.35, 0.75, p.driftLove)
       * (drift.tier < b.driftAim ? 1.6 : 1);
-    const strained = b.driftGrace <= 0 && (b.strain > patience || insideEdge);
+    // The inside fuse is shorter than the strain one: running out of road on
+    // the inside is a nearer problem than a corner opening up under you, and a
+    // driver who cannot pick the speed back up in a third of a second is not
+    // going to.
+    const overStrained = b.driftGrace <= 0 && b.strain > patience;
+    const overInside = b.driftGrace <= 0 && b.inside > patience * 0.45;
+    const strained = overStrained || overInside;
 
     const rate = K.drift.chargeRate * lerp(0.8, 1.2, racer.stats.handling) * 0.92;
     const next = drift.tier < K.drift.tiers.length ? K.drift.tiers[drift.tier] : null;
@@ -1471,7 +1544,7 @@ function driftControl(
       input.drift = true;
       return drift.dir === 0 ? b.driftDir : drift.dir;
     }
-    const why = strained ? WHY_STRAIN
+    const why = overInside ? WHY_INSIDE : overStrained ? WHY_STRAIN
       : remaining >= seg.len + 40 ? WHY_PAST
         : remaining <= -hangOn ? WHY_END
           : speed <= K.drift.minSpeed * 1.02 ? WHY_SLOW
@@ -1482,6 +1555,7 @@ function driftControl(
     b.driftCorner = -1;
     b.driftDir = 0;
     b.strain = 0;
+    b.inside = 0;
     b.driftTime = 0;
     // Long enough that the mini-turbo is spent before the next hop, short
     // enough to take the second half of an esse.
@@ -1526,6 +1600,7 @@ function driftControl(
   b.driftDir = 0;
   b.driftTime = 0;
   b.strain = 0;
+  b.inside = 0;
 
   if (offroad || b.redriftLock > 0 || b.armCool > 0 || speed < K.drift.minSpeed * 1.12) {
     input.drift = false;
@@ -1572,6 +1647,17 @@ function driftControl(
   // own line; all that is left is to be in the right place for it.
   const kPlan = plan.kAt(seg.d0 + seg.len * 0.3);
   if (sign(kPlan) !== seg.dir) { input.drift = false; return 0; }
+
+  // Note what is deliberately *not* here: a test of whether this corner is
+  // tighter than the widest arc a drift can be steered to at the kart's current
+  // speed. It was, briefly, and it is the wrong layer to ask at. Measured, it
+  // cut the whole field's drifts by six to one — every corner on Cone Canyon
+  // wider than about fifty metres failed it, which is most of them — and traded
+  // a game that goes off the road for a game that never goes sideways. Whether
+  // a corner is driftable is a fact about the corner and the kart, `knowledge.ts`
+  // decides it once at build time, and if the answer is coming back "no" for a
+  // circuit's whole corner set then the drift band in `config.kart.drift` is
+  // what is wrong, not the driver.
 
   input.drift = true;
   b.driftCorner = idx;

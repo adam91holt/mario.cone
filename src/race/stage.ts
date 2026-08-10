@@ -53,22 +53,27 @@ export const CSS_STAGE = `
   border-radius: 50%; background: #FF6B1A; margin-bottom: calc(var(--u) * .28); }
 
 /* ── the start lights ────────────────────────────────────────────────────── */
-/* Between the item socket and the countdown numeral — the one clear strip of
-   sky in the middle of the frame on a start grid. It is a narrow strip, and the
-   board is sized to *fit inside it* rather than to be as loud as possible:
+/* Above the countdown numeral, in what is now an empty top third of the frame.
+   The vertical budget on a start grid:
 
      top of frame  ..  1.05u   the HUD's own edge inset
-     1.05u .. 7.85u            the item socket (6.8u tall, 0.62u of collar)
+     1.05u .. 7.85u            the item socket — **stood down until the flag**
      ~21%  .. ~27%             the banner band — "ROCKET START" lands here
      35%   ..                  the countdown numeral, 14.2u tall
 
-   The socket's underside is 7.85u down, which is 11% of the frame's height on a
-   4:3 window and 15.3% on a 21:9 one, so a board hung at 12.5% was *inside* it
-   on every ordinary display: photographed at 1280x720 the plate's lit top edge
-   was 16px underneath the socket's rim, and the two dark plates read as one
-   object with a bite taken out of it. 16.5% clears the socket at every aspect
-   the unit supports and still leaves the banner band free — and the board is
-   2.4u tall rather than 2.85u so that clearance is real at both ends.
+   16.5% clears the socket at every aspect the unit supports and still leaves
+   the banner band free, and the board is 2.4u tall rather than 2.85u so that
+   clearance is real at both ends. That was a *near miss*, though, not a
+   composition: photographed at 1600x900 the board's lit top edge sat about
+   fifteen pixels under the socket's rim and the two read as one two-storey
+   widget — and then disagreed with each other about the corner radius, the
+   yellow and the face, because one is a sign and the other is a recess.
+
+   The socket now waits for the flag ("slotIn" in ui/hud.ts) and this board has
+   the top of the frame to itself for the one moment it exists. It is a plate,
+   whole: it used to cancel the chevron texture every other plate in the game
+   wears, which was the last thing making it a different object from its
+   neighbours.
 
    **Above the banner band, not on it.** This used to sit at 21%, which is the
    exact line the HUD prints its interrupt banners on, and the race overlay is
@@ -85,7 +90,6 @@ export const CSS_STAGE = `
   display: flex; align-items: center; gap: calc(var(--u) * .56);
   padding: calc(var(--u) * .44) calc(var(--u) * 1.35) calc(var(--u) * .48);
 }
-#race .lights .board::after { content: none; }
 #race .lights i {
   display: block; width: calc(var(--u) * 1.5); height: calc(var(--u) * 1.5);
   border-radius: 50%;
@@ -897,8 +901,24 @@ export interface FinishBeat {
   reset(): void;
 }
 
-/** Letterbox in, hold, out. The whole beat is 2.55s of race time, which is the
- *  window the director keeps for itself after the player's own crossing. */
+/**
+ * The beat's *colour*: in, hold, out. 2.55s of race time — the window the
+ * director keeps for itself after the player's own crossing.
+ *
+ * **The letterbox is not on this clock.** It used to be, and that is what left
+ * the game with nothing on the screen at all between the flag and the results
+ * sheet: the bars retracted at 2.55s, the HUD had already retired, and the
+ * sheet was still several seconds away, so a player who had just *won* was
+ * shown a motionless kart in a ditch with one orphaned ticker plate at the edge
+ * of the frame for up to fourteen seconds. Three modules each ended cleanly and
+ * nobody owned the join.
+ *
+ * So the wash and the sweep run on this clock and the bars do not: they close
+ * once and stay closed until the hand-off curtain takes the frame off them. The
+ * gap between the beat and the sheet is now a held, letterboxed frame with the
+ * finish lens orbiting the machine and the ticker landing a plate for each
+ * racer as they come home — which is what the gap was always for.
+ */
 export const FIN_IN = 0.2;
 export const FIN_HOLD = 1.9;
 export const FIN_OUT = 0.45;
@@ -991,14 +1011,18 @@ export function createFinishBeat(): FinishBeat {
     },
 
     at(t, wipeT): void {
-      if (t < 0 || t >= FIN_TOTAL) clearBeat();
+      if (t < 0) clearBeat();
       else {
         clear = false;
-        const inU = ease.outQuart(clamp01(t / FIN_IN));
-        const outU = ease.inQuad(clamp01((t - FIN_IN - FIN_HOLD) / FIN_OUT));
-        bars(inU * (1 - outU));
+        // The bars close once and hold. Nothing retracts them: the hand-off
+        // curtain closes over them and the sheet arrives on a clear frame,
+        // which is the only moment they are allowed to be gone.
+        bars(ease.outQuart(clamp01(t / FIN_IN)));
 
-        // The wash arrives a shade behind the bars and leaves with them.
+        // The wash arrives a shade behind the bars, holds, and leaves — it is
+        // the *verdict*, and a verdict said once is a verdict. What is left
+        // behind it is a composed frame with a race still finishing in it.
+        const outU = ease.inQuad(clamp01((t - FIN_IN - FIN_HOLD) / FIN_OUT));
         const wu = ease.outQuad(clamp01(t / 0.3)) * (1 - outU);
         // A slow breath while it holds, so a held frame is never a still.
         const breathe = 1 + Math.sin(t * 1.9) * 0.06;

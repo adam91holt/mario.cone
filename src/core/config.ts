@@ -73,11 +73,30 @@ export const config = {
       snapAngle: 0.10,       // chassis offset at the instant the drift commits
       yawBonus: 1.70,        // extra turn rate while drifting
       // Baseline turn kept when steering fully *out* of the drift. This is the
-      // width of the whole drift band: at 0.15 counter-steering read as "drive
-      // straight" and every corner spat the kart off the road before a tier-2
-      // could land. 0.45 puts the counter-steered radius at ~50m against ~23m
-      // at full lock — a 2.2:1 band, which is about where MK8 sits.
-      counterSteer: 0.45,
+      // width of the whole drift band, and it is the number that decides
+      // whether this game's corners can be drifted at all.
+      //
+      // At 0.15 counter-steering read as "drive straight" and every corner spat
+      // the kart off the road before a tier-2 could land. 0.45 fixed that and
+      // introduced the opposite fault, which took a whole coherence round to
+      // find because it is invisible in a screenshot: the *widest* arc a
+      // committed drift can be steered to is
+      // `counterSteer * yawBonus * turnRate(v) / v`, and at 0.45 that is a 42m
+      // radius at 45 m/s. Cone Canyon's drift-worthy corners are 36m to 58m,
+      // so most of them were **tighter than the kart could hold and wider than
+      // the drift could open to at the same time**: the slide drove the machine
+      // to the inside kerb however the stick was held. Measured across a full
+      // race on two seeds, that ended twelve to twenty-three charges per driver
+      // and *zero* for any other reason — 185 blue mini-turbos, eight green,
+      // no purple ever, in a game whose class-select screen says "mini-turbos
+      // or nothing".
+      //
+      // 0.34 puts the counter-steered radius at ~56m against ~23m at full lock:
+      // a 2.9:1 band, wide enough that a 40-60m corner is something you can
+      // hold a slide through and steer, which is what a mini-turbo tier is for.
+      // Counter-steering still turns — 0.58 of the kart's full grip rate — so
+      // the fault 0.15 had does not come back.
+      counterSteer: 0.34,
       yawKick: 1.60,         // ...and again, briefly, as the drift snaps in
       kickTime: 0.22,
       chargeRate: 2.00,
@@ -87,11 +106,31 @@ export const config = {
       // roughly 0.35s / 0.8s / 1.35s of committed drift. Measured against the
       // sharpest bend on Cone Canyon — a 42m-radius hairpin entered at 58 m/s —
       // a held drift survives well past four seconds, so all three tiers are
-      // reachable there and orange is routine on an ordinary corner. Tiers you
+      // reachable there and tier two is routine on an ordinary corner. Tiers you
       // cannot reach are two thirds of the system no player will ever see.
+      //
+      // **`color` here is the whole game's answer for that tier, not the sim's
+      // private one.** A mini-turbo is signalled in two places at once — sparks
+      // at the wheels (`fx`, which reads this table) and the charge ring round
+      // the item socket (`ui/theme.ts`, whose `TIER_COLORS` is now derived from
+      // this table rather than written out a second time). They were two lists,
+      // and they disagreed: this said tier two was orange and the ring said it
+      // was green, so the same charge state had two colours depending on where
+      // the player happened to be looking.
+      //
+      // Green is the one that survived, and the argument is `ui/theme.ts`'s:
+      // measured on the ring, an orange tier two lands one notch from the idle
+      // hazard yellow, on a plate whose header strip is an orange gradient,
+      // behind a screen grade that goes orange during the boost it is
+      // predicting — it read as *no charge at all*, which is the most expensive
+      // misread in the drift loop. Green is the only saturated hue in this
+      // palette with nothing else standing on it, and blue → green → purple is
+      // three unmistakable steps rather than two and a near-miss. Nothing about
+      // the tarmac made orange better at the wheels; it was only ever the
+      // default nobody had cause to revisit.
       tiers: [
         { at: 0.80, boost: 0.68, power: 24, color: 0x4FC3F7, name: 'blue' },
-        { at: 1.75, boost: 1.20, power: 34, color: 0xFF9800, name: 'orange' },
+        { at: 1.75, boost: 1.20, power: 34, color: 0x3CFF6B, name: 'green' },
         { at: 3.00, boost: 1.85, power: 46, color: 0xE040FB, name: 'purple' },
       ],
       // Charge stops accruing a little past purple, so anything normalising it
@@ -338,8 +377,28 @@ export const config = {
     /** The rig creeps in on each beat of the countdown. */
     countdown: { pullback: 1.5, fov: 3 },
 
-    /** Hero move when the player crosses the line. */
-    victory: { time: 2.4, orbit: 1.05, distance: 3.0, height: 0.7, fov: -9 },
+    /**
+     * The `finish` shot: the hero move when the player crosses the line.
+     *
+     * **These numbers now include the lens the director used to borrow.** The
+     * race has always emitted `camera:shot { shot:'finish', … }` with a full
+     * brief — the racer, the place, whether it is a podium, the hold, even how
+     * far past the line the machine will be when the shot settles — and nothing
+     * answered it, so the director borrowed `camera:mode 'near'` on top of this
+     * move as a stand-in and both files carried a comment apologising for it.
+     * `camera:mode` is the *player's* control; spending it on ceremony meant a
+     * reviewer who had asked for `overhead`, or a player holding look-behind,
+     * silently lost the shot.
+     *
+     * So `near` (-2.0m, -0.5m, -4°) is folded in here and the borrow is gone:
+     * net a metre back and up from the chase rig, a long lens, and sixty
+     * degrees of orbit. The machine stays large in a closing frame, which is
+     * the whole reason `far` was rejected for this moment.
+     *
+     * `hold` is not here: the director sends it in the payload and it is the
+     * director's to decide, because it is the same number as the flag hold.
+     */
+    victory: { time: 2.4, orbit: 1.05, distance: 1.0, height: 0.2, fov: -13 },
   },
 
   // ── Race rules ───────────────────────────────────────────────────────────

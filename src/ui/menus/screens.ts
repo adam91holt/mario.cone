@@ -36,8 +36,8 @@ import { listCourses } from '../../track/courses/index.ts';
 import { glyphBox, glyphRun } from '../glyphs.ts';
 import { vehicleMark, wordmark } from './art.ts';
 import {
-  bind, courseMap, courseScene, cupEmblem, fromHtml, hexCss, q, title, titleBox, unitPx,
-  type Bound,
+  bind, courseMap, courseScene, cupEmblem, fromHtml, hexCss, hintKey, q, title, titleBox,
+  unitPx, type Bound,
 } from './chrome.ts';
 import type { CourseDef, EngineClass, GameContext, VehicleId } from '../../types.ts';
 
@@ -62,9 +62,16 @@ export const CSS_SCREENS = `
   padding: calc(var(--u) * .62) calc(var(--u) * 1.15) calc(var(--u) * .7);
 }
 #menu .scr-class .go .t { font-size: calc(var(--u) * 1.5); color: var(--gold); }
+/* The other two keys that press this button, drawn as keys — see the note on
+   ".start .sub" in chrome.ts. The big cap on the left of the plate is already a
+   keycap; these were the odd two out in the whole product. */
 #menu .scr-class .go .sub {
-  margin-top: calc(var(--u) * .26); font-size: calc(var(--u) * .6); font-weight: 800;
-  letter-spacing: .2em; text-transform: uppercase; color: rgba(255,248,240,.62);
+  margin-top: calc(var(--u) * .3);
+  display: flex; align-items: center; gap: calc(var(--u) * .45);
+}
+#menu .scr-class .go .sub .key {
+  min-width: calc(var(--u) * 1.3); height: calc(var(--u) * 1.1);
+  font-size: calc(var(--u) * .62); border-radius: calc(var(--u) * .24);
 }
 #menu .scr-class .go .glow {
   position: absolute; inset: calc(var(--u) * -.24); border-radius: calc(var(--u) * .8);
@@ -293,7 +300,7 @@ export function createTitleScreen(): TitleScreen {
       </div>
       <div class="start">
         ${title('Press Start')}
-        <div class="sub">Enter &nbsp;·&nbsp; Space &nbsp;·&nbsp; (A)</div>
+        <div class="sub">${hintKey('↵', '')}${hintKey('Space', '')}${hintKey('(A)', '')}</div>
       </div>
       <div class="cast">${listVehicles().map((v) => v.name).join(' &nbsp;·&nbsp; ')}</div>
     </div>`);
@@ -995,7 +1002,9 @@ export function createClassScreen(ctx: GameContext): ClassScreen {
       <div class="cards">${cards}</div>
       <div class="plate go">
         <span class="key">↵</span>
-        <div>${title('Start race')}<div class="sub">Space &nbsp;·&nbsp; (A)</div></div>
+        <div>${title('Start race')}
+          <div class="sub">${hintKey('Space', '')}${hintKey('(A)', '')}</div>
+        </div>
         <div class="glow"></div>
       </div>
     </div>`);

@@ -13,7 +13,7 @@
 // the lap counter, or fades on a CSS transition the capture harness cannot see,
 // would be a different one.
 
-import { U_CSS } from '../ui/theme.ts';
+import { U_CSS, plateCss } from '../ui/theme.ts';
 import type { GameContext } from '../types.ts';
 import { CSS_LETTERS } from './letters.ts';
 import { CSS_MENU, type Sfx } from './menu.ts';
@@ -35,32 +35,11 @@ const CSS_BASE = `
   --u: ${U_CSS};
 }
 
-/* The sign every readout in this game is printed on. Same construction as the
-   one in ui/theme.ts; scoped here because that stylesheet is scoped to #hud. */
-#race .plate {
-  position: relative;
-  border-radius: calc(var(--u) * .5);
-  background: linear-gradient(178deg, rgba(60,67,84,.94) 0%, rgba(30,35,45,.95) 46%, rgba(17,20,27,.96) 100%);
-  box-shadow:
-    inset 0 calc(var(--u) * .1) 0 rgba(255,255,255,.28),
-    inset 0 calc(var(--u) * -.14) 0 rgba(0,0,0,.5),
-    0 0 0 calc(var(--u) * .12) rgba(9,11,15,.92),
-    0 calc(var(--u) * .22) calc(var(--u) * .62) rgba(0,0,0,.55);
-  overflow: hidden;
-}
-#race .plate::before {
-  content: ''; position: absolute; left: 0; right: 0; top: 0;
-  height: calc(var(--u) * .17);
-  background: linear-gradient(90deg, #FFC300, #FF9A1A 60%, #FFC300);
-  opacity: .95;
-}
-#race .plate::after {
-  content: ''; position: absolute; inset: 0; pointer-events: none;
-  background: repeating-linear-gradient(122deg,
-    rgba(255,255,255,.045) 0 calc(var(--u) * .38),
-    rgba(255,255,255,0) calc(var(--u) * .38) calc(var(--u) * .78));
-}
-#race .plate > * { position: relative; z-index: 1; }
+/* The sign every readout in this game is printed on — the *same* sign, from
+   ui/theme.ts, not a second description of it. This layer's copy is what the
+   shared one was extracted from: it had already drifted to a 10% tighter corner
+   and a heavier drop shadow than the HUD ten pixels underneath it. */
+${plateCss('#race')}
 
 /* A results row is a plate with its face on a separate layer, so the row's own
    contents can sit above the chevron texture without being inside the element

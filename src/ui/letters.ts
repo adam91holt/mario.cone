@@ -188,7 +188,15 @@ export interface SignBox {
 }
 
 export function signBox(el: HTMLElement, initial = ''): SignBox {
-  let shown = ' ';
+  // A value no caller can pass, so the first `set()` always paints — `''` is a
+  // legitimate thing to set later, so it cannot double as "nothing yet".
+  // Spelled exactly as `glyphBox` spells it in `glyphs.ts`, and that matters
+  // more than it looks: this was a **literal NUL byte typed into the source**,
+  // which worked and cost the whole file. `file(1)` called `letters.ts` binary
+  // data, so `grep -rn` skipped it silently — the game's display face, one of
+  // the two things ARCHITECTURE.md §11a says every screen is set in, was
+  // invisible to the one tool every agent uses to find anything.
+  let shown = '\u0000';
   const api: SignBox = {
     el,
     get text(): string { return shown; },
