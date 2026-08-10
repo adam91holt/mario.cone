@@ -1,6 +1,6 @@
 {
-  "phase": "Coherence pass — closing 14 seams",
-  "phaseNote": "The survey played the game front to back and found the break is not subtle. Worst first: two alphabets; a silent race interface against a front-end with 26 cues; finishing last firing the same confetti cannon as winning; camera:shot emitted for grid, countdown and podium with nothing ever listening; and weapons named out of another studio's game.",
+  "phase": "Coherence round 2 — the race itself",
+  "phaseNote": "Round 1 fixed the seams between the pieces and scored 7.0. The judge then found something no piece critic could: the race has no stakes. That is now the directive — spread the field to 8-20s over three laps, keep the AI on the tarmac, and make it drift.",
   "pieces": [
     {
       "id": "feel",
@@ -72,7 +72,7 @@
       "state": "fail",
       "rounds": 2,
       "verdict": "5.5/10 after two rounds. Rebuilt with awareness, knowledge and personality. CPUs now plan corners, use items and differ from each other.",
-      "gap": "The field spends ~17.5% of every race unintentionally in the gravel, falling off at the same two corners every lap. And every drift is released the instant tier 1 lands — a whole 8-kart race produces 128 blue mini-turbos, 1 orange and 0 purple."
+      "gap": "Whole-game judge: rubber-band so tight the field finishes within 0.811s over three laps; a constant steer input oscillates road-dirt-road every 1.5s and sawtooths speed 48 to 32 m/s; the AI never charges a mini-turbo."
     },
     {
       "id": "hud",
@@ -150,13 +150,17 @@
       "id": "coherence",
       "name": "Whole-game coherence",
       "scope": "everything",
-      "state": "build",
+      "state": "fail",
       "rounds": 1,
-      "verdict": "Survey complete: 14 seams. \"A bag of very good parts, and the parts know it — several files carry comments apologising for the space they cannot reach across.\" Smoothing agent now working through them worst-first.",
-      "gap": "Two products with a curtain between them. Everything before the flag is a web front-end — Trebuchet MS, keycap chips, its own renderer, 26 sound cues. Everything after is a console game — every word drawn as geometry, the studio's own grade and bloom, and total silence from its interface. The launch card and the course card say CONE CANYON SPEEDWAY one second apart in two different typefaces."
+      "verdict": "7.0/10 whole-game, blind pick Mario Kart. Round 1 closed the front-end seams: one alphabet, one legend, one voice, and a journey tool that walks the game front to back.",
+      "gap": "The front-end is first-party and the race it launches into has no stakes. Eight racers finish 6.5km of Cone Canyon inside 0.811 seconds of each other, neither the AI nor the autopilot can hold the tarmac, and the AI never drifts — so the mini-turbo loop the class-select screen calls \"the real game\" is something the game never once shows a player happening."
     }
   ],
   "log": [
+    {
+      "when": "2026-08-10 01:18 UTC",
+      "text": "Coherence round 1 scored 7.0/10 and named the real gap: the front-end is first-party and the race it launches into has no stakes. Round 2 is aimed at the racing, not the chrome."
+    },
     {
       "when": "2026-08-09 23:27 UTC",
       "text": "Player feedback beat the critics: steering was mirrored and nothing said what the buttons were. Both fixed, verified and deployed. Coherence survey found 14 seams and the smoothing pass is underway."
