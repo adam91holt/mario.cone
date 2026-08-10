@@ -39,7 +39,7 @@ import {
   type Entity, type EntityField,
 } from './entities.ts';
 import {
-  buildBanana, buildBomb, buildBooShroud, buildBulletHusk, buildMushroom,
+  buildChock, buildGasBottle, buildSheetShroud, buildBulletHusk, buildMushroom,
   buildShell, buildStarAura, cloneWithMaterials, contactShadow, setRimStrength,
   STAR_SPARKS,
 } from './models.ts';
@@ -97,14 +97,29 @@ const BULLET_TIME = 6.0;
 const BULLET_RAMP = 0.75;
 const SHRUNK_TIME = 7.0;
 /**
- * How long a blooper's ink lasts.
+ * How long a screenful of tar lasts, **at a standstill**.
  *
- * Five, not six, and the number is smaller than the change: the ink now runs
- * off the glass over its own lifetime rather than sitting at full strength for
- * the whole of it, so the *heavy* part of a blooper is the first second and a
- * half and the rest is a receding nuisance. See the note over `#item-ink`.
+ * Three and a half, not six, and the number is smaller than the change: the tar
+ * runs off the glass over its own lifetime rather than sitting at full strength
+ * for the whole of it, and every splat leaves on its own clock, so the heavy
+ * part of a hit is the first second and the rest is a receding nuisance. See
+ * the note over `#item-ink`.
  */
-const INK_TIME = 5.0;
+const INK_TIME = 3.5;
+
+/**
+ * ...and how much faster it goes when you keep your foot in.
+ *
+ * The one thing an obscure-the-screen item must never do is make lifting off
+ * the right answer. Airflow is this game's version of the wipe: the clock runs
+ * at 1× stopped and 1.8× flat out, so the driver who keeps the throttle open
+ * through it sees the road again in about half the time the driver who backs
+ * off does — and the skill the item tests is nerve rather than patience.
+ *
+ * Read off `speed`, which is simulation truth, so it is deterministic; the HUD
+ * only ever sees the fraction that is left.
+ */
+const INK_AIRFLOW = 0.8;
 const BOO_TIME = 4.5;
 const BOMB_FUSE = 2.6;
 const BLAST_RADIUS = 7.4;
@@ -1288,7 +1303,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       ctx.bus.emit('item:effect', { racer, effect: 'inked', on: true });
     }
     forwardOf(user, _fwd);
-    entities.spawn('squid', {
+    entities.spawn('sprayer', {
       ownerId: user.id,
       pos: _pos.copy(user.pos).addScaledVector(_fwd, 3).setY(user.pos.y + 2.6),
       vel: _vel.copy(_fwd).multiplyScalar(26).setY(1.5),
@@ -1319,7 +1334,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     st.booSteal = 1.1;
 
     forwardOf(user, _fwd);
-    entities.spawn('ghost', {
+    entities.spawn('sheet', {
       ownerId: user.id,
       pos: _pos.copy(user.pos).setY(user.pos.y + 1.4),
       vel: _vel.copy(_fwd).multiplyScalar(victim ? 22 : 8).setY(1.2),
@@ -1521,7 +1536,11 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     }
 
     if (st.ink > 0) {
-      st.ink = Math.max(0, st.ink - dt);
+      // Airflow. `maxSpeed` is the racer's own, so a shrunk or bogged machine
+      // does not get the fast wipe for driving flat out at nothing.
+      const flow = 1 + INK_AIRFLOW
+        * clamp01(racer.speed / Math.max(1, racer.maxSpeed));
+      st.ink = Math.max(0, st.ink - dt * flow);
       if (st.ink === 0) {
         racer.effects.delete('inked');
         ctx.bus.emit('item:effect', { racer, effect: 'inked', on: false });
@@ -1799,10 +1818,10 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     let proto = heldProtos.get(key);
     if (proto) return proto;
     switch (id) {
-      case 'banana': proto = buildBanana(); break;
+      case 'banana': proto = buildChock(); break;
       case 'greenShell': proto = buildShell(0x46D63C, 0x2C9A2A); break;
       case 'redShell': proto = buildShell(0xF03A2E, 0x7E1610, true); break;
-      case 'bomb': proto = buildBomb(); break;
+      case 'bomb': proto = buildGasBottle(); break;
       case 'mushroom':
       case 'tripleMushroom': proto = buildMushroom(); break;
       default: return null;
@@ -2160,7 +2179,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       huskProto = buildBulletHusk();
       huskProto.visible = false;
       rig.add(huskProto);
-      shroudProto = buildBooShroud();
+      shroudProto = buildSheetShroud();
       shroudProto.visible = false;
       rig.add(shroudProto);
       // Carried items reuse the projectile models, except the mushroom, which

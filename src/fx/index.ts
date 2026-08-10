@@ -35,7 +35,7 @@
 import * as THREE from 'three';
 import { DEG, clamp, clamp01, damp, fbm1, lerp, makeRng } from '../core/math.ts';
 import { getVehicle } from '../vehicles/registry.ts';
-import { CELL, createAtlas } from './atlas.ts';
+import { CELL, PUFF_CELLS, createAtlas } from './atlas.ts';
 import { MODE, createSpriteLayer } from './sprites.ts';
 import { createParticlePool, makeSpec } from './particles.ts';
 import { createTyreMarks } from './marks.ts';
@@ -252,13 +252,33 @@ interface SurfaceFx {
  * A cloud has no edge in it; the clods are what tell the eye the ground came
  * apart, and at three a second nobody ever saw one.
  */
+/**
+ * ...and the loose surfaces went up again, by about three quarters, on the
+ * strength of a measurement rather than a taste.
+ *
+ * The A/B that settled it: photograph a machine at racing speed on the dirt,
+ * then hide all three sprite layers with `__FX.layers(false)` and photograph
+ * the same frozen frame again. The two pictures were **almost identical**. All
+ * eight hundred particles in flight amounted to a faint warm haze that a 9x
+ * crop of the ground behind the tyres could not distinguish from the ground.
+ * Whatever else is wrong with an effects layer, being switchable off without
+ * anyone noticing is worse.
+ *
+ * What made it safe to turn up is the veil governor (`VEIL_BUDGET`), which did
+ * not exist when this table was last cut. Measured on that same frame, the
+ * alpha layer was covering 0.058 against a budget of 0.20 — twenty-nine percent
+ * of what it is allowed — and the governor is a closed loop, so the failure it
+ * was built to prevent cannot come back by way of these numbers whatever they
+ * say. Tarmac is untouched at 0.075: a hard surface having nothing to give is
+ * the contrast the whole table exists to draw.
+ */
 const SURFACE_FX: Record<Surface, SurfaceFx> = {
   road:  { color: 0xEAEEF6, deep: 0xD6DCE8, lift: 0.20, rate: 0,   slip: 42,  wake: 20, size: 0.34, wakeSize: 0.22, grow: 2.0, alpha: 0.075, grit: 0.00, sparky: false, mark: 1.00, markTint: 0x3F3E4A, smoke: 0.30, smokeRate: 78 },
   boost: { color: 0xF3E8D6, deep: 0xE2D9C8, lift: 0.22, rate: 0,   slip: 40,  wake: 20, size: 0.36, wakeSize: 0.22, grow: 2.0, alpha: 0.080, grit: 0.00, sparky: false, mark: 0.80, markTint: 0x423F4D, smoke: 0.30, smokeRate: 78 },
-  dirt:  { color: 0xF7E6C6, deep: 0xDCBE93, lift: 1.25, rate: 165, slip: 105, wake: 44, size: 0.58, wakeSize: 0.46, grow: 2.5, alpha: 0.185, grit: 0.62, sparky: false, mark: 0.85, markTint: 0x9c7444, smoke: 0.12, smokeRate: 26 },
-  sand:  { color: 0xFDF4E0, deep: 0xEBD9AF, lift: 1.35, rate: 180, slip: 110, wake: 46, size: 0.60, wakeSize: 0.48, grow: 2.6, alpha: 0.190, grit: 0.44, sparky: false, mark: 0.72, markTint: 0x9c8050, smoke: 0.10, smokeRate: 22 },
-  grass: { color: 0xE3F0CC, deep: 0xB2CE8C, lift: 0.90, rate: 120, slip: 84,  wake: 34, size: 0.52, wakeSize: 0.42, grow: 2.3, alpha: 0.160, grit: 0.54, sparky: false, mark: 0.62, markTint: 0x6d8b4c, smoke: 0.11, smokeRate: 24 },
-  water: { color: 0xF8FDFF, deep: 0xD7EFFA, lift: 1.30, rate: 145, slip: 112, wake: 44, size: 0.48, wakeSize: 0.38, grow: 2.2, alpha: 0.160, grit: 0.36, sparky: false, mark: 0.00, markTint: 0xffffff, smoke: 0.10, smokeRate: 18 },
+  dirt:  { color: 0xF7E6C6, deep: 0xDCBE93, lift: 1.42, rate: 200, slip: 125, wake: 44, size: 0.58, wakeSize: 0.46, grow: 2.5, alpha: 0.320, grit: 0.62, sparky: false, mark: 0.85, markTint: 0x9c7444, smoke: 0.12, smokeRate: 26 },
+  sand:  { color: 0xFDF4E0, deep: 0xEBD9AF, lift: 1.52, rate: 215, slip: 130, wake: 46, size: 0.60, wakeSize: 0.48, grow: 2.6, alpha: 0.330, grit: 0.44, sparky: false, mark: 0.72, markTint: 0x9c8050, smoke: 0.10, smokeRate: 22 },
+  grass: { color: 0xE3F0CC, deep: 0xB2CE8C, lift: 1.05, rate: 150, slip: 100, wake: 34, size: 0.52, wakeSize: 0.42, grow: 2.3, alpha: 0.275, grit: 0.54, sparky: false, mark: 0.62, markTint: 0x6d8b4c, smoke: 0.11, smokeRate: 24 },
+  water: { color: 0xF8FDFF, deep: 0xD7EFFA, lift: 1.40, rate: 175, slip: 130, wake: 44, size: 0.48, wakeSize: 0.38, grow: 2.2, alpha: 0.275, grit: 0.36, sparky: false, mark: 0.00, markTint: 0xffffff, smoke: 0.10, smokeRate: 18 },
   rail:  { color: 0xCFE2FF, deep: 0xCFE2FF, lift: 0.20, rate: 0,   slip: 22,  wake: 0,  size: 0.22, wakeSize: 0.20, grow: 1.4, alpha: 0.90,  grit: 0.00, sparky: true,  mark: 0.00, markTint: 0xffffff, smoke: 0.00, smokeRate: 0 },
   air:   { color: 0xffffff, deep: 0xffffff, lift: 0.00, rate: 0,   slip: 0,   wake: 0,  size: 0.40, wakeSize: 0.20, grow: 2.0, alpha: 0.00,  grit: 0.00, sparky: false, mark: 0.00, markTint: 0xffffff, smoke: 0.00, smokeRate: 0 },
 };
@@ -511,7 +531,7 @@ export function createFxSystem(ctx: GameContext): GameSystem {
   // in means the only part of the cloud a player ever sees is the part that has
   // not arrived yet.
   const dustSpec = makeSpec({
-    cell: CELL.puff, mode: MODE.billboard, additive: false,
+    cell: CELL.puff, variants: PUFF_CELLS, mode: MODE.billboard, additive: false,
     life: 0.8, size0: 0.45, size1: 1.5, alpha: 0.08,
     gravity: -0.2, drag: 1.5, fadeIn: 0.12,
   });
@@ -526,12 +546,12 @@ export function createFxSystem(ctx: GameContext): GameSystem {
   // smooth core the glow was providing is now where it belongs — in the two
   // immediate-mode nozzles, which never flicker and never travel.
   const flameSpec = makeSpec({
-    cell: CELL.puff, mode: MODE.billboard, additive: true,
+    cell: CELL.puff, variants: PUFF_CELLS, mode: MODE.billboard, additive: true,
     life: 0.28, size0: 0.5, size1: 1.25, alpha: 0.95,
     gravity: -3, drag: 4.5, fadeIn: 0.07,
   });
   const smokeSpec = makeSpec({
-    cell: CELL.puff, mode: MODE.billboard, additive: false,
+    cell: CELL.puff, variants: PUFF_CELLS, mode: MODE.billboard, additive: false,
     life: 0.85, size0: 0.38, size1: 1.5, alpha: 0.042,
     gravity: -1.4, drag: 2.2, fadeIn: 0.2,
   });
@@ -539,7 +559,7 @@ export function createFxSystem(ctx: GameContext): GameSystem {
   // emitter in the module that runs on every machine on the track for the whole
   // race, so it has to be the cheapest and the quietest thing here.
   const exhaustSpec = makeSpec({
-    cell: CELL.puff, mode: MODE.billboard, additive: false,
+    cell: CELL.puff, variants: PUFF_CELLS, mode: MODE.billboard, additive: false,
     life: 0.5, size0: 0.16, size1: 0.5, alpha: 0.042,
     // Negative gravity: hot gas rises, and rising is what lifts the plume out
     // of the machine's own shadow and puts it against the road or the sky where
@@ -567,7 +587,7 @@ export function createFxSystem(ctx: GameContext): GameSystem {
   // only exists when the machine is moving fast is a shape that can only ever
   // read as speed.
   const wakeSpec = makeSpec({
-    cell: CELL.puff, mode: MODE.velocity, additive: false,
+    cell: CELL.puff, variants: PUFF_CELLS, mode: MODE.velocity, additive: false,
     life: 0.42, size0: 0.30, size1: 0.75, alpha: 0.04,
     gravity: -0.2, drag: 1.1, stretch: 0.055, fadeIn: 0.14,
   });
@@ -612,7 +632,7 @@ export function createFxSystem(ctx: GameContext): GameSystem {
   // pace with the machine the camera is chasing has no screen-space motion to
   // stretch along, so it would be a circle again.
   const smokeTyreSpec = makeSpec({
-    cell: CELL.puff, mode: MODE.velocity, additive: false,
+    cell: CELL.puff, variants: PUFF_CELLS, mode: MODE.velocity, additive: false,
     life: 0.52, size0: 0.30, size1: 0.62, alpha: 0.30,
     gravity: -0.5, drag: 0.7, stretch: 0.045, fadeIn: 0.07,
   });
@@ -3149,6 +3169,55 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       },
       haze(): Record<string, unknown> {
         return sampleLayer(alphaLayer);
+      },
+
+      /**
+       * Hide or show every sprite layer this module owns.
+       *
+       * The only honest answer to "is that thing on screen mine". A reviewer
+       * cropping a frame at 9x and finding a faceted, opaque, lit blob over a
+       * machine reasonably calls it a dust puff and files it against this
+       * module; the plume over the locomotive's funnel is a low-poly *solid*
+       * built by `vehicles`, and no amount of work in here moves it. One
+       * render with the layers off settles it in a second.
+       */
+      layers(on: boolean): number {
+        let n = 0;
+        for (const l of [addLayer, alphaLayer, rushLayer]) {
+          if (!l) continue;
+          l.mesh.userData.forceHidden = !on;
+          if (!on) l.mesh.visible = false;
+          n++;
+        }
+        return n;
+      },
+
+      /**
+       * What is under this pixel. Debug only — it allocates a raycaster.
+       *
+       * Returns the object chain from the hit outward, which is what actually
+       * names a thing: a mesh called `puff` three levels under `train` is the
+       * locomotive's chimney, and a mesh called `fxAlpha` is a particle.
+       */
+      pick(x: number, y: number): unknown {
+        const el = ctx.renderer.domElement;
+        const ray = new THREE.Raycaster();
+        ray.setFromCamera(
+          new THREE.Vector2((x / el.clientWidth) * 2 - 1, -(y / el.clientHeight) * 2 + 1),
+          ctx.camera,
+        );
+        const hits = ray.intersectObjects(ctx.scene.children, true);
+        return hits.slice(0, 4).map((h) => {
+          const chain: string[] = [];
+          let o: THREE.Object3D | null = h.object;
+          while (o) { chain.push(o.name || o.type); o = o.parent; }
+          const mat = (h.object as THREE.Mesh).material as THREE.Material | undefined;
+          return {
+            d: Math.round(h.distance * 10) / 10,
+            chain: chain.join(' < '),
+            mat: Array.isArray(mat) ? 'multi' : `${mat?.type}:${mat?.name || ''}`,
+          };
+        });
       },
     };
   }

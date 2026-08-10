@@ -210,7 +210,7 @@ Canonical events — add new ones to this list when you introduce them:
 | `item:get` | `{ racer, item, count }` | items |
 | `item:use` | `{ racer, item, count, forward }` | items |
 | `item:bounce` | `{ kind, pos, bounces }` — shell off a barrier | items |
-| `item:blast` | `{ pos, ownerId, radius }` — a bob-omb went off | items |
+| `item:blast` | `{ pos, ownerId, radius }` — a gas bottle (`bomb`) went off | items |
 | `item:strike` | `{ racer, by, item, kind }` — *what* hit you, before the stun | items |
 | `item:reaction` | `{ racer, kind, force }` — the spin-out that follows a strike | items |
 | `item:block` | `{ racer, by, item, blocked }` — a carried item ate the hit | items |
@@ -277,12 +277,25 @@ both sides at the end.
 **Hit kinds.** `item:strike` and `item:reaction` carry a `kind` from
 `HitKind` (exported by `src/items/index.ts`), and it is the item system's
 authoritative statement of *what the hit looks like*: `spin` (a slip — one
-lazy turn, no launch, tyre smoke: a banana), `flip` (a smash — launched, a turn
-and a quarter, sparks: a shell or a bob-omb), `bump` (a shove — mostly sideways,
-almost no rotation: a star, a bullet bill, a horn) and `squish` (flattened on
-the spot: lightning). Anything hanging a sound, a particle or a camera move off
-a hit should read `item:strike`, not `kart:hit` — physics emits the latter from
-`stunRacer` and only knows its own three-value vocabulary.
+lazy turn, no launch, tyre smoke: a wheel chock), `flip` (a smash — launched, a
+turn and a quarter, sparks: a hard hat or a gas bottle), `bump` (a shove —
+mostly sideways, almost no rotation: a safety award, a pile driver, an air horn)
+and `squish` (flattened on the spot: a power cut). Anything hanging a sound, a
+particle or a camera move off a hit should read `item:strike`, not `kart:hit` —
+physics emits the latter from `stunRacer` and only knows its own three-value
+vocabulary.
+
+**The roster is named in this game's own words, and the ids are not.** The item
+set is a Wheel Chock, a Hard Hat, a Foreman's Hat, an Air Canister, a Safety
+Award, a Pile Driver, a Power Cut, a Tar Sprayer, a Dust Sheet, a Gas Bottle, a
+Coin and an Air Horn — every one of them a thing off a work site, like the
+machines that throw them. The `ItemId` union in `types.ts` still reads `banana`,
+`greenShell`, `bomb`, `blooper`, `boo`; those are the *identifiers* the whole
+game switches on and renaming them would be churn no player could see, so
+`banana` is the id of a wheel chock. `ITEMS[id].name` in `src/items/defs.ts` is
+the only thing that may be shown to a player, and `src/items/models.ts` is what
+each one actually is. Anything drawing an item — an icon, a slot, a menu — draws
+the object in `models.ts`, not the object in the id.
 
 **Timing the reel.** `item:roulette` `start` carries `duration` — the seconds
 that spin will actually run — and `item:reel` fires once per face of the drum

@@ -23,7 +23,7 @@ import * as THREE from 'three';
 import { clamp, clamp01, damp, ease } from '../core/math.ts';
 import {
   addProjectileGlow, addProjectileShadow,
-  buildBanana, buildBlast, buildBlooper, buildBomb, buildBoo, buildBurst,
+  buildBlast, buildBurst, buildChock, buildDustSheet, buildGasBottle, buildSprayer,
   buildRing, buildScorch, buildShell, cloneWithMaterials, setColor, setOpacity,
   setRimStrength,
 } from './models.ts';
@@ -32,7 +32,7 @@ import type { GameContext, Racer, SplineSample } from '../types.ts';
 
 export type EntityKind =
   | 'banana' | 'greenShell' | 'redShell' | 'bomb'
-  | 'blast' | 'ring' | 'ghost' | 'squid' | 'burst' | 'scorch';
+  | 'blast' | 'ring' | 'sheet' | 'sprayer' | 'burst' | 'scorch';
 
 export interface Entity {
   kind: EntityKind;
@@ -215,18 +215,18 @@ export function createEntityField(ctx: GameContext): EntityField {
   const pools = new Map<EntityKind, THREE.Object3D[]>();
   /** Kinds whose material state is animated per copy, so each needs its own. */
   const PRIVATE: ReadonlySet<EntityKind> =
-    new Set<EntityKind>(['bomb', 'blast', 'ring', 'ghost', 'squid', 'burst', 'scorch']);
+    new Set<EntityKind>(['bomb', 'blast', 'ring', 'sheet', 'sprayer', 'burst', 'scorch']);
 
   function init(): void {
     if (prototypes.size) return;
-    prototypes.set('banana', buildBanana());
+    prototypes.set('banana', buildChock());
     prototypes.set('greenShell', buildShell(0x46D63C, 0x2C9A2A));
     prototypes.set('redShell', buildShell(0xF03A2E, 0x7E1610, true));
-    prototypes.set('bomb', buildBomb());
+    prototypes.set('bomb', buildGasBottle());
     prototypes.set('blast', buildBlast());
     prototypes.set('ring', buildRing(0xFF8A2A));
-    prototypes.set('ghost', buildBoo());
-    prototypes.set('squid', buildBlooper());
+    prototypes.set('sheet', buildDustSheet());
+    prototypes.set('sprayer', buildSprayer());
     prototypes.set('burst', buildBurst());
     prototypes.set('scorch', buildScorch());
 
@@ -253,7 +253,7 @@ export function createEntityField(ctx: GameContext): EntityField {
     // them at once.
     for (const [kind, count] of [
       ['banana', 6], ['greenShell', 4], ['redShell', 4], ['bomb', 3], ['burst', 5],
-      ['blast', 2], ['ring', 2], ['ghost', 1], ['squid', 1], ['scorch', 3],
+      ['blast', 2], ['ring', 2], ['sheet', 1], ['sprayer', 1], ['scorch', 3],
     ] as Array<[EntityKind, number]>) {
       for (let i = 0; i < count; i++) pools.get(kind)!.push(makeNode(kind));
     }
@@ -534,8 +534,8 @@ export function createEntityField(ctx: GameContext): EntityField {
           e.scale = ease.outCubic(clamp01(e.age / 0.42));
           rideOwner(e);
           break;
-        case 'ghost':
-        case 'squid': {
+        case 'sheet':
+        case 'sprayer': {
           e.pos.addScaledVector(e.vel, dt);
           e.spin += dt * 2.4;
           break;
@@ -746,12 +746,12 @@ export function createEntityField(ctx: GameContext): EntityField {
           setRimStrength(node, a * 1.2);
           break;
         }
-        case 'ghost':
+        case 'sheet':
           node.rotation.set(0, e.yaw + Math.sin(e.spin) * 0.4, 0);
           node.position.y += Math.sin(time * 3 + e.ownerId) * 0.25;
           setOpacity(node, clamp01(e.life) * 0.8);
           break;
-        case 'squid':
+        case 'sprayer':
           node.rotation.set(-0.25, e.yaw, Math.sin(e.spin * 1.6) * 0.2);
           node.position.y += Math.sin(time * 4 + e.ownerId) * 0.3;
           setOpacity(node, clamp01(e.life * 1.5));

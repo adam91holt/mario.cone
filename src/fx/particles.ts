@@ -20,7 +20,7 @@
 import * as THREE from 'three';
 import type { Rng } from '../core/math.ts';
 import type { SpriteLayer } from './sprites.ts';
-import { MODE } from './sprites.ts';
+import { CELL_STRIDE, MODE } from './sprites.ts';
 
 /**
  * A particle description. Reused by the caller between emissions — treat it as
@@ -52,6 +52,18 @@ export interface ParticleSpec {
   /** Fraction of life spent fading in. */
   fadeIn: number;
   cell: number;
+  /**
+   * A set of interchangeable cells to draw this particle's silhouette from,
+   * one per emission. Overrides `cell` when present.
+   *
+   * The dust family is five different clouds (`PUFF_CELLS` in `atlas.ts`) and
+   * every emitter that throws one wants all five. Doing that at the eleven call
+   * sites means a twelfth site added later silently goes back to being a stamp,
+   * so it is done here instead: set the list once on the preset and every
+   * emission through `emit` and `burst` is covered, including the ones nobody
+   * has written yet.
+   */
+  variants?: readonly number[];
   mode: number;
   /** Additive layer (sparks, flame, light) or alpha layer (dust, confetti). */
   additive: boolean;
@@ -92,7 +104,9 @@ const S = {
 } as const;
 const STRIDE = 24;
 
-/** `code` packs the atlas cell, the quad mode and the target layer. */
+/** `code` packs the atlas cell, the quad mode and the target layer as
+ *  `cell + mode * CELL_STRIDE + (additive ? ADDITIVE_BIT : 0)`. The bit has to
+ *  sit above the largest pair, which is `CELL_STRIDE * 2 + 15` = 47. */
 const ADDITIVE_BIT = 64;
 
 export interface ParticlePool {
@@ -204,6 +218,22 @@ export function createParticlePool(capacity: number): ParticlePool {
   let camX = 0, camY = 0, camZ = 0;
   let veil = 0;
 
+  /**
+   * The silhouette shuffler. A plain LCG rather than `ctx.rng`, for the same
+   * reason the rest of this file keeps away from it: the pool is stepped from
+   * `update`, and drawing from the simulation's stream at render rate would
+   * make the number of frames drawn change who wins the race. Reset with the
+   * pool, so a replay of the same race draws the same clouds.
+   */
+  const VSEED = 0x9e3779b1;
+  let vcursor = VSEED;
+  function pickCell(spec: ParticleSpec): number {
+    const list = spec.variants;
+    if (!list || list.length === 0) return spec.cell;
+    vcursor = (Math.imul(vcursor, 1664525) + 1013904223) >>> 0;
+    return list[(vcursor >>> 16) % list.length]!;
+  }
+
   function emit(spec: ParticleSpec): boolean {
     if (count >= capacity) return false;
     const o = count * STRIDE;
@@ -222,7 +252,8 @@ export function createParticlePool(capacity: number): ParticlePool {
     data[o + S.drag] = spec.drag;
     data[o + S.stretch] = spec.stretch;
     data[o + S.fadeIn] = spec.fadeIn;
-    data[o + S.code] = spec.cell + spec.mode * 8 + (spec.additive ? ADDITIVE_BIT : 0);
+    data[o + S.code] = pickCell(spec) + spec.mode * CELL_STRIDE
+      + (spec.additive ? ADDITIVE_BIT : 0);
     count++;
     return true;
   }
@@ -322,8 +353,8 @@ export function createParticlePool(capacity: number): ParticlePool {
         }
       }
       const packed = isAdd ? code - ADDITIVE_BIT : code;
-      const mode = Math.floor(packed / 8);
-      const cell = packed - mode * 8;
+      const mode = Math.floor(packed / CELL_STRIDE);
+      const cell = packed - mode * CELL_STRIDE;
 
       // ...and cut down anything that has grown to own the frame, wherever it
       // happens to be. See the note on the angular governor above.
@@ -389,6 +420,6 @@ export function createParticlePool(capacity: number): ParticlePool {
     update,
     setCamera(x: number, y: number, z: number): void { camX = x; camY = y; camZ = z; },
     fill,
-    clear(): void { count = 0; veil = 0; },
+    clear(): void { count = 0; veil = 0; vcursor = VSEED; },
   };
 }
