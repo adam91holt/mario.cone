@@ -129,19 +129,19 @@ export const EXHAUST: Record<VehicleId, ExhaustPort[]> = {
   // is how a tailpipe wisp turns into cotton wool.
   cone: [
     port({
-      x: 0.24, y: 0.52, z: -1.14, dx: 0.16, dy: 1.1, dz: -1,
-      size: 0.15, grow: 2.7, idle: 26, drive: 54, alpha: 0.205,
+      x: 0.24, y: 0.52, z: -1.14, dx: 0.16, dy: 0.55, dz: -1,
+      size: 0.17, grow: 2.5, idle: 9, drive: 17, life: 0.50, alpha: 0.30,
     }),
     port({
-      x: -0.24, y: 0.52, z: -1.14, dx: -0.16, dy: 1.1, dz: -1,
-      size: 0.15, grow: 2.7, idle: 26, drive: 54, alpha: 0.205,
+      x: -0.24, y: 0.52, z: -1.14, dx: -0.16, dy: 0.55, dz: -1,
+      size: 0.17, grow: 2.5, idle: 9, drive: 17, life: 0.50, alpha: 0.30,
     }),
   ],
   // One pipe under the rear valance, at (0, 0.42, -1.86).
   car: [
     port({
-      x: 0.18, y: 0.44, z: -1.92, dx: 0.14, dy: 1.1, dz: -1,
-      size: 0.17, grow: 2.8, idle: 28, drive: 58, alpha: 0.205,
+      x: 0.18, y: 0.44, z: -1.92, dx: 0.14, dy: 0.55, dz: -1,
+      size: 0.19, grow: 2.6, idle: 10, drive: 19, life: 0.50, alpha: 0.30,
     }),
   ],
   // Diesel stack behind the cab, at (0.92, 2.95, 0.42), venting straight up.
@@ -154,16 +154,16 @@ export const EXHAUST: Record<VehicleId, ExhaustPort[]> = {
       // the sky above it and the tarmac below, so it reads against both. That
       // still satisfies the rule this module got wrong last round — nothing
       // airborne may be darker than the ground — with room to spare.
-      size: 0.13, grow: 3.4, idle: 28, drive: 46, speed: 3.8, life: 0.56,
-      alpha: 0.225, color: 0x9DA3AE, tail: 0x818794,
+      size: 0.16, grow: 3.2, idle: 10, drive: 16, speed: 3.8, life: 0.52,
+      alpha: 0.33, color: 0x9DA3AE, tail: 0x818794,
     }),
   ],
   // Stack on the engine deck at the back of the house, venting up.
   digger: [
     port({
       x: 0.56, y: 2.06, z: -0.34, dx: 0.02, dy: 1, dz: -0.14,
-      size: 0.12, grow: 3.4, idle: 26, drive: 44, speed: 3.4, life: 0.54,
-      alpha: 0.225, color: 0x9BA1AC, tail: 0x7F8591,
+      size: 0.15, grow: 3.2, idle: 9, drive: 15, speed: 3.4, life: 0.50,
+      alpha: 0.33, color: 0x9BA1AC, tail: 0x7F8591,
     }),
   ],
   // The chimney, at (0, 2.72, 1.62). Steam: white, fat, and it climbs. Kept
@@ -173,29 +173,29 @@ export const EXHAUST: Record<VehicleId, ExhaustPort[]> = {
   train: [
     port({
       x: 0, y: 2.84, z: 1.62, dx: 0, dy: 1, dz: -0.12,
-      size: 0.15, grow: 3.6, idle: 34, drive: 54, speed: 5.0, life: 0.70,
-      alpha: 0.235, color: 0xFDFEFF, tail: 0xC9D2DE,
+      size: 0.19, grow: 3.4, idle: 12, drive: 19, speed: 5.0, life: 0.62,
+      alpha: 0.34, color: 0xFDFEFF, tail: 0xC9D2DE,
     }),
   ],
   // Exhaust stubs either side of the cowl, blowing back along the fuselage.
   plane: [
     port({
-      x: 0.34, y: 0.86, z: 0.86, dx: 0.2, dy: 0.5, dz: -1,
-      size: 0.09, grow: 3.0, idle: 30, drive: 60, speed: 5.0, life: 0.56,
-      alpha: 0.150, color: 0xDCE3EF, tail: 0xB4BDCC, hot: true,
+      x: 0.34, y: 0.86, z: 0.86, dx: 0.2, dy: 0.3, dz: -1,
+      size: 0.11, grow: 2.8, idle: 10, drive: 20, speed: 5.0, life: 0.50,
+      alpha: 0.22, color: 0xDCE3EF, tail: 0xB4BDCC, hot: true,
     }),
     port({
-      x: -0.34, y: 0.86, z: 0.86, dx: -0.2, dy: 0.5, dz: -1,
-      size: 0.09, grow: 3.0, idle: 30, drive: 60, speed: 5.0, life: 0.56,
-      alpha: 0.150, color: 0xDCE3EF, tail: 0xB4BDCC, hot: true,
+      x: -0.34, y: 0.86, z: 0.86, dx: -0.2, dy: 0.3, dz: -1,
+      size: 0.11, grow: 2.8, idle: 10, drive: 20, speed: 5.0, life: 0.50,
+      alpha: 0.22, color: 0xDCE3EF, tail: 0xB4BDCC, hot: true,
     }),
   ],
   // Turbine exhaust on the engine deck under the mast, blowing down the boom.
   helicopter: [
     port({
-      x: 0.28, y: 1.76, z: -0.72, dx: 0.24, dy: 0.4, dz: -1,
-      size: 0.11, grow: 3.2, idle: 32, drive: 62, speed: 6.0, life: 0.62,
-      alpha: 0.150, color: 0xDEE5F1, tail: 0xB6BFCE, hot: true,
+      x: 0.28, y: 1.76, z: -0.72, dx: 0.24, dy: 0.25, dz: -1,
+      size: 0.13, grow: 3.0, idle: 11, drive: 21, speed: 6.0, life: 0.54,
+      alpha: 0.22, color: 0xDEE5F1, tail: 0xB6BFCE, hot: true,
     }),
   ],
 };
