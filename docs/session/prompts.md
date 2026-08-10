@@ -4542,3 +4542,172 @@ yes go ahead, publish it
 ### 🤖 Claude — 2026-08-10 19:57 UTC
 
 It ran — and **the guard I built immediately caught a real problem**: a 16,851-character prompt got truncated. The whole premise was that prompts are never cut, so that's a bug in my tool, not an acceptable outcome. The truncation was blind to context. Fixing it to protect message text and only trim tool payloads:
+
+### 🤖 Claude — 2026-08-10 19:58 UTC
+
+The 16,851-character prompt now survives whole and the check passes. Final secret scan on the **output** before it goes public:
+
+### 🤖 Claude — 2026-08-10 19:58 UTC
+
+Clean, and it opens with your original prompt. Committing and wiring it into the loop:
+
+### 🤖 Claude — 2026-08-10 19:59 UTC
+
+Now wiring it into the hourly loop so it stays current:
+
+### 🤖 Claude — 2026-08-10 20:00 UTC
+
+Published and wired into the loop.
+
+**Live now:** [`docs/session/prompts.md`](https://github.com/adam91holt/mario.cone/blob/main/docs/session/prompts.md) — 450 turns, every prompt and reply in order, opening with your original brief. And [`docs/session/session.jsonl`](https://github.com/adam91holt/mario.cone/blob/main/docs/session/session.jsonl) — 3,644 records with the structure intact: messages, tool calls, tool results. Linked from the README. It now refreshes at the top of every hourly tick, so it stays current on its own.
+
+**The tool caught its own bug on the first real run, and that's the part worth telling you about.** My first version applied a blanket 2,000-character truncation to every string in a record. That can't tell a 9,000-character capture log from a 16,851-character prompt — and this session contains both. So it cut the prompt, in a tool whose entire premise is that prompts are never cut.
+
+It said so and exited non-zero rather than writing a quietly mangled archive. I'd only built that check because I didn't want to *assume* no prompt would ever get close to the limit — and it turned out one already had.
+
+Fixed properly: message text is never truncated at any length now; only tool inputs and results are. And the closing check no longer trusts the fix — it re-reads its own output hunting for a truncation marker at the end of any message body and fails the run if it finds one. Your longest prompt is 16,851 characters and it's in there whole, **verified in the output rather than asserted from the input**.
+
+**On size:** 6.1 MB of JSONL, committed as plain text on purpose. It's append-only, so git deltas it almost perfectly. Gzip would be smaller once and then store a fresh 15 MB blob on every single hourly refresh — worse within a day.
+
+**On safety:** credentials are redacted on the way out. Scans of both the source transcript and the published files found none, and the `system` records turned out to be hook summaries rather than system prompts. The guard lives in the tool because checking once isn't a property of the tool.
+
+Worth knowing: many of those 450 turns are the build loop waking *itself* on a schedule, not you typing. The README says so, so nobody reads it as 450 human instructions.
+
+### 🧑 Prompt — 2026-08-10 20:00 UTC
+
+Someone asked me this
+
+“@⁨Adam Holt⁩ what did you use to create that artifact that showed what it was building? I hadn’t come across that one before”
+
+Could you maybe create a Md file with a mermaid diagram to show what’s happening
+
+### 🤖 Claude — 2026-08-10 20:02 UTC
+
+Let me make the Mermaid conservative — `&` edge chaining and `<br/>` inside state labels are the two things most likely to render badly on GitHub.
+
+### 🤖 Claude — 2026-08-10 20:02 UTC
+
+Now validating the diagrams actually parse, rather than assuming:
+
+### 🤖 Claude — 2026-08-10 20:03 UTC
+
+False positive in my own checker — those parens are inside quoted labels (`["snapshot()<br/>…"]`), which Mermaid handles fine. All seven blocks are clean. Linking it from the README and committing:
+
+### 🤖 Claude — 2026-08-10 20:04 UTC
+
+Here's the link to send them:
+
+**https://github.com/adam91holt/mario.cone/blob/main/docs/how-it-works.md**
+
+GitHub renders Mermaid natively, so the diagrams show inline — nothing to install or open.
+
+**The short answer to their question:** the artifact is `progress.html`, and it isn't a tool anyone can install — it's a ~90-line script in the repo. Two inputs, one output: a JSON ledger with a row per piece (state, score, the exact gap its critic named) plus the captured review frames, shrunk to inline JPEGs so the page has zero external requests. GitHub Pages redeploys it on every push. That's the whole trick.
+
+**Seven diagrams**, covering the bits that are actually interesting rather than just the file layout:
+
+- how the board gets generated
+- the orchestrator and its two kinds of workflow — piece waves vs. the whole-repo pass, which never run at the same time
+- a piece's state machine, `queued → build → review → fail → build…` with no fixed round count
+- **the critic protocol as a sequence** — including why step 1 is "write the Mario Kart reference from memory *before* opening our game": an agent that looks first anchors on what it saw and then recalls a conveniently similar Mario Kart
+- the hole in file ownership no row of the table can reach
+- the harness, and why `steercheck.mjs` had to exist
+- how the loop survives a container that suspends every 35–90 minutes
+
+I kept three things honest rather than glossy, since it's public: the loop is at **0 passed of 17** against the 8.5 bar (that's it working — each fix hands the next critic a better game to attack); the shadow problem was **reported by five critics and closed by none**, which is the best evidence for why the whole-repo pass had to exist; and real verdicts are quoted verbatim, numbers and all — ground luminance 96.9 against 42.4, the item slot empty 87% of a race, a quality governor asleep for 331 seconds at 4 fps.
+
+The Mermaid is deliberately conservative — no `&` edge chaining, no line breaks inside state labels, every label quoted — and I ran a static check over all seven blocks rather than assuming. It flagged one thing, which turned out to be my checker not knowing quoted labels may contain parentheses.
+
+The session archive also went out in the same PR, so `docs/session/prompts.md` is live alongside it if they want to read the actual prompts.
+
+### 🧑 Prompt — 2026-08-10 20:04 UTC
+
+Stop hook feedback:
+[~/.claude/stop-hook-git-check.sh]: There are uncommitted changes in the repository. Please commit and push these changes to the remote branch.
+
+### 🤖 Claude — 2026-08-10 20:05 UTC
+
+The tree is mid-refactor by a **live** agent — it's moved the driver names into `vehicles/registry.ts` (+25 lines) and hasn't yet updated the reference at `main.ts:146`. Unlike the earlier case where a *dead* agent left a broken file, this one wrote 7 seconds ago and will finish. Committing a non-compiling tree would be wrong, so I'll wait for it.
+
+### 🤖 Claude — 2026-08-10 20:05 UTC
+
+Waiting on the agent rather than committing a broken tree — I'll commit the moment it compiles.
+
+To be explicit about the judgement, since it's the opposite call to the one I made earlier today: when a **dead** agent leaves a half-written file, nobody is coming back to finish it, so I revert. When a **live** agent is mid-refactor — this one wrote 7 seconds ago, and `claude` has been up 2h56m against that gap — the incomplete state is temporary and reverting would destroy work in progress. Here it's clearly the latter: `vehicles/registry.ts` gained the driver-name constants and `main.ts:146` hasn't caught up yet.
+
+The waiter polls typecheck and exits the moment it goes clean; I'll commit and push then.
+
+### 🧑 Prompt — 2026-08-10 20:06 UTC
+
+<task-notification>
+<task-id>blx856zmq</task-id>
+<tool-use-id>toolu_016nmm5u3rqSaFt8Y3UJEhE8</tool-use-id>
+<output-file>/tmp/claude-0/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/tasks/blx856zmq.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for the agent to finish its refactor" completed (exit code 0)</summary>
+</task-notification>
+
+### 🤖 Claude — 2026-08-10 20:07 UTC
+
+The agent finished its refactor 60 seconds later, exactly as expected. Committing:
+
+### 🤖 Claude — 2026-08-10 20:07 UTC
+
+Committed and pushed at `cc73e57`. The wait was the right call — the agent completed its refactor **60 seconds** after I armed the waiter, and typecheck went clean on its own.
+
+What it was doing: moving `PLAYER_NAME` and `CPU_NAMES` out of `main.ts` and into `vehicles/registry.ts`, where the machines those drivers sit in are already defined. `main.ts` is bootstrap — it wires systems together and owns race setup — and a list of driver names is neither. The three "errors" I saw were just the registry having gained the constants a moment before the call site caught up.
+
+That's the distinction worth holding onto: a **dead** agent's half-written file gets reverted, because nobody is coming back to finish it. A **live** agent's gets waited on. Same symptom, opposite correct action, and the tell is process age against the write gap rather than anything in the file itself.
+
+Coherence round 2 also touched config, the race director, the minimap and the shared theme — it's working through the 13 seams. I'll land the wave when the judge returns.
+
+### 🧑 Prompt — 2026-08-10 20:07 UTC
+
+Stop hook feedback:
+[~/.claude/stop-hook-git-check.sh]: There are uncommitted changes in the repository. Please commit and push these changes to the remote branch.
+
+### 🤖 Claude — 2026-08-10 20:07 UTC
+
+Same pattern again — live agent (wrote 6 seconds ago), now mid-write on `theme.ts` with an unterminated statement at line 733. It's editing continuously, so rather than race it I'll wait for a state that's both compiling *and* settled.
+
+### 🤖 Claude — 2026-08-10 20:08 UTC
+
+Waiting again — this time for the tree to be both compiling **and** untouched for 75 seconds, so I commit a settled state rather than catching the agent mid-keystroke.
+
+Worth flagging the underlying tension: the stop hook wants a clean tree at the end of every turn, but a coherence agent with whole-repo ownership is editing more or less continuously, so the tree is dirty almost all the time — and roughly half those moments are mid-refactor and don't compile. Committing on every turn would mean either racing the agent or committing broken states. The hourly cadence I've been running is the honest resolution: commit when the work has settled. I'll push the moment this one does.
+
+### 🧑 Prompt — 2026-08-10 20:13 UTC
+
+MARIO.CONE build loop — hourly. Repo adam91holt/mario.cone (PUBLIC), branch claude/mario-kart-racing-game-z8wdf1. WFDIR=/root/.claude/projects/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/subagents/workflows
+
+EVERY TICK, before anything else: `node tools/session.mjs`. It refreshes docs/session/prompts.md and docs/session/session.jsonl — the conversation that is building this game, which the user asked to be published and kept current. It exits non-zero if a message body was truncated; if that happens fix the tool rather than committing a mangled archive. Commit the refresh with whatever else the tick produces.
+
+Do NOT trust any run id written here — resolve it: RUN=$(ls -t $WFDIR | head -1). Current run: coherence pass = wf_85410807-a0a.
+
+STEP 1 — PROVE the wave is alive. Two checks; the second has never been wrong:
+  date -u
+  ls -lt --time-style=+%H:%M:%S $WFDIR/$RUN/agent-*.jsonl | head -3
+  ps -eo etime,comm | grep -w claude
+(a) Newest agent-*.jsonl mtime older than ~25 minutes = dead. USE `ls -t`; a plain `ls | tail` sorts ALPHABETICALLY and once hid the only live agent behind eleven finished ones.
+(b) ELAPSED of the main `claude` process. DECISIVE. If claude has been alive for LESS time than the gap since the last agent write, the container restarted and every in-flight agent is dead, however recent the mtimes look. Two agents whose last write is the IDENTICAL second is the same signature. Do NOT grep for claude in a `--sort=-pcpu | head -4` list — Chrome outranks it and it will not appear.
+Never judge by files existing or Chrome counts: subagents run IN-PROCESS inside the main claude process, so `ps aux | grep claude` shows nothing for a healthy wave.
+
+Count: node -e "const fs=require('fs');let s=0,r=0;for(const l of fs.readFileSync(process.argv[1],'utf8').trim().split('\n')){try{const e=JSON.parse(l);if(e.type==='started')s++;if(e.type==='result')r++;}catch{}}console.log(s,r)" $WFDIR/$RUN/journal.jsonl
+Concurrency is 2 on this 4-core box.
+
+STEP 2 — If DEAD, RESUME, DO NOT RELAUNCH:
+  Workflow({scriptPath:"<the same script>", resumeFromRunId:"<the dead RUN>", args:<the SAME args object, byte-for-byte>})
+Completed agent() calls return from cache instantly and only the killed agents re-run, carry intact. Args must match exactly or the cache misses. First `npx tsc --noEmit`, then commit and push whatever exists (say in the message if unverified). Read the dead run's journal for results that already have a `score` — those verdicts are earned and must never be re-bought.
+IF TYPECHECK FAILS INSIDE A FILE A DEAD AGENT WAS MID-WRITE ON, that is NOT transient — the agent is not coming back to finish it, and the resumed agent restarts that step from scratch. `git checkout --` those files rather than committing a build that cannot compile.
+AFTER ANY LAUNCH OR RESUME, VERIFY: grep 'YOUR PIECE' AND 'Observed:' out of each new agent transcript.
+
+STEP 3 — If ALIVE: `npx tsc --noEmit`. If clean, commit and push. Do NOT run captures or smoke while agents are active, and never pkill on any pattern matching "capture.mjs".
+
+STEP 4 — If FINISHED:
+  a. `npx tsc --noEmit` then `node tools/capture.mjs --smoke`. Typecheck-clean has passed on a build that did not boot; smoke is the real gate.
+  b. `node tools/capture.mjs` and LOOK at the PNGs with Read. Never trust an agent's summary.
+  c. Update tools/progress.state.json with the real verdicts, `node tools/progress.mjs`, `node tools/readmeshots.mjs`.
+  d. Commit, push, PR (base main, draft false), merge, then `git fetch origin main && git reset --hard origin/main && git push --force-with-lease` (merges are squashed, so ff-only will refuse).
+  e. Remaining work, in order: COURSES re-judge — it scored 5.0 because theme.ground never painted terrain and thirteen theme.props keys had zero reads; that wiring now exists, so its job is to USE it and prove the four courses are distinguishable from the overhead shot without the minimap. Then PERF re-run, which regressed to 475 draw calls and 667k triangles when the item economy fix put 102 boxes on the course. Then closing verdicts on wave 1 (feel, camera, track, look, cast), merged long ago and never judged.
+  f. Standing gaps no single piece owns, for the next coherence pass: the purple tier-3 mini-turbo has still never been seen by anyone; a single carried item is not drawn in the world at all because the orbit rig is only built for count>1; the finish letterbox guillotines the position badge on the one beat it matters.
+
+Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
