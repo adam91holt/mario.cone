@@ -921,26 +921,65 @@ export function buildBlast(): THREE.Object3D {
  * almost no contrast left to spend.
  *
  * Multiply blending has no such problem. The falloff is carried in the vertex
- * colour — 1 at the rim, which is a no-op, down to `darkness` at the centre —
+ * colour — 1 at the rim, which is a no-op, down to `darkness` at the middle —
  * so the disc scales the road's own brightness instead of trying to out-paint
  * it, needs no texture, and stays a shadow on tarmac, on dirt and on paint.
+ *
+ * **It needs a core, and for two rounds it did not have one.** The build this
+ * replaces was a single triangle fan: one dark vertex at the centre, `seg` pale
+ * ones round the rim, and a linear ramp between them. Exactly one *point* of
+ * that disc ever reached `darkness`. Integrated over the area — which is what a
+ * photograph measures — a fan from 0.20 to 1.0 multiplies the road by 0.73, so
+ * a shadow authored at "take four fifths of the light away" delivered "take a
+ * quarter of it away, in the middle, fading to nothing", and every item in the
+ * game photographed as floating: five boxes in an overhead frame with hard
+ * black kart shadows beside them and not one of their own, three hats orbiting
+ * a kart that was casting one.
+ *
+ * So it is built as concentric rings instead, with the inner 55% *solid* at
+ * `darkness` and the feather spent on the outer 45%. Same vertex format, same
+ * material, one draw call — the mean is now 0.35 rather than 0.73 for the same
+ * authored number, and the disc reads as a shadow because it has a body.
  */
 export function contactShadowGeometry(radius: number, darkness = 0.34, seg = 22): THREE.BufferGeometry {
-  const pos = new Float32Array(seg * 3 * 3);
-  const col = new Float32Array(seg * 3 * 3);
+  // Radius and shade at each ring. The first two carry the same value, which is
+  // what makes the core solid; the last is 1, which under multiply blending is
+  // a no-op and therefore an invisible edge.
+  const rings: ReadonlyArray<readonly [number, number]> = [
+    [0, darkness],
+    [0.55, darkness],
+    [0.80, darkness + (1 - darkness) * 0.40],
+    [1, 1],
+  ];
+  // One triangle per segment for the inner fan, two for each of the two bands.
+  const tris = seg * 5;
+  const pos = new Float32Array(tris * 3 * 3);
+  const col = new Float32Array(tris * 3 * 3);
   let k = 0;
+  const put = (x: number, y: number, c: number): void => {
+    pos[k] = x; pos[k + 1] = y; pos[k + 2] = 0;
+    col[k] = c; col[k + 1] = c; col[k + 2] = c;
+    k += 3;
+  };
   for (let i = 0; i < seg; i++) {
     const a0 = (i / seg) * TAU;
     const a1 = ((i + 1) / seg) * TAU;
-    const tri = [
-      [0, 0, darkness],
-      [Math.cos(a0) * radius, Math.sin(a0) * radius, 1],
-      [Math.cos(a1) * radius, Math.sin(a1) * radius, 1],
-    ] as const;
-    for (const [x, y, c] of tri) {
-      pos[k] = x; pos[k + 1] = y; pos[k + 2] = 0;
-      col[k] = c; col[k + 1] = c; col[k + 2] = c;
-      k += 3;
+    const c0 = Math.cos(a0), s0 = Math.sin(a0);
+    const c1 = Math.cos(a1), s1 = Math.sin(a1);
+    // The solid middle.
+    put(0, 0, rings[0]![1]);
+    put(c0 * rings[1]![0] * radius, s0 * rings[1]![0] * radius, rings[1]![1]);
+    put(c1 * rings[1]![0] * radius, s1 * rings[1]![0] * radius, rings[1]![1]);
+    // ...and the two feather bands outside it.
+    for (let b = 1; b < rings.length - 1; b++) {
+      const [ri, vi] = rings[b]!;
+      const [ro, vo] = rings[b + 1]!;
+      put(c0 * ri * radius, s0 * ri * radius, vi);
+      put(c0 * ro * radius, s0 * ro * radius, vo);
+      put(c1 * ro * radius, s1 * ro * radius, vo);
+      put(c0 * ri * radius, s0 * ri * radius, vi);
+      put(c1 * ro * radius, s1 * ro * radius, vo);
+      put(c1 * ri * radius, s1 * ri * radius, vi);
     }
   }
   const geo = new THREE.BufferGeometry();
@@ -1337,6 +1376,8 @@ export interface BoxMaterials {
   shell: THREE.MeshStandardMaterial;
   core: THREE.MeshBasicMaterial;
   glyph: THREE.MeshBasicMaterial;
+  /** The chips a broken box throws. Opaque and lit — see `makeBoxMaterials`. */
+  shard: THREE.MeshStandardMaterial;
   /** Advance the iridescence. Visual only. */
   tick(t: number): void;
   dispose(): void;
@@ -1462,15 +1503,30 @@ export function makeBoxMaterials(): BoxMaterials {
 
   const glyph = boxGlyphMaterial();
 
+  /**
+   * What the box comes apart into.
+   *
+   * Opaque and lit, deliberately — the shell is glass and the shards are not.
+   * A shatter made of translucent pieces of the same material photographs as
+   * the box going slightly blurry; a spray of hard hazard-yellow chips reads,
+   * on the single frame most players ever see of it, as a thing being broken.
+   */
+  const shard = new THREE.MeshStandardMaterial({
+    color: 0xFFC300, emissive: 0xFF8A2A, emissiveIntensity: 0.55,
+    roughness: 0.32, metalness: 0, flatShading: true,
+  });
+
   return {
     shell,
     core,
     glyph,
+    shard,
     tick(t: number): void { uTime.value = t; },
     dispose(): void {
       tex.dispose();
       shell.dispose();
       core.dispose();
+      shard.dispose();
       glyph.map?.dispose();
       glyph.dispose();
     },
@@ -1503,7 +1559,12 @@ export function boxHaloMaterial(): THREE.MeshBasicMaterial {
     // White, because the hue arrives per instance — see `boxHue` and
     // `setColorAt` in the box field. A tinted base would multiply into it and
     // pull every box back toward the same warm smear.
-    color: 0xFFFFFF, vertexColors: true, transparent: true, opacity: 0.7,
+    // 0.55, not 0.7, and the disc it is painted on is now less than a third of
+    // the area it was — see HALO_R in boxes.ts. An additive glow that reaches
+    // past the object it belongs to does not read as that object glowing, it
+    // reads as a coloured light being shone on whatever is behind it, and what
+    // was behind it here was the racing line.
+    color: 0xFFFFFF, vertexColors: true, transparent: true, opacity: 0.55,
     blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
   });
 }

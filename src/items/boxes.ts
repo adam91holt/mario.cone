@@ -40,9 +40,33 @@ const SIZE = 1.85;
 const RESPAWN = 4.0;
 /** Pickup radius. Generous — missing a box you drove through is maddening. */
 const PICK_RADIUS = 2.5;
-/** Metres the halo billboard is raised above the box, so its lower falloff
- *  never reaches the road. */
-const HALO_LIFT = 0.45;
+/**
+ * Metres the halo billboard is raised above the box.
+ *
+ * Small now, because the halo is small now. It used to be a disc two and a
+ * quarter metres across hung above a box floating a metre and a half up, and
+ * the bottom of its falloff therefore *landed on the tarmac*: photographed from
+ * a chase camera, five item boxes each stained four to six metres of the racing
+ * line green, magenta or purple, and the discs overlapped into one coloured
+ * wash across the road the player was steering down. A floating object with a
+ * bright pool under it instead of a shadow reads as a spotlight, not as
+ * contact — and this frame had the pool *and* no shadow.
+ *
+ * The glow now lives inside the box's own silhouette (see `HALO_R`), so it lights
+ * the glass and cannot reach the road, and the contact shadow does the job the
+ * halo was accidentally doing: telling you there is an object there.
+ */
+const HALO_LIFT = 0.12;
+/**
+ * The halo's radius as a fraction of the box.
+ *
+ * 0.66 of 1.85m is a disc 2.4m across at its widest falloff, centred 1.57m up —
+ * so its lower edge stops 0.35m clear of the tarmac at the bottom of the bob,
+ * and it can never paint the road. It is still wider than the cube, which is
+ * the whole reason it exists: at eighty metres the glass is four pixels and the
+ * glow is what a player aims at out of the previous corner.
+ */
+const HALO_R = 0.66;
 /** Metres the contact shadow floats above the tarmac. Small — the polygon
  *  offset on its material is what actually keeps it out of the road. */
 const SHADOW_LIFT = 0.03;
@@ -50,6 +74,32 @@ const SHADOW_LIFT = 0.03;
  *  right one: a road that fits four or five karts abreast needs a box for each
  *  of them, or taking one becomes a fight instead of a decision. */
 const ROW = 5;
+
+/**
+ * How long the box's own shatter runs.
+ *
+ * Two clocks, and the first is the one that was missing. `POP` is the
+ * *anticipation*: the cube swells for a twentieth of a second and then collapses
+ * to nothing, which is the difference between a box being broken and a box
+ * being switched off. `SHARD_LIFE` is how long the pieces of it fly.
+ */
+const POP_UP = 0.05;
+const POP_OUT = 0.13;
+const SHARD_LIFE = 0.62;
+/** Pieces per box, and the ring buffer they come out of. */
+const SHARD_N = 8;
+const SHARD_MAX = 48;
+
+/** One piece of broken box. Purely visual — nothing in the simulation reads it. */
+interface Shard {
+  pos: THREE.Vector3;
+  vel: THREE.Vector3;
+  axis: THREE.Vector3;
+  spin: number;
+  age: number;
+  size: number;
+  groundY: number;
+}
 
 export interface ItemBox {
   pos: THREE.Vector3;
@@ -114,26 +164,37 @@ export function createBoxField(ctx: GameContext): BoxField {
   let glyphGeo: THREE.BufferGeometry | null = null;
   let blobGeo: THREE.BufferGeometry | null = null;
   let blobMat: THREE.MeshBasicMaterial | null = null;
-  let ghostMat: THREE.MeshBasicMaterial | null = null;
+  let shardGeo: THREE.BufferGeometry | null = null;
   let shell: THREE.InstancedMesh | null = null;
   let core: THREE.InstancedMesh | null = null;
   let glyph: THREE.InstancedMesh | null = null;
   let halo: THREE.InstancedMesh | null = null;
   let shadow: THREE.InstancedMesh | null = null;
-  let ghost: THREE.InstancedMesh | null = null;
+  let shards: THREE.InstancedMesh | null = null;
   let bins: number[][] = [];
   let binCount = 0;
   let trackLength = 1;
 
+  // The shatter pool. A ring buffer rather than a list with holes in it: the
+  // whole field is walked every frame anyway and a dead shard costs one compare.
+  const shardPool: Shard[] = [];
+  for (let i = 0; i < SHARD_MAX; i++) {
+    shardPool.push({
+      pos: new THREE.Vector3(), vel: new THREE.Vector3(),
+      axis: new THREE.Vector3(0, 1, 0), spin: 0, age: SHARD_LIFE + 1, size: 1, groundY: 0,
+    });
+  }
+  let shardNext = 0;
+
   function clearMeshes(): void {
     // The instanced meshes are rebuilt per course; the geometry and materials
     // behind them are not, so only the wrappers are thrown away here.
-    for (const m of [shell, core, glyph, halo, shadow, ghost]) {
+    for (const m of [shell, core, glyph, halo, shadow, shards]) {
       if (!m) continue;
       group.remove(m);
       m.dispose();
     }
-    shell = core = glyph = halo = shadow = ghost = null;
+    shell = core = glyph = halo = shadow = shards = null;
   }
 
   function ensureAssets(): void {
@@ -141,9 +202,9 @@ export function createBoxField(ctx: GameContext): BoxField {
     if (!shellGeo) shellGeo = boxShellGeometry(SIZE);
     if (!coreGeo) coreGeo = boxCoreGeometry(SIZE);
     if (!glyphGeo) glyphGeo = boxGlyphGeometry(SIZE * 0.80);
-    // Wider than the cube, and that is the point: at eighty metres the glass is
-    // four pixels and the glow is the only part still on screen.
-    if (!haloGeo) haloGeo = boxHaloGeometry(SIZE * 1.15);
+    // Inside the box's own silhouette — see HALO_R. It is what survives eighty
+    // metres of road; it is not allowed to touch the tarmac on the way.
+    if (!haloGeo) haloGeo = boxHaloGeometry(SIZE * HALO_R);
     if (!haloMat) haloMat = boxHaloMaterial();
     if (!blobGeo) {
       // Sized to the box, not to its glow: a blob half again as wide as the
@@ -151,24 +212,16 @@ export function createBoxField(ctx: GameContext): BoxField {
       // this circuit lays a crisp shadow, and a floating box laying none is the
       // fastest way to make it look pasted on — ARCHITECTURE §12, contact is
       // everything.
-      blobGeo = contactShadowGeometry(SIZE * 0.60, 0.20);
+      //
+      // 0.26 with the ringed build behind it is a real shadow; 0.20 with the
+      // old single fan behind it multiplied the road by 0.73 and photographed
+      // as a smudge you had to be told about. See `contactShadowGeometry`.
+      blobGeo = contactShadowGeometry(SIZE * 0.52, 0.26);
       blobMat = contactShadowMaterial();
     }
-    if (!ghostMat) {
-      // The empty socket a taken box leaves behind.
-      //
-      // Without it a row that the pack has been through is a row with holes in
-      // it, and a hole says nothing: a player cannot tell a box that was taken
-      // two seconds ago from a row that was only ever three wide, so they
-      // cannot decide whether to wait, and the four-second respawn — which is a
-      // real tactical clock — is invisible. Mario Kart leaves a translucent
-      // husk standing for exactly this reason. Deliberately colourless and
-      // unlit: it must never be mistaken for the thing itself.
-      ghostMat = new THREE.MeshBasicMaterial({
-        color: 0x8FA0BC, transparent: true, opacity: 0.16,
-        depthWrite: false, toneMapped: false, side: THREE.BackSide,
-      });
-    }
+    // The pieces. Small hard chunks of the same hazard-yellow the plate is
+    // painted in, so what comes off the box is recognisably *the box*.
+    if (!shardGeo) shardGeo = new THREE.TetrahedronGeometry(SIZE * 0.20, 0);
   }
 
   function buildMeshes(): void {
@@ -182,9 +235,9 @@ export function createBoxField(ctx: GameContext): BoxField {
     glyph = new THREE.InstancedMesh(glyphGeo!, materials!.glyph, n);
     halo = new THREE.InstancedMesh(haloGeo!, haloMat!, n);
     shadow = new THREE.InstancedMesh(blobGeo!, blobMat!, n);
-    ghost = new THREE.InstancedMesh(shellGeo!, ghostMat!, n);
+    shards = new THREE.InstancedMesh(shardGeo!, materials!.shard, SHARD_MAX);
 
-    for (const m of [shell, core, glyph, halo, shadow, ghost]) {
+    for (const m of [shell, core, glyph, halo, shadow, shards]) {
       // One mesh spans the whole circuit, so a bounding-sphere cull can only
       // ever be wrong. Skip it rather than pay for it.
       m.frustumCulled = false;
@@ -194,7 +247,7 @@ export function createBoxField(ctx: GameContext): BoxField {
       group.add(m);
     }
     shadow.renderOrder = -1;
-    ghost.renderOrder = 0;
+    shards.count = 0;
     // The halo sits *behind* the box it belongs to, so the glass and the glyph
     // are never washed out by their own glow.
     halo.renderOrder = 1;
@@ -246,6 +299,10 @@ export function createBoxField(ctx: GameContext): BoxField {
 
   function rebuild(track: Track, line: RacingLine): void {
     boxes.length = 0;
+    // Chips from the last race must not be in the air at the lights of the next
+    // one. Ages past the life are what "dead" means here; nothing else to undo.
+    for (const sh of shardPool) sh.age = SHARD_LIFE + 1;
+    shardNext = 0;
     trackLength = track.length;
     const L = track.length;
     const spline = track.spline;
@@ -382,6 +439,25 @@ export function createBoxField(ctx: GameContext): BoxField {
       if (!box) return;
       box.respawn = RESPAWN;
       box.pop = 0;
+      // ...and it comes apart. Eight chips off a fixed unit pattern rotated by
+      // the box's own phase, so a row does not shatter in step and no draw is
+      // spent on an rng the simulation would then have to replay.
+      for (let k = 0; k < SHARD_N; k++) {
+        const sh = shardPool[shardNext]!;
+        shardNext = (shardNext + 1) % SHARD_MAX;
+        const a = box.phase + (k / SHARD_N) * Math.PI * 2;
+        // Alternate rings, so the spray has a near half and a far half rather
+        // than being one flat ring of chips.
+        const tilt = k % 2 === 0 ? 0.75 : 0.25;
+        const out = 4.6 + (k % 3) * 1.5;
+        sh.pos.copy(box.pos);
+        sh.vel.set(Math.sin(a) * out, 3.4 + tilt * 3.6, Math.cos(a) * out);
+        sh.axis.set(Math.sin(a * 2.3), 0.7, Math.cos(a * 1.7)).normalize();
+        sh.spin = 9 + (k % 4) * 3.5;
+        sh.age = 0;
+        sh.size = 0.72 + (k % 3) * 0.2;
+        sh.groundY = box.groundY;
+      }
     },
 
     fixedUpdate(dt: number): void {
@@ -393,10 +469,32 @@ export function createBoxField(ctx: GameContext): BoxField {
           b.pop = Math.min(1, b.pop + dt * 3.6);
         }
       }
+
+      // ...and the chips, **on the fixed step even though nothing reads them.**
+      //
+      // The rule is that visuals live in `update`, and the exception is any
+      // visual with a *life*: `update` runs off the render clock, which the
+      // pause and the review harness cannot stop, so a shatter integrated there
+      // carries on flying while the game is frozen and has aged out by the time
+      // a screenshot of it comes back. This is eight bodies of ballistics per
+      // broken box; putting them on the same clock as the respawn they belong
+      // to costs nothing and makes them hold still when the race does.
+      for (let i = 0; i < SHARD_MAX; i++) {
+        const sh = shardPool[i]!;
+        if (sh.age >= SHARD_LIFE) continue;
+        sh.age += dt;
+        sh.vel.y -= 26 * dt;
+        sh.pos.addScaledVector(sh.vel, dt);
+        // They land and stop rather than sinking through the road.
+        if (sh.pos.y < sh.groundY + 0.08) {
+          sh.pos.y = sh.groundY + 0.08;
+          sh.vel.set(sh.vel.x * 0.4, Math.abs(sh.vel.y) * 0.28, sh.vel.z * 0.4);
+        }
+      }
     },
 
     update(dt: number, time: number): void {
-      if (!shell || !core || !glyph || !halo || !shadow || !ghost) return;
+      if (!shell || !core || !glyph || !halo || !shadow || !shards) return;
       materials?.tick(time);
       // The glyph plates are square to the lens, all of them, so one quaternion
       // serves the whole circuit. Full camera-facing rather than yaw-only: this
@@ -415,18 +513,32 @@ export function createBoxField(ctx: GameContext): BoxField {
       const camX = ctx.camera.position.x;
       const camZ = ctx.camera.position.z;
 
-      // Husks are compacted into the front of their buffer and the instance
-      // count is set to however many are actually standing — which is usually
-      // none. An InstancedMesh with a count of zero is skipped outright, so the
-      // empty-socket rig costs a draw call only on the laps it has something to
-      // say.
-      let husks = 0;
       for (let i = 0; i < boxes.length; i++) {
         const b = boxes[i]!;
         const gone = b.respawn > 0;
-        // Snap out, ease back in with a little overshoot — the box has to look
-        // like it was *taken*, not like it was switched off.
-        const scale = gone ? 0 : ease.outBack(b.pop);
+        /**
+         * **The pop, and then nothing.**
+         *
+         * A box that is taken used to go from full size to zero between two
+         * frames and leave a grey translucent husk standing in the road for the
+         * whole four seconds of the respawn. Both halves of that were wrong.
+         * A cut is not a break — the eye needs a beat of *anticipation*, the
+         * cube swelling before it lets go — and the husk, which was meant to
+         * report the respawn clock, photographed as a flat blue-grey lozenge
+         * lying on the racing line two seconds after anything had happened
+         * there. Litter on the line is a worse lie than a gap in a row: a gap
+         * is a box somebody took, which is exactly what it is.
+         *
+         * So: swell for a twentieth of a second, collapse over the next
+         * thirteen hundredths, and be gone. The chips thrown in `take` are what
+         * carries the moment from there.
+         */
+        const since = gone ? RESPAWN - b.respawn : 0;
+        const scale = gone
+          ? (since < POP_UP ? 1 + (since / POP_UP) * 0.42
+            : since < POP_OUT ? 1.42 * (1 - (since - POP_UP) / (POP_OUT - POP_UP))
+              : 0)
+          : ease.outBack(b.pop);
         const bob = Math.sin(time * 1.7 + b.phase) * 0.13;
 
         _p.copy(b.pos);
@@ -497,29 +609,36 @@ export function createBoxField(ctx: GameContext): BoxField {
         _p.copy(b.ground).add(shadowOffset(FLOAT + bob, b.groundQuat_up, _off));
         _m.compose(_p, b.groundQuat, _s);
         shadow.setMatrixAt(i, _m);
-
-        // ...and the husk, which is the exact complement of the box: present
-        // only while the box is not. It shrinks as the respawn clock runs down,
-        // so the socket visibly *refills* rather than blinking back.
-        if (gone) {
-          const k = clamp(b.respawn / RESPAWN, 0, 1);
-          _e.set(time * 0.3 + b.phase, time * 0.4 + b.phase * 0.5, 0);
-          _q.setFromEuler(_e);
-          _s.setScalar(0.62 + 0.3 * k);
-          _p.copy(b.pos);
-          _p.y += bob * 0.4;
-          _m.compose(_p, _q, _s);
-          ghost.setMatrixAt(husks++, _m);
-        }
       }
-      ghost.count = husks;
+
+      // ── the shatter ────────────────────────────────────────────────────
+      //
+      // Live chips are compacted into the front of the buffer and the instance
+      // count set to however many there are — usually zero, and an
+      // InstancedMesh with a count of zero is skipped outright, so the whole
+      // rig costs a draw call only on the frames something has just broken.
+      // The flight itself is integrated in `fixedUpdate`; this only draws it.
+      let live = 0;
+      for (let i = 0; i < SHARD_MAX; i++) {
+        const sh = shardPool[i]!;
+        if (sh.age >= SHARD_LIFE) continue;
+        // Shrinking out is what lets them leave without a fade — the material
+        // is shared across the whole pool, so alpha is not available per chip.
+        const k = 1 - sh.age / SHARD_LIFE;
+        _q.setFromAxisAngle(sh.axis, sh.age * sh.spin);
+        _s.setScalar(sh.size * k * k);
+        _m.compose(sh.pos, _q, _s);
+        shards.setMatrixAt(live++, _m);
+      }
+      shards.count = live;
+
       shell.instanceMatrix.needsUpdate = true;
       core.instanceMatrix.needsUpdate = true;
       glyph.instanceMatrix.needsUpdate = true;
       halo.instanceMatrix.needsUpdate = true;
       if (halo.instanceColor) halo.instanceColor.needsUpdate = true;
       shadow.instanceMatrix.needsUpdate = true;
-      ghost.instanceMatrix.needsUpdate = true;
+      if (live) shards.instanceMatrix.needsUpdate = true;
     },
 
     dispose(): void {
@@ -532,10 +651,10 @@ export function createBoxField(ctx: GameContext): BoxField {
       haloMat?.dispose();
       blobGeo?.dispose();
       blobMat?.dispose();
-      ghostMat?.dispose();
+      shardGeo?.dispose();
       materials = null;
-      shellGeo = coreGeo = glyphGeo = haloGeo = blobGeo = null;
-      haloMat = blobMat = ghostMat = null;
+      shellGeo = coreGeo = glyphGeo = haloGeo = blobGeo = shardGeo = null;
+      haloMat = blobMat = null;
       ctx.scene.remove(group);
       boxes.length = 0;
     },

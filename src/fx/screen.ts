@@ -56,7 +56,18 @@ const CSS = `
 }
 /* The charge ring. Its colour follows the mini-turbo tier, so the frame itself
    is part of the meter — the sparks say it loudest, this says it in peripheral
-   vision, where a player who is busy driving actually reads it. */
+   vision, where a player who is busy driving actually reads it.
+
+   The per-tier rules are *generated* from the tuning table — see "chargeCss"
+   below. Quoted that way, not in backticks, because this is inside a CSS
+   template literal and a backtick in here closes it (ARCHITECTURE section 2).
+   They used to be written out here by hand, and this file was the third copy of
+   a list that config.ts had already been through one round of this exact bug
+   with: the table says tier two is green, ui/theme.ts was fixed to derive from
+   the table, and these three rules were missed. Measured on a frozen tier-two
+   drift, the sparks at the wheels were green and the frame border was orange —
+   the player's foveal cue and their peripheral cue naming different tiers for
+   the same charge. There is now one list. */
 #fx-screen .rush.charge {
   background:
     radial-gradient(ellipse farthest-side at 50% 50%,
@@ -64,28 +75,30 @@ const CSS = `
       rgba(255,242,216,0.06) 88%,
       rgba(255,242,216,0.16) 100%);
 }
-#fx-screen .rush.charge.t1 {
-  background:
-    radial-gradient(ellipse farthest-side at 50% 50%,
-      rgba(120,205,255,0) 68%,
-      rgba(110,195,255,0.10) 87%,
-      rgba(79,195,247,0.30) 100%);
-}
-#fx-screen .rush.charge.t2 {
-  background:
-    radial-gradient(ellipse farthest-side at 50% 50%,
-      rgba(255,180,80,0) 68%,
-      rgba(255,168,60,0.11) 87%,
-      rgba(255,152,0,0.32) 100%);
-}
-#fx-screen .rush.charge.t3 {
-  background:
-    radial-gradient(ellipse farthest-side at 50% 50%,
-      rgba(224,110,251,0) 68%,
-      rgba(224,90,251,0.13) 87%,
-      rgba(224,64,251,0.38) 100%);
-}
 `;
+
+/**
+ * One tier's charge-ring rule, built from that tier's own colour.
+ *
+ * The peak alpha climbs with the tier so the border gets heavier as the charge
+ * gets more valuable, and the inner stops are lightened toward white — a
+ * saturated hue at 10% over a bright sky is invisible, and the point of the
+ * ring is that it is readable without being looked at.
+ */
+function chargeCss(tier: number, hex: number): string {
+  const r = (hex >> 16) & 0xff, g = (hex >> 8) & 0xff, b = hex & 0xff;
+  const lift = (k: number): string =>
+    `${Math.round(r + (255 - r) * k)},${Math.round(g + (255 - g) * k)},${Math.round(b + (255 - b) * k)}`;
+  const peak = 0.28 + 0.05 * tier;
+  return `
+#fx-screen .rush.charge.t${tier} {
+  background:
+    radial-gradient(ellipse farthest-side at 50% 50%,
+      rgba(${lift(0.35)},0) 68%,
+      rgba(${lift(0.22)},${(peak * 0.34).toFixed(3)}) 87%,
+      rgba(${lift(0)},${peak.toFixed(3)}) 100%);
+}`;
+}
 
 export interface ScreenFx {
   /** A one-shot pop. `amount` is 0..1; a stronger flash overrides a weaker one. */
@@ -94,7 +107,8 @@ export interface ScreenFx {
   setRush(amount: number): void;
   /** Mini-turbo charge ring, 0..1. Set every frame. */
   setCharge(amount: number): void;
-  /** Which tier that ring is showing: 0 uncharged, 1..3 blue/orange/purple. */
+  /** Which tier that ring is showing: 0 uncharged, then whatever
+   *  `config.kart.drift.tiers[]` says each tier's colour is. */
   setChargeTier(tier: number): void;
   update(dt: number): void;
   /** What is actually on the glass. Debug only — see the probe in `index.ts`. */
@@ -107,7 +121,11 @@ function hexToCss(hex: number): string {
   return `#${(hex & 0xffffff).toString(16).padStart(6, '0')}`;
 }
 
-export function createScreenFx(): ScreenFx {
+/**
+ * @param tierHex the game's mini-turbo colours, index 0 being the uncharged
+ *   state. Passed in rather than written here — see the note above `chargeCss`.
+ */
+export function createScreenFx(tierHex: readonly number[]): ScreenFx {
   let root: HTMLDivElement | null = null;
   let flashEl: HTMLDivElement | null = null;
   let rushEl: HTMLDivElement | null = null;
@@ -132,7 +150,10 @@ export function createScreenFx(): ScreenFx {
 
   if (typeof document !== 'undefined') {
     style = document.createElement('style');
-    style.textContent = CSS;
+    style.textContent = CSS
+      + chargeCss(1, tierHex[1] ?? 0x4FC3F7)
+      + chargeCss(2, tierHex[2] ?? 0x3CFF6B)
+      + chargeCss(3, tierHex[3] ?? 0xE040FB);
     document.head.appendChild(style);
 
     root = document.createElement('div');

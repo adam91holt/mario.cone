@@ -176,7 +176,22 @@ export function refreshSunDirection(ctx: GameContext): void {
  */
 export function shadowOffset(height: number, up: THREE.Vector3, out: THREE.Vector3):
 THREE.Vector3 {
-  const k = height / Math.max(0.25, _sunDir.y);
+  // The throw, softened. A geometric projection is correct and, past about a
+  // metre of height, unreadable: this sun sits at 34° above the horizon, so an
+  // item box floating a metre and a half up throws its shadow two and a half
+  // metres up the road, which from a chase camera lands *behind the box* and
+  // reads as nothing at all. Photographed from overhead the same shadow is
+  // obviously there and obviously detached.
+  //
+  // The direction is what has to agree with the rest of the frame — a blob
+  // pooled dead under a floating object next to a kart shadow raked two metres
+  // sideways is the arrangement that looks broken. The *distance* only has to
+  // be enough to say "this thing is in the air". So the throw is compressed
+  // toward an asymptote a shade over a kart's width: a coin sitting at 40cm is
+  // untouched, and the box goes from 2.57m to 0.99m, which stays under the
+  // object that cast it from every angle a player can reach.
+  const raw = height / Math.max(0.25, _sunDir.y);
+  const k = raw / (1 + raw / 1.6);
   out.set(-_sunDir.x * k, 0, -_sunDir.z * k);
   return out.addScaledVector(up, -out.dot(up));
 }
@@ -696,11 +711,26 @@ export function createEntityField(ctx: GameContext): EntityField {
           // range keeps a bright bead of the item's own colour on screen all the
           // way to the impact, without inflating the object itself — the model
           // stays the right size for the road it is skittering along.
+          //
+          // **...and it holds a *minimum*, not a licence to grow.** The clamp
+          // used to top out at 3.7 — a 1.7m ball of light around a 0.75m hat —
+          // and it started growing from the first metre, so the frames where
+          // the shell is closest to the player, which are the ones that decide
+          // whether the throw read at all, were the frames where the object was
+          // most completely hidden inside its own glow. It now stays inside the
+          // brim until the shell is twenty-five metres out and never gets past
+          // half again the model, which is enough to keep a bead of the item's
+          // colour on screen without replacing the item with it.
           const glow = node.getObjectByName('glow');
           if (glow) {
             const range = Math.sqrt(node.position.distanceToSquared(ctx.camera.position));
-            glow.scale.setScalar(clamp(0.85 + range * 0.048, 0.85, 3.7));
+            glow.scale.setScalar(clamp(0.85 + (range - 25) * 0.026, 0.85, 1.95));
           }
+          // The launch stretch. For the first fifth of a second the hat is
+          // oversized and shrinking back, which is the only part of a throw the
+          // player can see from behind their own machine — see `muzzle`.
+          const born = Math.max(0, 0.2 - e.age) / 0.2;
+          if (born > 0) node.scale.setScalar(1.3 * (1 + born * born * 0.55));
           groundShadow(e, node);
           flightTrail(e, node, dt);
           break;

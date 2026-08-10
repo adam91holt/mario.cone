@@ -51,6 +51,19 @@ export interface ParticleSpec {
   stretch: number;
   /** Fraction of life spent fading in. */
   fadeIn: number;
+  /**
+   * Fraction of life held at full opacity after the fade-in, before the
+   * quadratic tail starts. Default 0 — everything else here begins dying the
+   * instant it is born, which is right for a spark and wrong for a shockwave.
+   *
+   * A shock ring is only legible while it is *expanding*, and the whole of that
+   * expansion happens in the first two or three rendered frames. With the fade
+   * beginning at u=0 a ring is already down to 60% of its peak by the frame the
+   * eye would have caught the edge on, which is why a reviewer stepping the
+   * firing frame of a boost found no shockwave anywhere in the picture: it was
+   * there, it was simply never at full strength while it was still a ring.
+   */
+  hold: number;
   cell: number;
   /**
    * A set of interchangeable cells to draw this particle's silhouette from,
@@ -81,7 +94,7 @@ export function makeSpec(over: Partial<ParticleSpec> = {}): ParticleSpec {
     alpha: 1,
     rot: 0, rotVel: 0,
     gravity: 0, drag: 0,
-    stretch: 0, fadeIn: 0,
+    stretch: 0, fadeIn: 0, hold: 0,
     cell: 0, mode: MODE.billboard,
     additive: true,
   };
@@ -100,9 +113,10 @@ const S = {
   rot: 17, rotVel: 18,
   gravity: 19, drag: 20,
   stretch: 21, fadeIn: 22,
-  code: 23,
+  hold: 23,
+  code: 24,
 } as const;
-const STRIDE = 24;
+const STRIDE = 25;
 
 /** `code` packs the atlas cell, the quad mode and the target layer as
  *  `cell + mode * CELL_STRIDE + (additive ? ADDITIVE_BIT : 0)`. The bit has to
@@ -252,6 +266,7 @@ export function createParticlePool(capacity: number): ParticlePool {
     data[o + S.drag] = spec.drag;
     data[o + S.stretch] = spec.stretch;
     data[o + S.fadeIn] = spec.fadeIn;
+    data[o + S.hold] = spec.hold;
     data[o + S.code] = pickCell(spec) + spec.mode * CELL_STRIDE
       + (spec.additive ? ADDITIVE_BIT : 0);
     count++;
@@ -326,11 +341,13 @@ export function createParticlePool(capacity: number): ParticlePool {
       // curve matters: a linear fade-out makes every puff of dust vanish at a
       // measurable instant, and the eye finds that instant every time.
       const fadeIn = data[o + S.fadeIn];
+      const hold = data[o + S.hold];
       let a = data[o + S.alpha];
       if (u < fadeIn) {
         a *= u / fadeIn;
-      } else {
-        const t = 1 - (u - fadeIn) / Math.max(1e-4, 1 - fadeIn);
+      } else if (u >= fadeIn + hold) {
+        const from = fadeIn + hold;
+        const t = 1 - (u - from) / Math.max(1e-4, 1 - from);
         a *= t * t;
       }
       if (a < 0.004) continue;

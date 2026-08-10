@@ -8,17 +8,30 @@
 //
 // If the UI module ever grows its own slot it only has to mark it
 // `data-item-slot` and this one stands down, leaving the screen effects behind.
+//
+// **What it does not hand over is the picture.** Standing the socket down used
+// to stand the *icons* down with it, and the module that picked the socket up
+// drew a second set from the `ItemId`s rather than from `models.ts` — so the
+// surface a player looks at more than any other in this game showed a banana
+// with a stalk under a plate reading WHEEL CHOCK, a studded Koopa shell under
+// HARD HAT and a lit-fuse bob-omb under GAS BOTTLE, thirty pixels above this
+// module's own what-hit-you plate drawing the right object in the same frame.
+// `icons.ts` is now the one set, this module publishes it (see
+// `itemIconSvg` re-exported from `index.ts`), and `adoptSlot` repaints the
+// faces of a published socket with it — which is a no-op the moment the module
+// that owns that socket imports the set directly.
 
 import { clamp01 } from '../core/math.ts';
 import { signBox, signCss, type SignBox } from '../ui/letters.ts';
 import { U_CSS } from '../ui/theme.ts';
 import { ITEMS, REEL_FACES } from './defs.ts';
+import { itemIconBody, itemIconSvg, ITEM_ICON_DEFS, ITEM_ICON_IDS } from './icons.ts';
 import type { ItemEntry } from './defs.ts';
 import type { ItemId } from '../types.ts';
 
 /** Every icon the slot may ever have to show. One per item, not one per
  *  (item, count) — see `key` below for why that distinction matters. */
-const ICON_IDS = Object.keys(ITEMS) as ItemId[];
+const ICON_IDS = ITEM_ICON_IDS;
 
 /** The faces on the drum, in the order they come round. */
 const FACES: readonly ItemId[] = REEL_FACES.map((e) => e.id);
@@ -314,15 +327,26 @@ const CSS = `
   content: ''; position: absolute; left: 31%; top: 68%;
   width: 29%; height: 54%;
   transform-origin: 50% 0;
-  /* Half again, not three and a half times. Past about 1.6 the tongue is longer
-     than the splat that made it is wide, and a dark shape that much taller than
-     it is broad stops reading as a run of ink and starts reading as a scratch
-     on the lens. */
-     ...and it draws out further the faster the machine is going, which is the
-     closest thing this item has to a wiper blade. The airflow term is kept
-     small for exactly the reason the 1.5 is: 1.95 at the top of it puts the
-     longest tongue this can draw at 1.59 splat-widths, a hair under the point
-     where a run of tar starts reading as a scratch on the glass. */
+  /* **A comment that closed and then kept talking, and it cost the drip.**
+
+     What was here was a finished sentence, a closing delimiter, and then five
+     more lines of prose followed by a second one. CSS has no way to know that
+     the second half was meant to be a comment: it read "...and it draws out
+     further the faster the machine is going" as a declaration, took the first
+     colon in it as the property/value split, and swallowed everything up to the
+     next semicolon — which was the end of the "transform" below. So the one
+     motion in this item that says the stuff on the glass is *liquid* rather
+     than a mask being faded out was silently dropped for two rounds, and the
+     tar photographed as hard dots with no runs in them.
+
+     The rule it documents: half again, not three and a half times. Past about
+     1.6 the tongue is longer than the splat that made it is wide, and a dark
+     shape that much taller than it is broad stops reading as a run of ink and
+     starts reading as a scratch on the lens. It draws out further the faster
+     the machine is going, which is the closest thing this item has to a wiper
+     blade, and the airflow term is kept small for the same reason: 1.95 at the
+     top of it puts the longest tongue this can draw at 1.59 splat-widths, a
+     hair under the point where a run of tar stops being a run of tar. */
   transform: scaleY(calc(1 + var(--wipe, 0) * (1.5 + var(--air, 0) * 0.45)));
   background: linear-gradient(rgba(11,9,7,1) 0 40%, rgba(28,22,17,.72) 70%, rgba(36,28,21,0) 100%);
   border-radius: 42% 58% 50% 50% / 14% 14% 86% 86%;
@@ -518,115 +542,6 @@ const CSS_HIT = `
 #item-hit .nm { height: calc(var(--hu) * 1.05); color: #FFF1E4; }
 ${signCss('#item-fx')}
 `;
-
-/** Bold, flat, 64px-legible. Silhouette first — these are read at a glance. */
-function iconSvg(id: ItemId): string {
-  const body = (): string => {
-    switch (id) {
-      case 'banana':
-        // A **wheel chock**, seen from the side: a hazard-yellow wedge with a
-        // dished face, two tread bars and a grab loop. It was a banana with a
-        // stalk, drawn under a plate that said WHEEL CHOCK, over a road that
-        // now has a chock lying on it — see `buildChock`.
-        return `<path d="M6 50h44a3 3 0 0 0 3-3V17c-14 6-26 15-47 26z"
-          fill="#FFD429" stroke="#8A6410" stroke-width="3.5" stroke-linejoin="round"/>
-          <path d="M20 41l6 9M35 32l6 10" stroke="#2A2E38" stroke-width="5" stroke-linecap="round"/>
-          <path d="M53 16a7 7 0 1 1-9 0" fill="none" stroke="#8E99A8" stroke-width="4"/>
-          <rect x="4" y="50" width="52" height="6" rx="3" fill="#2A2E38"/>`;
-      case 'greenShell':
-      case 'redShell': {
-        // A *hard hat*, because that is what the thing in the world is — see
-        // `buildShell`. The icon used to wear a shell's three dark spots, which
-        // is a different object from the one that skitters down the road at
-        // seventy metres a second, and a player learns what an item does by
-        // matching the picture in the slot to the picture in the road.
-        const c = id === 'greenShell' ? '#46D63C' : '#F03A2E';
-        const s = id === 'greenShell' ? '#207E1D' : '#8E1C14';
-        return `<path d="M8 38a24 24 0 0 1 48 0z" fill="${c}" stroke="#2A2E38" stroke-width="3.5"/>
-          <path d="M32 15v23" stroke="${s}" stroke-width="6" stroke-linecap="round"/>
-          <path d="M11 33q21 8 42 0" stroke="${s}" stroke-width="5" fill="none"/>
-          <rect x="5" y="36" width="54" height="14" rx="7" fill="#FFF8F0" stroke="#2A2E38" stroke-width="3.5"/>`;
-      }
-      case 'mushroom':
-      case 'tripleMushroom':
-        // A compressed-air canister, not a mushroom. The model in the world was
-        // re-themed to one — every machine in this cast is a roadworks machine,
-        // and a red cap with white spots is somebody else's property besides —
-        // and the icon was left behind, so the slot showed one object and the
-        // kart carried another.
-        return `<rect x="27" y="4" width="10" height="10" rx="2" fill="#B9C2D0" stroke="#2A2E38" stroke-width="3"/>
-          <path d="M19 22a13 9 0 0 1 26 0v22a6 6 0 0 1-6 6H25a6 6 0 0 1-6-6z"
-            fill="#FF6B1A" stroke="#2A2E38" stroke-width="3.5" stroke-linejoin="round"/>
-          <rect x="19" y="24" width="26" height="5.5" fill="#FFC300"/>
-          <rect x="19" y="36" width="26" height="5.5" fill="#FFC300"/>
-          <path d="M26 50h12l-3 6H29z" fill="#B9C2D0" stroke="#2A2E38" stroke-width="3" stroke-linejoin="round"/>
-          <path d="M29 57h6l-3 6z" fill="#BFE6FF"/>`;
-      case 'star':
-        return `<path d="M32 5l8 18 20 2-15 13 5 20-18-11-18 11 5-20L4 25l20-2z"
-          fill="#FFD84D" stroke="#8A6410" stroke-width="3.5" stroke-linejoin="round"/>`;
-      case 'bulletBill':
-        // A **pile driver** — the husk the kart is fired down the road inside,
-        // hazard collar and all. The eye this used to have belonged to somebody
-        // else's ordnance; what is in the world is a charcoal casing with an
-        // orange band round its middle, so that is what is drawn.
-        return `<path d="M4 22l-2 10 2 10z" fill="#20242E"/>
-          <rect x="7" y="19" width="33" height="26" rx="5" fill="#5A6478" stroke="#20242E" stroke-width="3.5"/>
-          <path d="M40 19a15 13 0 0 1 0 26z" fill="#78839A" stroke="#20242E" stroke-width="3.5" stroke-linejoin="round"/>
-          <rect x="18" y="19" width="7" height="26" fill="#FF6B1A"/>
-          <rect x="30" y="19" width="7" height="26" fill="#FFC300"/>
-          <path d="M44 26v12" stroke="#20242E" stroke-width="3" stroke-linecap="round"/>`;
-      case 'lightning':
-        return `<path d="M38 3L13 36h14l-4 25 26-33H35z"
-          fill="#FFE24A" stroke="#8A6410" stroke-width="3.5" stroke-linejoin="round"/>`;
-      case 'blooper':
-        // A **tar sprayer**: the drum, its hazard band, the spray bar under it
-        // and three nozzles pointing down. Not a squid. The thing it throws was
-        // always tar on the glass — see the note over "#item-ink" — and the
-        // object in the air is the last part of it that still said otherwise.
-        return `<rect x="10" y="10" width="44" height="26" rx="7"
-            fill="#39404F" stroke="#181C26" stroke-width="3.5"/>
-          <rect x="20" y="10" width="9" height="26" fill="#FF6B1A"/>
-          <rect x="35" y="10" width="9" height="26" fill="#FF6B1A"/>
-          <rect x="8" y="40" width="48" height="6" rx="3" fill="#9AA5B4" stroke="#181C26" stroke-width="2.5"/>
-          <path d="M16 46l4 7h-8zM32 46l4 7h-8zM48 46l4 7h-8z" fill="#9AA5B4"/>
-          <path d="M14 58h6M30 58h6M46 58h6" stroke="#1B140E" stroke-width="4" stroke-linecap="round"/>`;
-      case 'boo':
-        // A **dust sheet**, and the eyes are the reason it changed: two dots on
-        // a white blob make a character, and the character they made belonged
-        // to another game. Canvas, a scalloped hem, one corner lifted and four
-        // brass eyelets — same pale silhouette, no face.
-        return `<path d="M9 36a23 23 0 0 1 46 0v18l-6-6-5 6-6-6-6 6-6-6-5 6-6-6z"
-          fill="#F2EADA" stroke="#6E5B36" stroke-width="3.5" stroke-linejoin="round"/>
-          <path d="M9 36c4-9 12-14 20-15-7 4-12 9-13 17z" fill="#FFFFFF" opacity=".55"/>
-          <path d="M55 22l7-8 2 11z" fill="#F2EADA" stroke="#6E5B36" stroke-width="3" stroke-linejoin="round"/>
-          <circle cx="20" cy="45" r="3.2" fill="none" stroke="#6E5B36" stroke-width="3"/>
-          <circle cx="44" cy="45" r="3.2" fill="none" stroke="#6E5B36" stroke-width="3"/>`;
-      case 'bomb':
-        // A **gas bottle** with the valve lamp lit, not a sphere with a fuse.
-        // The object on the road is a bottle — see `buildGasBottle` — and this
-        // is the picture a player has to match to it in the frame before it
-        // goes off.
-        return `<circle cx="32" cy="7" r="5" fill="#FFC24A"/>
-          <rect x="28" y="10" width="8" height="7" fill="#9AA5B4" stroke="#20242E" stroke-width="2.5"/>
-          <path d="M18 17h28" stroke="#FF6B1A" stroke-width="4" stroke-linecap="round"/>
-          <path d="M16 32a16 12 0 0 1 32 0v22a6 6 0 0 1-6 6H22a6 6 0 0 1-6-6z"
-            fill="#2E3340" stroke="#14171F" stroke-width="3.5" stroke-linejoin="round"/>
-          <rect x="16" y="30" width="32" height="6" fill="#FF6B1A"/>
-          <rect x="16" y="46" width="32" height="6" fill="#FF6B1A"/>`;
-      case 'coin':
-        return `<circle cx="32" cy="32" r="22" fill="#FFC300" stroke="#A96E06" stroke-width="3.5"/>
-          <ellipse cx="32" cy="32" rx="10" ry="14" fill="none" stroke="#A96E06" stroke-width="3.5"/>`;
-      case 'horn':
-        return `<path d="M46 22a14 14 0 0 1 0 20M53 15a24 24 0 0 1 0 34"
-          stroke="#2E3340" stroke-width="3.5" fill="none" stroke-linecap="round"/>
-          <path d="M12 26h10l16-13v38L22 38H12z"
-          fill="#FF6B1A" stroke="#2E3340" stroke-width="3.5" stroke-linejoin="round"/>`;
-      default:
-        return '';
-    }
-  };
-  return `<svg viewBox="0 0 64 64" data-face="${id}">${body()}</svg>`;
-}
 
 /**
  * The splat field: `[centre x %, centre y %, size in vmin, vertical squash,
@@ -839,6 +754,9 @@ export function createItemHud(): ItemHud {
   let chevronEl: SVGPathElement | null = null;
   let hitEl: HTMLDivElement | null = null;
   let fxRoot: HTMLDivElement | null = null;
+  let defsEl: HTMLDivElement | null = null;
+  /** The socket another module published, if there is one. See `adoptSlot`. */
+  let published: Element | null = null;
   let hitName: SignBox | null = null;
   let style: HTMLStyleElement | null = null;
   const faces = new Map<string, SVGElement>();
@@ -886,6 +804,33 @@ export function createItemHud(): ItemHud {
    */
   const key = (e: ItemEntry): string => e.id;
 
+  /**
+   * Repaint the faces of a socket another module published, from this one.
+   *
+   * Only the *inside* of each `<svg data-face="…">` is rewritten. The element
+   * itself, its classes, its viewBox and whatever the owning module has
+   * attached to it survive untouched, so its cross-fade, its drum and its
+   * landing cell keep working exactly as written — the only thing that changes
+   * is which object is drawn. Anything with a `data-face` this module does not
+   * know is left alone rather than blanked.
+   *
+   * Cheap and idempotent: thirteen to forty string comparisons, once at build
+   * and once per race reset, and every one of them a no-op once the owning
+   * module imports `icons.ts` directly.
+   */
+  function adoptSlot(host: Element): number {
+    let painted = 0;
+    for (const svg of Array.from(host.querySelectorAll<SVGElement>('svg[data-face]'))) {
+      const id = svg.dataset.face as ItemId | undefined;
+      if (!id || !(id in ITEMS)) continue;
+      const body = itemIconBody(id);
+      if (svg.innerHTML === body) continue;
+      svg.innerHTML = body;
+      painted++;
+    }
+    return painted;
+  }
+
   function build(): void {
     if (root || typeof document === 'undefined') return;
 
@@ -902,6 +847,15 @@ export function createItemHud(): ItemHud {
     fxRoot = document.createElement('div');
     fxRoot.id = 'item-fx';
     document.body.appendChild(fxRoot);
+
+    // The icon set's paint servers. Mounted before anything that names them,
+    // and mounted whether or not this module ends up drawing the socket itself
+    // — `adoptSlot` below hands these same icons to a socket somebody else
+    // published, and a `url(#…)` reference is resolved against the document.
+    defsEl = document.createElement('div');
+    defsEl.id = 'item-icon-defs';
+    defsEl.innerHTML = ITEM_ICON_DEFS;
+    fxRoot.appendChild(defsEl);
 
     // Screen effects always exist. The slot stands down if the UI module has
     // published one of its own.
@@ -934,7 +888,7 @@ export function createItemHud(): ItemHud {
     hitEl = document.createElement('div');
     hitEl.id = 'item-hit';
     hitEl.innerHTML =
-      `<div class="art">${ICON_IDS.map((id) => iconSvg(id)).join('')}</div>`
+      `<div class="art">${ICON_IDS.map((id) => itemIconSvg(id)).join('')}</div>`
       + `<div class="nm word"></div>`;
     fxRoot.appendChild(hitEl);
     const nmEl = hitEl.querySelector<HTMLElement>('.nm');
@@ -947,19 +901,41 @@ export function createItemHud(): ItemHud {
     flashEl.id = 'item-flash';
     fxRoot.appendChild(flashEl);
 
-    if (document.querySelector('[data-item-slot]')) return;
+    // **The socket stands down. The picture does not.**
+    //
+    // Handing the housing to another module is a coordination decision and a
+    // fine one — that module's socket carries the drift collar, the shutter and
+    // the landing flare, and two sockets on one screen would be a bug. Handing
+    // over *what is drawn inside it* is not the same decision, and it was made
+    // silently by this one line: the module that took the socket drew its own
+    // set from the `ItemId`s, so a player holding a Wheel Chock was shown a
+    // banana with a stalk on it, and the what-hit-you plate this file draws
+    // thirty pixels below said WHEEL CHOCK over a picture of a chock in the
+    // very same frame.
+    //
+    // So the faces of a published socket are repainted from `icons.ts` — the
+    // element identities, classes and attributes the other module switches on
+    // are untouched, only the geometry inside each `<svg data-face>` changes.
+    // It is idempotent and it is self-cancelling: the day `ui/icons.ts` imports
+    // this set instead of keeping a second one, every face already matches and
+    // this walks the list and writes nothing.
+    published = document.querySelector('[data-item-slot]');
+    if (published) {
+      adoptSlot(published);
+      return;
+    }
 
     // The drum: one cell per face, plus a copy of the first so the wrap is a
     // continuation rather than a jump back through the whole strip.
     const cells = [...FACES, FACES[0]!]
-      .map((id) => `<i>${iconSvg(id)}</i>`).join('');
+      .map((id) => `<i>${itemIconSvg(id)}</i>`).join('');
 
     root = document.createElement('div');
     root.id = 'item-hud';
     root.innerHTML = `<div class="slot empty">
       <div class="glow"></div>
       <div class="mark">?</div>
-      <div class="icons">${ICON_IDS.map((id) => iconSvg(id)).join('')}</div>
+      <div class="icons">${ICON_IDS.map((id) => itemIconSvg(id)).join('')}</div>
       <div class="reel"><div class="strip">${cells}</div></div>
       <div class="count"></div>
     </div>`;
@@ -1057,6 +1033,13 @@ export function createItemHud(): ItemHud {
     },
 
     reset(): void {
+      // A published socket may have been torn down and rebuilt with the race —
+      // this module cannot know, and asking is forty string compares that all
+      // come back equal when it has not.
+      if (published) {
+        if (!published.isConnected) published = document.querySelector('[data-item-slot]');
+        if (published) adoptSlot(published);
+      }
       reelPos = 0;
       reelTarget = 0;
       reelBlur = -1;
@@ -1243,6 +1226,8 @@ export function createItemHud(): ItemHud {
       chevronEl = null;
       hitEl = null;
       fxRoot = null;
+      defsEl = null;
+      published = null;
       hitName = null;
       flashEl = null;
       style = null;
