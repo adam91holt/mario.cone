@@ -48,6 +48,38 @@
 // floor where the karts are flat out, 24-26m on the traverses, 20m at the Spur.
 // The longest dead straight is the 180m of descent immediately after the Ridge,
 // which is pointing downhill at 17% and is not restful.
+//
+// ── the look, and why the numbers below are what they are ──────────────────
+//
+// A critic photographed this course and read it as "a works yard on a green
+// hill next to a meringue". Both halves of that were the course's own fault,
+// not the renderer's, because `render/theme.ts` paints the alpine surface off
+// two things a *course* supplies: `theme.ground`, and how high the land stands
+// relative to the nearest road (`rel`).
+//
+//   * **The meringue.** The snow ramp runs from about `rel` 35 to `rel` 135.
+//     `rimHeight` was 200, which puts the *whole* rim between `rel` 79 and 207
+//     — above the ramp before it starts — so every ridge on the circuit came
+//     back one flat blue-white with no snowline and no rock under it. The rim
+//     is 135 now: `plateau * terrace * erosion` spreads that across `rel` 56 to
+//     142, which lands the ramp on the land itself. Bare schist in the saddles,
+//     a broken snowline up the flanks, white only on the tops.
+//   * **The green hill.** The far field settles onto `groundY`, and `groundY`
+//     was -35: thirty-five metres *below* the valley-floor road, which is
+//     exactly the band `alpine.paint` reads as tussock, so a kilometre of
+//     landscape came back saturated pasture green. The plain is level with the
+//     valley floor now, which is what a valley floor is.
+//   * **The warm tan.** `theme.ground` was 0x8f8c74, a warm olive-tan, and it
+//     is both the far-field albedo *and* (via `sunRig`) the colour of the
+//     bounce light on every object in the game. Warm tan on one side of the
+//     road, pasture green on the other. It is cold blue-grey schist now, so the
+//     tussock beside the shoulder mixes down to a dry alpine grey-green instead
+//     of a golf course.
+//
+// The hero landforms follow from the same arithmetic: anything topping out much
+// over `rel` 140 is a white lump, so the peaks are sized to *stand through* the
+// snowline rather than to start above it, and two low rock buttresses sit close
+// enough to the circuit to be looked at rather than admired from a distance.
 
 import { loopFromWaypoints, type Waypoint } from './path.ts';
 import type { CourseDefEx } from './types.ts';
@@ -199,9 +231,14 @@ export const switchbackSummit: CourseDefEx = {
   walls: true,
   wallHeight: 1.6,
   groundSize: 5600,
-  // The valley floor sits 35m below the start straight, which is what gives the
-  // climb something to be measured against from the road itself.
-  groundY: -35,
+  // The plain the valley floor road runs across, and nothing more ambitious
+  // than that. It used to be -35, on the reasoning that a datum below the start
+  // straight gives the climb something to be measured against — but the climb
+  // is measured against the *road*, which gains 116m either way, and the only
+  // thing the low datum bought was a kilometre of far field sitting five to
+  // thirty metres under the nearest tarmac, which is the exact band
+  // `alpine.paint` reads as tussock. That is where the pasture green came from.
+  groundY: 4,
   startDistance: 50,
   checkpoints: 36,
 

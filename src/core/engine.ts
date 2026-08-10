@@ -105,10 +105,16 @@ export function createEngine(ctx: GameContext, canvas: HTMLCanvasElement): Engin
   const budget: FrameBudget = {
     simMs: 0, updateMs: 0, drawMs: 0,
     meanMs: 0, worstMs: 0, meanSimMs: 0, meanDrawMs: 0,
-    wallMs: 0, steps: 0, frames: 0, liveFrames: 0, benchFrames: 0,
+    wallMs: 0, steps: 0, frames: 0, liveFrames: 0, benchFrames: 0, benchSteps: 0,
+    rung: 0, rungLabel: '', renderScale: 1,
+    liveWallMs: 0, liveWorstMs: 0, liveSeconds: 0, governor: '',
   };
   /** True only inside the rAF loop's own call to `renderFrame`. */
   let driving = false;
+  /** ...and inside its own call to `stepFixed`. Everything else stepping the
+   *  simulation is the harness, and a wall-clock gap that contains harness work
+   *  is not a measurement of this machine — see `budget.benchSteps`. */
+  let stepping = false;
   const simTimes = new Float32Array(BUDGET_WINDOW);
   const updTimes = new Float32Array(BUDGET_WINDOW);
   const drawTimes = new Float32Array(BUDGET_WINDOW);
@@ -179,6 +185,7 @@ export function createEngine(ctx: GameContext, canvas: HTMLCanvasElement): Engin
    */
   function stepFixed(dt: number = FIXED_DT): void {
     sizeProfile();
+    if (!stepping) budget.benchSteps++;
     ctx.time.dt = dt;
     ctx.inputState = ctx.input.sample(dt);
     let t = now();
@@ -299,11 +306,13 @@ export function createEngine(ctx: GameContext, canvas: HTMLCanvasElement): Engin
     accumulator += wallDt * ctx.time.scale;
 
     let steps = 0;
+    stepping = true;
     while (accumulator >= FIXED_DT && steps < MAX_STEPS_PER_FRAME) {
       stepFixed(FIXED_DT);
       accumulator -= FIXED_DT;
       steps++;
     }
+    stepping = false;
     if (steps === MAX_STEPS_PER_FRAME) accumulator = 0; // give up on the backlog
     // The harness drives `stepFixed` directly, outside this loop, so the
     // accumulator can be left describing time this loop never owned. Reset it
@@ -429,6 +438,17 @@ export function createEngine(ctx: GameContext, canvas: HTMLCanvasElement): Engin
         drawDistance: +ctx.quality.drawDistance.toFixed(2),
         particles: +ctx.quality.particles.toFixed(2),
         shadowSize: ctx.quality.shadows ? ctx.quality.shadowSize : 0,
+        // The governor's own verdict, passed straight through. `drawCalls` and
+        // `triangles` describe the frame; these describe the decision that
+        // shaped it, and a review sheet that reports one without the other
+        // cannot tell a cheap frame from a frame the ladder had to buy.
+        rung: budget.rung,
+        rungLabel: budget.rungLabel,
+        renderScale: +budget.renderScale.toFixed(3),
+        liveWallMs: +budget.liveWallMs.toFixed(2),
+        liveWorstMs: +budget.liveWorstMs.toFixed(2),
+        liveSeconds: +budget.liveSeconds.toFixed(2),
+        governor: budget.governor,
         systems: cost,
       };
     },

@@ -284,6 +284,10 @@ export interface PostStack {
 }
 
 const MIPS = 5;
+/** How much of the pyramid reaches the composite when bloom is on. */
+const BLOOM_STRENGTH = 0.30;
+/** Reused for the one clear that stands in for the whole pyramid. */
+const BLACK = new THREE.Color(0, 0, 0);
 
 export function createPostStack(
   ctx: GameContext,
@@ -400,7 +404,7 @@ export function createPostStack(
     uNear: { value: 0.1 },
     uFar: { value: 1000 },
     uExposure: { value: ctx.config.render.exposure },
-    uBloom: { value: 0.30 },
+    uBloom: { value: BLOOM_STRENGTH },
     uVignette: { value: 0.22 },
     // Off. Lateral colour error is a lens artefact that only reads as one when
     // the edge it sits on is smooth; on a hard staircase it is just fringing.
@@ -444,12 +448,21 @@ export function createPostStack(
     renderer.render(quadScene, quadCam);
   }
 
+  /** True once the pyramid's top mip has been blacked out for a bloom-off run,
+   *  so the clear happens on the edge rather than on every frame after it. */
+  let bloomCleared = false;
+  const _clear = new THREE.Color();
+
   function setSize(): void {
     renderer.getDrawingBufferSize(size);
     const w = Math.max(2, Math.floor(size.x));
     const h = Math.max(2, Math.floor(size.y));
     if (w === width && h === height) return;
     width = w; height = h;
+    // A resized target is an uninitialised one, so a bloom-off run has to black
+    // its top mip out again — the governor changes the render scale far more
+    // often than it changes the bloom flag.
+    bloomCleared = false;
     sceneTarget.setSize(width, height);
     ldrTarget.setSize(width, height);
     (fxaaMat.uniforms.uTexel!.value as THREE.Vector2).set(1 / width, 1 / height);
@@ -472,26 +485,57 @@ export function createPostStack(
     renderer.setRenderTarget(sceneTarget);
     renderer.render(ctx.scene, ctx.camera);
 
-    // 2. bright pass into the top of the pyramid.
-    (brightMat.uniforms.uTexel!.value as THREE.Vector2).set(1 / width, 1 / height);
-    blit(mips[0]!, brightMat);
+    // ── the pyramid, which the quality ladder may decline ──────────────────
+    //
+    // Nine blits over five mips, all of them fill: a bright pass at half
+    // resolution, four halvings down and four adds back up. It costs nothing
+    // in triangles and nothing in draw calls and it is pure pixels, which is
+    // the one currency the machines this ladder exists for are short of.
+    //
+    // It is a *separate* lever from `postfx` on purpose. Turning the whole
+    // stack off takes the atmosphere, the film stock, the vignette and the
+    // grade with it, puts `THREE.FogExp2` back on the scene and recompiles
+    // every material in the game — measured at 762ms in the single frame the
+    // governor picked to rescue a machine that was already failing. Dropping
+    // only the glow keeps every one of those and compiles nothing: the same
+    // composite program runs, with `uBloom` at zero and a black texture bound.
+    const bloom = ctx.quality.bloom !== false;
+    compositeUniforms.uBloom!.value = bloom ? BLOOM_STRENGTH : 0;
+    if (bloom) {
+      // 2. bright pass into the top of the pyramid.
+      (brightMat.uniforms.uTexel!.value as THREE.Vector2).set(1 / width, 1 / height);
+      blit(mips[0]!, brightMat);
 
-    // 3. down the pyramid.
-    for (let i = 1; i < MIPS; i++) {
-      const src = mips[i - 1]!;
-      downMat.uniforms.tSrc!.value = src.texture;
-      (downMat.uniforms.uTexel!.value as THREE.Vector2).set(1 / src.width, 1 / src.height);
-      blit(mips[i]!, downMat);
-    }
+      // 3. down the pyramid.
+      for (let i = 1; i < MIPS; i++) {
+        const src = mips[i - 1]!;
+        downMat.uniforms.tSrc!.value = src.texture;
+        (downMat.uniforms.uTexel!.value as THREE.Vector2).set(1 / src.width, 1 / src.height);
+        blit(mips[i]!, downMat);
+      }
 
-    // 4. and back up, adding as it goes. Each level widens the glow, so the
-    //    result has a tight core under a very soft halo rather than one radius.
-    for (let i = MIPS - 1; i > 0; i--) {
-      const src = mips[i]!;
-      upMat.uniforms.tSrc!.value = src.texture;
-      (upMat.uniforms.uTexel!.value as THREE.Vector2).set(1 / src.width, 1 / src.height);
-      blit(mips[i - 1]!, upMat, false);
+      // 4. and back up, adding as it goes. Each level widens the glow, so the
+      //    result has a tight core under a very soft halo rather than one radius.
+      for (let i = MIPS - 1; i > 0; i--) {
+        const src = mips[i]!;
+        upMat.uniforms.tSrc!.value = src.texture;
+        (upMat.uniforms.uTexel!.value as THREE.Vector2).set(1 / src.width, 1 / src.height);
+        blit(mips[i - 1]!, upMat, false);
+      }
+    } else if (!bloomCleared) {
+      // The composite still samples `tBloom`, so the mip it reads has to be
+      // black rather than whatever the last bloomed frame left in it. Cleared
+      // once on the edge, not every frame — a clear is a full write of the
+      // target and paying for one to save nine is the whole point.
+      renderer.getClearColor(_clear);
+      const alpha = renderer.getClearAlpha();
+      renderer.setRenderTarget(mips[0]!);
+      renderer.setClearColor(BLACK, 0);
+      renderer.clear(true, false, false);
+      renderer.setClearColor(_clear, alpha);
+      bloomCleared = true;
     }
+    if (bloom) bloomCleared = false;
 
     // 5. one pass for everything else.
     const cam = ctx.camera;
