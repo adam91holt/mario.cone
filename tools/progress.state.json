@@ -1,6 +1,6 @@
 {
-  "phase": "Coherence round 2 — the race itself",
-  "phaseNote": "Round 1 fixed the seams between the pieces and scored 7.0. The judge then found something no piece critic could: the race has no stakes. That is now the directive — spread the field to 8-20s over three laps, keep the AI on the tarmac, and make it drift.",
+  "phase": "Coherence complete — three waves to go",
+  "phaseNote": "Two rounds of whole-game judgement done. The race now has stakes and the camera now looks at the player. Next: perf and the course roster together, then the polish wave, then closing verdicts on wave 1.",
   "pieces": [
     {
       "id": "feel",
@@ -69,10 +69,10 @@
       "id": "ai",
       "name": "CPU racers",
       "scope": "src/ai",
-      "state": "fail",
+      "state": "review",
       "rounds": 2,
-      "verdict": "5.5/10 after two rounds. Rebuilt with awareness, knowledge and personality. CPUs now plan corners, use items and differ from each other.",
-      "gap": "Whole-game judge: rubber-band so tight the field finishes within 0.811s over three laps; a constant steer input oscillates road-dirt-road every 1.5s and sawtooths speed 48 to 32 m/s; the AI never charges a mini-turbo."
+      "verdict": "Rubber-band cut. Finishing spread over 3 laps of Cone Canyon is now 1st 2:18.893, 8th +1:34.852 — was the entire field inside 0.811s.",
+      "gap": "Overcorrected into three clumps rather than a spread: 2nd/3rd/4th land within 0.16s of each other, 5th/6th/7th within 0.16s, and 8th is over a lap adrift."
     },
     {
       "id": "hud",
@@ -151,12 +151,16 @@
       "name": "Whole-game coherence",
       "scope": "everything",
       "state": "fail",
-      "rounds": 1,
-      "verdict": "7.0/10 whole-game, blind pick Mario Kart. Round 1 closed the front-end seams: one alphabet, one legend, one voice, and a journey tool that walks the game front to back.",
-      "gap": "The front-end is first-party and the race it launches into has no stakes. Eight racers finish 6.5km of Cone Canyon inside 0.811 seconds of each other, neither the AI nor the autopilot can hold the tarmac, and the AI never drifts — so the mini-turbo loop the class-select screen calls \"the real game\" is something the game never once shows a player happening."
+      "rounds": 2,
+      "verdict": "7.0 then 6.5 across two rounds. The score fell because the critic got deeper, not because the game got worse: round 2 measured things round 1 never reached. Field spread fixed from 0.811s to 24-94s, the AI drifts, the review sheet stopped lying, and the four on-screen instruction languages collapsed onto one rail.",
+      "gap": "The race is composed like a spectator replay rather than something you are driving. The chase rig sat high and far with the kart at 4-8% of frame height, so every asset the game is proudest of played too small to land. Camera now fixed; the item slot is still an empty black square dead centre of the frame, and the results sheet covers the podium it just lit."
     }
   ],
   "log": [
+    {
+      "when": "2026-08-10 03:44 UTC",
+      "text": "Coherence pass complete. The field now finishes 24-94s apart instead of inside 0.811s, the AI charges mini-turbos, and the review sheet no longer captions frames that do not show what they claim."
+    },
     {
       "when": "2026-08-10 01:18 UTC",
       "text": "Coherence round 1 scored 7.0/10 and named the real gap: the front-end is first-party and the race it launches into has no stakes. Round 2 is aimed at the racing, not the chrome."
