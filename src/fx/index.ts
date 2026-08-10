@@ -129,7 +129,16 @@ const RING_LIFT = 0.14;
  * same hairpin cannot stack up to a whiteout the way they can with per-emitter
  * tuning alone.
  */
-const VEIL_BUDGET = 0.14;
+const VEIL_BUDGET = 0.19;
+// ...and the prose above says 0.20 because that is what it was set to when the
+// prose was written; a later pass tightened the constant to 0.14 and left the
+// paragraph alone. 0.14 is not a ceiling a rooster tail ever reaches — measured
+// on a machine crossing the dirt at 31 m/s the alpha layer covered **0.068**,
+// less than half the budget, with the governor sitting at 0.96 and cutting
+// nothing. So the ceiling was never what made off-road quiet; the emission was.
+// It goes back to 0.19 anyway, because the numbers below double the loose
+// surfaces and the whole point of a closed loop is that it is what stops eight
+// machines in one hairpin from stacking into a whiteout.
 
 /**
  * How a surface answers to a tyre. `rate` is puffs per second at top speed;
@@ -365,10 +374,24 @@ const SURFACE_FX: Record<Surface, SurfaceFx> = {
   // be able to show.
   road:  { color: 0xEAEEF6, deep: 0xD6DCE8, lift: 0.20, rate: 0,  slip: 13, wake: 0,  size: 0.44, wakeSize: 0.30, grow: 2.0, alpha: 0.115, grit: 0.00, sparky: false, mark: 1.00, markTint: 0x3F3E4A, smoke: 0.62, smokeRate: 72 },
   boost: { color: 0xF3E8D6, deep: 0xE2D9C8, lift: 0.22, rate: 0,  slip: 13, wake: 0,  size: 0.46, wakeSize: 0.30, grow: 2.0, alpha: 0.120, grit: 0.00, sparky: false, mark: 0.80, markTint: 0x423F4D, smoke: 0.62, smokeRate: 72 },
-  dirt:  { color: 0xF7E6C6, deep: 0xDCBE93, lift: 1.42, rate: 132, slip: 80, wake: 13, size: 0.62, wakeSize: 0.44, grow: 2.5, alpha: 0.430, grit: 0.80, sparky: false, mark: 0.85, markTint: 0x9c7444, smoke: 0.18, smokeRate: 14 },
-  sand:  { color: 0xFDF4E0, deep: 0xEBD9AF, lift: 1.52, rate: 142, slip: 84, wake: 14, size: 0.64, wakeSize: 0.46, grow: 2.6, alpha: 0.440, grit: 0.58, sparky: false, mark: 0.72, markTint: 0x9c8050, smoke: 0.16, smokeRate: 13 },
-  grass: { color: 0xE3F0CC, deep: 0xB2CE8C, lift: 1.05, rate: 100, slip: 64, wake: 10, size: 0.56, wakeSize: 0.40, grow: 2.3, alpha: 0.370, grit: 0.70, sparky: false, mark: 0.62, markTint: 0x6d8b4c, smoke: 0.17, smokeRate: 13 },
-  water: { color: 0xF8FDFF, deep: 0xD7EFFA, lift: 1.40, rate: 116, slip: 84, wake: 13, size: 0.52, wakeSize: 0.36, grow: 2.2, alpha: 0.370, grit: 0.48, sparky: false, mark: 0.00, markTint: 0xffffff, smoke: 0.15, smokeRate: 10 },
+  // ── the loose surfaces, roughly doubled ─────────────────────────────────
+  //
+  // Leaving the road is supposed to be a punishment the player *sees* before
+  // they feel it, and what it looked like was two thin near-vertical columns of
+  // eight or ten pale blobs. The measurement behind these numbers is in the
+  // note on `VEIL_BUDGET`: at 31 m/s across the dirt this module was covering
+  // 0.068 of the frame against a ceiling of 0.14, with the governor cutting
+  // nothing at all. There was no ceiling in the way — the rates were simply
+  // half what a rooster tail needs, and the last pass cut them under cover of a
+  // defect that was really about *tarmac* litter.
+  //
+  // `grit` goes up with them, because the clods are the only thing in the cloud
+  // with an edge and a trajectory, and a bigger cloud with the same handful of
+  // stones in it just looks like more fog.
+  dirt:  { color: 0xF7E6C6, deep: 0xDCBE93, lift: 1.42, rate: 250, slip: 130, wake: 16, size: 0.68, wakeSize: 0.44, grow: 2.5, alpha: 0.440, grit: 1.05, sparky: false, mark: 0.85, markTint: 0x9c7444, smoke: 0.18, smokeRate: 14 },
+  sand:  { color: 0xFDF4E0, deep: 0xEBD9AF, lift: 1.52, rate: 268, slip: 136, wake: 17, size: 0.70, wakeSize: 0.46, grow: 2.6, alpha: 0.450, grit: 0.78, sparky: false, mark: 0.72, markTint: 0x9c8050, smoke: 0.16, smokeRate: 13 },
+  grass: { color: 0xE3F0CC, deep: 0xB2CE8C, lift: 1.05, rate: 195, slip: 105, wake: 13, size: 0.62, wakeSize: 0.40, grow: 2.3, alpha: 0.380, grit: 0.92, sparky: false, mark: 0.62, markTint: 0x6d8b4c, smoke: 0.17, smokeRate: 13 },
+  water: { color: 0xF8FDFF, deep: 0xD7EFFA, lift: 1.40, rate: 205, slip: 130, wake: 16, size: 0.56, wakeSize: 0.36, grow: 2.2, alpha: 0.380, grit: 0.48, sparky: false, mark: 0.00, markTint: 0xffffff, smoke: 0.15, smokeRate: 10 },
   rail:  { color: 0xCFE2FF, deep: 0xCFE2FF, lift: 0.20, rate: 0,  slip: 22, wake: 0,  size: 0.22, wakeSize: 0.20, grow: 1.4, alpha: 0.90,  grit: 0.00, sparky: true,  mark: 0.00, markTint: 0xffffff, smoke: 0.00, smokeRate: 0 },
   air:   { color: 0xffffff, deep: 0xffffff, lift: 0.00, rate: 0,  slip: 0,  wake: 0,  size: 0.40, wakeSize: 0.20, grow: 2.0, alpha: 0.00,  grit: 0.00, sparky: false, mark: 0.00, markTint: 0xffffff, smoke: 0.00, smokeRate: 0 },
 };
@@ -462,7 +485,29 @@ interface RacerFx {
   pendDriftStart: number;
   pendTier: number;
   pendBoost: number;
+  /**
+   * Which mini-turbo tier the *live* boost was paid for with, 0 for anything
+   * else. Latched per boost **source**, not per uninterrupted boost window.
+   *
+   * That distinction is a bug this had for a whole round. It used to only ever
+   * climb — `if (tier > fx.boostTier)` — and only cleared when `boost.time`
+   * reached zero, and boosts chain: a pad taken during or straight after a
+   * mini-turbo extends `boost.time` without ever letting it hit zero, so the
+   * pad inherited the drift's colour. Measured, a gold-and-orange chevron pad
+   * fired `rushTier=2` and put a green wash on the frame. Every `kart:boost`
+   * now *states* the tier, including stating that it has none.
+   */
   boostTier: number;
+  /**
+   * What kind of thing granted the live boost: 0 none, 1 thrust the player was
+   * given, 2 a slipstream. The screen rush reads this, because a draft is not
+   * a boost — it is free speed for sitting in the right place, and lighting the
+   * game's loudest sustained cue for it spends that cue on its quietest event.
+   *
+   * Cleared with the *envelope* rather than with `boost.time`, so it lasts
+   * exactly as long as the effect it gates.
+   */
+  boostKind: number;
   pendLand: number;
   /** Seconds this racer was actually in the air. A drift hop and a launch off
    *  the canyon crest both arrive as `kart:land` with a healthy impact, and
@@ -517,7 +562,7 @@ function newRacerFx(): RacerFx {
     lastCharge: 0, lastTier: 0, release: 0, releaseTier: 0, boostEnv: 0,
     ignite: 0, ignitePower: 0, boostFull: 0,
     glow: 0, pop: 0, popTier: 0,
-    pendDriftStart: 0, pendTier: 0, pendBoost: 0, boostTier: 0,
+    pendDriftStart: 0, pendTier: 0, pendBoost: 0, boostTier: 0, boostKind: 0,
     pendLand: 0, landAir: 0, pendHop: 0, pendOffroad: 0, pendWall: 0, pendHit: 0,
     pendTrick: 0, pendBump: 0, pendBurnout: 0, pendLaunch: 0, pendDraft: 0,
     pendCoin: 0, pendCoinLoss: 0, pendPowerUp: 0,
@@ -1935,15 +1980,30 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     // has nothing to give but a scuff of hot rubber; the fire is the story of a
     // boost, and the ground's job is to agree with it quietly.
     const hard = sfx.rate <= 0;
+    // ── how far away a cloud is still worth drawing ─────────────────────────
+    //
+    // `near` is the pinpoint cut: it falls to nothing by about forty-six metres
+    // because a spark that far away is one pixel and paying for it is waste.
+    // A rooster tail is the opposite animal — it is a *silhouette*, the same
+    // argument `reach` already makes for the exhaust, and gating it on `near`
+    // is why an overhead frame of eight machines crossing the dirt showed not
+    // one trail behind any of them: the camera sits forty metres up, so every
+    // machine in the picture including the player was cut to zero.
+    //
+    // Hard surfaces keep the tight cut. There is nothing to see there anyway.
+    const vis = hard ? fx.near : Math.max(fx.near, fx.reach * 0.75);
     const rate = (sfx.rate * speedFrac
       + sfx.slip * slip * speedFrac
-      + boosting * (hard ? 26 : 110) * speedFrac) * veilDensity * fx.near;
+      + boosting * (hard ? 26 : 110) * speedFrac) * veilDensity * vis;
     if (rate <= 0) return;
 
     fx.dust += rate * dt;
     let n = Math.floor(fx.dust);
     fx.dust -= n;
-    if (n > 11) n = 11;
+    // Doubling the rate with the old cap of 11 would have quietly thrown half
+    // of it away on any frame slower than 60Hz — and every frame the review
+    // sheet photographs is a twentieth of a second long.
+    if (n > 24) n = 24;
     if (n <= 0) return;
 
     const col = surfaceColors.get(racer.surface)!;
@@ -1973,10 +2033,40 @@ export function createFxSystem(ctx: GameContext): GameSystem {
         continue;
       }
 
+      // ── two clouds, not one ─────────────────────────────────────────────
+      //
+      // The single population above did one thing: it kept 86% of the machine's
+      // velocity and climbed. Both of those are right for the *tail* and both
+      // are wrong for the other half of what a tyre does to loose ground, and
+      // with only one of them in the frame what a still photograph caught was
+      // "two thin, near-vertical, desaturated columns" — because a cloud that
+      // travels with the kart and rises has, relative to the kart, no horizontal
+      // motion at all. It is a column by construction.
+      //
+      // A rooster tail is a *skirt* and a *plume*:
+      //
+      //   the skirt is material pushed sideways along the deck. It keeps about
+      //   half the machine's speed, so it is genuinely left behind and lays a
+      //   widening trail on the ground — which is the thing an overhead frame
+      //   can see and the thing a chase camera reads as "that hurt". It stays
+      //   low, spreads hard, grows fast and takes the surface's *deep* tone,
+      //   because dust at ankle height is dust in its own shadow.
+      //
+      //   the plume is the part that gets up into the light: most of the
+      //   machine's speed, thrown back and up, the pale lit tone, against the
+      //   sky rather than against the identically-coloured ground.
+      //
+      // A little under half of the emission goes to the skirt. Loose ground
+      // only.
+      const skirt = !hard && rng.next() < 0.46;
       // Capped so that even at full growth no single puff crosses `MAX_PUFF`.
       // A rooster tail off gravel gets its mass from ninety-six emissions a
       // second, not from any one of them being the size of the kart.
-      dustSpec.size0 = Math.min(sfx.size * rng.range(0.7, 1.35), MAX_PUFF / sfx.grow);
+      const grow = skirt ? sfx.grow * 1.5 : sfx.grow;
+      dustSpec.size0 = Math.min(
+        sfx.size * (skirt ? rng.range(0.85, 1.5) : rng.range(0.7, 1.35)),
+        MAX_PUFF / grow,
+      );
       dustSpec.px = _p.x + rng.range(-0.2, 0.2);
       // Born clear of the road by half its own radius. The sprite layer depth-
       // tests, so a soft ball centred on the tarmac is sliced along the plane
@@ -2007,16 +2097,25 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       // second that is not a dust trail, it is a windscreen. A rooster tail
       // travels with the machine that threw it and gets its shape from its own
       // outward and upward throw, not from being left behind.
-      dustSpec.vx = racer.vel.x * 0.86 - _fwd.x * rng.range(0.5, 3)
-        + _right.x * side * rng.range(0.6, 3.0);
+      const keep = skirt ? rng.range(0.42, 0.58) : 0.86;
+      const out = skirt ? rng.range(3.2, 8.0) : rng.range(0.6, 3.0);
+      dustSpec.vx = racer.vel.x * keep - _fwd.x * rng.range(0.5, 3)
+        + _right.x * side * out;
       // ...and the climb is the other half. A cloud that tops out a metre off
       // the deck sits below the sight line of a camera that is looking over the
       // roof of the kart, so on a loose surface it has to actually get up: two
       // to four metres, which puts it against the sky and the road behind
       // rather than against the identically-coloured ground it came off.
-      dustSpec.vy = rng.range(0.4, 1.4) + sfx.lift * rng.range(1.8, 4.6);
-      dustSpec.vz = racer.vel.z * 0.86 - _fwd.z * rng.range(0.5, 3)
-        + _right.z * side * rng.range(0.6, 3.0);
+      //
+      // The skirt does the opposite on purpose. It barely leaves the deck, so
+      // it is still on the ground when the plume above it has blown away — and
+      // something has to still be there, or the machine leaves no mark on the
+      // world it just tore up.
+      dustSpec.vy = skirt
+        ? rng.range(0.15, 0.75) + sfx.lift * rng.range(0.10, 0.45)
+        : rng.range(0.4, 1.4) + sfx.lift * rng.range(1.8, 4.6);
+      dustSpec.vz = racer.vel.z * keep - _fwd.z * rng.range(0.5, 3)
+        + _right.z * side * out;
       // Long enough to build a trail behind the machine, short enough that the
       // cloud has a tail rather than a wall. A puff has to survive long enough
       // for the next few to be born behind it, or what the frame catches is one
@@ -2026,18 +2125,36 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       // the air for a second and reads as a rooster tail; hot rubber off tarmac
       // is gone almost at once, and anything that outlives its own cause ends
       // up strewn down the road as litter.
-      dustSpec.life = rng.range(0.55, 1.05) * (hard ? 0.62 : 1);
-      dustSpec.size1 = dustSpec.size0 * sfx.grow;
+      dustSpec.life = skirt
+        ? rng.range(1.0, 1.7)
+        : rng.range(0.55, 1.05) * (hard ? 0.62 : 1);
+      dustSpec.size1 = dustSpec.size0 * grow;
       dustSpec.rot = rng.next() * TAU;
       dustSpec.rotVel = rng.range(-1.3, 1.3);
-      // Loose ground hangs in the air; tarmac smoke settles almost at once.
-      dustSpec.gravity = -0.12 - 0.5 * sfx.lift;
-      dustSpec.alpha = sfx.alpha * rng.range(0.7, 1.1);
-      setHdr(dustSpec.color0, col, 1.0);
-      setHdr(dustSpec.color1, deep, 0.85);
+      // Loose ground hangs in the air; tarmac smoke settles almost at once. The
+      // skirt neither rises nor sinks — it is lying on the ground.
+      dustSpec.gravity = skirt ? -0.02 : -0.12 - 0.5 * sfx.lift;
+      // ...and it does not keep its outward throw for long. A skirt that held
+      // 8 m/s sideways for a second and a half would be a wall two lanes wide;
+      // what it should be is a shove that spends itself in the first third of
+      // its life and then simply hangs there settling.
+      dustSpec.drag = skirt ? 2.6 : 1.5;
+      // Thinner per puff on the skirt, because there are a lot of them and they
+      // overlap heavily by design. The governor measures coverage, so paying
+      // for the density out of the per-puff alpha is what keeps the extra mass
+      // from being taken straight back off it.
+      dustSpec.alpha = sfx.alpha * (skirt ? rng.range(0.5, 0.78) : rng.range(0.7, 1.1));
+      if (skirt) {
+        setHdr(dustSpec.color0, deep, 1.0);
+        setHdr(dustSpec.color1, deep, 0.72);
+      } else {
+        setHdr(dustSpec.color0, col, 1.0);
+        setHdr(dustSpec.color1, deep, 0.85);
+      }
       pool.emit(dustSpec);
     }
     dustSpec.gravity = -0.2;
+    dustSpec.drag = 1.5;
 
     // ── the solid half ────────────────────────────────────────────────────
     // On its own accumulator rather than as a coin flip inside the dust loop.
@@ -2050,11 +2167,11 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     // exists to protect the picture from things that obscure it, and a fistful
     // of gravel arcing out of a rooster tail is the opposite of that.
     if (sfx.grit <= 0) return;
-    const gritRate = sfx.grit * (46 + 70 * slip) * speedFrac * density * fx.near;
+    const gritRate = sfx.grit * (46 + 70 * slip) * speedFrac * density * vis;
     fx.grit += gritRate * dt;
     let gn = Math.floor(fx.grit);
     fx.grit -= gn;
-    if (gn > 6) gn = 6;
+    if (gn > 10) gn = 10;
     const ginv = gn > 0 ? 1 / gn : 0;
 
     for (let i = 0; i < gn; i++) {
@@ -2403,7 +2520,20 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     // the tail of the machine, high enough that the bright half of every quad
     // is in the air — and the two stars are held to brightnesses that keep the
     // falloff inside the quad instead of blowing it out to the corners.
-    local(0, 0.14, -s.len * 0.50, _p);
+    //
+    // ── and it sits *behind* the tail, not on it ────────────────────────────
+    //
+    // ARCHITECTURE section 12 again, and this time it was the release that
+    // broke it. A camera-facing quad is centred on its own anchor, so a star
+    // 3-5m across hung at `-len * 0.50` — which *is* the tail — reaches half
+    // that far forward, over the whole machine. Photographed at the firing
+    // frame the cone was a featureless white blob for about two tenths of a
+    // second: the loudest moment in the game erasing the thing it was happening
+    // to. MK8 never compromises the silhouette, and the fix costs nothing —
+    // move the anchor back by another third of a machine so the bright core
+    // sits off the tail, and the kart stands in front of the fire as a shape
+    // rather than inside it as a hole.
+    local(0, 0.14, -s.len * 0.84, _p);
     // ── the clamp, and why it is not a matter of taste ──────────────────────
     //
     // Measured on the near bin at the firing frame, this module was putting
@@ -2422,7 +2552,7 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     add.push(
       _p.x, _p.y, _p.z, 0, 0, 0,
       1.0 * a, 0.96 * a, 0.88 * a, 0.95,
-      (0.26 + 0.40 * g + 0.18 * p) * rig, 0, 0, CELL.glow, MODE.billboard,
+      (0.22 + 0.30 * g + 0.14 * p) * rig, 0, 0, CELL.glow, MODE.billboard,
     );
     // The hard star. Two of them crossed: a white one on the level and a
     // tier-coloured one rolled 45°, so the burst carries its tier at the edges
@@ -2432,8 +2562,8 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     const spin = ctx.time.elapsed * 1.2 + racer.id;
     add.push(
       _p.x, _p.y, _p.z, 0, 0, 0,
-      0.70 * a, 0.67 * a, 0.62 * a, 0.95,
-      (1.1 + 1.6 * g + 0.4 * p) * rig, 0, spin, CELL.flare, MODE.billboard,
+      0.60 * a, 0.57 * a, 0.53 * a, 0.95,
+      (0.8 + 1.1 * g + 0.3 * p) * rig, 0, spin, CELL.flare, MODE.billboard,
     );
     // The tier star is deliberately the *larger* of the two, so the hue lands
     // where a white core cannot reach it — on the points, outside the blow-out.
@@ -2450,10 +2580,13 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     // is doing, and it hugs the deck so the boost is welded to the surface
     // rather than hovering over it.
     if (racer.grounded) {
-      local(0, -RIDE_HEIGHT + 0.14, -s.len * 0.40, _p);
+      // Behind the contact patch, for the same reason the stars are: a pool of
+      // near-white light centred under the machine bleaches the road it is
+      // standing on and takes the machine's edges with it.
+      local(0, -RIDE_HEIGHT + 0.14, -s.len * 0.72, _p);
       add.push(
         _p.x, _p.y, _p.z, 0, 0, 0,
-        FLAME_HOT.r * 0.8 * a, FLAME_HOT.g * 0.7 * a, FLAME_HOT.b * 0.52 * a, 0.62,
+        FLAME_HOT.r * 0.7 * a, FLAME_HOT.g * 0.62 * a, FLAME_HOT.b * 0.46 * a, 0.62,
         // Capped, twice over: `rig` reaches 1.6 on the widest machines, and
         // uncapped this reached fifteen metres of lit road behind a truck —
         // which stops being contact and becomes the tarmac being switched on.
@@ -2774,7 +2907,13 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     // is read back off the simulation every frame — see `ignite`.
     fx.ignitePower = power;
 
-    local(0, -RIDE_HEIGHT + 0.06, -s.len * 0.35, _p);
+    // Both pools sit *behind* the machine rather than under it. Centred at
+    // `-len * 0.35` — which is the rear axle — a near-white falloff several
+    // metres across lights the road on all four sides of the kart at once, and
+    // a shape lit from every side has no edges left. The tier's light still
+    // reaches forward under the machine, because a falloff has no rim; what it
+    // no longer does is put its brightest point where the silhouette is.
+    local(0, -RIDE_HEIGHT + 0.06, -s.len * 0.62, _p);
     // Outer: the tier's own light thrown across the road, so the release still
     // *names* the tier that paid for it. A falloff rather than an annulus — see
     // `groundLight`. It spreads fast and dies inside half a second, which is
@@ -2783,12 +2922,18 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     groundLight(_p.x, _p.y, _p.z, 2.2 * rig, (7.0 + 4 * power) * rig, 0.34,
       tint, gain * 0.62, 0.42, 0.18);
     // Inner: the hot core. Flame, not the tier — this is the one part of the
-    // frame that must not be the colour the wheels have been throwing.
-    groundLight(_p.x, _p.y, _p.z, 1.2 * rig, (3.6 + 2.6 * power) * rig, 0.22,
-      FLAME_HOT, 1.7, 0.46, 0.20);
+    // frame that must not be the colour the wheels have been throwing. Further
+    // back again, and dimmer: this is the single brightest thing the module
+    // draws on the ground and it was a third of a machine-length from the kart.
+    local(0, -RIDE_HEIGHT + 0.06, -s.len * 0.86, _p);
+    groundLight(_p.x, _p.y, _p.z, 1.1 * rig, (3.0 + 2.2 * power) * rig, 0.22,
+      FLAME_HOT, 1.35, 0.42, 0.20);
 
-    // The exhaust cone.
-    local(0, -0.08, -s.len * 0.46, _p);
+    // The exhaust cone. Born a little clear of the bodywork rather than inside
+    // its last few centimetres: half of a ±0.3m spread centred on the tail is
+    // in front of the tail, and additive sparks drawn over the machine are the
+    // half of the blow-out that no amount of moving the stars back can fix.
+    local(0, -0.08, -s.len * 0.60, _p);
     const n = Math.round((38 + 32 * power) * density);
     for (let i = 0; i < n; i++) {
       sparkSpec.px = _p.x + rng.range(-0.3, 0.3);
@@ -2821,8 +2966,8 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       // never does — a charge spark is born its colour and stays it. The
       // remaining third carries the hue at birth so the tier is still readable
       // at the head of the burst as well as in its tail.
-      if (rng.next() < 0.55) {
-        sparkSpec.color0.lerpColors(tint, WHITE_HOT, 0.62).multiplyScalar(2.2);
+      if (rng.next() < 0.42) {
+        sparkSpec.color0.lerpColors(tint, WHITE_HOT, 0.62).multiplyScalar(1.9);
       } else {
         sparkSpec.color0.lerpColors(tint, FLAME_HOT, 0.30).multiplyScalar(gain * 1.0);
       }
@@ -2859,7 +3004,15 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     fx.boostEnv = 1;
 
     if (racer.isPlayer) {
-      screen.flash(tier > 0 ? TIER_HEX[tier]! : 0xFFD9A0, 0.18 + 0.16 * power);
+      // A draft is not a boost. It emits `kart:boost` because it genuinely is
+      // free speed, and it earns the plume and the dust above — but the flash,
+      // the shake and the rush are the vocabulary of thrust the player was
+      // *given*, and spending them on tucking in behind somebody leaves the
+      // game nothing louder to say when a mini-turbo actually fires.
+      const draft = fx.boostKind === 2;
+      if (!draft) {
+        screen.flash(tier > 0 ? TIER_HEX[tier]! : 0xFFD9A0, 0.18 + 0.16 * power);
+      }
       // The tier goes on the *rush*, not only on the flash.
       //
       // This is the correction that makes a violet ultra and a blue tier one
@@ -2871,7 +3024,7 @@ export function createFxSystem(ctx: GameContext): GameSystem {
       screen.setRushTier(tier);
       // A short, sharp kick. Long enough to feel, over before it can get in the
       // way of the corner the player is usually already in.
-      trauma = clamp01(trauma + 0.16 + 0.16 * power);
+      trauma = clamp01(trauma + (draft ? 0.05 : 0.16 + 0.16 * power));
       traumaDecay = 6.5;
     }
   }
@@ -3586,8 +3739,12 @@ export function createFxSystem(ctx: GameContext): GameSystem {
   ctx.bus.on<{ racer: Racer; source: string; power: number }>('kart:boost', ({ racer, source, power }) => {
     const fx = fxOf(racer);
     fx.pendBoost = Math.max(fx.pendBoost, power);
-    const tier = source === 'drift1' ? 1 : source === 'drift2' ? 2 : source === 'drift3' ? 3 : 0;
-    if (tier > fx.boostTier) fx.boostTier = tier;
+    // Assignment, not `Math.max`. See the note on `boostTier`: a latch that only
+    // ever climbs, cleared only when the boost window closes, means every boost
+    // chained onto a mini-turbo wears the mini-turbo's colour. Each source
+    // states its own tier — a pad states zero, and zero is an answer.
+    fx.boostTier = source === 'drift1' ? 1 : source === 'drift2' ? 2 : source === 'drift3' ? 3 : 0;
+    fx.boostKind = source === 'slipstream' ? 2 : 1;
     // Physics has already written `boost.time` when it emits this, so this is
     // the boost's full length — the denominator the ignition envelope reads its
     // age from. See `boostFull`.
@@ -3964,6 +4121,13 @@ export function createFxSystem(ctx: GameContext): GameSystem {
           grounded: p?.grounded ?? false,
           glow: pfx ? Math.round(pfx.glow * 100) / 100 : 0,
           boostEnv: pfx ? Math.round(pfx.boostEnv * 100) / 100 : 0,
+          // The latch, both halves of it, so "which tier is the rush wearing
+          // and did a draft light it" is answerable without a screenshot. Both
+          // were bugs this module shipped, and neither was visible from
+          // `boost.source` alone — that is the *simulation's* current source,
+          // and the effects layer's own latch is what was wrong.
+          boostTier: pfx ? pfx.boostTier : 0,
+          boostKind: pfx ? pfx.boostKind : 0,
           grind: pfx ? Math.round(pfx.grind * 100) / 100 : 0,
           screen: screen.debug(),
         };
@@ -4396,6 +4560,11 @@ export function createFxSystem(ctx: GameContext): GameSystem {
         fx.boostEnv = racer.boost.time > 0
           ? 1
           : Math.max(0, fx.boostEnv - dt * 3.0);
+        // The *kind* outlives the boost by exactly as long as the envelope
+        // does, because the thing it gates — the screen rush — is released on
+        // the envelope rather than on `boost.time`. Clearing it a third of a
+        // second early would make the tail of every boost anonymous.
+        if (fx.boostEnv <= 0.02) fx.boostKind = 0;
 
         // Always on, every machine, player and CPU alike — the layer that makes
         // the seconds between events look like a race rather than a diorama. It
@@ -4405,6 +4574,11 @@ export function createFxSystem(ctx: GameContext): GameSystem {
         if (fx.reach > 0.02) {
           exhaustPuffs(racer, fx, dt);
           if (fx.near > 0.02) exhaustGlow(racer, fx, add);
+          // Dust is out here with the exhaust rather than inside the `near`
+          // gate below, and for the same reason: it is a silhouette. See `vis`
+          // in `surfaceDust`, which keeps the tight cut for hard surfaces so
+          // this costs nothing for the seven machines on the tarmac.
+          if (racer.grounded) surfaceDust(racer, fx, dt);
         }
 
         // The ignition strike, on the simulation's clock rather than on this
@@ -4432,7 +4606,6 @@ export function createFxSystem(ctx: GameContext): GameSystem {
             driftSparks(racer, fx, dt);
           }
           driftGlow(racer, fx, add);
-          if (racer.grounded) surfaceDust(racer, fx, dt);
           if (racer.boost.time > 0) boostFlame(racer, fx, dt, add);
           // Any stun, not only a spin. A squish and a bump leave a kart just as
           // helpless, and a silent one reads as the game having hung.
@@ -4639,7 +4812,18 @@ export function createFxSystem(ctx: GameContext): GameSystem {
         // signal a player learns and four separate things that happen sometimes.
         // The envelope also survives a frame drawn a tenth of a second after
         // the boost expired, which the raw state does not.
-        rushAmt = clamp01(pfx.boostEnv * (0.62 + 0.38 * clamp01((player.boost.power - 18) / 34)));
+        //
+        // ── ...and only for thrust the player was *given* ────────────────
+        //
+        // Gated on the source, not on the envelope alone. The comment below has
+        // always said the warm edge glow belongs to a boost and must not fire
+        // for a draft, and the code contradicted it: sitting in someone's
+        // slipstream emits `kart:boost`, which lit the envelope, which lit the
+        // rush — measured at 0.687 with the whole rim orange for a machine that
+        // had done nothing but tuck in behind another one.
+        rushAmt = pfx.boostKind === 1
+          ? clamp01(pfx.boostEnv * (0.62 + 0.38 * clamp01((player.boost.power - 18) / 34)))
+          : 0;
         // The tier the rush is wearing is latched by `spendBoost` and let go
         // here, when the envelope that carries it is finally down. Clearing it
         // off `boost.time` instead would drop the colour a third of a second
@@ -4678,11 +4862,23 @@ export function createFxSystem(ctx: GameContext): GameSystem {
         // to know the camera system's mode names.
         const camDist = cam.position.distanceTo(_playerPos);
         lineAmt *= clamp01(1 - (camDist - 26) / 16);
-        // Deliberately restrained. The sparks are the meter; this is the frame
-        // agreeing with them out of the corner of the player's eye, and a tint
-        // strong enough to reach the middle of the sky would be reading the
-        // charge to them in block capitals.
-        chargeAmt = player.drift.active ? 0.30 + 0.18 * player.drift.tier : 0;
+        // The sparks are the meter; this is the frame agreeing with them out of
+        // the corner of the player's eye.
+        //
+        // ── one ladder, and it is in `chargeCss` ─────────────────────────
+        //
+        // There used to be two — a per-tier amount here multiplied by a per-tier
+        // peak in the stylesheet — and multiplying two cautious ladders together
+        // is how the meter ended up below threshold for two of its three marks:
+        // 0.48 x 0.165 is 0.079 at tier one, which measured as *no detectable
+        // tint at all* against a centre control. A drift ring that cannot be
+        // told from no ring is not restraint, it is an absent feature.
+        //
+        // So the tier's strength lives in one place, in the stylesheet, where
+        // it steps 0.10 / 0.15 / 0.20 — and this is now only "is there a drift
+        // on": a hint while the charge is still building, full while it has a
+        // tier to report.
+        chargeAmt = player.drift.active ? (player.drift.tier > 0 ? 1 : 0.36) : 0;
         screen.setChargeTier(player.drift.tier);
       }
       screen.setRush(rushAmt);

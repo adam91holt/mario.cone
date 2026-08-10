@@ -2843,7 +2843,11 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         byId = -1): boolean {
         const racer = racerById(racerId);
         if (!racer) return false;
+        // Both halves of the protection, or a bench staging two hits in a row
+        // gets one hit and a silent no-op — `grace` outlives `invulnerable` by
+        // design, see `RacerItems.grace`.
         racer.invulnerable = 0;
+        stateOf(racer).grace = 0;
         return strike(racer, racerById(byId), item);
       },
       /** Hand every CPU the same item, so a pack fight can be staged. */

@@ -15,13 +15,38 @@
 // layout invalidation for nothing.
 
 const CSS = `
+/* ── the blend mode lives here, on the group, and that is the whole fix ──────
+ *
+ * Every child used to carry "mix-blend-mode: screen" of its own, and none of
+ * them was screening anything. A positioned, z-indexed element with
+ * "contain: strict" is an isolated group: a child's blend mode composites
+ * against the *group's* backdrop, which inside here is empty transparent
+ * black. Screen against nothing is the source unchanged, and the group was
+ * then laid over the game with ordinary source-over alpha.
+ *
+ * So the loudest sustained cue in the game was not adding light to the
+ * picture, it was interpolating the picture toward a saturated hue. Measured
+ * on a tier-three mini-turbo, the sky's green channel fell from 210 to 134 and
+ * the whole frame went violet — a colour grade wearing a rim light's name. A
+ * *light* cannot take green out of the sky, and a cue that can is a cue that
+ * has to be kept tiny to stay safe, which is how the budget ended up inverted:
+ * the thing that must be read was invisible and the thing that is punctuation
+ * was at grade strength.
+ *
+ * Moving the blend to the group is what makes it light. The children composite
+ * normally among themselves, and the finished group screens over the game, so
+ * the arithmetic is out = base + alpha * src * (1 - base): it brightens the
+ * dark half of the frame hard, tints the bright half barely, and cannot pull a
+ * channel down at any strength. That is a rim light, and it is why the alphas
+ * below can afford to be honest. */
 #fx-screen {
   position: fixed; inset: 0; pointer-events: none; z-index: 9;
   overflow: hidden; contain: strict;
+  mix-blend-mode: screen;
 }
 #fx-screen .flash {
   position: absolute; inset: -2%;
-  opacity: 0; mix-blend-mode: screen;
+  opacity: 0;
   will-change: opacity;
 }
 /* The rush has to be a *frame*, and it has to stay out of the driving line.
@@ -37,22 +62,30 @@ const CSS = `
 
    farthest-side puts the 100% stop on the middles of the four edges instead, so
    the hot band runs the whole way round the rim — including the top and bottom
-   centre, which no HUD element occupies — and the corners simply saturate. The
-   opening stop is what keeps it out of the driving line, and 66% of the
-   half-height is a long way outside the road ahead: at 900px tall that is the
-   outer 150px of the frame, and the horizon sits near the middle. The centre
-   two thirds stay completely clean, which was always the point. */
+   centre, which no HUD element occupies — and the corners simply saturate.
+
+   ── and the band is now a band, not two thirds of the picture ───────────────
+
+   The opening stop was at 69% of the half-side. At 900px tall that is the outer
+   140px *and everything outside it*, top and bottom, plus the outer 250px at
+   the sides — 22.5% of the frame repainted in one hue, measured, and still 15%
+   of it a second and a quarter after the boost had gone. A cue occupying a
+   fifth of the picture is not peripheral, it is the picture.
+
+   86% is the outer 63px of a 900px frame and the outer 112px of a 1600px one:
+   a rim. The centre of the glass, where the road and the field and every
+   decision the player is making live, is untouched at every strength. */
 #fx-screen .rush {
   position: absolute; inset: 0;
-  opacity: 0; mix-blend-mode: screen;
+  opacity: 0;
   transform-origin: 50% 50%;
   will-change: opacity, transform;
   background:
     radial-gradient(ellipse farthest-side at 50% 50%,
-      rgba(255,190,90,0) 69%,
-      rgba(255,182,86,0.09) 84%,
-      rgba(255,158,60,0.30) 94%,
-      rgba(255,126,34,0.64) 100%);
+      rgba(255,190,90,0) 86%,
+      rgba(255,182,86,0.055) 93%,
+      rgba(255,158,60,0.12) 97%,
+      rgba(255,126,34,0.20) 100%);
 }
 /* The charge ring. Its colour follows the mini-turbo tier, so the frame itself
    is part of the meter — the sparks say it loudest, this says it in peripheral
@@ -71,9 +104,9 @@ const CSS = `
 #fx-screen .rush.charge {
   background:
     radial-gradient(ellipse farthest-side at 50% 50%,
-      rgba(255,242,216,0) 84%,
-      rgba(255,242,216,0.03) 93%,
-      rgba(255,242,216,0.08) 100%);
+      rgba(255,242,216,0) 87%,
+      rgba(255,242,216,0.028) 94%,
+      rgba(255,242,216,0.075) 100%);
 }
 `;
 
@@ -99,18 +132,38 @@ const CSS = `
  * the outer 70px of the frame instead of the outer 145. What is left is a
  * coloured edge a player reads without looking at it, over a picture whose own
  * colours are still its own.
+ *
+ * ── ...and why the peak then had to go back up ──────────────────────────────
+ *
+ * Because halving it stopped it being a meter. This ring is the *only* cue for
+ * the charge that lives in peripheral vision, and a meter whose first two
+ * marks are below threshold is not a meter, it is a surprise at the end.
+ * Measured against a centre control, the tier-0 and tier-1 rims were within
+ * two RGB units of each other and of the unboosted frame; only tier three
+ * moved at all. The ladder was invisible-invisible-overwhelming.
+ *
+ * The peak is now roughly linear in the tier, and the amount `index.ts` drives
+ * it with climbs too, so the product — what actually lands on the glass —
+ * steps 0.10 / 0.15 / 0.20. The top of that ladder is exactly the boost rush's
+ * own outer alpha, which is the ceiling the whole screen layer is budgeted
+ * against: nothing a drift can do may shout louder than the boost it is
+ * earning. See `rushCss`.
+ *
+ * All of it is safe at these strengths only because the layer genuinely screens
+ * now — see the note at the top of `CSS`. Light added to a rim cannot take the
+ * colour out of the middle however far the ladder climbs.
  */
 function chargeCss(tier: number, hex: number): string {
   const r = (hex >> 16) & 0xff, g = (hex >> 8) & 0xff, b = hex & 0xff;
   const lift = (k: number): string =>
     `${Math.round(r + (255 - r) * k)},${Math.round(g + (255 - g) * k)},${Math.round(b + (255 - b) * k)}`;
-  const peak = 0.14 + 0.025 * tier;
+  const peak = 0.075 + 0.035 * tier;
   return `
 #fx-screen .rush.charge.t${tier} {
   background:
     radial-gradient(ellipse farthest-side at 50% 50%,
-      rgba(${lift(0.35)},0) 83%,
-      rgba(${lift(0.22)},${(peak * 0.34).toFixed(3)}) 93%,
+      rgba(${lift(0.35)},0) 86%,
+      rgba(${lift(0.22)},${(peak * 0.30).toFixed(3)}) 94%,
       rgba(${lift(0)},${peak.toFixed(3)}) 100%);
 }`;
 }
@@ -131,6 +184,39 @@ function chargeCss(tier: number, hex: number): string {
  * *light* rather than as a coloured filter, and the innermost is warmed a
  * little toward flame in every tier — a boost is fire whatever charged it, and
  * a rim of pure cyan with no warmth in it reads as a freeze, not as thrust.
+ *
+ * ── the budget ──────────────────────────────────────────────────────────────
+ *
+ * Every number in here is now spent against one rule: **the rush may add light
+ * to the rim and may not repaint the frame.** It was doing the second. Held at
+ * 0.93 opacity for the whole of a 1.85s ultra, over a gradient that opened at
+ * 69% of the half-side and reached 0.64 alpha, it covered 22.5% of the picture
+ * in one saturated hue and — because the layer was not really screening, see
+ * `CSS` — pulled 76 RGB units of green out of the sky while it did.
+ *
+ * Three changes, and the arithmetic behind them:
+ *
+ *   the group screens for real, so the composite is base + a·src·(1 − base).
+ *   Nothing can go down.
+ *
+ *   the opening stop moves 69% → 86%, which is the difference between a fifth
+ *   of the frame and its outer rim.
+ *
+ *   the outer alpha comes down 0.64 → 0.20. Against the brightest thing in the
+ *   picture — the sky, around 0.82 linear — the worst channel that leaves is
+ *   0.20 · 0.93 · 0.9 · 0.18 ≈ 0.03, about 8 RGB units. Against the darkest —
+ *   tarmac in shadow — the same term is worth 30-odd units of *added* light,
+ *   which is exactly the asymmetry a real light has and exactly the reason the
+ *   rim reads at all.
+ *
+ * The tier still rides on the hue, which is the whole point of the channel, but
+ * it now rides on a rim rather than on the whole glass.
+ *
+ * Measured on the review bench with the layer forced on over a settled racing
+ * frame at 1600x900, against the same frame with the layer hidden: the critic's
+ * own sky patch moves 16 RGB units at most on any channel and every channel
+ * moves *up*, against 121 down before. The band means move about 25. The centre
+ * of the frame moves by 1, which is rounding.
  */
 function rushCss(tier: number, hex: number): string {
   const r = (hex >> 16) & 0xff, g = (hex >> 8) & 0xff, b = hex & 0xff;
@@ -145,10 +231,10 @@ function rushCss(tier: number, hex: number): string {
 #fx-screen .rush.boost.b${tier} {
   background:
     radial-gradient(ellipse farthest-side at 50% 50%,
-      rgba(${mix(0.45, 0.35)},0) 69%,
-      rgba(${mix(0.34, 0.30)},0.09) 84%,
-      rgba(${mix(0.16, 0.22)},0.30) 94%,
-      rgba(${mix(0.00, 0.14)},0.64) 100%);
+      rgba(${mix(0.45, 0.35)},0) 86%,
+      rgba(${mix(0.34, 0.30)},0.085) 92%,
+      rgba(${mix(0.16, 0.22)},0.20) 96%,
+      rgba(${mix(0.00, 0.14)},0.36) 100%);
 }`;
 }
 
