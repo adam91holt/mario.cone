@@ -358,6 +358,14 @@ export interface GameContext {
   audio: AudioSystem | null;
   fx: FxSystem | null;
 
+  /**
+   * The frame budget, filled in by the engine every rendered frame and mutated
+   * in place — read it as often as you like without allocating. **Never from
+   * `fixedUpdate`:** a simulation that branches on how fast the machine is
+   * running is not a deterministic one.
+   */
+  budget?: FrameBudget;
+
   /** Set by the harness installer. */
   harness?: HarnessApi;
 }
@@ -402,8 +410,57 @@ export interface VirtualInput {
   pause: boolean;
 }
 
+/** One system's measured cost, milliseconds per rendered frame. */
+export interface SystemCost {
+  name: string;
+  /** Time in this system's `fixedUpdate`, summed over the frame's steps. */
+  simMs: number;
+  /** ...and in its `update`. */
+  updateMs: number;
+}
+
+/**
+ * The frame budget, mutated in place by the engine every rendered frame.
+ *
+ * Live on `ctx` rather than only behind `stats()` so the quality governor can
+ * read it every frame without allocating an object to do it. Read-only to
+ * everyone except the engine — and unreadable to `fixedUpdate` by convention,
+ * because a simulation that branches on how fast the machine is running is not
+ * a deterministic one.
+ */
+export interface FrameBudget {
+  /** The last rendered frame, milliseconds. */
+  simMs: number;
+  updateMs: number;
+  drawMs: number;
+  /** Mean and worst of (sim + update + draw) over the last 60 frames. */
+  meanMs: number;
+  worstMs: number;
+  meanSimMs: number;
+  meanDrawMs: number;
+  /** Mean wall-clock frame time from the rAF loop; 0 when the harness drives. */
+  wallMs: number;
+  /** Fixed steps folded into the last rendered frame. */
+  steps: number;
+  /** Rendered frames since boot. */
+  frames: number;
+  /**
+   * Frames the rAF loop drove, and frames the test harness drove.
+   *
+   * These are different animals and anything tuning itself against frame cost
+   * has to tell them apart. `advance()` renders six fixed steps at a time from
+   * a Node round trip on a software rasteriser; a governor that reads that as
+   * "this machine cannot hold 60fps" would turn the review sheet down to the
+   * low tier and photograph the wrong game.
+   */
+  liveFrames: number;
+  benchFrames: number;
+}
+
 export interface RenderStats {
+  /** Frames per second the measured work implies, capped at the 60fps target. */
   fps: number;
+  /** Measured work per frame: sim + update + draw. Not a wall-clock delta. */
   ms: number;
   worstMs: number;
   drawCalls: number;
@@ -411,6 +468,33 @@ export interface RenderStats {
   programs: number;
   geometries: number;
   textures: number;
+
+  // ── the budget, split three ways ──────────────────────────────────────────
+  // A frame that misses 16.7ms in the simulation and a frame that misses it in
+  // the draw are different bugs. These are optional only so that adding them
+  // could not break another module mid-wave; the engine always fills them.
+  /** Milliseconds of the last frame spent in `fixedUpdate`, all steps together. */
+  simMs?: number;
+  /** ...in the systems' `update` pass. */
+  updateMs?: number;
+  /** ...in the draw itself, post stack included. */
+  drawMs?: number;
+  meanSimMs?: number;
+  meanDrawMs?: number;
+  /** Mean wall frame time from the rAF loop; 0 while the harness is driving. */
+  wallMs?: number;
+  /** Fixed steps folded into the last rendered frame. */
+  steps?: number;
+
+  // ── what the quality governor has settled on ─────────────────────────────
+  tier?: QualitySettings['tier'];
+  drawDistance?: number;
+  particles?: number;
+  /** 0 when shadows are off, so "no shadow map" and "a small one" differ. */
+  shadowSize?: number;
+
+  /** Per-system cost, most expensive first. Systems under 5µs are omitted. */
+  systems?: SystemCost[];
 }
 
 export interface Snapshot {

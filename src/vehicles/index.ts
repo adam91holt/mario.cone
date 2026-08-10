@@ -46,6 +46,51 @@ const _inv = new THREE.Quaternion();
  */
 const DETAIL_DISTANCE = 52;
 
+// ── the part ladder ────────────────────────────────────────────────────────
+//
+// Measured, not guessed. An ablation of a settled racing frame on Cone Canyon
+// put the whole game at 413 draw calls, of which **295 were the eight machines**
+// — 71% of the frame's submissions for 62k of its 688k triangles. A racer is
+// twenty-two to forty-one meshes across seventeen to twenty-six materials, and
+// none of that can merge further without merging the paint; so the only honest
+// lever left is *not submitting the parts nobody can resolve*.
+//
+// Both thresholds below are in **screen pixels of radius**, resolved against the
+// live lens and viewport rather than against a distance in metres, because the
+// same machine at the same distance is four times the pixels on the overhead
+// camera as it is at a 50° chase and the answer has to follow the frame.
+//
+/** A part smaller than this across is not detail, it is cost. */
+const PART_MIN_PX = 2.6;
+/**
+ * ...and a part smaller than this casts a shadow nobody will find.
+ *
+ * Deliberately far coarser: the shadow pass was 154 of those 413 calls, and a
+ * wing mirror's own shadow contributes nothing to the dark shape under a kart
+ * that the body has not already drawn. The two largest meshes of every machine
+ * are exempt (see `SHADOW_KEEP`) so no racer can ever lose its shadow outright.
+ */
+const SHADOW_MIN_PX = 9;
+/** Largest meshes that keep casting whatever the ladder says. */
+const SHADOW_KEEP = 2;
+/**
+ * Fraction a threshold has to be beaten by before a part switches back on.
+ *
+ * Without it a machine held at exactly the cut distance — which is where a
+ * rival you are racing sits, by definition — flickers its own greebles on and
+ * off every frame.
+ */
+const LOD_HYSTERESIS = 0.82;
+
+/** One switchable part, with the model-space radius that decides its fate. */
+interface LodPart {
+  node: THREE.Mesh;
+  /** Bounding radius in metres, model space. */
+  radius: number;
+  /** The mesh's own build-time answer, so the ladder can restore it exactly. */
+  casts: boolean;
+}
+
 interface VisualState {
   /** 0..1 how airborne the racer looks, for the contact shadow. */
   air: number;
@@ -54,6 +99,54 @@ interface VisualState {
   /** Nodes flagged `userData.detail` by the model, cached at build time. */
   detail: THREE.Object3D[];
   detailOn: boolean;
+  /**
+   * Everything the ladder may switch, **ascending by radius**, so a frame's
+   * decision is a pointer into a sorted array rather than a walk of the tree.
+   * Nodes under a `detail` group are deliberately absent: that gate owns them,
+   * and two owners of one `visible` flag is a flicker.
+   */
+  parts: LodPart[];
+  /** Parts [0, hidden) are switched off; [0, unshadowed) cast nothing. */
+  hidden: number;
+  unshadowed: number;
+  /** The contact blob, found once instead of by name every frame. */
+  blob: THREE.Mesh | null;
+}
+
+/** First part big enough to survive `want`. The list is sorted, so this is it. */
+function firstAtLeast(parts: LodPart[], want: number): number {
+  let i = 0;
+  while (i < parts.length && parts[i]!.radius < want) i++;
+  return i;
+}
+
+/**
+ * Where a ladder's pointer wants to be, with the dead band applied.
+ *
+ * Moving *up* (dropping parts) happens the moment the threshold is crossed.
+ * Moving back down waits until the part clears it by `LOD_HYSTERESIS`, so a
+ * rival held at exactly the cut distance — which, being a rival, is where it
+ * spends the race — settles instead of strobing.
+ */
+function ladderTarget(parts: LodPart[], at: number, want: number): number {
+  const grow = firstAtLeast(parts, want);
+  if (grow > at) return grow;
+  const shrink = firstAtLeast(parts, want * LOD_HYSTERESIS);
+  return shrink < at ? shrink : at;
+}
+
+/** Parts below the pointer are switched off; above it, on. */
+function moveVisible(parts: LodPart[], at: number, target: number): number {
+  while (at < target) { parts[at]!.node.visible = false; at++; }
+  while (at > target) { at--; parts[at]!.node.visible = true; }
+  return at;
+}
+
+/** ...and the same walk for the shadow pass, restoring each mesh's own answer. */
+function moveShadow(parts: LodPart[], at: number, target: number): number {
+  while (at < target) { parts[at]!.node.castShadow = false; at++; }
+  while (at > target) { at--; parts[at]!.node.castShadow = parts[at]!.casts; }
+  return at;
 }
 
 export function createVehicleSystem(ctx: GameContext): GameSystem {
@@ -61,10 +154,34 @@ export function createVehicleSystem(ctx: GameContext): GameSystem {
 
   function makeVisualState(model: { root: THREE.Object3D }): VisualState {
     const detail: THREE.Object3D[] = [];
-    model.root.traverse((o) => {
+    const parts: LodPart[] = [];
+    let blob: THREE.Mesh | null = null;
+
+    // One walk builds all three lists. `underDetail` is carried down rather
+    // than tested by climbing back up, so a node buried three groups deep
+    // inside a beacon housing is still recognised as the detail gate's.
+    const walk = (o: THREE.Object3D, underDetail: boolean): void => {
+      const isDetail = underDetail || !!o.userData.detail;
       if (o.userData.detail) detail.push(o);
-    });
-    return { air: 0, t: 0, detail, detailOn: true };
+      if (o.name === 'shadowBlob') {
+        blob = o as THREE.Mesh;
+        return; // the contact pass owns it; the ladder must not touch it
+      }
+      const mesh = o as THREE.Mesh;
+      if (!isDetail && mesh.isMesh && mesh.geometry) {
+        if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+        const r = mesh.geometry.boundingSphere?.radius ?? 0;
+        if (r > 0) parts.push({ node: mesh, radius: r, casts: mesh.castShadow });
+      }
+      for (let i = 0; i < o.children.length; i++) walk(o.children[i]!, isDetail);
+    };
+    walk(model.root, false);
+    parts.sort((a, b) => a.radius - b.radius);
+
+    return {
+      air: 0, t: 0, detail, detailOn: true,
+      parts, hidden: 0, unshadowed: 0, blob,
+    };
   }
 
   /**
@@ -107,6 +224,25 @@ export function createVehicleSystem(ctx: GameContext): GameSystem {
     update(dt: number, alpha: number): void {
       const step = Math.min(dt, 0.1);
 
+      // Pixels of screen height per metre at one metre. Divide by a distance
+      // and you have the projected size of anything out there, which is the
+      // only unit in which "too small to resolve" means anything: the same
+      // machine at the same distance is four times the pixels through the
+      // overhead lens as it is through the 50° chase.
+      //
+      // Read off the live camera and the live drawing buffer every frame —
+      // both move (the lens opens with speed and kicks on every boost), and a
+      // ladder keyed to a stale lens pops parts back in during the exact
+      // second the player is looking hardest.
+      const canvas = ctx.renderer.domElement;
+      const h = canvas.height || canvas.clientHeight || 720;
+      const pxPerMetre =
+        (h * 0.5) / Math.tan((ctx.camera.fov * Math.PI) / 360);
+      // A tier that has already given up its shadow map has nothing to gain
+      // from walking the shadow ladder, and everything to lose from writing
+      // `castShadow` on two hundred nodes for no reason.
+      const shadows = ctx.quality.shadows;
+
       for (const racer of ctx.racers) {
         const vis = ensureModel(racer);
         const model = racer.model;
@@ -143,14 +279,37 @@ export function createVehicleSystem(ctx: GameContext): GameSystem {
         // with rpm, an exhaust glow with boost) and would switch them back on.
         // Coming back into range it is restored once, and the model owns it
         // again from there.
+        const d2 = _pos.distanceToSquared(ctx.camera.position);
         if (vis.detail.length) {
-          const on = _pos.distanceToSquared(ctx.camera.position) < DETAIL_DISTANCE * DETAIL_DISTANCE;
+          const on = d2 < DETAIL_DISTANCE * DETAIL_DISTANCE;
           if (!on) {
             for (const d of vis.detail) d.visible = false;
             vis.detailOn = false;
           } else if (!vis.detailOn) {
             for (const d of vis.detail) d.visible = true;
             vis.detailOn = true;
+          }
+        }
+
+        // ── the part ladder ──────────────────────────────────────────────
+        //
+        // After the model's own update and after the detail gate, so this has
+        // the last word on `visible` and the two owners never disagree. The
+        // thresholds are radii in metres: a part is dropped once its projected
+        // radius falls under a couple of pixels, and stops casting a shadow a
+        // good deal earlier than that.
+        const parts = vis.parts;
+        if (parts.length && d2 > 1e-6) {
+          // Metres of model-space radius per screen pixel at this distance.
+          const perPx = Math.sqrt(d2) / pxPerMetre;
+          vis.hidden = moveVisible(parts, vis.hidden,
+            ladderTarget(parts, vis.hidden, PART_MIN_PX * perPx));
+          if (shadows) {
+            // Capped so the two biggest meshes always cast: a machine may lose
+            // its greebles' shadows, never its own.
+            const keep = parts.length > SHADOW_KEEP ? parts.length - SHADOW_KEEP : 0;
+            const want = ladderTarget(parts, vis.unshadowed, SHADOW_MIN_PX * perPx);
+            vis.unshadowed = moveShadow(parts, vis.unshadowed, want < keep ? want : keep);
           }
         }
 
@@ -165,7 +324,10 @@ export function createVehicleSystem(ctx: GameContext): GameSystem {
         // and levels off to horizontal once it leaves it, then shrinks away —
         // a blob that follows a kart into the air is the fastest way to make a
         // jump look weightless.
-        const blob = root.getObjectByName('shadowBlob');
+        // Found once at build time. `getObjectByName` is a full traverse of the
+        // rig, and doing it per racer per frame was walking two hundred nodes a
+        // frame to reach one that never moves.
+        const blob = vis.blob;
         if (blob) {
           vis.air = damp(vis.air, racer.grounded ? 0 : 1, racer.grounded ? 0.0005 : 0.02, step);
           const lift = clamp01(racer.airTime * 0.7 + vis.air * 0.2);
@@ -174,11 +336,9 @@ export function createVehicleSystem(ctx: GameContext): GameSystem {
           blob.quaternion.copy(_level).multiply(_flat);
           blob.position.y = 0.02 - lift * 0.02;
           blob.scale.setScalar(lerp(1, 1.4, lift));
-          const m = (blob as THREE.Mesh).material as THREE.MeshBasicMaterial;
+          const m = blob.material as THREE.MeshBasicMaterial;
           m.opacity = 0.85 * (1 - lift * 0.85);
         }
-
-        visuals.set(racer.id, vis);
       }
     },
 

@@ -8,6 +8,7 @@ import { config } from './core/config.ts';
 import { createBus } from './core/bus.ts';
 import { createInput } from './core/input.ts';
 import { createEngine } from './core/engine.ts';
+import { createQualitySystem } from './core/quality.ts';
 import { installHarness } from './core/harness.ts';
 import { makeRng } from './core/math.ts';
 import { createTrackSystem } from './track/index.ts';
@@ -96,6 +97,7 @@ async function boot(): Promise<void> {
   engine.add(createVehicleSystem(ctx));
   engine.add(createFxSystem(ctx));
   engine.add(createAudioSystem(ctx));
+  engine.add(createQualitySystem(ctx));
   engine.add(createHudSystem(ctx));
   engine.add(createCoachSystem(ctx));
   engine.add(createMenuSystem(ctx));
