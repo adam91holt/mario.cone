@@ -238,8 +238,11 @@ Canonical events — add new ones to this list when you introduce them:
 **Shots, not modes.** `camera:mode` is the player's own control — chase, far,
 look-behind — and the race has no business spending it on ceremony. `camera:shot`
 is the channel for the moments the race can compose better than a follow rig
-can, and `render/camera.ts` answers all four: `grid`, `countdown`, `podium` and
-`finish`. The director used to *borrow* `camera:mode 'near'` for the finish
+can, and `render/camera.ts` answers three: `grid`, `countdown` and `finish`.
+There was a fourth — `podium`, a 2.4s orbit of the winner, built and wired at
+both ends — and it played its whole length underneath a results sheet that
+covers the frame edge to edge at 97% opacity. A shot nobody can see is the same
+bug as an emit nobody hears, so it is gone rather than half-fixed. The director used to *borrow* `camera:mode 'near'` for the finish
 because nothing answered the shot it was already emitting in full — racer,
 place, podium, hold and lead — and the borrow silently took the lens off a
 player holding look-behind or a reviewer who had asked for `overhead`. The lens
@@ -529,7 +532,18 @@ The look is **Nintendo-clean, saturated, readable, joyful**. Specifics:
   painted vinyl/plastic. Low roughness variation, strong rim light.
 - **Warm key, cool fill.** Sun is warm; sky bounce is cool. Never flat ambient.
 - **Contact is everything.** Every object needs a grounded shadow. Floating objects
-  look fake instantly.
+  look fake instantly. **There is one shadow policy and it crosses module
+  lines.** The sun, its house trim and its elevation clamp are derived once, by
+  `sunRig()` in `render/lighting.ts`, and imported by anything that models light
+  off a course theme — `render/ground.ts` bakes the landscape with it, and
+  `track/terrain.ts` no longer has a rig of its own. The embankment beside the
+  road *receives* (an unlit material with the real shadow mask multiplied in;
+  see `shadowedTerrainMaterial`) and the standing half of the world kit *casts*
+  (`CASTS` in `src/world/index.ts`). Those two facts depend on each other: for a
+  long time each module declined its half because the other one had declined
+  its half first, both comments were correct, and the game had a road that
+  looked finished and a verge that looked like a greybox. If you turn off one
+  side, say so in the other.
 - **Readability over detail.** The road must always be obvious at speed. Track
   edges get high-contrast trim. Hazards read in peripheral vision.
 - **Squash, stretch, anticipation.** Nothing moves linearly. Karts lean into turns,

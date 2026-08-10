@@ -126,6 +126,57 @@ const MASS_SHAPE: Record<LandKey, LP.MassShape> = {
   canyon: 'butte', quarry: 'block', saltpan: 'dome', alpine: 'peak',
 };
 
+/**
+ * Which prop kinds cast a shadow.
+ *
+ * This used to be nobody's, and the whole module answered "none". The reasoning
+ * was sound and it was written down: the landscape is drawn unlit, so the only
+ * surface a prop's shadow could land on was the road, on the far side of a
+ * barrier. Meanwhile `render/ground.ts` declined to receive because nothing out
+ * here cast. Both files were right about the other and the game lost — a road
+ * that looks like a Nintendo game and a verge that looks like a greybox, with
+ * the player crossing between them every time they clip a corner.
+ *
+ * `render/ground.ts` now gives the embankment a shadow-receiving material, so
+ * the surface exists and this list is what stands on it. Three rules decide
+ * membership:
+ *
+ *   *solid*  — a shadow is the object's silhouette, so cloth, crowds, glow,
+ *     dust and steam are out. A flag's shadow is a rectangle of noise.
+ *   *near*   — the shadow camera is sixty-odd metres across and follows the
+ *     player. A tower crane at 900m can never be inside it, so `castShadow`
+ *     there buys nothing and costs a frustum test on every batch, every frame.
+ *   *standing* — pads, hardstands, terraces and berms *are* ground. A flat
+ *     slab casting onto the dirt it is lying on is shadow acne, not contact.
+ *
+ * Everything that passes all three is in. `place.ts` already reads
+ * `k.opts.cast` per kind, so this is a list and not a rewrite.
+ */
+const CASTS = new Set<string>([
+  // The roadworks kit lining the circuit.
+  'cone', 'coneStack', 'drum', 'barrierRun', 'trestle', 'tyres',
+  'sign', 'arrowBoard', 'hoarding', 'hoarding2', 'hoarding3',
+  'portaloo', 'container', 'siteHut', 'skip', 'scaffold',
+  'pipeStack', 'cableDrum', 'palletStack', 'digger', 'dumper',
+  'marshalPost', 'ventPipe', 'lightColumn', 'floodlight', 'flagPole',
+  // ...and the natural scatter standing in the same dirt.
+  'spoil', 'boulder',
+  // The near half of the landscape's own kit.
+  'rubble', 'rubble2', 'saltRidge', 'saltRidge2',
+  'snowDrift', 'snowDrift2', 'snowPole', 'surveyPeg', 'avFence',
+  'windsockMast', 'pines0', 'pines1', 'pines2',
+]);
+
+/**
+ * How far above the real ground a road-level plinth may stand, in metres.
+ *
+ * `terrainHeight` drops the ground 5.75m below the shoulder inside thirty
+ * metres, which is the ditch every one of these is built out of, and the far
+ * field settles toward the course datum on top of that. Ten metres covers the
+ * ditch plus the settle with room to spare and still refuses a cliff.
+ */
+const MAX_PLINTH = 10;
+
 const _camPos = new THREE.Vector3();
 
 export function createWorldSystem(ctx: GameContext): GameSystem {
@@ -186,19 +237,11 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
     // `far` is how many metres each kind survives to. A traffic cone at 280m is
     // two pixels; a tower crane at 280m is the skyline.
     //
-    // Nothing out here casts a shadow, and that is a considered decision rather
-    // than an oversight. The landscape is drawn unlit (track/terrain.ts) and
-    // receives no shadow map at all, so the only surface a prop's shadow could
-    // land on is the road — which is on the far side of a barrier from every
-    // one of them. Meanwhile three culls the shadow pass per *object*, so one
-    // instanced batch clipping the shadow frustum re-submits every cone in a
-    // quarter of the circuit. Turning it off across the module halved the
-    // module's triangle count for no visible loss; the grounding comes from the
-    // baked contact patches instead.
+    // **Standing geometry casts; everything else does not.** See `CASTS`.
     const def = (
       id: string, geo: THREE.BufferGeometry, far: number,
       material: THREE.Material = M.prop,
-    ): void => batcher.define(id, geo, { material, far, cast: false });
+    ): void => batcher.define(id, geo, { material, far, cast: CASTS.has(id) });
 
     def('contact', P.blobGeo(), 200, M.shadow);
     def('cone', P.coneGeo(), 250);
@@ -360,12 +403,43 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
       return s;
     }
 
-    /** The same spot, lifted to road level: for anything that stands on a pad. */
+    /**
+     * The same spot, lifted to road level: for anything that stands on a pad.
+     *
+     * The lift is deliberate and it is why the crowd banks and works compounds
+     * are visible at all — see `Ground.roadY`. What was not deliberate is that
+     * it had no ceiling. On a flat course the run-off ditch is five or six
+     * metres deep and a plinth that tall reads as a plinth; on a course where
+     * the ground falls into a quarry the same line put a grandstand, a
+     * hardstand and a run of terraces *thirty metres up in open sky*, in the
+     * first settled frame of the circuit, with daylight underneath them.
+     *
+     * So the datum disagreement is bounded rather than unbounded: a plinth may
+     * be as tall as the ditch it is standing in, and if the real ground is
+     * further down than that there is nothing here to build on and the caller
+     * gets a refusal. Every caller already handles one — they are placing
+     * dressing, and dressing that cannot stand somewhere does not go there.
+     */
     function atRoad(d: number, side: -1 | 1, off: number): Spot | null {
       const s = at(d, side, off);
       if (!s) return null;
-      s.y = ground.roadY(wrap(d));
+      const y = ground.roadY(wrap(d));
+      if (y - s.y > MAX_PLINTH) return null;
+      s.y = y;
       return s;
+    }
+
+    /**
+     * Can something this wide stand here?
+     *
+     * `radius` is the prop's own footprint and `tol` how much height difference
+     * across it the shape can absorb before it starts hanging in the air. Only
+     * the wide, flat kinds ask — a traffic cone on a slope is a traffic cone on
+     * a slope, and a twenty-four-metre quarry bench on the same slope is a
+     * cantilever.
+     */
+    function standable(s: Spot, radius: number, tol: number): boolean {
+      return ground.levelness(s.x, s.z, radius) <= tol;
     }
 
     function farAt(d: number, side: -1 | 1, off: number): Spot | null {
@@ -1241,7 +1315,10 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
           // The bench steps back and up along its own -X. Turned end for end on
           // the far side, so the *cut* always looks at the circuit and the
           // ground always rises away from it, on both hands.
-          if (f) {
+          // A bench is a cut *into* a slope, not a shelf bolted onto one: its
+          // treads run twenty metres back from the anchor, so a face steep
+          // enough to swallow that is a face it cannot be built on.
+          if (f && standable(f.s, 16, 9)) {
             drop(i % 2 ? 'bench' : 'bench2', f.s,
               f.s.along + (side < 0 ? Math.PI : 0), 1, f.d, 0);
           }
@@ -1495,6 +1572,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
         const side = roomier(d, 60);
         const s = at(d, side, rng.range(30, 52));
         if (!s || !free(s.x, s.z, 21)) continue;
+        if (!standable(s, 11, 11)) continue;
         claim(s.x, s.z, 17);
         drop(`landMass${i % 4}`, s, rng.range(0, 6.28), rng.range(0.85, 1.35), d, 0);
       }
@@ -1512,6 +1590,9 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
           // both ends as well, or a spur laid on a bend swings into the run-off.
           if (!s || !at(d - HALF, side, off) || !at(d + HALF, side, off)) continue;
           if (!free(s.x, s.z, 30)) continue;
+          // A hundred metres of ridge lying across a cliff face is a hundred
+          // metres of ridge in mid-air.
+          if (!standable(s, 26, 16)) continue;
           claim(s.x, s.z, 26);
           drop(`landRidge${i % 3}`, s, s.along, rng.range(0.85, 1.25), d, 0);
           placed = true;
@@ -1526,6 +1607,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
         const off = 52 + rng.next() * 96;
         const s = at(d, side, off);
         if (!s || !free(s.x, s.z, 13)) continue;
+        if (!standable(s, 12, 13)) continue;
         drop(`landMass${i % 4}`, s, rng.range(0, 6.28),
           rng.range(0.55, 1.15) * (0.75 + off / 190), d, 0);
       }
@@ -1547,6 +1629,7 @@ export function createWorldSystem(ctx: GameContext): GameSystem {
         const off = rng.range(150, 620);
         const s = farAt(d, side, off);
         if (!s) continue;
+        if (!standable(s, 16, 18)) continue;
         if (rng.bool(0.82)) {
           drop(`landMass${(i + rng.int(0, 3)) % 4}`, s, rng.range(0, 6.28),
             rng.range(0.8, 1.5) * (0.75 + off / 380), d, 0);

@@ -703,10 +703,17 @@ export function buildPlan(
     let want = 0;
     for (let t = 0; t < K.drift.tiers.length; t++) if (charge >= K.drift.tiers[t].at) want = t + 1;
     if (want === 0) continue;
-    // Everybody chases orange. The ones who love it chase purple — that is the
+    // Everybody chases green. The ones who love it chase purple — that is the
     // whole of the difference between the `drifter` archetype and the rest, and
     // an appetite of 1 simply meant a driver who let go the moment it sparked.
-    const appetite = p.driftLove > 0.68 ? 3 : 2;
+    //
+    // The line sat at 0.68, which after the skill scaling admitted exactly two
+    // of eight drivers, and between that and a tier-3 threshold nobody could
+    // reach the biggest mini-turbo in the game was never once fired in ninety
+    // seconds of racing. At 0.58 it is most of the field on the corners that
+    // are long enough to pay for it and nobody on the ones that are not, which
+    // is what the `cap` below is for.
+    const appetite = p.driftLove > 0.58 ? 3 : 2;
 
     // ...but the turbo has to fit the road it lands on.
     //

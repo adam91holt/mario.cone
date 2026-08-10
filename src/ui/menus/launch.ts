@@ -31,7 +31,8 @@
 import { clamp01, ease, lerp } from '../../core/math.ts';
 import { glyphBox, glyphRun } from '../glyphs.ts';
 import { vehicleMark } from './art.ts';
-import { bind, courseMap, cupEmblem, fromHtml, hexCss, q, title, titleBox } from './chrome.ts';
+import { bind, courseMap, cupEmblem, fromHtml, q, title, titleBox } from './chrome.ts';
+import { hazardCss } from '../theme.ts';
 import { getVehicle } from '../../vehicles/registry.ts';
 import { getCourse } from '../../track/courses/index.ts';
 import type { EngineClass, VehicleId } from '../../types.ts';
@@ -108,9 +109,10 @@ export const CSS_LAUNCH = `
 }
 #menu .launch .crawl i {
   position: absolute; top: 0; bottom: 0; left: 0; width: 300%;
-  background: repeating-linear-gradient(114deg,
-    ${hexCss(0xFFC300)} 0 calc(var(--u) * .62),
-    #14171E calc(var(--u) * .62) calc(var(--u) * 1.24));
+  /* The house hazard tape. See "hazardCss" in ui/theme.ts — the launch card is
+     the last thing a player reads before the flag and the results sheet is the
+     first thing after it, and they are taped with the same tape. */
+  background: ${hazardCss(0.886)};
 }
 /* ...and the same again above the head, under the plate's own gold strip. */
 #menu .launch .flag {

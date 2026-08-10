@@ -1,30 +1,32 @@
 // The ground under the tyres, per course.
 //
 // `track/terrain.ts` builds the landscape: an embankment skirt swept along the
-// spline and a coarse field out to the fog, both baked unlit into vertex
-// colours. It builds them beautifully and it builds them **the same way on
-// every course** — one warm-sandstone ramp, one dust texture, and one sun
-// direction taken raw from the theme rather than the one the scene is actually
-// lit by. Saltpan Bypass declares 0xe0dccc, near-white salt, and photographed
-// at rgb(122,100,59): within twelve points of Switchback Summit's alpine rock.
+// spline and a coarse field out to the fog. It builds them beautifully and it
+// builds them **the same way on every course** — one warm-sandstone ramp and
+// one dust texture. Saltpan Bypass declares 0xe0dccc, near-white salt, and
+// photographed at rgb(122,100,59): within twelve points of Switchback Summit's
+// alpine rock.
 //
-// So this system re-surfaces those two meshes the moment the track is built. It
-// does not tint them — a tint would give four brightnesses of one surface, and
-// salt, crusher dust, schist and canyon sand are four different materials. It
-// re-derives every vertex from scratch:
+// So this system owns the landscape's surface: its albedo, its light, its
+// material, and which of its two meshes receives a shadow map. It does not tint
+// what terrain.ts made — a tint would give four brightnesses of one surface,
+// and salt, crusher dust, schist and canyon sand are four different materials.
+// It re-derives every vertex from scratch:
 //
 //   1. Where the vertex is relative to the circuit — metres beyond the shoulder
 //      and metres above the nearest road — recovered from the spline exactly
 //      the way terrain.ts derived them in the first place.
 //   2. An albedo from the landscape's own ramp (`theme.ts`), anchored on the
 //      course's declared `theme.ground`.
-//   3. The course's key light baked on top — and, unlike the original bake,
-//      *the sun the game is actually lit by*: `render/lighting.ts` puts the sun
-//      through a house quarter-turn and clamps its elevation to a 6-degree
-//      working window, so a course asking for a 49-degree sun gets a 34-degree
-//      one on every lit surface and used to get its 49-degree one on the dirt.
-//      A mesa's lit face and a grandstand's lit face now point the same way.
+//   3. The course's key light baked on top, from `sunRig()` in
+//      `render/lighting.ts` — *the sun the game is actually lit by*, house
+//      quarter-turn, elevation clamp and all. There used to be three
+//      derivations of that sun in this repo and one of them, inside
+//      `track/terrain.ts`, was sixty-five degrees off. There is one now, it
+//      lives with the lights, and this file imports it.
 //   4. The landscape's own detail map (`groundtex.ts`), on its own metre pitch.
+//   5. A shadow term on the embankment, so the thing every prop in the game
+//      stands on can be stood on. See `shadowedTerrainMaterial`.
 //
 // Cost: one spline `nearest()` per vertex inside the circuit's neighbourhood,
 // which is the same query terrain.ts already runs once per vertex to build the
@@ -32,20 +34,14 @@
 // allocates per frame because nothing here runs per frame.
 
 import * as THREE from 'three';
-import { clamp } from '../core/math.ts';
 import { smoothstep } from '../track/geom.ts';
 import { groundTexture } from './groundtex.ts';
+import { sunRig } from './lighting.ts';
 import { GROUND_SURFACES, resolveTheme } from './theme.ts';
 import { makeGravelTexture } from '../track/textures.ts';
 import type { PaintArgs } from './theme.ts';
 import type { CourseTheme, GameContext, GameSystem, Track } from '../types.ts';
 
-/** Mirrors `render/lighting.ts`. If that rig moves, this follows it. */
-const AZIMUTH_TRIM = Math.PI * 0.5;
-const SUN_ELEVATION = { min: 0.50, max: 0.60 };
-const DEFAULT_SKY = { top: 0x2e86d6, bottom: 0xbfe7ff, horizon: 0xffe2b0 };
-const DEFAULT_SUN = { color: 0xfff2d8, intensity: 2.6, azimuth: 0.7, elevation: 0.85 };
-const SUN_GAIN = 1.16;
 /** Fill and rim strength, close to the values the original bake was tuned to. */
 const HEMI_I = 1.30;
 const RIM_I = 0.55;
@@ -65,7 +61,6 @@ const RIM_I = 0.55;
  * pan does in life.
  */
 const BOUNCE = 0.26;
-const WHITE = new THREE.Color(0xffffff);
 
 /** The two meshes terrain.ts names. Anything else in the track group is not ours. */
 const TERRAIN_MESHES = new Set(['ground', 'embankment']);
@@ -84,43 +79,104 @@ interface Rig {
 }
 
 function buildRig(theme: CourseTheme): Rig {
-  const s = { ...DEFAULT_SKY, ...(theme.sky ?? {}) };
-  const su = { ...DEFAULT_SUN, ...(theme.sun ?? {}) };
-  const az = su.azimuth + AZIMUTH_TRIM;
-  const el = clamp(su.elevation, SUN_ELEVATION.min, SUN_ELEVATION.max);
+  // **The rig itself is `render/lighting.ts`'s** — direction, colours, the
+  // house quarter-turn and the elevation clamp all come from there, so a mesa's
+  // lit face and a grandstand's lit face can never point different ways again.
+  // What is local to the bake is only how hard each term is pushed.
+  const r = sunRig(theme);
 
-  const zenith = new THREE.Color(s.top);
-  const horizon = new THREE.Color(s.bottom);
+  const hemiSky = r.hemiSky.clone().multiplyScalar(HEMI_I);
+  const hemiGround = r.hemiGround.clone().multiplyScalar(HEMI_I);
+  const sun = r.key.clone();
+  const ground = r.ground;
 
-  // Same two ends the hemisphere light picks: sky above, the course's own
-  // ground bounce below, lifted toward white and held well under the sky.
-  const ground = new THREE.Color(theme.ground ?? 0xc9a063);
-  const hemiSky = horizon.clone().lerp(zenith, 0.58).multiplyScalar(HEMI_I);
-  const hemiGround = ground.clone().lerp(WHITE, 0.18).multiplyScalar(0.58 * HEMI_I);
-  const rim = zenith.clone().lerp(WHITE, 0.34);
-
-  const sun = new THREE.Color(su.color).multiplyScalar(su.intensity * SUN_GAIN);
   // One bounce off the ground, added to the upward fill. See BOUNCE.
   hemiSky.r += sun.r * ground.r * BOUNCE;
   hemiSky.g += sun.g * ground.g * BOUNCE;
   hemiSky.b += sun.b * ground.b * BOUNCE;
 
-  const sx = Math.cos(el) * Math.cos(az);
-  const sy = Math.sin(el);
-  const sz = Math.cos(el) * Math.sin(az);
-  // The rim mirrors the sun across the vertical and sits low, so it grazes.
-  const rl = Math.hypot(-sx, 0.20, -sz) || 1;
-
   return {
     sun,
-    sx, sy, sz,
-    hemiSky, hemiGround, rim,
-    rx: -sx / rl, ry: 0.20 / rl, rz: -sz / rl,
+    sx: r.dir.x, sy: r.dir.y, sz: r.dir.z,
+    hemiSky, hemiGround, rim: r.rim.clone(),
+    rx: r.rimDir.x, ry: r.rimDir.y, rz: r.rimDir.z,
   };
+}
+
+/**
+ * What is left of the light when the sun is taken out of it.
+ *
+ * The landscape is drawn unlit, so a shadow falling on it cannot be "the key
+ * term times zero" — there is no key term at run time, it is already inside the
+ * vertex colours. This is the ratio between the two, per channel, for a
+ * level face: fill plus rim over fill plus rim plus key. Multiplying the baked
+ * colour by it lands on exactly the colour the bake would have produced if the
+ * sun had been blocked, which is what makes a prop's shadow on the dirt and a
+ * kart's shadow on the tarmac the same shadow.
+ */
+function shadeOf(rig: Rig, out: THREE.Color): THREE.Color {
+  const rimUp = Math.max(0, rig.ry) * RIM_I;
+  const key = Math.max(0, rig.sy);
+  const ch = (fill: number, rim: number, sun: number): number => {
+    const lit = fill + rim * rimUp + sun * key;
+    return lit > 1e-5 ? (fill + rim * rimUp) / lit : 1;
+  };
+  return out.setRGB(
+    ch(rig.hemiSky.r, rig.rim.r, rig.sun.r),
+    ch(rig.hemiSky.g, rig.rim.g, rig.sun.g),
+    ch(rig.hemiSky.b, rig.rim.b, rig.sun.b),
+  );
+}
+
+/**
+ * An unlit terrain material that can still be stood on.
+ *
+ * `MeshBasicMaterial` cannot receive a shadow — it has no lights in its shader
+ * at all — and that single fact was the whole of the split between the two
+ * halves of this game's look: `world/index.ts` declined to cast because the
+ * terrain could not receive, `render/ground.ts` declined to receive because
+ * nothing out there cast, both comments were correct, and the verge stayed a
+ * greybox six metres from a road that looks like a Nintendo game.
+ *
+ * So the landscape is lit the way it always was — baked, in the vertices,
+ * because it is the largest thing on screen and the review harness rasterises
+ * in software — and the *only* thing the real rig contributes is the shadow
+ * mask. A Lambert material carries the shadow chunks and the light uniforms;
+ * everything it computes with them is thrown away and replaced with the bake
+ * times the mask.
+ */
+function shadowedTerrainMaterial(
+  map: THREE.Texture, shade: THREE.Color,
+): THREE.MeshLambertMaterial {
+  const mat = new THREE.MeshLambertMaterial({ map, vertexColors: true });
+  const uniform = { value: shade.clone() };
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTerrainShade = uniform;
+    shader.fragmentShader = shader.fragmentShader
+      .replace('uniform vec3 diffuse;', 'uniform vec3 diffuse;\nuniform vec3 uTerrainShade;')
+      .replace(
+        '#include <shadowmap_pars_fragment>',
+        '#include <shadowmap_pars_fragment>\n#include <shadowmask_pars_fragment>',
+      )
+      .replace(
+        '#include <lights_fragment_end>',
+        `#include <lights_fragment_end>
+        // The bake is already the answer. Take the sun back out where the map
+        // says something is standing in front of it, and nothing else.
+        reflectedLight.directDiffuse = vec3( 0.0 );
+        reflectedLight.indirectDiffuse =
+          diffuseColor.rgb * mix( uTerrainShade, vec3( 1.0 ), getShadowMask() );`,
+      );
+  };
+  // Two materials that compile to different programs must not share a cache
+  // key, and three keys on this.
+  mat.customProgramCacheKey = (): string => 'mc-terrain-shadow';
+  return mat;
 }
 
 export function createGroundSystem(ctx: GameContext): GameSystem {
   const _probe = new THREE.Vector3();
+  const _shade = new THREE.Color();
   let off: (() => void) | null = null;
   let surfacedFor = '';
 
@@ -269,20 +325,36 @@ export function createGroundSystem(ctx: GameContext): GameSystem {
       box.minZ = Math.min(box.minZ, walk.pos.z); box.maxZ = Math.max(box.maxZ, walk.pos.z);
     }
 
-    // One material for the whole landscape, so the skirt and the field can
-    // never disagree — and unlit, because the light is in the vertices and
-    // nothing out here receives a shadow map.
+    // One bake, one texture, one ramp for the whole landscape, so the skirt and
+    // the field can never disagree about what this course is made of.
+    //
+    // Two materials, though, and the split is a budget rather than a look. The
+    // embankment is the ground the player actually drives past — every cone,
+    // drum, sign, hut and barrier in the game stands on it, and it is the only
+    // terrain inside the shadow camera's sixty metres — so it takes the shadow
+    // receive. The far field is four kilometres of ground that begins beyond
+    // the skirt's last ring at 150m, where the shadow map has already run out
+    // and `getShadowMask()` would return 1 for every one of its 62,000
+    // triangles. Paying per-fragment for a term that is constant is not
+    // coherence, it is waste; the two agree everywhere they meet because
+    // an unshadowed fragment of one is the same arithmetic as a fragment of
+    // the other.
     const tex = groundTexture(resolved.land);
     tex.repeat.set(1 / surf.tile, 1 / surf.tile);
-    const mat = new THREE.MeshBasicMaterial({ map: tex, vertexColors: true });
-    mat.name = `terrain:${resolved.land}`;
+    const field = new THREE.MeshBasicMaterial({ map: tex, vertexColors: true });
+    field.name = `terrain:${resolved.land}`;
+    const skirt = shadowedTerrainMaterial(tex, shadeOf(rig, _shade));
+    skirt.name = `terrain:${resolved.land}:shadowed`;
 
     const retired = new Set<THREE.Material>();
     for (const mesh of meshes) {
       surface(mesh, track, rig, box);
       const old = mesh.material;
       for (const m of Array.isArray(old) ? old : [old]) retired.add(m);
-      mesh.material = mat;
+      const near = mesh.name === 'embankment';
+      mesh.material = near ? skirt : field;
+      mesh.receiveShadow = near;
+      mesh.castShadow = false;
     }
     // The material terrain.ts made is now unreferenced. Its map is not: that
     // one is cached inside track/textures.ts and other courses will ask for it.

@@ -451,6 +451,26 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
   });
 
   /**
+   * **Is the race being run?** One test, and this is it.
+   *
+   * There were two, three hundred lines apart in this file, and they disagreed.
+   * `updateRacers` asked `ctx.race.phase === 'loading'` and cut the throttle,
+   * which is right and fires. The engine-bus trim asked `ctx.time.scale === 0`
+   * — and the director does not touch `time.scale` when it pauses; it calls
+   * `holdField()` and `setPhaseQuiet('loading')` and nothing else. Measured
+   * with the pause plate up: `{ phase: "loading", timeScale: 1 }`. So the
+   * comment above the trim was exactly right about what should happen and the
+   * line under it could never make it happen, and eight machines idled at full
+   * bus gain behind the pause menu.
+   *
+   * `loading` is the phase `togglePause` parks the race in, and — per
+   * ARCHITECTURE §11a — it is *not* "the front-end is up", which the race
+   * simulates straight through. It is pause, or the moment before the first
+   * grid has been formed. Both are "not being run".
+   */
+  const raceStopped = (): boolean => ctx.race.phase === 'loading';
+
+  /**
    * Pausing, and coming back.
    *
    * `race:pause` had zero listeners: the loudest state change in the game — the
@@ -546,7 +566,7 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
   }
 
   function updateRacers(dt: number, alpha: number, now: number): void {
-    const paused = ctx.race.phase === 'loading';
+    const paused = raceStopped();
     for (const racer of ctx.racers) {
       const s = stateOf(racer);
       if (!s.voice) continue;
@@ -846,7 +866,7 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
       // fighting eight machines still driving around behind it. A paused game
       // steps back further still: the engines are the sound of the race being
       // run, and a race that is not being run should not be roaring.
-      const paused = ctx.time.scale === 0;
+      const paused = raceStopped();
       const trim = cfgAudio.engine
         * (phase === 'results' || phase === 'finished' ? 0.45 : 1)
         * (paused ? 0.12 : 1);

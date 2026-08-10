@@ -104,9 +104,17 @@ ${hintCss('#coach')}
 ${plateCss('#coach')}
 /* Bottom-left, not centred. Centre is where the countdown lands and where the
    road is; a card there would be read as part of the race rather than as
-   furniture beside it. */
+   furniture beside it.
+
+   **Standing on the coin plate, not on the corner.** The HUD's coin readout is
+   in this corner too — "#hud .coin-wrap", 18px off the bottom edge and 63 tall
+   — and at a 1.6u offset this card's rectangle contained the whole of it, with
+   z-index 60 over the top. Whenever the card was up the player's coin count
+   simply was not there, which is a readout the race is actively changing.
+   Neither module was wrong and nobody owned the corner; the card is the thing
+   that can move, because it is furniture and the coin count is information. */
 #coach .card {
-  position: absolute; left: calc(var(--u) * 1.6); bottom: calc(var(--u) * 1.6);
+  position: absolute; left: calc(var(--u) * 1.6); bottom: calc(var(--u) * 5.4);
   padding: calc(var(--u) * .95) calc(var(--u) * 1.25) calc(var(--u) * 1.05);
   opacity: 0; transform: translateY(calc(var(--u) * .5));
 }
