@@ -77,6 +77,25 @@ const SPIN_CELLS = 14;
 const SPIN_EASE = 2.4;
 /** ...and the creep it keeps to the last frame, so it never looks parked. */
 const SPIN_CREEP = 0.06;
+/**
+ * How far the wheel is allowed to creep past the end of its own curve, in cells.
+ *
+ * The curve is parameterised on the *simulation's* remaining time and is only
+ * interpolated by `dt` between one `item:reel` and the next — and those two
+ * clocks are not the same clock. `advance(0.11, 30)` renders three frames of
+ * 36.7ms while stepping four fixed steps of 8.3ms, so the render side runs ten
+ * per cent fast and the interpolation reaches the end of the spin about a tenth
+ * of a second before the item system does. Measured: the wheel stopped dead on
+ * the last face and sat there for five frames before the answer clunked in.
+ *
+ * So the overrun creeps rather than parking, and it is chased rather than
+ * ramped, so it asymptotes instead of hitting a wall and parking anyway. A fifth
+ * of a cell is the ceiling because that is how much of the *landing* cell can be
+ * pulled into the window while it is still showing the wrap face — and the
+ * bottom 28% of the window is under the housing's own lip shadow, so a fifth of
+ * a cell of it is never actually seen.
+ */
+const SPIN_OVERRUN = 0.2;
 /** Seconds the final face takes to clunk into the answer. */
 const LAND_TIME = 0.17;
 
@@ -231,11 +250,18 @@ export const CSS_ITEM = `
   position: relative;
   width: calc(var(--u) * ${SLOT_U}); height: calc(var(--u) * ${SLOT_U});
   border-radius: calc(var(--u) * ${SLOT_RADIUS_U});
+  /* **Opaque.** The well used to be built from two translucent layers, so what
+     an item was photographed against was whatever the camera happened to be
+     pointed at: pale blue over the sky at the top of this circuit and near-black
+     over the tarmac in the canyon. An item frame is a machine, not a window —
+     the icon needs one ground, everywhere on the lap, or the same shell is a
+     different picture twice a corner. */
   background:
-    linear-gradient(163deg, rgba(96,107,128,.62), rgba(23,27,37,.8)),
     repeating-linear-gradient(128deg,
-      rgba(255,107,26,.2) 0 calc(var(--u) * .55),
-      rgba(0,0,0,0) calc(var(--u) * .55) calc(var(--u) * 1.1));
+      rgba(255,124,44,.09) 0 calc(var(--u) * .55),
+      rgba(0,0,0,0) calc(var(--u) * .55) calc(var(--u) * 1.1)),
+    radial-gradient(126% 100% at 50% 24%, rgba(150,172,205,.2), rgba(0,0,0,0) 60%),
+    linear-gradient(163deg, #333B49, #0E1218);
   box-shadow:
     inset 0 0 0 calc(var(--u) * .2) rgba(255,195,0,.95),
     inset 0 0 0 calc(var(--u) * .34) rgba(20,24,34,.85),
@@ -273,42 +299,51 @@ export const CSS_ITEM = `
   overflow: hidden;
   /* Six slats. A lit hairline along the top of each, a body that falls away
      under it, and a hard seam at the bottom — which is what makes a flat
-     gradient read as pressed steel rather than as stripes. */
+     gradient read as pressed steel rather than as stripes. Painted at road-sign
+     values, not at shadow values: the whole point of this object is that the
+     top of the frame stops being a hole. */
   background: repeating-linear-gradient(180deg,
-    #9AA6BA 0 calc(var(--u) * .07),
-    #6B7688 calc(var(--u) * .07) calc(var(--u) * .46),
-    #3D4553 calc(var(--u) * .46) calc(var(--u) * .9),
-    #14171E calc(var(--u) * .9) calc(var(--u) * .99));
+    #C3CEDE 0 calc(var(--u) * .08),
+    #8B98AC calc(var(--u) * .08) calc(var(--u) * .46),
+    #59647A calc(var(--u) * .46) calc(var(--u) * .9),
+    #1B2029 calc(var(--u) * .9) calc(var(--u) * .99));
 }
 /* The key light, from the top left, same as every other painted surface in this
    game. Without it the slats are a flat grille and the socket is a vent. */
 #hud .slot .shut::before {
   content: ''; position: absolute; inset: 0;
   background:
-    radial-gradient(120% 90% at 26% 8%, rgba(255,255,255,.3), rgba(255,255,255,0) 62%),
-    linear-gradient(163deg, rgba(255,255,255,.1), rgba(0,0,0,.28) 72%);
+    radial-gradient(120% 90% at 26% 8%, rgba(255,255,255,.26), rgba(255,255,255,0) 62%),
+    linear-gradient(163deg, rgba(255,240,214,.1), rgba(0,0,0,.2) 76%);
 }
 /* ...and the recess. The shutter sits *inside* the housing, so it is in the
    housing's shadow at the top and bottom lips. */
 #hud .slot .shut::after {
   content: ''; position: absolute; inset: 0;
   box-shadow:
-    inset 0 calc(var(--u) * .42) calc(var(--u) * .8) rgba(0,0,0,.55),
-    inset 0 calc(var(--u) * -.42) calc(var(--u) * .8) rgba(0,0,0,.6);
+    inset 0 calc(var(--u) * .34) calc(var(--u) * .7) rgba(0,0,0,.5),
+    inset 0 calc(var(--u) * -.34) calc(var(--u) * .7) rgba(0,0,0,.55);
 }
-/* The hazard band across the middle. Edge to edge on purpose: a mark that
+/* The hazard bar across the middle. Edge to edge on purpose: a mark that
    stopped short of the sides would read as an object lying in the slot, which
    is exactly the mistake the hazard "?" made. Orange rather than the ring's
-   yellow, so the band and the housing are two parts and not one smear. */
-#hud .slot .shut .band {
+   yellow, so the bar and the housing are two parts and not one smear.
+
+   **Not called "band".** banners.ts owns "#hud .band" — the lap banner — and
+   holds it at "opacity: 0" until it has something to announce, so the first cut
+   of this bar was correctly built, correctly placed, and invisible in every
+   photograph taken of it. One flat namespace under "#hud" is what the whole
+   instrument set shares, and a widget-agnostic class name inside it is a
+   collision waiting for the next widget. */
+#hud .slot .shut .hazard {
   position: absolute; left: 0; right: 0; top: 50%;
   height: calc(var(--u) * 1.5); margin-top: calc(var(--u) * -.75);
   background: repeating-linear-gradient(128deg,
     #FF6B1A 0 calc(var(--u) * .44), #171B24 calc(var(--u) * .44) calc(var(--u) * .88));
   box-shadow:
-    inset 0 calc(var(--u) * .1) 0 rgba(255,255,255,.22),
-    0 calc(var(--u) * -.1) 0 rgba(8,10,14,.9),
-    0 calc(var(--u) * .1) 0 rgba(8,10,14,.9);
+    inset 0 calc(var(--u) * .1) 0 rgba(255,255,255,.24),
+    0 calc(var(--u) * -.11) 0 rgba(8,10,14,.92),
+    0 calc(var(--u) * .11) 0 rgba(8,10,14,.92);
 }
 /* A socket that is deciding is *lit*. The ring goes white-hot while the drum
    runs, so the state is carried by the housing as well as by the motion inside
@@ -463,7 +498,7 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
           <div class="face b">${ITEM_IDS.map(itemIconSvg).join('')}</div>
         </div>
         <div class="drum"><div class="strip">${drumCells}</div></div>
-        <div class="shut"><div class="band"></div></div>
+        <div class="shut"><div class="hazard"></div></div>
         <div class="sweep"></div>
       </div>
       <div class="flare"></div>
@@ -551,6 +586,8 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
   let drumPhase = 0;
   /** ...and how fast, in cells per second, which is what drives the smear. */
   let spinSpeed = 0;
+  /** How far the wheel has crept past the end of its own curve. See SPIN_OVERRUN. */
+  let drumOver = 0;
 
   /** Seconds left of the clunk that rolls the answer into the window. */
   let landing = 0;
@@ -660,6 +697,7 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       spinDur = e.duration && e.duration > 0.05 ? e.duration : FALLBACK_SPIN;
       spinLeft = spinDur;
       alignPending = true;
+      drumOver = 0;
       landing = 0;
       landItem = null;
       squareTravel(drumPhase);
@@ -742,6 +780,7 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       boostFlare = 0;
       drumPhase = 0;
       spinSpeed = 0;
+      drumOver = 0;
       landing = 0;
       landItem = null;
       landFlare = 0;
@@ -795,9 +834,20 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       if (spinning) {
         spinLeft = spinLeft > dt ? spinLeft - dt : 0;
         const u = clamp01(1 - spinLeft / Math.max(0.05, spinDur));
-        const travelled = spinFrom + spinCells * spinShape(u);
-        drumPhase = travelled % DRUM_N;
-        spinSpeed = (spinCells * spinRate(u)) / Math.max(0.05, spinDur);
+        // See SPIN_OVERRUN: the curve can run out before the settle arrives.
+        if (u > 0.99) drumOver += (SPIN_OVERRUN - drumOver) * Math.min(1, dt * 5);
+        // **Monotonic.** The two clocks disagree in *either* direction, and a
+        // reel event that restates more time left than the interpolation had
+        // assumed used to hand the wheel a position behind the one it was
+        // already at — measured at four tenths of a cell backwards, mid-spin,
+        // which is not a wheel slowing down, it is a wheel with a fault. A wheel
+        // turns one way, so the travel only ever goes up.
+        spinTravel = Math.max(spinTravel, spinCells * spinShape(u) + drumOver);
+        drumPhase = (spinFrom + spinTravel) % DRUM_N;
+        spinSpeed = Math.max(
+          u > 0.99 ? 0.7 : 0,
+          (spinCells * spinRate(u)) / Math.max(0.05, spinDur),
+        );
         jitter = 1;
       } else if (landing > 0) {
         // The clunk. One cell, eased out, onto the face the draw actually made.
@@ -839,7 +889,7 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
         // function of the speed and nothing else, so every frame of the spin
         // looks like a spin and the first frame that does not is the answer.
         // Scaled by the HUD unit so it is the same smear at any resolution.
-        const blur = Math.min(2.6, spinSpeed * 0.15) * (unit / 17);
+        const blur = Math.min(3, spinSpeed * 0.1) * (unit / 17);
         strip.set('filter', blur > 0.15 ? `blur(${blur.toFixed(2)}px)` : 'none');
       } else {
         strip.set('filter', 'none');
@@ -896,12 +946,18 @@ export function createItemSlot(ctx: GameContext): ItemSlot {
       // down a little slower, because a door that is dropped is a door, and a
       // door that is snapped shut is a shutter effect. Both short enough that no
       // photograph of this socket ever catches it looking undecided.
+      // Travel is a hundred and sixteen per cent of the shutter's own height,
+      // not a hundred and one: the shutter is inset inside the housing, so
+      // clearing the *window* takes its own height plus both insets. At 101% a
+      // sliver of the bottom slat — the dark seam — parked across the top of the
+      // socket and read as a chip out of the hazard ring in every frame with an
+      // item in it.
       shutOpen = loaded
         ? Math.min(1, shutOpen + dt / 0.1)
         : Math.max(0, shutOpen - dt / 0.15);
       shut.set('transform', shutOpen > 0.999
-        ? 'translateY(-101%)'
-        : `translateY(${(-101 * ease.outCubic(shutOpen)).toFixed(2)}%)`);
+        ? 'translateY(-116%)'
+        : `translateY(${(-116 * ease.outCubic(shutOpen)).toFixed(2)}%)`);
 
       // ── motion ───────────────────────────────────────────────────────────
       if (roll < 1) {

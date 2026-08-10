@@ -168,10 +168,24 @@ export function createVehicleSystem(ctx: GameContext): GameSystem {
         return; // the contact pass owns it; the ladder must not touch it
       }
       const mesh = o as THREE.Mesh;
-      if (!isDetail && mesh.isMesh && mesh.geometry) {
+      // Anything already switched off at build time belongs to somebody else —
+      // a puff waiting for a rate, a mouth waiting to be yelled with — and the
+      // ladder must not be the thing that turns it on.
+      if (!isDetail && mesh.isMesh && mesh.geometry && mesh.visible) {
         if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
         const r = mesh.geometry.boundingSphere?.radius ?? 0;
-        if (r > 0) parts.push({ node: mesh, radius: r, casts: mesh.castShadow });
+        // The build-time shadow answer is recorded on the node, not just in the
+        // list. The list is rebuilt on every `reset()`, and if it read the flag
+        // back off a mesh the previous race's ladder had switched off, that
+        // mesh would lose its shadow permanently. Models are rebuilt per race
+        // today so it cannot happen — but "cannot happen today" is exactly the
+        // shape of the bug the next change to the reset path introduces.
+        if (r > 0) {
+          const born = mesh.userData.mcCasts as boolean | undefined;
+          const casts = born ?? mesh.castShadow;
+          mesh.userData.mcCasts = casts;
+          parts.push({ node: mesh, radius: r, casts });
+        }
       }
       for (let i = 0; i < o.children.length; i++) walk(o.children[i]!, isDetail);
     };
