@@ -1117,7 +1117,7 @@ export function createSoundBank(be: AudioBackend, listener: Listener): SoundBank
       }
       case 'ui.tick': {
         // The results cascade: one per row landing, one per counter step. Tiny,
-        // dry, and pitched by `level` so eight rows read as a run rather than as
+        // dry, and pitched by `level` so the column reads as a run rather than as
         // the same click eight times.
         tone(s, {
           wave: 'triangle', f0: lerp(680, 1320, lv), gain: 0.055,

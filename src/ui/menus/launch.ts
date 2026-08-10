@@ -32,6 +32,7 @@ import { clamp01, ease, lerp } from '../../core/math.ts';
 import { glyphBox, glyphRun } from '../glyphs.ts';
 import { vehicleMark } from './art.ts';
 import { bind, courseMap, cupEmblem, fromHtml, q, title, titleBox } from './chrome.ts';
+import { signBox } from '../letters.ts';
 import { hazardCss } from '../theme.ts';
 import { getVehicle } from '../../vehicles/registry.ts';
 import { getCourse } from '../../track/courses/index.ts';
@@ -99,6 +100,12 @@ export const CSS_LAUNCH = `
 }
 #menu .launch .sil svg { width: 100%; height: 100%; display: block; overflow: visible; }
 #menu .launch .kit .t { font-size: calc(var(--u) * 1.1); }
+/* The driver, under the machine. The card's last statement before the curtain
+   used to be "ROAD CONE - 150CC", and the first statement on the other side of
+   it was FOREMAN: one entrant, two names, and the curtain in between. Both are
+   said here now, in the frame the player reads last. */
+#menu .launch .kit .drv { height: calc(var(--u) * .82); color: var(--gold);
+  margin-top: calc(var(--u) * .22); opacity: .95; }
 #menu .launch .cc { height: calc(var(--u) * 1.85); display: flex; margin-left: auto; }
 #menu .launch .cc .gl { color: var(--gold); }
 /* The strip along the foot: a crawling hazard band, so a card that is on screen
@@ -174,7 +181,7 @@ export function createLaunchCard(): LaunchCard {
             </div>
             <div class="kit">
               <div class="sil"></div>
-              <div>${title('Road Cone', 'mach')}</div>
+              <div>${title('Road Cone', 'mach')}<div class="drv word"></div></div>
               <div class="cc"></div>
             </div>
           </div>
@@ -190,6 +197,7 @@ export function createLaunchCard(): LaunchCard {
   const flag = q<HTMLElement>(root, '.flag');
   const nm = titleBox(q(root, '.nm > i'));
   const mach = titleBox(q(root, '.mach > i'));
+  const driver = signBox(q(root, '.drv'));
   const mapbox = q<HTMLElement>(root, '.mapbox');
   const sil = q<HTMLElement>(root, '.sil');
   const cc = q<HTMLElement>(root, '.cc');
@@ -232,6 +240,7 @@ export function createLaunchCard(): LaunchCard {
       tot.set(((metres * laps) / 1000).toFixed(1));
       sil.innerHTML = vehicleMark(info.vehicleId);
       mach.text(veh.name);
+      driver.set(veh.driver.toUpperCase());
       cc.innerHTML = glyphRun(info.engineClass.toUpperCase());
     },
 

@@ -1,6 +1,6 @@
 {
-  "phase": "Shadows: five pieces, one cause",
-  "phaseNote": "Contact shadows have now failed the menu stage, the world geometry, the machines, the floor quality rung and the items. Each was diagnosed inside its own module and none is a module bug — nothing in the ownership table owns lighting. Next pass takes the whole repo and closes it.",
+  "phase": "Coherence landed at 7.0 — courses and perf next",
+  "phaseNote": "The worst finding of the whole build was fixed this pass: the results sheet had been printing a synthetic ladder of finishing times for a race that had not finished. Field is now 7 racers, down from 8, which buys perfect cast identity at the cost of a smaller grid — flagged rather than accepted.",
   "pieces": [
     {
       "id": "feel",
@@ -151,12 +151,16 @@
       "name": "Whole-game coherence",
       "scope": "everything",
       "state": "fail",
-      "rounds": 2,
-      "verdict": "7.0 then 6.5 across two rounds. The score fell because the critic got deeper, not because the game got worse: round 2 measured things round 1 never reached. Field spread fixed from 0.811s to 24-94s, the AI drifts, the review sheet stopped lying, and the four on-screen instruction languages collapsed onto one rail.",
-      "gap": "The race is composed like a spectator replay rather than something you are driving. The chase rig sat high and far with the kart at 4-8% of frame height, so every asset the game is proudest of played too small to land. Camera now fixed; the item slot is still an empty black square dead centre of the frame, and the results sheet covers the podium it just lit."
+      "rounds": 4,
+      "verdict": "6.5 then 7.0 across two more rounds. One shadow policy across the whole repo. The results sheet stopped fabricating times, the championship column stopped reading zero, and every driver is now permanently bound to one machine, so the player is FOREMAN among Tarmac and Barrier rather than SEDAN among names.",
+      "gap": "Nobody owns the boundary where the 3D world and the flat layers share a frame, so the game stops being authored exactly there: trackside geometry punches through the near plane and draws over the HUD, and every moment that needs camera, world and UI composed together — the grid, the finish, the cup — is either missing or is the racing camera with bars on it."
     }
   ],
   "log": [
+    {
+      "when": "2026-08-10 22:00 UTC",
+      "text": "Coherence pass landed at 7.0. Results were being fabricated — every estimated finisher clamped to the last real one plus 0.08, printing +0.080/+0.160/+0.240 down the table. Now organic, and the championship totals work."
+    },
     {
       "when": "2026-08-10 16:16 UTC",
       "text": "Items round 3 fixed the box economy and peaked at 7.5. Both pieces now sit at 6.5, and the recurring finding across five separate critics is the same one: nothing casts a shadow."

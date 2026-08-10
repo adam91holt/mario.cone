@@ -418,7 +418,17 @@ export const config = {
   // ── Race rules ───────────────────────────────────────────────────────────
   race: {
     laps: 3,
-    racerCount: 8,
+    /**
+     * The size of the field — which is the size of the cast.
+     *
+     * Seven, not eight. There are seven machines and seven drivers, and an
+     * eighth entrant could only ever be a second copy of one of them: the old
+     * eight-car grid put the same model in the same paint on two adjacent rows
+     * of the results sheet. `main.ts` clamps to `listVehicles().length`
+     * whatever arrives here, so a reviewer's `reset({ racerCount: 12 })` gets
+     * the cast rather than five duplicates of it.
+     */
+    racerCount: 7,
     countdownFrom: 3,
     classes: {
       '50cc':  { speedMul: 0.72, aiSkill: 0.62 },

@@ -34,7 +34,7 @@ import { boostRacer } from '../physics/kart.ts';
 import { getVehicle } from '../vehicles/registry.ts';
 import { coursesInCup, listCourses } from '../track/courses/index.ts';
 import { ordinalWord } from '../ui/glyphs.ts';
-import { blipColor } from '../ui/theme.ts';
+import { blipColor, FINISH_HOLD, FINISH_WRAP } from '../ui/theme.ts';
 import { createCup, createRaceBook, type ResultRow } from './book.ts';
 import { createOverlay, type RaceOverlay } from './overlay.ts';
 import { FIN_HOLD, FIN_IN, WIPE_COVERED, WIPE_TOTAL } from './stage.ts';
@@ -54,25 +54,31 @@ const FLAG_HOLD = 2.0;
 /**
  * ...and the longest the race will wait for the field after the player is in.
  *
- * **Six, not fourteen.** Fourteen was chosen when the frame after the flag was
- * assumed to be interesting, and it never was: the finish beat ended at 2.55s,
- * the HUD retired, the results sheet was still eight seconds out, and the
- * measured field spread on Cone Canyon was twenty-six seconds — so the cap was
- * what actually fired, and what it capped was up to fourteen seconds of a
- * stationary kart in a run-off with no interface on it at all. The player had
- * just won.
+ * **Cut to the length of the celebration.** It was fourteen, then six, and both
+ * numbers were chosen on the theory that the frame after the flag is worth
+ * holding. Measured, it is not: the beat's colour ends at 2.55s (`FIN_TOTAL`),
+ * the HUD's gold place banner holds 4.2s and then leaves, the confetti burst is
+ * spent — and at flag+5.1s a winning player was looking at a held letterbox
+ * over a beige embankment with a stopped machine clipped by the bottom bar. Six
+ * seconds on the most important moment in the game, four of them a photograph
+ * of a dirt bank.
  *
- * Six seconds is a beat you can watch: the letterbox is held (see stage.ts),
- * the finish lens is orbiting the machine, and the ticker lands a plate for
- * each racer as they come home. Anyone still out on the circuit at six seconds
- * is brought in by `toWrap`, with the estimated time the results table already
- * knows how to label. A race is over when the player's race is over.
+ * 4.2 covers the beat, plus the second and a half in which a real field
+ * genuinely does come home behind a winner (measured on Cone Canyon: +0.058,
+ * +0.483, +1.183, +1.241, +1.958, +5.308 on a race driven end to end), and it
+ * is stated in `ui/theme.ts` beside the wrap, because the HUD's finishing
+ * banner has to hold for their sum or the last second before the curtain is an
+ * empty frame. Anyone still out on the circuit is brought in by `toWrap` with a
+ * time the sheet labels as an estimate — or, more than a lap out, with no time
+ * at all. A race is over when the player's race is over.
  */
-const WRAP_LIMIT = 6;
+const WRAP_LIMIT = FINISH_HOLD;
 /** A player still circulating after the whole field is home gets this long. */
 const SOLO_LIMIT = 45;
-/** Beat between the last machine crossing and the sheet arriving. */
-const RESULTS_DELAY = 1.6;
+/** Beat between the last machine crossing and the sheet arriving. Short enough
+ *  that the curtain starts while the finish banner is still on the frame, so
+ *  the hand-off happens *out of* something rather than out of an empty shot. */
+const RESULTS_DELAY = FINISH_WRAP;
 /** The finish slow-motion, in real seconds: fall, hold, recover. */
 const SLOW_FALL = 0.15;
 const SLOW_HOLD = 0.55;
@@ -236,7 +242,7 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
 
   let cfgNow: RaceConfig = {
     courseId: 'cone-canyon', vehicleId: 'cone', engineClass: '150cc',
-    racerCount: 8, seed: 1,
+    racerCount: R.racerCount, seed: 1,
   };
   /** Grid order for the next race, by racer name — championship order, set when
    *  the player advances a round. Null means "seat a fresh race". */
@@ -275,21 +281,14 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
    * The livery colour a results row, a ticker line or a championship chip is
    * painted in.
    *
-   * A field of eight drawn from a cast of seven always contains a duplicate —
-   * and this table printed both of them in the same paint, so the third and
-   * sixth rows of a results sheet carried identical chips. `blipColor`'s
-   * `variant` exists for exactly this, and counting the machines of the same
-   * kind already on the grid is the rule `ui/minimap.ts` uses, so a chip here
-   * and a blip there stay the same colour.
+   * There used to be a duplicate-counting pass here — a field of eight drawn
+   * from a cast of seven always contained one machine twice, and this table
+   * printed both copies in the same paint. The field is the cast now (see
+   * `racerCount` in core/config.ts), so no two entrants share a machine and the
+   * machine's own colour is the whole answer.
    */
-  const colorOf = (racer: Racer): number => {
-    let variant = 0;
-    for (const other of ctx.racers) {
-      if (other === racer) break;
-      if (other.vehicleId === racer.vehicleId) variant++;
-    }
-    return blipColor(getVehicle(racer.vehicleId).colors.primary, variant);
-  };
+  const colorOf = (racer: Racer): number =>
+    blipColor(getVehicle(racer.vehicleId).colors.primary);
 
   /**
    * Ask the camera for a *shot*, not a mode.
@@ -308,17 +307,17 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
    *   `countdown` the three beats. Back and up in proportion to the grid
    *               standing in front of the player, so the machines they have to
    *               get past are in the frame they spend the count staring at.
-   *   `podium`    the results sheet's backdrop. `racerId` is the winner.
-   *   `finish`    the player's own crossing.
+   *   `finish`    the player's own crossing. `hold` is how long the move runs,
+   *               and it is the same number the beat and the flag window are
+   *               cut from.
    *
-   * **Three of the four are answered now** — `render/camera.ts` subscribes and
-   * composes `grid`, `countdown` and `podium`. They were not, for the whole
-   * life of the project, which is why the opening sweep used to fly through the
-   * item layer reading the grid backwards and why the results sheet's
-   * deliberately transparent centre opened onto empty road.
-   *
-   * `finish` is still unanswered, and the borrow below is what stands in for it
-   * — see the note under it.
+   * **All three are answered** — `render/camera.ts` subscribes and composes
+   * `grid`, `countdown` and `finish`, and reads `finish`'s `hold` as the length
+   * of the move rather than keeping a number of its own. They were not, for the
+   * whole life of the project, which is why the opening sweep used to fly
+   * through the item layer reading the grid backwards. (`podium` was a fourth
+   * and is gone: it played its whole length under a results sheet that covers
+   * the frame at 97% opacity.)
    */
   function askCamera(shot: string, extra: Record<string, unknown> = {}): void {
     ctx.bus.emit('camera:shot', { shot, ...extra });
@@ -781,19 +780,47 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     ctx.bus.emit('race:wrongway', { racer: ctx.player, on: false });
   }
 
+  /**
+   * How many whole laps behind the leader a racer was when the flag came in for
+   * them. Zero for anyone who actually completed the distance.
+   *
+   * A results sheet is allowed to *estimate* a time for a machine the flag came
+   * in on. It is not allowed to estimate one for a machine that was still two
+   * laps out — that is not a close finish rendered approximately, it is a
+   * fiction, and it is what turned the eighth row into "+1:34.396" as though
+   * somebody had timed it. Real racing prints "+1 LAP".
+   */
+  function lapsDown(racer: Racer): number {
+    // `racer.lap` is laps *completed*, so a machine on the final lap of three
+    // reads 2 and is not a lap down — it is on the lead lap and simply behind.
+    // One less than the total is therefore the datum, not the total.
+    return Math.max(0, ctx.race.totalLaps - 1 - Math.max(0, racer.lap));
+  }
+
   function finishRacer(racer: Racer, estimated: boolean): void {
     if (racer.finished) return;
     racer.finished = true;
-    // A forced finish must never be *earlier* than one already in the book, or
-    // the table's times would contradict its own order.
+    // **No fabricated ladder.**
+    //
+    // This used to clamp every estimate to `lastFinishTime + 0.08`, and because
+    // a comfortable win force-finishes the whole remaining field inside one
+    // frame, the clamp — not the estimate — is what decided the times: the
+    // published review sheet read +0.080 / +0.160 / +0.240 / +0.320 / +0.400
+    // / +0.480 / +0.560 straight down all seven rows. Seven machines strung out
+    // over a kilometre of canyon, printed as a metronome.
+    //
+    // `estimateFinish` stands on its own now. The ordering it has to agree with
+    // is guaranteed at the callers instead — both of them force-finish in
+    // estimate order — and the epsilon below is only a tie-break for two
+    // machines whose estimates land on the same thousandth, not a spacing.
     racer.finishTime = estimated
-      ? Math.max(estimateFinish(racer), lastFinishTime + 0.08)
+      ? Math.max(estimateFinish(racer), lastFinishTime + 0.001)
       : ctx.race.time;
     lastFinishTime = racer.finishTime;
     ctx.race.finishedCount++;
     const place = ctx.race.finishedCount;
     if (place === 1) winnerTime = racer.finishTime;
-    book.finish(racer, place, racer.finishTime, estimated);
+    book.finish(racer, place, racer.finishTime, estimated, estimated ? lapsDown(racer) : 0);
     // `podium` is redundant with `place` and is published anyway: every consumer
     // of this event has to answer the same question — is this a result worth
     // celebrating — and one of them was still firing a full confetti burst and a
@@ -819,7 +846,18 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
     return ctx.race.time + remaining / pace;
   }
 
+  /**
+   * One line of the field coming home.
+   *
+   * **Never the player.** The HUD slams a gold plate across the middle of the
+   * frame reading `1ST PLACE 2:27.591` on the same beat; a dark plate two
+   * hundred pixels to its left reading `1ST | FOREMAN` is the same statement in
+   * a second visual language, and the finish was making it twice. The banner
+   * keeps it — it is the bigger object and it carries the time — and this list
+   * is what it always should have been: the machines still arriving behind you.
+   */
   function tickerAdd(racer: Racer, place: number): void {
+    if (racer.isPlayer) return;
     const gap = place > 1 ? Math.max(0, racer.finishTime - winnerTime) : 0;
     overlay?.ticker.add({
       place,
@@ -827,7 +865,6 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
       name: racer.name,
       gap: gap > 0 ? `+${formatGap(gap)}` : '',
       color: colorOf(racer),
-      isPlayer: racer.isPlayer,
     });
   }
 
@@ -1004,9 +1041,15 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
 
   function toWrap(): void {
     if (ctx.race.phase === 'finished' || ctx.race.phase === 'results') return;
-    // Stragglers come home in the order they were running, not in the order the
-    // field happens to be stored in.
-    const left = ctx.racers.filter((r) => !r.finished).sort((a, b) => b.progress - a.progress);
+    // Stragglers come home in the order their own estimates put them in, not in
+    // the order the field happens to be stored in — and not in progress order
+    // either. Sorting on progress and then printing a time derived from
+    // progress *and pace* is how the table ends up contradicting itself, and
+    // the old answer to that was a clamp that fabricated an even 80ms ladder
+    // down the sheet. Sort on the number that is actually printed and the two
+    // agree by construction.
+    const left = ctx.racers.filter((r) => !r.finished)
+      .sort((a, b) => estimateFinish(a) - estimateFinish(b));
     for (const r of left) finishRacer(r, true);
     updateStandings();
     clearWrongWay();
@@ -1399,7 +1442,7 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
         const want = Math.max(1, Math.min(ctx.racers.length, Math.floor(place)));
         const ahead = ctx.racers
           .filter((r) => !r.isPlayer && !r.finished)
-          .sort((a, b) => b.progress - a.progress);
+          .sort((a, b) => estimateFinish(a) - estimateFinish(b));
         for (let i = 0; i < want - 1 && i < ahead.length; i++) finishRacer(ahead[i]!, true);
         finishRacer(player, true);
         updateStandings();

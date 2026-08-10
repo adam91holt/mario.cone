@@ -224,7 +224,7 @@ export function createRacerVoice(
   const ac = be.ac;
   const t0 = be.now();
   // Every voice starts its noise bed at a different place in the buffer.
-  // Without it, eight machines share one waveform sample for sample and the
+  // Without it, every machine shares one waveform sample for sample and the
   // pack sums coherently into a single comb-filtered roar instead of into
   // eight engines.
   const offset = (seed * 0.37) % 2.6;

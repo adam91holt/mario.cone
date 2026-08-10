@@ -57,7 +57,7 @@ const TAU = Math.PI * 2;
 /** Pool sizes. Generous — the whole point of a pool is that a spectacular
  *  moment is never the moment it runs out. */
 // The alpha layer carries the whole continuous half of the module now — dust,
-// exhaust from eight machines, tyre haze, smoke, confetti — so it is the one
+// exhaust from a full field, tyre haze, smoke, confetti — so it is the one
 // with the most headroom. A layer that silently drops pushes past its cap
 // thins the effect exactly when the frame is busiest, which is the frame the
 // reviewer photographs.
@@ -4839,9 +4839,18 @@ export function createFxSystem(ctx: GameContext): GameSystem {
           // doing 32 m/s is behind the chase camera in a quarter of a second,
           // which is exactly how a burst of four hundred flakes managed to be
           // completely invisible in every screenshot of the finish.
+          // **Less of the machine's velocity than it looks like it should be.**
+          // A flake thrown with four fifths of a kart's speed keeps that speed.
+          // The kart does not: it has just finished, nobody is on the throttle,
+          // and it coasts to a stop inside about a second and a half — so at 0.8
+          // the storm stayed with the winner for exactly as long as the winner
+          // was still moving and then carried on down the road without them,
+          // leaving the back four fifths of the celebration to play out over an
+          // empty verge. Just under half keeps it falling around a machine that
+          // is stopping, which is what the beat is actually of.
           confettiBurst(
             _pos.x, _pos.y, _pos.z, Math.round(420 * density * strength),
-            player.vel.x * 0.8, player.vel.y * 0.8, player.vel.z * 0.8,
+            player.vel.x * 0.45, player.vel.y * 0.45, player.vel.z * 0.45,
           );
           local(0, 0.4, 0, _p);
           sparkBurst(_p.x, _p.y, _p.z, Math.round(40 * strength), 12, GOLD, 3.0);

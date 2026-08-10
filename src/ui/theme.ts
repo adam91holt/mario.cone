@@ -139,7 +139,7 @@ export function rgba(n: number, a: number): string {
  * or the greys stay grey — keeps every blip a distinguishable colour while
  * leaving the hue, which is the part the player actually matches to a machine.
  */
-export function blipColor(n: number, variant = 0): number {
+export function blipColor(n: number): number {
   const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
   const max = Math.max(r, g, b), min = Math.min(r, g, b);
   const l = (max + min) / 2;
@@ -152,12 +152,13 @@ export function blipColor(n: number, variant = 0): number {
     else if (max === g) h = ((b - r) / d + 2) / 6;
     else h = ((r - g) / d + 4) / 6;
   }
-  // A field of eight drawn from seven machines always contains a duplicate.
-  // Nudging the second one round the wheel keeps two blips that would otherwise
-  // be the same dot tellable apart, without breaking the tie to the machine.
-  const L = Math.max(0.48, Math.min(0.8, l + variant * 0.16));
+  // There used to be a `variant` argument here, nudging a duplicated machine
+  // round the wheel so two identical blips could be told apart. There are no
+  // duplicates left to nudge — the field is the cast, one entrant per machine —
+  // and a knob that is always zero is a knob that lies about what the game is.
+  const L = Math.max(0.48, Math.min(0.8, l));
   const S = Math.max(0.55, s);
-  return hslToHex((h + variant * 0.045 + 1) % 1, S, L);
+  return hslToHex(h, S, L);
 }
 
 /**
@@ -336,16 +337,73 @@ export function hazardCss(scale = 1): string {
     + `${HAZARD.lo} calc(var(--u) * ${a}) calc(var(--u) * ${b}))`;
 }
 
+// ── the chevron weave ──────────────────────────────────────────────────────
+//
+// The other texture the whole game is made of: a whisper of diagonal ribbing
+// across every dark surface, at the threshold of visible. It is what makes a
+// panel read as a sign bolted to a post rather than as a UI rectangle, and it
+// is on the plate, the results scrim, the item socket and the pause card.
+//
+// It was on all of those and *not* on the one full-screen surface in the
+// product — the curtain, the single gesture that joins the two halves of the
+// game — which covered the frame twice a race in flat near-black. Written here
+// once so a caller cannot get the angle or the pitch a few degrees out and
+// nobody can tell which of the two is the original.
+
+/** Degrees, band width and pitch in `--u`. The plate's numbers. */
+export const CHEVRON = { angle: 122, band: 0.38, pitch: 0.78 };
+
+/**
+ * `background` for a run of chevron weave.
+ *
+ * `scale` coarsens it for a bigger surface — a 0.38u band is right on a plate a
+ * few units across and is moiré on a surface the size of the frame — and
+ * `alpha` is how lit the ribbing is, which a near-black blade needs more of
+ * than a mid-grey plate does.
+ */
+export function chevronCss(scale = 1, alpha = 0.045): string {
+  const a = (CHEVRON.band * scale).toFixed(3);
+  const b = (CHEVRON.pitch * scale).toFixed(3);
+  return `repeating-linear-gradient(${CHEVRON.angle}deg, `
+    + `rgba(255,255,255,${alpha}) 0 calc(var(--u) * ${a}), `
+    + `rgba(255,255,255,0) calc(var(--u) * ${a}) calc(var(--u) * ${b}))`;
+}
+
 /** Seconds the blades take to close, and to open again. */
 export const CURTAIN_IN = 0.3;
 export const CURTAIN_OUT = 0.42;
-/** Blade width and how far outside the frame it hangs, both in % of the frame. */
-const CURTAIN_W = 78;
+
+// ── the geometry, and why it changed ───────────────────────────────────────
+//
+// **The blades meet. They used to overlap by a third of the frame.**
+//
+// 78% wide hung 10% outside each edge spans -10%..68% on the left and
+// 32%..110% on the right: 36% of the frame carrying two blades, and — because
+// the right blade is the later sibling — painting clean over the left blade's
+// leading hazard stripe. So the closed curtain, the gesture the whole product
+// is joined by, photographed as a flat black field with one orange diagonal
+// stranded a third of the way across it, twice a race, and read as a load
+// screen that had failed to draw.
+//
+// A blade now runs from its own outset to the middle: `50 + OUTSET` wide. Both
+// leading edges land on the same line, both stripes are visible, and together
+// they make one bar of hazard tape down the join — which is what a barrier
+// being drawn across a road looks like.
+//
+// The skew does not open a wedge at the join, because both blades carry the
+// *same* skew and their leading edges stay parallel. It does move the corners:
+// -7° over a blade 128% of the frame's height displaces each corner by about
+// 3.5% of the frame's width, which is why the outset exists and why the travel
+// below has slack in it.
+/** How far outside the frame a blade hangs, in % of the frame. */
 const CURTAIN_OUTSET = 10;
+/** ...so a blade reaches exactly the middle. */
+const CURTAIN_W = 50 + CURTAIN_OUTSET;
 const CURTAIN_SKEW = -7;
-/** Per cent of its *own* width a blade travels to clear the frame. 108% of 78%
- *  is 84% of the frame, which clears a blade whose far edge sits at 68%. */
-const CURTAIN_TRAVEL = 108;
+/** Per cent of its *own* width a blade travels to clear the frame. One whole
+ *  blade width clears a leading edge sitting at 50% with the skew's 3.5% and
+ *  the stripe's own width to spare. */
+const CURTAIN_TRAVEL = 100;
 
 /** The transform for one blade at coverage `cover` (0 open, 1 shut). */
 export function curtainTransform(cover: number, side: -1 | 1): string {
@@ -362,24 +420,90 @@ export function curtainCss(scope: string, sel: string): string {
 ${scope} ${sel} {
   position: absolute; top: -14%; bottom: -14%; width: ${CURTAIN_W}%;
   display: block; opacity: 1;
-  background: linear-gradient(178deg, #12161F 0%, #080B11 60%, #04060A 100%);
+  /* The weave every other dark surface in this game wears, coarsened for a
+     surface the size of the frame, over a face with enough light left in it to
+     show the ribbing at all. */
+  background: ${chevronCss(3.4, 0.055)},
+    linear-gradient(178deg, #1B212D 0%, #0C1119 58%, #060911 100%);
   box-shadow: 0 0 calc(var(--u) * 2) rgba(0,0,0,.7);
 }
 ${scope} ${sel}.l { left: -${CURTAIN_OUTSET}%;
   transform: translateX(-${CURTAIN_TRAVEL}%) skewX(${CURTAIN_SKEW}deg); }
 ${scope} ${sel}.r { right: -${CURTAIN_OUTSET}%;
   transform: translateX(${CURTAIN_TRAVEL}%) skewX(${CURTAIN_SKEW}deg); }
-/* The one stripe on the whole board: a hazard strip down the edge that leads.
-   A blade is a barrier being drawn across the road, and a barrier has tape on
-   the end you are meant to stop at. */
+/* The one stripe on each blade: a hazard strip down the edge that leads. A
+   blade is a barrier being drawn across the road, and a barrier has tape on the
+   end you are meant to stop at.
+
+   **Inside the leading edge, not hanging off it.** Hung outside, the left
+   blade's stripe lands in the right blade's territory and the right blade —
+   later sibling, higher paint order — obliterates it. Inside, the two stripes
+   arrive together and butt up into one 1.6u bar of tape down the meeting line,
+   and the seam between two blades that round to the same pixel is under it. */
 ${scope} ${sel}::after {
-  content: ''; position: absolute; top: 0; bottom: 0; width: calc(var(--u) * .62);
+  content: ''; position: absolute; top: 0; bottom: 0; width: calc(var(--u) * .95);
   background: ${hazardCss()};
+  box-shadow: 0 0 calc(var(--u) * 1.1) rgba(255,107,26,.38);
 }
-${scope} ${sel}.l::after { right: calc(var(--u) * -.62); }
-${scope} ${sel}.r::after { left: calc(var(--u) * -.62); }
+${scope} ${sel}.l::after { right: 0; }
+${scope} ${sel}.r::after { left: 0; }
 `;
 }
+
+// ── the finish hand-off, as two numbers both halves have to agree on ───────
+//
+// The letterbox is the race's and the instrument set is the HUD's, and for the
+// whole life of the project neither knew the other's clock. `race/stage.ts`
+// dropped its bars in a fifth of a second; `ui/hud.ts` did not *start* retiring
+// until a quarter of its own ramp had gone by and then took nine tenths of a
+// second over it. Photographed at 0.3s past the flag, the timer plate and the
+// minimap were sliced through the middle by the top bar and the place badge was
+// a gold stump with its numeral cut off by the bottom one — the exact
+// guillotine `ui/hud.ts` describes in its own comment as the reason the badge
+// retires at all.
+//
+// One number, stated here, where both sides already come for the curtain:
+// **the set is gone before the bars land.**
+
+/** Seconds the finish letterbox takes to close over the frame. */
+export const LETTERBOX_IN = 0.2;
+/**
+ * ...and the seconds the HUD has to be off the screen in, which is strictly
+ * less. Note the two are measured on different clocks and that only makes the
+ * margin larger: the bars run on race time, which is in slow motion for the
+ * first beat after the flag, and this runs on the frame delta, which is not.
+ */
+export const HUD_RETIRE = LETTERBOX_IN * 0.75;
+
+/**
+ * Seconds from the player's own crossing to the hand-off curtain closing on it.
+ *
+ * Split between the race director's two numbers — how long it waits for the
+ * field, and the beat it leaves between the last machine home and the sheet —
+ * and read by the HUD, which has to hold the finishing banner for at least that
+ * long.
+ *
+ * **Because the alternative is an empty frame.** The window was six seconds
+ * plus a 1.6s wrap and the banner held 4.2, so a comfortable win ended with two
+ * and a half seconds of a stopped machine on an embankment with nothing on the
+ * screen at all — no HUD, no banner, no confetti, no ticker — before anything
+ * happened. Three modules each ended cleanly and nobody owned the join. The
+ * banner now leaves *under* the curtain rather than before it.
+ */
+export const FINISH_HOLD = 4.2;
+export const FINISH_WRAP = 1.0;
+/**
+ * ...and the same window in **wall** seconds, which is the clock the banner
+ * runs on.
+ *
+ * Not the sum. The two numbers above are race seconds and the finish drops the
+ * simulation to a third of speed for the first beat and a half after the
+ * crossing (`SLOW_*` in race/director.ts), so the race spends about seven
+ * tenths of a second more real time crossing its own window than they add up
+ * to. A banner that leaves on the sum leaves just before the curtain, which is
+ * the empty frame this whole block exists to close.
+ */
+export const FINISH_WINDOW = FINISH_HOLD + FINISH_WRAP + 0.7;
 
 // ── the cursor ─────────────────────────────────────────────────────────────
 //
@@ -635,13 +759,13 @@ ${scope} ${sel}::before {
   opacity: .95;
 }
 /* ...and a whisper of chevron texture across the face, at the threshold of
-   visible. Flat panels read as UI; a surface reads as a sign bolted to a post. */
+   visible. Flat panels read as UI; a surface reads as a sign bolted to a post.
+   Drawn by "chevronCss" rather than written out here, because the curtain wears
+   the same weave and a texture typed twice is a texture that drifts. */
 ${scope} ${sel}::after {
   content: ''; position: absolute; inset: 0; pointer-events: none;
   border-radius: ${PLATE_RADIUS};
-  background: repeating-linear-gradient(122deg,
-    rgba(255,255,255,.045) 0 calc(var(--u) * .38),
-    rgba(255,255,255,0) calc(var(--u) * .38) calc(var(--u) * .78));
+  background: ${chevronCss()};
 }
 ${scope} ${sel} > * { position: relative; z-index: 1; }
 `;

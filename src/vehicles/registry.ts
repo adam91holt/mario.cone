@@ -21,6 +21,24 @@
 // Stat budget: speed + accel + weight + handling + traction lands within a
 // couple of hundredths of 3.02 for every racer, so nobody is strictly better
 // than anybody else — they are only better at different things.
+//
+// **And each one has a driver, named here.** The cast is seven names out of the
+// roadworks vocabulary, one bolted to each machine:
+//
+//   Road Cone     FOREMAN   the one running the site, in the machine it is named for
+//   Sedan         BOLLARD   ordinary, everywhere, the one you learn on
+//   Tipper Truck  SKIP      a steel bin with right of way
+//   Digger        GRAVEL    loves the dirt
+//   Shunter       BARRIER   long, heavy, and not stopping for you
+//   Prop Plane    TARMAC    the only one that actually needs a runway
+//   Chopper       DETOUR    goes over everything
+//
+// The pairing is fixed. It used to be dealt by grid index out of a list in
+// `main.ts` against a machine pool the player's own pick had a hole punched in,
+// so every rival changed machine when the player changed theirs — see the note
+// on `driver` in types.ts. The player reads their name off the same field as
+// everybody else, so choosing the plane makes you TARMAC and leaves FOREMAN out
+// there in the cone.
 
 import * as THREE from 'three';
 import { clamp, clamp01, damp, lerp } from '../core/math.ts';
@@ -145,6 +163,7 @@ function coneBand(parent: THREE.Object3D, y0: number, y1: number, yOffset = 0): 
 const cone: VehicleDef = {
   id: 'cone',
   name: 'Road Cone',
+  driver: 'Foreman',
   blurb: 'Small, springy, and absolutely everywhere.',
   stats: { speed: 0.42, accel: 0.86, weight: 0.22, handling: 0.90, traction: 0.62 },
   colors: { primary: ORANGE, secondary: WHITE, accent: YELLOW },
@@ -254,6 +273,7 @@ const cone: VehicleDef = {
 const car: VehicleDef = {
   id: 'car',
   name: 'Sedan',
+  driver: 'Bollard',
   blurb: 'Balanced in every direction. The one you learn on.',
   stats: { speed: 0.62, accel: 0.62, weight: 0.50, handling: 0.66, traction: 0.62 },
   colors: { primary: RED, secondary: WHITE, accent: DARK },
@@ -347,6 +367,7 @@ const car: VehicleDef = {
 const truck: VehicleDef = {
   id: 'truck',
   name: 'Tipper Truck',
+  driver: 'Skip',
   blurb: 'Right of way is whatever it decides it is.',
   stats: { speed: 0.72, accel: 0.36, weight: 0.94, handling: 0.34, traction: 0.66 },
   colors: { primary: YELLOW, secondary: ASPHALT, accent: ORANGE },
@@ -472,6 +493,7 @@ const truck: VehicleDef = {
 const digger: VehicleDef = {
   id: 'digger',
   name: 'Digger',
+  driver: 'Gravel',
   blurb: 'Grips anything. Overtakes nothing. Loves the dirt.',
   stats: { speed: 0.30, accel: 0.78, weight: 0.74, handling: 0.30, traction: 0.90 },
   colors: { primary: LIME, secondary: DARK, accent: RUST },
@@ -641,6 +663,7 @@ const digger: VehicleDef = {
 const train: VehicleDef = {
   id: 'train',
   name: 'Shunter',
+  driver: 'Barrier',
   blurb: 'Takes a while to wind up. Then good luck stopping it.',
   stats: { speed: 0.98, accel: 0.24, weight: 1.00, handling: 0.24, traction: 0.56 },
   colors: { primary: 0x1f2a2c, secondary: RED, accent: BRASS },
@@ -786,6 +809,7 @@ const train: VehicleDef = {
 const plane: VehicleDef = {
   id: 'plane',
   name: 'Prop Plane',
+  driver: 'Tarmac',
   blurb: 'Barely touches the ground. Barely needs to.',
   stats: { speed: 0.94, accel: 0.62, weight: 0.24, handling: 0.68, traction: 0.52 },
   colors: { primary: 0xf2f4f8, secondary: RED, accent: BLUE },
@@ -960,6 +984,7 @@ const plane: VehicleDef = {
 const helicopter: VehicleDef = {
   id: 'helicopter',
   name: 'Chopper',
+  driver: 'Detour',
   blurb: 'Turns on the spot. Physics is a suggestion.',
   stats: { speed: 0.56, accel: 0.66, weight: 0.36, handling: 0.98, traction: 0.46 },
   colors: { primary: BLUE, secondary: YELLOW, accent: 0xf2f4f8 },

@@ -31,13 +31,10 @@ import type {
   GameContext, QualitySettings, RaceConfig, VehicleId,
 } from './types.ts';
 
-/** The player's driver name. See the note in `buildField`. */
-const PLAYER_NAME = 'Foreman';
-
-const CPU_NAMES = [
-  'Bollard', 'Barrier', 'Hi-Vis', 'Gravel', 'Detour',
-  'Tarmac', 'Skip', 'Sandbag', 'Beacon', 'Chevron', 'Grader',
-];
+// The cast used to live here, as a flat array of driver names indexed by grid
+// slot. It is on the machines now — `VehicleDef.driver` — because a name
+// indexed by slot and a machine indexed by slot are two orders that only agree
+// by accident. See the note on `driver` in types.ts.
 
 function makeQuality(tier: QualitySettings['tier']): QualitySettings {
   const q = config.quality[tier];
@@ -121,33 +118,32 @@ async function boot(): Promise<void> {
     const all = listVehicles();
     const cpuPool = all.filter((v) => v.id !== cfg.vehicleId);
     const classSkill = config.race.classes[cfg.engineClass].aiSkill;
+    /**
+     * **One machine, one driver, one entrant.**
+     *
+     * The field used to be eight drawn from a cast of seven: `cpuPool[(i - 1) %
+     * cpuPool.length]` wrapped a six-machine pool over seven CPUs, so slot 7
+     * always duplicated slot 1 — same model, same paint (`livery: 14891822` on
+     * both), stacked on adjacent rows of the results sheet, which is the screen
+     * the player stares at longest. Two entrants that are the same machine and
+     * the same colour are one entrant printed twice.
+     *
+     * The field is the cast now, so the count is the cast's size and nothing
+     * outside this file can push it past that. A reviewer asking for twelve
+     * gets seven rather than five duplicates.
+     */
+    const count = Math.max(1, Math.min(cfg.racerCount, all.length));
 
-    for (let i = 0; i < cfg.racerCount; i++) {
+    for (let i = 0; i < count; i++) {
       const isPlayer = i === 0;
-      const def = isPlayer ? getVehicle(cfg.vehicleId) : cpuPool[(i - 1) % cpuPool.length]!;
-      // **Every racer has a driver name and a machine, and the player is no
-      // exception.**
+      const def = isPlayer ? getVehicle(cfg.vehicleId) : cpuPool[i - 1]!;
+      // **The name comes off the machine, for everybody, the player included.**
       //
-      // This has now been wrong twice in opposite directions. It was 'You',
-      // which made the player's own line the one row in the results table in a
-      // different naming system — 5TH SKIP / 6TH YOU / 7TH HI-VIS. The fix for
-      // that named the player after their machine, and that put the same fault
-      // back the other way up: every rival row printed two facts (a silhouette
-      // and a driver), and the player's row printed one fact twice — a car icon
-      // next to the word SEDAN.
-      //
-      // The reason the machine name went in was that ROAD CONE vanished at the
-      // curtain, and that reason is gone: the chosen machine now rides the
-      // whole race as its own silhouette, on the grid, in the chase camera, on
-      // the HUD and in the results row's own `vehicleMark`. So the machine is
-      // said in paint, where it is said for everybody, and the *driver* is
-      // said in words.
-      //
-      // FOREMAN, because the cast is named out of the roadworks vocabulary —
-      // Bollard, Barrier, Hi-Vis, Gravel, Detour, Tarmac, Skip — and the one
-      // name in that world that means "the one running this" is the player's.
-      const name = isPlayer ? PLAYER_NAME : CPU_NAMES[(i - 1) % CPU_NAMES.length]!;
-      const racer = createRacer(i, name, def.id, { ...def.stats }, isPlayer);
+      // See the note on `driver` in types.ts and the cast table at the top of
+      // vehicles/registry.ts. The machine is said in paint — a silhouette on
+      // the grid, on the HUD, on the results row — and the driver is said in
+      // words, and the two are now the same fact wherever they appear.
+      const racer = createRacer(i, def.driver, def.id, { ...def.stats }, isPlayer);
 
       if (!isPlayer) {
         // Spread skill across the field so the pack strings out naturally.

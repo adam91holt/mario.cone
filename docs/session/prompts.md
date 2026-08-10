@@ -4542,3 +4542,329 @@ yes go ahead, publish it
 ### 🤖 Claude — 2026-08-10 19:57 UTC
 
 It ran — and **the guard I built immediately caught a real problem**: a 16,851-character prompt got truncated. The whole premise was that prompts are never cut, so that's a bug in my tool, not an acceptable outcome. The truncation was blind to context. Fixing it to protect message text and only trim tool payloads:
+
+### 🤖 Claude — 2026-08-10 19:58 UTC
+
+The 16,851-character prompt now survives whole and the check passes. Final secret scan on the **output** before it goes public:
+
+### 🤖 Claude — 2026-08-10 19:58 UTC
+
+Clean, and it opens with your original prompt. Committing and wiring it into the loop:
+
+### 🤖 Claude — 2026-08-10 19:59 UTC
+
+Now wiring it into the hourly loop so it stays current:
+
+### 🤖 Claude — 2026-08-10 20:00 UTC
+
+Published and wired into the loop.
+
+**Live now:** [`docs/session/prompts.md`](https://github.com/adam91holt/mario.cone/blob/main/docs/session/prompts.md) — 450 turns, every prompt and reply in order, opening with your original brief. And [`docs/session/session.jsonl`](https://github.com/adam91holt/mario.cone/blob/main/docs/session/session.jsonl) — 3,644 records with the structure intact: messages, tool calls, tool results. Linked from the README. It now refreshes at the top of every hourly tick, so it stays current on its own.
+
+**The tool caught its own bug on the first real run, and that's the part worth telling you about.** My first version applied a blanket 2,000-character truncation to every string in a record. That can't tell a 9,000-character capture log from a 16,851-character prompt — and this session contains both. So it cut the prompt, in a tool whose entire premise is that prompts are never cut.
+
+It said so and exited non-zero rather than writing a quietly mangled archive. I'd only built that check because I didn't want to *assume* no prompt would ever get close to the limit — and it turned out one already had.
+
+Fixed properly: message text is never truncated at any length now; only tool inputs and results are. And the closing check no longer trusts the fix — it re-reads its own output hunting for a truncation marker at the end of any message body and fails the run if it finds one. Your longest prompt is 16,851 characters and it's in there whole, **verified in the output rather than asserted from the input**.
+
+**On size:** 6.1 MB of JSONL, committed as plain text on purpose. It's append-only, so git deltas it almost perfectly. Gzip would be smaller once and then store a fresh 15 MB blob on every single hourly refresh — worse within a day.
+
+**On safety:** credentials are redacted on the way out. Scans of both the source transcript and the published files found none, and the `system` records turned out to be hook summaries rather than system prompts. The guard lives in the tool because checking once isn't a property of the tool.
+
+Worth knowing: many of those 450 turns are the build loop waking *itself* on a schedule, not you typing. The README says so, so nobody reads it as 450 human instructions.
+
+### 🧑 Prompt — 2026-08-10 20:00 UTC
+
+Someone asked me this
+
+“@⁨Adam Holt⁩ what did you use to create that artifact that showed what it was building? I hadn’t come across that one before”
+
+Could you maybe create a Md file with a mermaid diagram to show what’s happening
+
+### 🤖 Claude — 2026-08-10 20:02 UTC
+
+Let me make the Mermaid conservative — `&` edge chaining and `<br/>` inside state labels are the two things most likely to render badly on GitHub.
+
+### 🤖 Claude — 2026-08-10 20:02 UTC
+
+Now validating the diagrams actually parse, rather than assuming:
+
+### 🤖 Claude — 2026-08-10 20:03 UTC
+
+False positive in my own checker — those parens are inside quoted labels (`["snapshot()<br/>…"]`), which Mermaid handles fine. All seven blocks are clean. Linking it from the README and committing:
+
+### 🤖 Claude — 2026-08-10 20:04 UTC
+
+Here's the link to send them:
+
+**https://github.com/adam91holt/mario.cone/blob/main/docs/how-it-works.md**
+
+GitHub renders Mermaid natively, so the diagrams show inline — nothing to install or open.
+
+**The short answer to their question:** the artifact is `progress.html`, and it isn't a tool anyone can install — it's a ~90-line script in the repo. Two inputs, one output: a JSON ledger with a row per piece (state, score, the exact gap its critic named) plus the captured review frames, shrunk to inline JPEGs so the page has zero external requests. GitHub Pages redeploys it on every push. That's the whole trick.
+
+**Seven diagrams**, covering the bits that are actually interesting rather than just the file layout:
+
+- how the board gets generated
+- the orchestrator and its two kinds of workflow — piece waves vs. the whole-repo pass, which never run at the same time
+- a piece's state machine, `queued → build → review → fail → build…` with no fixed round count
+- **the critic protocol as a sequence** — including why step 1 is "write the Mario Kart reference from memory *before* opening our game": an agent that looks first anchors on what it saw and then recalls a conveniently similar Mario Kart
+- the hole in file ownership no row of the table can reach
+- the harness, and why `steercheck.mjs` had to exist
+- how the loop survives a container that suspends every 35–90 minutes
+
+I kept three things honest rather than glossy, since it's public: the loop is at **0 passed of 17** against the 8.5 bar (that's it working — each fix hands the next critic a better game to attack); the shadow problem was **reported by five critics and closed by none**, which is the best evidence for why the whole-repo pass had to exist; and real verdicts are quoted verbatim, numbers and all — ground luminance 96.9 against 42.4, the item slot empty 87% of a race, a quality governor asleep for 331 seconds at 4 fps.
+
+The Mermaid is deliberately conservative — no `&` edge chaining, no line breaks inside state labels, every label quoted — and I ran a static check over all seven blocks rather than assuming. It flagged one thing, which turned out to be my checker not knowing quoted labels may contain parentheses.
+
+The session archive also went out in the same PR, so `docs/session/prompts.md` is live alongside it if they want to read the actual prompts.
+
+### 🧑 Prompt — 2026-08-10 20:04 UTC
+
+Stop hook feedback:
+[~/.claude/stop-hook-git-check.sh]: There are uncommitted changes in the repository. Please commit and push these changes to the remote branch.
+
+### 🤖 Claude — 2026-08-10 20:05 UTC
+
+The tree is mid-refactor by a **live** agent — it's moved the driver names into `vehicles/registry.ts` (+25 lines) and hasn't yet updated the reference at `main.ts:146`. Unlike the earlier case where a *dead* agent left a broken file, this one wrote 7 seconds ago and will finish. Committing a non-compiling tree would be wrong, so I'll wait for it.
+
+### 🤖 Claude — 2026-08-10 20:05 UTC
+
+Waiting on the agent rather than committing a broken tree — I'll commit the moment it compiles.
+
+To be explicit about the judgement, since it's the opposite call to the one I made earlier today: when a **dead** agent leaves a half-written file, nobody is coming back to finish it, so I revert. When a **live** agent is mid-refactor — this one wrote 7 seconds ago, and `claude` has been up 2h56m against that gap — the incomplete state is temporary and reverting would destroy work in progress. Here it's clearly the latter: `vehicles/registry.ts` gained the driver-name constants and `main.ts:146` hasn't caught up yet.
+
+The waiter polls typecheck and exits the moment it goes clean; I'll commit and push then.
+
+### 🧑 Prompt — 2026-08-10 20:06 UTC
+
+<task-notification>
+<task-id>blx856zmq</task-id>
+<tool-use-id>toolu_016nmm5u3rqSaFt8Y3UJEhE8</tool-use-id>
+<output-file>/tmp/claude-0/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/tasks/blx856zmq.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for the agent to finish its refactor" completed (exit code 0)</summary>
+</task-notification>
+
+### 🤖 Claude — 2026-08-10 20:07 UTC
+
+The agent finished its refactor 60 seconds later, exactly as expected. Committing:
+
+### 🤖 Claude — 2026-08-10 20:07 UTC
+
+Committed and pushed at `cc73e57`. The wait was the right call — the agent completed its refactor **60 seconds** after I armed the waiter, and typecheck went clean on its own.
+
+What it was doing: moving `PLAYER_NAME` and `CPU_NAMES` out of `main.ts` and into `vehicles/registry.ts`, where the machines those drivers sit in are already defined. `main.ts` is bootstrap — it wires systems together and owns race setup — and a list of driver names is neither. The three "errors" I saw were just the registry having gained the constants a moment before the call site caught up.
+
+That's the distinction worth holding onto: a **dead** agent's half-written file gets reverted, because nobody is coming back to finish it. A **live** agent's gets waited on. Same symptom, opposite correct action, and the tell is process age against the write gap rather than anything in the file itself.
+
+Coherence round 2 also touched config, the race director, the minimap and the shared theme — it's working through the 13 seams. I'll land the wave when the judge returns.
+
+### 🧑 Prompt — 2026-08-10 20:07 UTC
+
+Stop hook feedback:
+[~/.claude/stop-hook-git-check.sh]: There are uncommitted changes in the repository. Please commit and push these changes to the remote branch.
+
+### 🤖 Claude — 2026-08-10 20:07 UTC
+
+Same pattern again — live agent (wrote 6 seconds ago), now mid-write on `theme.ts` with an unterminated statement at line 733. It's editing continuously, so rather than race it I'll wait for a state that's both compiling *and* settled.
+
+### 🤖 Claude — 2026-08-10 20:08 UTC
+
+Waiting again — this time for the tree to be both compiling **and** untouched for 75 seconds, so I commit a settled state rather than catching the agent mid-keystroke.
+
+Worth flagging the underlying tension: the stop hook wants a clean tree at the end of every turn, but a coherence agent with whole-repo ownership is editing more or less continuously, so the tree is dirty almost all the time — and roughly half those moments are mid-refactor and don't compile. Committing on every turn would mean either racing the agent or committing broken states. The hourly cadence I've been running is the honest resolution: commit when the work has settled. I'll push the moment this one does.
+
+### 🧑 Prompt — 2026-08-10 20:13 UTC
+
+MARIO.CONE build loop — hourly. Repo adam91holt/mario.cone (PUBLIC), branch claude/mario-kart-racing-game-z8wdf1. WFDIR=/root/.claude/projects/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/subagents/workflows
+
+EVERY TICK, before anything else: `node tools/session.mjs`. It refreshes docs/session/prompts.md and docs/session/session.jsonl — the conversation that is building this game, which the user asked to be published and kept current. It exits non-zero if a message body was truncated; if that happens fix the tool rather than committing a mangled archive. Commit the refresh with whatever else the tick produces.
+
+Do NOT trust any run id written here — resolve it: RUN=$(ls -t $WFDIR | head -1). Current run: coherence pass = wf_85410807-a0a.
+
+STEP 1 — PROVE the wave is alive. Two checks; the second has never been wrong:
+  date -u
+  ls -lt --time-style=+%H:%M:%S $WFDIR/$RUN/agent-*.jsonl | head -3
+  ps -eo etime,comm | grep -w claude
+(a) Newest agent-*.jsonl mtime older than ~25 minutes = dead. USE `ls -t`; a plain `ls | tail` sorts ALPHABETICALLY and once hid the only live agent behind eleven finished ones.
+(b) ELAPSED of the main `claude` process. DECISIVE. If claude has been alive for LESS time than the gap since the last agent write, the container restarted and every in-flight agent is dead, however recent the mtimes look. Two agents whose last write is the IDENTICAL second is the same signature. Do NOT grep for claude in a `--sort=-pcpu | head -4` list — Chrome outranks it and it will not appear.
+Never judge by files existing or Chrome counts: subagents run IN-PROCESS inside the main claude process, so `ps aux | grep claude` shows nothing for a healthy wave.
+
+Count: node -e "const fs=require('fs');let s=0,r=0;for(const l of fs.readFileSync(process.argv[1],'utf8').trim().split('\n')){try{const e=JSON.parse(l);if(e.type==='started')s++;if(e.type==='result')r++;}catch{}}console.log(s,r)" $WFDIR/$RUN/journal.jsonl
+Concurrency is 2 on this 4-core box.
+
+STEP 2 — If DEAD, RESUME, DO NOT RELAUNCH:
+  Workflow({scriptPath:"<the same script>", resumeFromRunId:"<the dead RUN>", args:<the SAME args object, byte-for-byte>})
+Completed agent() calls return from cache instantly and only the killed agents re-run, carry intact. Args must match exactly or the cache misses. First `npx tsc --noEmit`, then commit and push whatever exists (say in the message if unverified). Read the dead run's journal for results that already have a `score` — those verdicts are earned and must never be re-bought.
+IF TYPECHECK FAILS INSIDE A FILE A DEAD AGENT WAS MID-WRITE ON, that is NOT transient — the agent is not coming back to finish it, and the resumed agent restarts that step from scratch. `git checkout --` those files rather than committing a build that cannot compile.
+AFTER ANY LAUNCH OR RESUME, VERIFY: grep 'YOUR PIECE' AND 'Observed:' out of each new agent transcript.
+
+STEP 3 — If ALIVE: `npx tsc --noEmit`. If clean, commit and push. Do NOT run captures or smoke while agents are active, and never pkill on any pattern matching "capture.mjs".
+
+STEP 4 — If FINISHED:
+  a. `npx tsc --noEmit` then `node tools/capture.mjs --smoke`. Typecheck-clean has passed on a build that did not boot; smoke is the real gate.
+  b. `node tools/capture.mjs` and LOOK at the PNGs with Read. Never trust an agent's summary.
+  c. Update tools/progress.state.json with the real verdicts, `node tools/progress.mjs`, `node tools/readmeshots.mjs`.
+  d. Commit, push, PR (base main, draft false), merge, then `git fetch origin main && git reset --hard origin/main && git push --force-with-lease` (merges are squashed, so ff-only will refuse).
+  e. Remaining work, in order: COURSES re-judge — it scored 5.0 because theme.ground never painted terrain and thirteen theme.props keys had zero reads; that wiring now exists, so its job is to USE it and prove the four courses are distinguishable from the overhead shot without the minimap. Then PERF re-run, which regressed to 475 draw calls and 667k triangles when the item economy fix put 102 boxes on the course. Then closing verdicts on wave 1 (feel, camera, track, look, cast), merged long ago and never judged.
+  f. Standing gaps no single piece owns, for the next coherence pass: the purple tier-3 mini-turbo has still never been seen by anyone; a single carried item is not drawn in the world at all because the orbit rig is only built for count>1; the finish letterbox guillotines the position badge on the one beat it matters.
+
+Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
+
+### 🤖 Claude — 2026-08-10 20:13 UTC
+
+Session archive refreshed — 469 turns now. `src` is transiently broken across ten files by the live agent, so per protocol I'll commit the archive and leave `src` to the waiter.
+
+### 🤖 Claude — 2026-08-10 20:14 UTC
+
+Routine tick — coherence pass alive, session archive committed at `0d46573`.
+
+`claude` up 3h04m, agent writing 1 second ago; 6 started, 4 returned. The archive is now **469 turns / 3,747 records**, and the longest prompt is still 16,851 characters intact — verified by reading it back out of the written file rather than trusting the input.
+
+`src` is deliberately not in that commit. The agent is mid-write across ten files at once — `race/stage.ts`, `ui/hud.ts`, `ui/theme.ts`, `render/camera.ts` and more — so typecheck fails inside files it currently has open. That's transient, and the protocol is to commit what's ready (the archive) and leave the rest. The waiter from earlier is still armed and will fire the moment the tree is both compiling and quiet for 75 seconds; I'll push `src` then.
+
+### 🧑 Prompt — 2026-08-10 20:14 UTC
+
+Stop hook feedback:
+[~/.claude/stop-hook-git-check.sh]: There are uncommitted changes in the repository. Please commit and push these changes to the remote branch.
+
+### 🤖 Claude — 2026-08-10 20:14 UTC
+
+The waiter's still armed. But these errors have persisted across several minutes now, so let me check whether this is actually transient or the backtick-in-CSS trap the architecture doc warns about.
+
+### 🤖 Claude — 2026-08-10 20:14 UTC
+
+Not transient — this is the exact trap `ARCHITECTURE.md` golden rule 7 warns about, and it's bitten again:
+
+```
+/* ... markup carries the same hiding rule inline (it has to: `items/reel.ts` mounts
+   it outside `#hud` ...) */
+```
+
+Those backticks are inside a CSS comment **inside a template literal**. Each one closes the literal, the next reopens it, so the count stays even and the file looks balanced — while the text between them is parsed as TypeScript. The agent will hit this on its own typecheck, and I won't fight it for files it has open. But this is the second time, so let me fix the *class* of bug instead:
+
+### 🤖 Claude — 2026-08-10 20:15 UTC
+
+96 hits — and almost all are false positives. My heuristic was too broad: it flags any block comment with a backtick in a file that *also* contains a CSS literal, but most of those comments sit outside the literal where backticks are perfectly legal.
+
+The real insight is that `tsc` already *detects* this fine. What it does badly is **explain** it — "',' expected" pointing at valid CSS. Rewriting the tool to do the part that's actually missing:
+
+### 🤖 Claude — 2026-08-10 20:16 UTC
+
+The agent fixed the backticks itself on its own typecheck run — exactly as predicted, and the new tool correctly stays silent rather than crying wolf. Committing both:
+
+### 🤖 Claude — 2026-08-10 20:16 UTC
+
+Different error now — `signBox` unresolved in `launch.ts`, so the agent has moved on to another refactor. Still mid-flight. Committing the tool, which is independent and done:
+
+### 🤖 Claude — 2026-08-10 20:16 UTC
+
+Tool committed at `da7518a`. `src` stays out — the agent is live (`claude` up 3h07m) and has moved on to a second refactor, so the tree is oscillating between compiling and not. The waiter is still armed and will catch a settled state.
+
+Two things worth recording from this:
+
+**The backtick trap bit for a third time**, and it resolved itself — the agent hit it on its own typecheck and fixed it a minute later, which is why I didn't touch files it had open. But it's now cost three incidents, it's already golden rule 7 in the architecture doc, and prose has failed to prevent it twice. So `tools/lintcss.mjs` now handles the part that was actually missing: `tsc` *detects* it perfectly, but reports "',' expected" pointing at a line of valid CSS, with the real cause a comment somewhere above. The tool walks back from each syntax error to the nearest block comment holding a backtick and names it.
+
+**My first attempt at that tool was wrong and I threw it away.** It tried to detect the bug directly — flag any block comment with a backtick in a file that also holds a CSS literal — and reported **96 offences**, nearly all ordinary JSDoc sitting outside the literal where backticks are entirely legal. A linter that cries wolf ninety times is worse than no linter. The rewrite says nothing at all unless the compiler is already unhappy, which is exactly what it did on the run that shipped it.
+
+### 🧑 Prompt — 2026-08-10 20:18 UTC
+
+<task-notification>
+<task-id>broj740yy</task-id>
+<tool-use-id>toolu_01Ba66bvkniRSHcDysBzHty6</tool-use-id>
+<output-file>/tmp/claude-0/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/tasks/broj740yy.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for a settled compiling state" completed (exit code 0)</summary>
+</task-notification>
+
+### 🤖 Claude — 2026-08-10 20:18 UTC
+
+The tree settled — clean and quiet, re-verified independently. Committing:
+
+### 🤖 Claude — 2026-08-10 20:18 UTC
+
+Settled and committed at `f111769` — clean and untouched for 75 seconds, re-verified before the commit.
+
+Thirteen files across race, ui and render: the finish sequence and the instruments that have to survive it. That's aimed at the round-1 judge's gap — that the two joins between the front end and the race, launch→grid and finish→results, are where the game visibly stops being one product.
+
+The tree failed twice on the way here and **neither failure was mine to fix**. First the backtick trap, which the agent hit on its own typecheck and corrected a minute later. Then an unresolved `signBox` while the signage face was moving between modules. A live agent mid-refactor produces exactly that oscillation, and waiting was right both times — reverting would have destroyed work in progress, and committing would have published a build that couldn't compile.
+
+One detail I liked: `tools/capture.mjs` moved too. That's the right instinct rather than scope creep — the review sheet is how every critic sees this game, so a finish sequence the harness can't photograph is a finish sequence nobody will judge.
+
+### 🧑 Prompt — 2026-08-10 21:10 UTC
+
+MARIO.CONE build loop — hourly. Repo adam91holt/mario.cone (PUBLIC), branch claude/mario-kart-racing-game-z8wdf1. WFDIR=/root/.claude/projects/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/subagents/workflows
+
+EVERY TICK, before anything else: `node tools/session.mjs`. It refreshes docs/session/prompts.md and docs/session/session.jsonl — the conversation that is building this game, which the user asked to be published and kept current. It exits non-zero if a message body was truncated; if that happens fix the tool rather than committing a mangled archive. Commit the refresh with whatever else the tick produces.
+
+Do NOT trust any run id written here — resolve it: RUN=$(ls -t $WFDIR | head -1). Current run: coherence pass = wf_85410807-a0a.
+
+STEP 1 — PROVE the wave is alive. Two checks; the second has never been wrong:
+  date -u
+  ls -lt --time-style=+%H:%M:%S $WFDIR/$RUN/agent-*.jsonl | head -3
+  ps -eo etime,comm | grep -w claude
+(a) Newest agent-*.jsonl mtime older than ~25 minutes = dead. USE `ls -t`; a plain `ls | tail` sorts ALPHABETICALLY and once hid the only live agent behind eleven finished ones.
+(b) ELAPSED of the main `claude` process. DECISIVE. If claude has been alive for LESS time than the gap since the last agent write, the container restarted and every in-flight agent is dead, however recent the mtimes look. Two agents whose last write is the IDENTICAL second is the same signature. Do NOT grep for claude in a `--sort=-pcpu | head -4` list — Chrome outranks it and it will not appear.
+Never judge by files existing or Chrome counts: subagents run IN-PROCESS inside the main claude process, so `ps aux | grep claude` shows nothing for a healthy wave.
+
+Count: node -e "const fs=require('fs');let s=0,r=0;for(const l of fs.readFileSync(process.argv[1],'utf8').trim().split('\n')){try{const e=JSON.parse(l);if(e.type==='started')s++;if(e.type==='result')r++;}catch{}}console.log(s,r)" $WFDIR/$RUN/journal.jsonl
+Concurrency is 2 on this 4-core box.
+
+STEP 2 — If DEAD, RESUME, DO NOT RELAUNCH:
+  Workflow({scriptPath:"<the same script>", resumeFromRunId:"<the dead RUN>", args:<the SAME args object, byte-for-byte>})
+Completed agent() calls return from cache instantly and only the killed agents re-run, carry intact. Args must match exactly or the cache misses. First `npx tsc --noEmit`, then commit and push whatever exists (say in the message if unverified). Read the dead run's journal for results that already have a `score` — those verdicts are earned and must never be re-bought.
+IF TYPECHECK FAILS INSIDE A FILE A DEAD AGENT WAS MID-WRITE ON, that is NOT transient — the agent is not coming back to finish it, and the resumed agent restarts that step from scratch. `git checkout --` those files rather than committing a build that cannot compile.
+AFTER ANY LAUNCH OR RESUME, VERIFY: grep 'YOUR PIECE' AND 'Observed:' out of each new agent transcript.
+
+STEP 3 — If ALIVE: `npx tsc --noEmit`. If clean, commit and push. Do NOT run captures or smoke while agents are active, and never pkill on any pattern matching "capture.mjs".
+
+STEP 4 — If FINISHED:
+  a. `npx tsc --noEmit` then `node tools/capture.mjs --smoke`. Typecheck-clean has passed on a build that did not boot; smoke is the real gate.
+  b. `node tools/capture.mjs` and LOOK at the PNGs with Read. Never trust an agent's summary.
+  c. Update tools/progress.state.json with the real verdicts, `node tools/progress.mjs`, `node tools/readmeshots.mjs`.
+  d. Commit, push, PR (base main, draft false), merge, then `git fetch origin main && git reset --hard origin/main && git push --force-with-lease` (merges are squashed, so ff-only will refuse).
+  e. Remaining work, in order: COURSES re-judge — it scored 5.0 because theme.ground never painted terrain and thirteen theme.props keys had zero reads; that wiring now exists, so its job is to USE it and prove the four courses are distinguishable from the overhead shot without the minimap. Then PERF re-run, which regressed to 475 draw calls and 667k triangles when the item economy fix put 102 boxes on the course. Then closing verdicts on wave 1 (feel, camera, track, look, cast), merged long ago and never judged.
+  f. Standing gaps no single piece owns, for the next coherence pass: the purple tier-3 mini-turbo has still never been seen by anyone; a single carried item is not drawn in the world at all because the orbit rig is only built for count>1; the finish letterbox guillotines the position badge on the one beat it matters.
+
+Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
+
+### 🤖 Claude — 2026-08-10 21:11 UTC
+
+Routine tick — coherence round 2 alive, committed at `99000ac`, and this time typecheck was clean on the first try.
+
+`claude` up 4h02m, agent writing 4 seconds ago; 6 started, 4 returned. Session archive now at **482 turns / 3,803 records**, longest prompt still whole.
+
+The agent is working fx, items, race and the HUD instruments this pass, with another change to `tools/capture.mjs` so the review sheet can photograph what it's changing. Nothing needing a decision.
+
+### 🧑 Prompt — 2026-08-10 21:52 UTC
+
+<task-notification>
+<task-id>wl9670yyz</task-id>
+<tool-use-id>toolu_017FNjXbQELiw14KYRQeS7QG</tool-use-id>
+<output-file>/tmp/claude-0/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/tasks/wl9670yyz.output</output-file>
+<status>completed</status>
+<summary>Dynamic workflow "Play MARIO.CONE end to end and smooth the seams between pieces into one game" completed</summary>
+<result>{"passed":false,"rounds":2,"history":[{"round":1,"seams":13,"verdict":{"score":6.5,"pass":false,"blindPick":"mario-kart","biggestGap":"This is two products sharing a stylesheet — a silent, composed, character-driven front-end and a loud, uncomposed, anonymous race — and both seams that join them (launch/grid, finish/results) are visibly broken, so nothing carries across the curtain except the plate CSS.","directive":"Make identity and presentation continuous across the curtain, in four specific edits. (1) Give the front-end its own music: `autoMode()` in src/audio/index.ts has no menu branch, and the menu sets `musicOverride` to 'none' — add a `menu` MusicMode to src/audio/music.ts that starts on boot and cross-fades into `grid` at the launch curtain, so the first 40 seconds of the game are not silence with seven click sounds in it. (2) Fix the cast: the eight racers are re-shuffled onto seven machines every race — Bollard is a car at Cone Canyon and a cone at Jackhammer Quarry, Tarmac is a plane then a helicopter — and the player appears on the results sheet as \"SEDAN\", a machine name, among seven character names. Bind one driver name permanently to one machine in src/vehicles/registry.ts, give the player that machine's driver name too, and make the eighth entrant a fixed second-string name rather than a duplicate. (3) Stop the results sheet fabricating times: src/race/director.ts:790 clamps every estimated finisher to `lastFinishTime + 0.08`, which prints as +0.080/+0.160/+0.240/+0.320/+0.400/+0.480/+0.560 straight down the table — let the race run the back markers to the line (or print \"+1 LAP\"/DNF) instead of a synthetic ladder, and fix the CHAMPIONSHIP column, which reads 0 for all eight after awarding +15/+12/+10. (4) Author the finish: fade the HUD out on `race:finish` before the letterbox lands (it is currently cropped mid-glyph — the timer and minimap are sliced by the bars), raise rather than dim the exposure on the winning frame, and delete either the \"1ST PLACE\" banner or the differently-styled \"1ST | FOREMAN\" ticker row 200px from it, because they say the same thing in two visual languages at once.","evidence":"Drove the game with tools/capture.mjs (12-shot sheet), tools/journey.mjs (21-stop front-to-back), and two custom harness probes. Zero console errors and no dead bus events — the engineering is sound; the failures are all in the space between modules. FRONT-END SILENCE (verified, not inferred): a probe reading __AUDIO.probe() while sitting on the title screen returned music:\"none\", override:\"menu\" at boot, +2s, +8s and +20s; journey.json's first music call of the entire session is mus:grid at stop 07-launch-early. Four fully-designed screens play nothing. (Note: journey's sfxLog taps only the public audio.play, while gameplay cues route internally via bank.play at src/audio/index.ts:209, so it cannot be used to claim race silence — I checked and did not make that claim.) FABRICATED RESULTS: src/race/director.ts:790 is `Math.max(estimateFinish(racer), lastFinishTime + 0.08)`; the sheet prints exactly +0.080/+0.160/+0.240/+0.320/+0.400/+0.480/+0.560 in shots/results.png and +0.080/+0.160 again in journey/18-results-early.png on a different course with different racers. journey.json's snapshot at phase 'results' shows every racer on lap 0 with progress ~786-1169m of a 6527m race, and the sheet still printed a winner time of 2:43.417. CAST SHUFFLE: journey snapshot has Bollard=cone, Tarmac=helicopter, Detour=plane; shots/results.png has Bollard=car, Tarmac=plane. Player is \"FOREMAN\" in one race and \"SEDAN\" in the next. Championship column reads 0 for all eight while awarding +15/+12/+10. GRID/COUNTDOWN: shots/countdown.png and journey/10-handoff.png both show a screen-space 5-lamp light bar at top centre AND a world light rig on the gantry, both lit, same state; the course name appears twice per frame (gantry banner + title plate). FINISH: shots/finish.png shows the timer and minimap sliced through by the letterbox bars, a \"POWER CUT\" item label fading out on top of the \"1ST PLACE\" banner, and a \"1ST | FOREMAN\" ticker row in a different treatment 200px away; journey/16-finished.png is the darkest frame in the game. SCALE: in shots/pack.png the plane's wingspan and the train's boiler each occupy 3-4x the player cone's footprint at the same depth — a pack reads as a pile-up, not a field. Measured field spread on a live 3-lap race peaked at ~4120m of 6525m, so last place is nearly two laps down. COURSE SELECT: the four thumbnails in journey/03-cup.png are one composition recoloured; 03-cup and 04-circuit-row have identical DOM word lists, so the CUP step the breadcrumb advertises does not exist. MISC: violet-tinted contact shadows under the plane and helicopter but neutral under the cone (shots/far.png); the hero model floats clear of its shadow on the idle bob (journey/04-circuit-row.png vs 03-cup.png); the ENGINE CLASS hint rail omits the confirm key that START RACE states separately in its own style; the crowd is the most saturated element on screen in every race frame. STRONGEST WORK: the machine-select screen (stat deltas vs the previous machine), the results sheet layout and its staggered row reveal, and the pause plate — these are genuinely first-party-grade and share a real theme layer with the HUD."}},{"round":2,"seams":9,"verdict":{"score":7,"pass":false,"blindPick":"mario-kart","biggestGap":"Nobody owns the boundary where the 3D world and the flat layers share a frame, so the game stops being authored exactly there — trackside geometry punches through the camera and over the HUD, and every moment that requires camera, world and UI to be composed together (the grid, the finish, the cup) is either missing or is the racing camera with bars on it.","directive":"Make the camera-to-frame boundary one owned job, in this order. (1) Near-camera occlusion in render/camera.ts: any world object entering the camera's near volume fades or culls, and nothing in the scene may draw over #hud. Acceptance: re-run `node tools/capture.mjs --only offroad,drift,overhead,pack` and no frame may contain a trackside prop occupying &gt;5% of the image within ~3m of the lens, no untextured geometry wedge in a corner, and no scene object over a HUD plate. Today offroad.png has a chevron sign filling the bottom-right quadrant, drift.png has a flat white wedge in the corner, and overhead.png draws a green wedge across the FOREMAN nameplate. (2) Compose the finish: `camera:shot 'finish'` must actually move — a ~2.5s orbit from chase to three-quarter-front on the winner, with the vehicle rig playing a win animation. The cone has eyes and a smile that the player only ever sees on the select screen; show the face at the one moment it matters. Keep the letterbox and confetti, which already work. (3) Give the flag a back half: after the 4th round of a cup, play a cup screen — trophy, final standings, the winner's machine — before returning to the front-end. There is no trophy anywhere in src/race/results.ts today. (4) Kill the results duplication: the CHAMPIONSHIP panel restates the same seven drivers, same order, same points as the finishing table beside it (identical after round 1). Move cup standings to the new cup screen and give results the freed half of the frame back to the world and the winner. (5) Make the front-end's promises true: either add a cup row or delete the CUP breadcrumb chip you can never change; make the 8th machine tile an explicit designed RANDOM tile or delete it and reconcile it with the \"MACHINE 1 OF 7\" header; keep one wizard progress indicator, not the title dots and the breadcrumb chips disagreeing about step count; and keep SELECT on the prompt rail on the class screen instead of swapping the bottom bar's grammar for a corner START RACE plate at the last step. (6) Pick one countdown light — the 5-lamp HUD strip or the gantry prop — not both in the same frame with different lamp counts. (7) Break the uniformit
+... (truncated 6270 chars, full result in /tmp/claude-0/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/tasks/wl9670yyz.output)</result>
+<diagnostics>Per-agent results: /root/.claude/projects/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/subagents/workflows/wf_85410807-a0a/journal.jsonl — one {"type":"result",...} line per completed agent with its full return value.
+If the result above is empty or unexpected, Read this file BEFORE diagnosing — do not assume agents returned non-empty results.
+To re-run with edited post-processing: Workflow({scriptPath: '/home/user/mario.cone/tools/coherence.workflow.mjs', resumeFromRunId: 'wf_85410807-a0a', args: "{\"rounds\":2,\"prior\":\"Five separate piece critics have now failed five different pieces on the SAME cause, and none of them could fix it because nothing in the ownership table owns lighting. NOTHING IN THIS GAME CASTS A SHADOW. Confirmed by eye on a fresh racing frame: the player's machine, every rival, the barriers, the floodlight masts and the loose coins all meet the ground at a hard edge. The five verdicts, each measured independently: (1) the menu stage — ground luminance under the digger's tracks 96.9 against 42.4 for the asphalt beside it, a pool of light where a shadow should be; (2) the world geometry — barriers, masts, pines, grandstands, containers, silos and boulders all cast nothing while the kart three metres away lays a crisp directional shadow; (3) the floor quality rung strips the cone's cast shadow entirely, against the art direction's own 'contact is everything, floating objects look fake instantly'; (4) carried items — three hard hats orbit the kart with nothing under them; (5) item boxes cast no shadow at all, proven by an A/B pixel diff of the same frame with the box row present and broken showing zero difference on the road, and loose coins additionally clip through the tarmac as clean half-discs. This is your first and largest job: give the game one shadow policy and make every object obey it. The sun's shadow camera is render's, the castShadow flags live in the module that creates each mesh, and the fitted box currently covers roughly the road and not the verge — so this needs whole-repo ownership, which is what you have and no piece builder does. SECOND, a gameplay gap from the fx critic: the player never reached mini-turbo tier 3 in 90 seconds of CPU driving, and field tiers were all 0 at sample, so the purple ultra is built and has never once been seen by anyone. Find out whether the tier-3 drift window is reachable at all and fix it in physics or AI. THIRD: perf regressed this wave — 475 draw calls and 667,110 triangles against 314 and 519,908 — because the item economy fix put 102 boxes in 11 rows on the course. That is the right trade for a playable item layer, but the boxes need instancing and the quality ladder needs re-checking against the new cost.\"}"}) — agents whose (prompt, opts) are unchanged replay from cache.</diagnostics>
+<usage><agent_count>6</agent_count><agents_done>6</agents_done><agents_error>0</agents_error><agents_skipped>0</agents_skipped><agents_empty_result>0</agents_empty_result><subagent_tokens>1538926</subagent_tokens><tool_uses>685</tool_uses><duration_ms>16679444</duration_ms></usage>
+</task-notification>
+
+### 🤖 Claude — 2026-08-10 21:52 UTC
+
+Coherence pass finished — round 1 **6.5**, round 2 **7.0**. Running the gates.
+
+### 🤖 Claude — 2026-08-10 21:53 UTC
+
+Smoke passes — but **the field dropped from 8 racers to 7**. That's a behaviour change the directive didn't ask for. Checking:
+
+### 🤖 Claude — 2026-08-10 21:53 UTC
+
+Confirmed: `racerCount: 7`, with each machine now permanently bound to one driver (Foreman, Bollard, Skip, Gravel, Barrier, Tarmac, Detour). That fixes the cast shuffle — but it shrinks the field, and the critic had explicitly asked for *eight* with a second-string driver name. Capturing to see the state:
+
+### 🤖 Claude — 2026-08-10 22:00 UTC
+
+Real progress, visible in one frame. The **fabricated results are gone** — gaps are now organic (+0.058, +0.483, +1.183, +1.241, +1.958, +5.308) instead of that synthetic +0.080/+0.160/+0.240 ladder. The **championship column works** (15/12/10/8/6/4/2, was all zeros). The player is **FOREMAN** in the same naming system as everyone else, not "SEDAN", with the machine said in silhouette and the driver in words. Best lap and your splits are new. And the world is visible behind the sheet instead of blacked out.

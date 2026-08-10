@@ -36,10 +36,13 @@
 
 import { clamp01, ease } from '../core/math.ts';
 import type { GameContext, Racer } from '../types.ts';
+import { getVehicle } from '../vehicles/registry.ts';
 import { glyphBox, ordinalWord, type GlyphBox } from './glyphs.ts';
 import { CHEVRON_SVG, COIN_SVG } from './icons.ts';
+import { signBox } from './letters.ts';
+import { vehicleMark } from './menus/art.ts';
 import { createRoller, rollerHtml, type Roller } from './roller.ts';
-import { bind, C, fromHtml, q, rgba, type Bound } from './theme.ts';
+import { bind, blipColor, C, fromHtml, hexCss, q, rgba, type Bound } from './theme.ts';
 
 export const CSS_READOUTS = `
 /* ── lap ─────────────────────────────────────────────────────────────────── */
@@ -150,6 +153,34 @@ export const CSS_READOUTS = `
   filter: drop-shadow(0 calc(var(--u) * .14) 0 rgba(0,0,0,.75))
           drop-shadow(0 0 calc(var(--u) * .6) rgba(0,0,0,.6)); }
 
+/* ── who you are ─────────────────────────────────────────────────────────── */
+/* **The one thing the race never said.**
+   The front-end spends a whole screen on machines — PICK YOUR MACHINE, MACHINE
+   1 OF 7, a dossier, five stat bars, a launch card carrying the silhouette —
+   and then the curtain came down and for the next four minutes the player had
+   no name, no portrait and no colour anywhere on the frame. The results sheet
+   then greeted them as FOREMAN, a driver they had never been introduced to.
+   Two vocabularies, one before the curtain and one after, never once in the
+   same picture.
+   This is the results row's own pair — "vehicleMark" plus the driver's name —
+   at a fifth of the size, riding above the place badge for the whole race. It
+   is the smallest object in the instrument set on purpose: it is an identity,
+   not a readout, and nothing about it changes between the flag and the flag. */
+#hud .me-plate {
+  display: flex; align-items: center; gap: calc(var(--u) * .5);
+  padding: calc(var(--u) * .26) calc(var(--u) * .72) calc(var(--u) * .3) calc(var(--u) * .5);
+  margin-bottom: calc(var(--u) * .34);
+}
+/* The livery, as the same spine the results row wears down its left edge. */
+#hud .me-plate .lv {
+  width: calc(var(--u) * .34); height: calc(var(--u) * 1.5);
+  border-radius: calc(var(--u) * .08); flex: none;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.6);
+}
+#hud .me-plate .mk { width: calc(var(--u) * 2.9); height: calc(var(--u) * 1.8); flex: none; }
+#hud .me-plate .mk svg { display: block; width: 100%; height: 100%; overflow: visible; }
+#hud .me-plate .nm { height: calc(var(--u) * 1.02); color: #FFE9A8; }
+
 /* ── coins ───────────────────────────────────────────────────────────────── */
 #hud .coin-wrap { position: relative; }
 /* Scaled up with the rest of the set. Coins are a speed stat in this game, not
@@ -203,6 +234,63 @@ export interface Panel {
   update(dt: number): void;
   reset(): void;
   dispose(): void;
+}
+
+// ── who you are ────────────────────────────────────────────────────────────
+
+/**
+ * The player's machine and the player's driver, in one small plate.
+ *
+ * It is the only element in this HUD set in words rather than numerals, and
+ * that is the point of it: `MACHINE` was the front-end's whole vocabulary and
+ * `DRIVER` was the race's, and the two never appeared in the same frame, so a
+ * player was told at the finish that they were somebody they had never met.
+ * This says both, on the race's side of the curtain, for the whole race — the
+ * silhouette the roster sold them (`vehicleMark`, literally the roster's own
+ * drawing) and the name the results sheet is going to use.
+ *
+ * Repainted on `reset` and never again: a racer's machine and driver are the
+ * two facts about them that cannot change mid-race, so this costs nothing per
+ * frame beyond the corner transform every cluster already pays.
+ */
+export function createIdentityPanel(ctx: GameContext): Panel {
+  const root = fromHtml(`
+    <div class="plate me-plate">
+      <div class="lv"></div>
+      <div class="mk"></div>
+      <div class="nm word"></div>
+    </div>
+  `);
+  const livery = bind(q(root, '.lv'));
+  const markEl = q<HTMLElement>(root, '.mk');
+  const name = signBox(q(root, '.nm'));
+  let shownId = '';
+
+  function paint(): void {
+    const p = ctx.player;
+    if (!p) return;
+    if (p.vehicleId === shownId) { name.set(p.name.toUpperCase()); return; }
+    shownId = p.vehicleId;
+    const def = getVehicle(p.vehicleId);
+    markEl.innerHTML = vehicleMark(p.vehicleId);
+    // The blip's reading of the paint, not the raw livery: this chip is a
+    // six-pixel bar on a dark plate, which is the case `blipColor` exists for —
+    // a near-black Shunter painted at its own value is a hole in the sign.
+    const c = hexCss(blipColor(def.colors.primary));
+    livery.set('background', `linear-gradient(160deg, ${c}, ${rgba(blipColor(def.colors.primary), 0.5)})`);
+    name.set(p.name.toUpperCase());
+  }
+
+  return {
+    root,
+    reset(): void { paint(); },
+    update(): void {
+      // The player racer is rebuilt by `buildField` on every race, so the first
+      // frame after a reset may be the first time there is one to read.
+      if (!shownId) paint();
+    },
+    dispose(): void { root.remove(); },
+  };
 }
 
 // ── lap ────────────────────────────────────────────────────────────────────

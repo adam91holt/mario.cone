@@ -460,7 +460,7 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
    * `holdField()` and `setPhaseQuiet('loading')` and nothing else. Measured
    * with the pause plate up: `{ phase: "loading", timeScale: 1 }`. So the
    * comment above the trim was exactly right about what should happen and the
-   * line under it could never make it happen, and eight machines idled at full
+   * line under it could never make it happen, and the whole field idled at full
    * bus gain behind the pause menu.
    *
    * `loading` is the phase `togglePause` parks the race in, and — per
@@ -863,7 +863,7 @@ export function createAudioSystem(ctx: GameContext): GameSystem {
       be.duck.update(now, step);
 
       // The field steps back for the results music, so the fanfare is not
-      // fighting eight machines still driving around behind it. A paused game
+      // fighting a whole field still driving around behind it. A paused game
       // steps back further still: the engines are the sound of the race being
       // run, and a race that is not being run should not be roaring.
       const paused = raceStopped();

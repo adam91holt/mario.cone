@@ -286,29 +286,84 @@ const SHOTS = [
   },
   {
     name: 'finish',
-    caption: 'The seconds after the flag: held letterbox, finish lens, ticker filling in.',
+    caption: 'Half a second after winning: bars landed on a cleared HUD, the winner centred, confetti up.',
     async run(game) {
-      // The gap between the finish beat and the results sheet used to be a
-      // motionless kart in a ditch with no interface on it at all, for up to
-      // fourteen seconds, and nothing on this sheet photographed it. `__RACE.flag`
-      // is the director's own front door onto the branch: a race cannot be
-      // driven to a first place on demand.
+      // **Driven with `advance`, not `step`.**
+      //
+      // This recipe used to `step(3.4)` and then `advance(0.6)`, and `step()` is
+      // pure sim — it never calls `update()`. So every visual clock in the
+      // finish beat (the letterbox `t`, the HUD's retire, the banner, the
+      // confetti, the curtain wipe) was frozen for the whole of those 3.4
+      // seconds and then started from zero on the trailing advance: the
+      // published `shots/finish.png` was a composite no player could ever
+      // reach, four seconds of race with six tenths of a second of interface on
+      // top. That is why "the HUD is sliced by the letterbox" was reported and
+      // "fixed" more than once — the shot that was supposed to prove it never
+      // showed the real timing in either direction.
+      //
+      // `advance` steps the simulation and renders every frame from the same
+      // delta, so the beat is photographed at the moment it actually looks like
+      // this. `__RACE.flag` stays: a race cannot be driven to a first place on
+      // demand, and it runs the real branch.
+      //
+      // **And the page's own clock is stopped first.** The engine's rAF loop is
+      // still running underneath the harness and steps the simulation off the
+      // wall clock (see the note on `settle` below); under software GL a single
+      // round trip is most of a second of race, so an unfrozen `advance(0.9)`
+      // landed anywhere between the crossing and the hand-off curtain depending
+      // on how busy the machine was — twice it photographed a beat that was
+      // four seconds old with the confetti already spent. With the scale at
+      // zero the only thing that moves the race is `advance`, which steps and
+      // renders from the same delta, so half a second into the beat means half a
+      // second: bars landed, instruments gone, banner slammed, confetti in the
+      // air. Photographed at 0.9 the storm has already crossed the frame.
+      // The flag and the beat go in **one** round trip, and the page's own clock
+      // is stopped first. Both halves of that matter. Every round trip under
+      // software GL is a large fraction of a second, and the rAF loop underneath
+      // the harness spends it stepping the simulation *and* ageing the
+      // particles; split across two calls, the confetti was a second and a half
+      // old — thirty metres down the road — before the first frame of the beat
+      // was ever drawn, and the shot came back as an empty win.
+      // The clock is stopped **before the ride**, not after it. `step()` drives
+      // the simulation directly and ignores the scale, so the ride is unchanged
+      // — but the page's rAF loop is then contributing nothing, and "nine
+      // seconds in" means the same corner of the circuit on every machine
+      // instead of wherever four round trips of software-GL latency happened to
+      // leave the kart. Measured before this line existed: the same recipe
+      // photographed 1:41 and 2:30 of the same race on two consecutive runs.
       await game.reset({ instant: true });
+      await game.setTimeScale(0);
       await rideTo(game, 9);
-      await game.evaluate(() => globalThis.__RACE.flag(1));
-      await game.step(3.4);
-      await game.advance(0.6);
+      await game.evaluate(() => {
+        globalThis.__RACE.flag(1);
+        window.__GAME.advance(0.5, 20);
+      });
     },
   },
   {
     name: 'results',
     caption: 'The results sheet: finishing order, machines, championship, podium behind it.',
     async run(game) {
+      // **A real race, run to a real flag.** This shot is about what is printed
+      // on the sheet — the order, the gaps, the machines, the points — and
+      // every one of those was a fiction while the recipe forced the flag nine
+      // seconds into lap one: the whole field was force-finished on one frame
+      // and the times came out of the estimator rather than out of the race.
+      //
+      // Three laps of autopilot is one round trip per `step()` and no rendered
+      // frames at all, which is the cheapest part of this whole sheet.
       await game.reset({ instant: true });
-      await rideTo(game, 9);
-      await game.evaluate(() => globalThis.__RACE.flag(1));
-      await game.step(11);
-      await game.advance(1.2);
+      await game.setAutopilot(true);
+      for (let i = 0; i < 40; i++) {
+        await game.step(8);
+        const snap = await game.snapshot();
+        if (snap.race?.phase === 'results') break;
+      }
+      // ...and then let the sheet actually arrive: the rows land one at a time
+      // off a clock integrated from the render delta, so a sheet photographed
+      // without rendered frames is a sheet with nothing on it. 2.2s is past the
+      // last championship total finishing its climb.
+      await game.advance(2.2);
     },
   },
   {
@@ -505,7 +560,11 @@ async function runShots() {
       await game.render();
 
       const file = path.join(outDir, `${shot.name}.png`);
-      await page.screenshot({ path: file });
+      // Not the 30s default. A full-frame DOM overlay — the results sheet is
+      // one, edge to edge, with a scrim, sixteen plates and a blend mode on it
+      // — takes the software rasteriser well past half a minute to hand back,
+      // and a timeout there reads exactly like a crash and is not one.
+      await page.screenshot({ path: file, timeout: 180_000 });
 
       const snap = await game.snapshot();
       const stats = await game.stats();

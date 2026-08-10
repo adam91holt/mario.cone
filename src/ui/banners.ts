@@ -16,7 +16,7 @@
 import { clamp01, ease, formatTime } from '../core/math.ts';
 import type { GameContext, Racer } from '../types.ts';
 import { glyphBox, ordinalWord } from './glyphs.ts';
-import { bind, fromHtml, q } from './theme.ts';
+import { bind, FINISH_WINDOW, fromHtml, q } from './theme.ts';
 
 export const CSS_BANNERS = `
 #hud .stage { position: absolute; inset: 0; overflow: hidden; }
@@ -280,8 +280,15 @@ export function createBanners(ctx: GameContext): Banners {
   unsubs.push(ctx.bus.on<{ racer: Racer; place: number; time: number }>('race:finish', (e) => {
     if (!e.racer.isPlayer) return;
     const place = e.place > 0 ? e.place : (e.racer.place || 1);
+    // Held for the whole window the race keeps for itself after a crossing —
+    // `FINISH_WINDOW` in theme.ts, which is where the director's own two
+    // numbers are stated. It used to be a private 4.2 against a window of 7.6,
+    // so the last three seconds before the hand-off curtain were a stopped
+    // machine on an embankment with nothing on the screen at all. This banner
+    // is the only thing left up by then, so it leaves *under* the curtain
+    // rather than before it.
     show(`${place}${ordinalWord(place)} Place`, formatTime(e.time),
-      { style: place === 1 ? 'gold' : 'plain', hold: 4.2, entrance: 'slam' });
+      { style: place === 1 ? 'gold' : 'plain', hold: FINISH_WINDOW, entrance: 'slam' });
     if (place === 1) {
       alertT = 1;
       barT.cls('win', true);

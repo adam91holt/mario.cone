@@ -33,17 +33,21 @@ import type { GameContext, GameSystem, Racer } from '../types.ts';
 import { CSS_GLYPHS } from './glyphs.ts';
 import { ICON_DEFS } from './icons.ts';
 import { createItemSlot, CSS_ITEM } from './itemslot.ts';
+import { signCss } from './letters.ts';
 import { createMinimap, CSS_MAP } from './minimap.ts';
 import { createBanners, CSS_BANNERS } from './banners.ts';
 import {
-  createCoinPanel, createLapPanel, createPositionPanel,
+  createCoinPanel, createIdentityPanel, createLapPanel, createPositionPanel,
   CSS_READOUTS, type Panel,
 } from './readouts.ts';
-import { bind, CSS_BASE, fromHtml, q } from './theme.ts';
+import { bind, CSS_BASE, fromHtml, HUD_RETIRE, q } from './theme.ts';
 
 const CSS_HUD = `
-/* The icon shading ramps. Present, painted from, and never seen. */
-#hud .icon-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+/* The icon shading ramps. Present, painted from, and never seen. The set's own
+   markup carries the same hiding rule inline (it has to: items/reel.ts mounts
+   it outside this layer when there is no HUD), so this is belt and braces on
+   the copy that lands in here. */
+#hud .item-icon-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
 
 /* A boost lights every warning strip in the instrument set white-hot while the
    kart is on it, and the whole set swells a percent as it fires — the
@@ -105,7 +109,12 @@ export function createHudSystem(ctx: GameContext): GameSystem {
   }
 
   const style = document.createElement('style');
-  style.textContent = CSS_BASE + CSS_GLYPHS + CSS_ITEM + CSS_MAP
+  // `signCss('#hud')` is new here, and it is the whole of ARCHITECTURE §11a's
+  // type rule arriving in the one layer that had never needed it: nothing in
+  // this HUD used to *name* anything, so nothing in it was set in the display
+  // face. The identity plate names a driver, so it is drawn in the same
+  // alphabet the results sheet and the roster name theirs in.
+  style.textContent = CSS_BASE + CSS_GLYPHS + signCss('#hud') + CSS_ITEM + CSS_MAP
     + CSS_READOUTS + CSS_BANNERS + CSS_HUD;
   document.head.appendChild(style);
 
@@ -145,6 +154,7 @@ export function createHudSystem(ctx: GameContext): GameSystem {
   const map = createMinimap(ctx);
   const lap = createLapPanel(ctx);
   const position = createPositionPanel(ctx);
+  const identity = createIdentityPanel(ctx);
   const coins = createCoinPanel(ctx);
   const banners = createBanners(ctx);
 
@@ -152,6 +162,10 @@ export function createHudSystem(ctx: GameContext): GameSystem {
   q(root, '.tc').appendChild(slot.root);
   q(root, '.tr').appendChild(map.root);
   q(root, '.bl').appendChild(coins.root);
+  // Above the place badge, in the corner the badge already owns. The two
+  // belong together: one is where you are and the other is who you are, and
+  // they arrive, shake and leave as one cluster.
+  q(root, '.br').appendChild(identity.root);
   q(root, '.br').appendChild(position.root);
   q(root, '.layer').appendChild(banners.root);
 
@@ -163,7 +177,7 @@ export function createHudSystem(ctx: GameContext): GameSystem {
   // game ends up wearing two.
   document.body.appendChild(root);
 
-  const panels: Panel[] = [lap, position, coins];
+  const panels: Panel[] = [lap, position, identity, coins];
 
   /** Impact response, shared by every kind of thumping the player takes. */
   let jolt = 0;
@@ -391,17 +405,36 @@ export function createHudSystem(ctx: GameContext): GameSystem {
       if (reveal < 1) reveal = Math.min(1, reveal + dt / 0.32);
       const retiring = (ctx.player?.finished ?? false) || handed || retire > 0;
       if (retiring) {
-        // The working instruments leave once the race is decided; the place
-        // indicator holds, because it is the answer. A beat of delay first, so
-        // the crossing itself is not competing with the furniture moving.
+        // **It starts on the crossing and it is finished before the bars land.**
+        //
+        // This used to hold for a quarter of its own ramp and then take nine
+        // tenths of a second to travel, while `race/stage.ts` dropped the
+        // letterbox in `LETTERBOX_IN` — a fifth of a second — over the top of
+        // it. Measured at 0.3s past the flag, `gone` was 0.004: the timer plate
+        // and the minimap were sliced through the middle by the top bar and the
+        // place badge was a gold stump with its numeral cut off by the bottom
+        // one, which is the exact guillotine the note on `retire` above
+        // describes as the reason the badge retires at all.
+        //
+        // `HUD_RETIRE` is stated in `ui/theme.ts` next to the number it has to
+        // beat, so the two can never again be set by two people who never met.
+        // **Clamped to the target, not to 0..1.** This used to read `Math.min(1,
+        // …)` against `Math.max(0, …)`, and `want > retire` is false when both
+        // are 1 — so the frame after the set finished leaving, it started coming
+        // back, and the frame after that it left again. The instruments
+        // sawtoothed forever at the edges of the screen at about a tenth of
+        // opacity, which no capture had ever shown because the shot that
+        // photographs this beat froze every visual clock in it (see the `finish`
+        // recipe in tools/capture.mjs). Moving toward `want` has a resting state;
+        // moving toward a bound does not.
         const want = ctx.player?.finished || handed ? 1 : 0;
         retire = want > retire
-          ? Math.min(1, retire + dt / 0.9)
-          : Math.max(0, retire - dt / 0.4);
+          ? Math.min(want, retire + dt / HUD_RETIRE)
+          : Math.max(want, retire - dt / 0.4);
       }
       const back = 1 - ease.outQuart(reveal);
       const held = Math.max(back, 1 - ease.outQuart(slotIn));
-      const gone = retiring ? ease.inQuad(clamp01((retire - 0.25) / 0.75)) : 0;
+      const gone = retiring ? ease.inQuad(retire) : 0;
       const shake = jolt * jolt;
       if (back > 0 || held > 0 || gone > 0 || shake > 0 || cornersHot) {
         cornersHot = back > 0 || held > 0 || gone > 0 || shake > 0;
