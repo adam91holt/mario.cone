@@ -286,29 +286,54 @@ const SHOTS = [
   },
   {
     name: 'finish',
-    caption: 'The seconds after the flag: held letterbox, finish lens, ticker filling in.',
+    caption: 'A second and a half after winning: the bars land on a cleared HUD, the winner centred.',
     async run(game) {
-      // The gap between the finish beat and the results sheet used to be a
-      // motionless kart in a ditch with no interface on it at all, for up to
-      // fourteen seconds, and nothing on this sheet photographed it. `__RACE.flag`
-      // is the director's own front door onto the branch: a race cannot be
-      // driven to a first place on demand.
+      // **Driven with `advance`, not `step`.**
+      //
+      // This recipe used to `step(3.4)` and then `advance(0.6)`, and `step()` is
+      // pure sim — it never calls `update()`. So every visual clock in the
+      // finish beat (the letterbox `t`, the HUD's retire, the banner, the
+      // confetti, the curtain wipe) was frozen for the whole of those 3.4
+      // seconds and then started from zero on the trailing advance: the
+      // published `shots/finish.png` was a composite no player could ever
+      // reach, four seconds of race with six tenths of a second of interface on
+      // top. That is why "the HUD is sliced by the letterbox" was reported and
+      // "fixed" more than once — the shot that was supposed to prove it never
+      // showed the real timing in either direction.
+      //
+      // `advance` steps the simulation and renders every frame from the same
+      // delta, so the beat is photographed at the moment it actually looks like
+      // this. `__RACE.flag` stays: a race cannot be driven to a first place on
+      // demand, and it runs the real branch.
       await game.reset({ instant: true });
       await rideTo(game, 9);
       await game.evaluate(() => globalThis.__RACE.flag(1));
-      await game.step(3.4);
-      await game.advance(0.6);
+      await game.advance(1.4);
     },
   },
   {
     name: 'results',
     caption: 'The results sheet: finishing order, machines, championship, podium behind it.',
     async run(game) {
+      // **A real race, run to a real flag.** This shot is about what is printed
+      // on the sheet — the order, the gaps, the machines, the points — and
+      // every one of those was a fiction while the recipe forced the flag nine
+      // seconds into lap one: the whole field was force-finished on one frame
+      // and the times came out of the estimator rather than out of the race.
+      //
+      // Three laps of autopilot is one round trip per `step()` and no rendered
+      // frames at all, which is the cheapest part of this whole sheet.
       await game.reset({ instant: true });
-      await rideTo(game, 9);
-      await game.evaluate(() => globalThis.__RACE.flag(1));
-      await game.step(11);
-      await game.advance(1.2);
+      await game.setAutopilot(true);
+      for (let i = 0; i < 40; i++) {
+        await game.step(8);
+        const snap = await game.snapshot();
+        if (snap.race?.phase === 'results') break;
+      }
+      // ...and then let the sheet actually arrive: the rows land one at a time
+      // off a clock integrated from the render delta, so a sheet photographed
+      // without rendered frames is a sheet with nothing on it.
+      await game.advance(2.8);
     },
   },
   {

@@ -34,6 +34,7 @@ import { clamp01, damp, ease, lerp } from '../../core/math.ts';
 import { listVehicles } from '../../vehicles/registry.ts';
 import { listCourses } from '../../track/courses/index.ts';
 import { glyphBox, glyphRun } from '../glyphs.ts';
+import { signBox } from '../letters.ts';
 import { vehicleMark, wordmark } from './art.ts';
 import {
   bind, courseMap, courseScene, cupEmblem, fromHtml, hexCss, hintKey, q, title, titleBox,
@@ -99,6 +100,24 @@ export const CSS_SCREENS = `
   opacity: 0; pointer-events: none;
 }
 #menu .stat .arrow.qm { color: var(--cyan); }
+
+/* Who drives it.
+   **This is the half of the introduction the front-end never made.** The
+   roster said MACHINE, MACHINE 1 OF 7, ROAD CONE, and the race said FOREMAN —
+   two vocabularies for one entrant that never once shared a frame, so a player
+   was told at the finish that they were somebody they had not been introduced
+   to. The dossier had the room all along, directly under the name.
+   Set in the display face rather than in Trebuchet, because it *names* — see
+   ARCHITECTURE 11a. The label beside it describes, so it does not. */
+#menu .dossier .drv {
+  display: flex; align-items: center; gap: calc(var(--u) * .5);
+  margin-top: calc(var(--u) * .34);
+}
+#menu .dossier .drv .k {
+  font-size: calc(var(--u) * .58); font-weight: 800; letter-spacing: .2em;
+  text-transform: uppercase; color: rgba(255,248,240,.5);
+}
+#menu .dossier .drv .n { height: calc(var(--u) * 1.05); color: var(--gold); }
 
 /* What the bars are being read against. The comparison is the reason this
    panel exists, so it says out loud which machine it is comparing with. */
@@ -442,6 +461,7 @@ export function createRacerScreen(): RacerScreen {
       <div class="plate dossier">
         <span class="cap kind"></span>
         ${title('', 'who')}
+        <div class="drv"><span class="k">Driven by</span><span class="n word"></span></div>
         <div class="p blurb"></div>
         <div class="stats">${rows}</div>
         <div class="vs"></div>
@@ -454,6 +474,8 @@ export function createRacerScreen(): RacerScreen {
   const dossier = bind(q(root, '.dossier'));
   const kind = bind(q(root, '.kind'));
   const name = q<HTMLElement>(root, '.who > i');
+  const driver = signBox(q(root, '.drv .n'));
+  const driverRow = bind(q(root, '.drv'));
   const blurb = bind(q(root, '.blurb'));
   const nameB = titleBox(name);
   const vs = bind(q(root, '.vs'));
@@ -631,6 +653,10 @@ export function createRacerScreen(): RacerScreen {
       // yet is a roster that is guessing on the player's behalf.
       kind.text('Any machine');
       nameB.text('Surprise Me');
+      // No machine, no driver. A random slot that named one would be naming the
+      // one thing the slot exists not to know yet.
+      driverRow.set('opacity', '0');
+      driver.set('');
       blurb.text('Let the yard decide. It has opinions, and it is not telling.');
       setBars(() => 0);
       paintVs();
@@ -638,6 +664,8 @@ export function createRacerScreen(): RacerScreen {
     }
     kind.text(`Machine ${api.index + 1} of ${defs.length}`);
     nameB.text(def.name);
+    driverRow.set('opacity', '1');
+    driver.set(def.driver.toUpperCase());
     blurb.text(def.blurb);
     setBars((key) => def.stats[key]);
     paintVs();

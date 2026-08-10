@@ -39,6 +39,17 @@ export interface ResultRow {
    *  estimate rather than a measurement. */
   estimated: boolean;
   /**
+   * Whole laps behind the leader when the flag came in for them. Zero for
+   * anybody who actually completed the distance.
+   *
+   * An estimated time for a machine half a straight from the line is a fair
+   * reading of a race. An estimated time for one that was still two laps out is
+   * a fiction with three decimal places on it, and the table used to print
+   * exactly that — "+1:34.396", timed to the millisecond, for a racer nobody
+   * had timed. Above zero, the time column says "+1 LAP" instead.
+   */
+  lapsDown: number;
+  /**
    * The map blip's colour: the machine's hue pushed into the band that reads at
    * ninety pixels against a grey road. Right for a dot, wrong for a table.
    */
@@ -70,13 +81,15 @@ interface Entry {
   finishTime: number;
   place: number;
   estimated: boolean;
+  lapsDown: number;
 }
 
 export interface RaceBook {
   reset(racers: Racer[]): void;
   /** Record a completed lap. Returns the split, and whether it is a new best. */
   lap(racer: Racer, atTime: number): { split: number; best: boolean };
-  finish(racer: Racer, place: number, atTime: number, estimated: boolean): void;
+  finish(racer: Racer, place: number, atTime: number, estimated: boolean,
+         lapsDown?: number): void;
   bestLapOf(racer: Racer): number;
   splitsOf(racer: Racer): readonly number[];
   /** The fastest lap anybody set, and who set it. */
@@ -108,6 +121,7 @@ export function createRaceBook(): RaceBook {
           finishTime: 0,
           place: 0,
           estimated: false,
+          lapsDown: 0,
         });
       }
     },
@@ -130,13 +144,14 @@ export function createRaceBook(): RaceBook {
       return { split, best };
     },
 
-    finish(racer, place, atTime, estimated): void {
+    finish(racer, place, atTime, estimated, laps = 0): void {
       const e = entryOf(racer);
       if (!e || e.finished) return;
       e.finished = true;
       e.finishTime = atTime;
       e.place = place;
       e.estimated = estimated;
+      e.lapsDown = Math.max(0, Math.floor(laps));
     },
 
     bestLapOf(racer): number {
@@ -173,6 +188,7 @@ export function createRaceBook(): RaceBook {
         bestLap: e.best,
         points: points[e.place - 1] ?? 0,
         estimated: e.estimated,
+        lapsDown: e.lapsDown,
         color: colorOf(e.racer),
         livery: getVehicle(e.racer.vehicleId).colors.primary,
       }));

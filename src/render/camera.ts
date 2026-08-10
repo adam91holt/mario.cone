@@ -125,6 +125,8 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
   /** The `finish` shot's clock, and how much of the move this place is worth. */
   let celebT = -1;
   let celebScale = 1;
+  /** How long the move takes — the hold the director asks for. */
+  let celebTime = C.victory.time;
 
   // ── the shots the race asks for ──────────────────────────────────────────
   //
@@ -171,8 +173,8 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
    *  player is trying to read the first corner. */
   let gridFrame = 0;
 
-  ctx.bus.on<{ shot: string; back?: number; racerId?: number; podium?: boolean }>(
-    'camera:shot', ({ shot, back, podium }) => {
+  ctx.bus.on<{ shot: string; back?: number; racerId?: number; podium?: boolean; hold?: number }>(
+    'camera:shot', ({ shot, back, podium, hold }) => {
       if (shot === 'grid' || shot === 'countdown') {
         shotBack = Math.max(0, back ?? 0);
         return;
@@ -185,6 +187,13 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
         // win: a podium gets the whole orbit, anything else gets two thirds of
         // it. It is still a composed shot; it is just not a celebration.
         celebScale = podium ? 1 : 0.65;
+        // ...and the move lasts as long as the *race* says the beat lasts. The
+        // director has always sent `hold` and this rig has always ignored it in
+        // favour of a config number that happened to be close, which is the
+        // quiet half of an unheard emit: a payload field nobody reads is a
+        // number two modules can disagree about without either of them
+        // noticing.
+        celebTime = Math.max(0.4, hold ?? C.victory.time);
       }
     },
   );
@@ -557,6 +566,7 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
       swingDir = 0; swingNext = 0; swingU = 0; swingHop = 0; swingDepth = 1; swing = 0;
       celebT = -1;
       celebScale = 1;
+      celebTime = C.victory.time;
       // `shotBack` is deliberately not cleared here: the director emits
       // `camera:shot` from inside its own reset at order 70, before this one,
       // so clearing it would throw away the number that has just arrived.
@@ -630,7 +640,7 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
       const travelYaw = travelYawOf(racer);
 
       const celeb = celebT >= 0
-        ? ease.inOutCubic(clamp01(celebT / C.victory.time)) * celebScale : 0;
+        ? ease.inOutCubic(clamp01(celebT / celebTime)) * celebScale : 0;
 
       const lookBack = ctx.inputState.look > 0.5;
       const lookWas = lookAmt;
@@ -824,7 +834,18 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
         // frame, tip up on a climb so you can see over it.
         slopeAim = clamp(a.tangent.y * along * 0.55, -C.chase.slopeAim, C.chase.slopeAim);
       }
-      const aimFade = (1 - lookAmt) * (mode === 'front' ? 0 : 1);
+      // **The victory shot has one subject and it is not the next corner.**
+      //
+      // Everything below this line exists to keep a *driving* kart low in the
+      // frame with the road it is about to take open above it: the corner lead
+      // throws it to the outside, the slope aim tips over the crest, and
+      // `frameLow` sits it a fifth of the way down. Applied to a machine that
+      // has stopped, on the one beat the game is entirely about that machine,
+      // they compose a photograph of an embankment with a winner clipped by the
+      // bottom letterbox bar — which is what the finish was. So the whole
+      // driving composition fades out as the celebration comes in, and the
+      // winner walks into the middle of the frame and stays there.
+      const aimFade = (1 - lookAmt) * (mode === 'front' ? 0 : 1) * (1 - celeb);
       cornerLead *= aimFade;
       slopeAim *= aimFade;
 
@@ -882,7 +903,8 @@ export function createCameraSystem(ctx: GameContext): GameSystem {
       // it belongs, then hold most of the way to it. Bounded so framing always
       // wins in the end, and released in the air, where following the kart
       // matters more than keeping the world level.
-      let pitchLead = framePitch() + slopeAim;
+      // ...including the low anchor itself. See `aimFade` above.
+      let pitchLead = framePitch() * (1 - celeb) + slopeAim;
       if (mode !== 'cinematic' && mode !== 'free') {
         _tmp.subVectors(_anchor, cam.position);
         const aimPitch = Math.atan2(_tmp.y, Math.hypot(_tmp.x, _tmp.z)) + pitchLead;

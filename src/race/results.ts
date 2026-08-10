@@ -363,7 +363,14 @@ export function createResults(onPick: (id: string) => void, sfx: Sfx): Results {
     // The winner's absolute time, everybody else's gap to it. A results table
     // that prints eight total times makes the reader do the subtraction the
     // screen exists to do for them.
-    glyphBox(q(el, '.tm'), row.place === 1 ? formatTime(row.time) : `+${formatGap(row.gap)}`);
+    //
+    // ...and a machine that was still a whole lap out when the flag came in
+    // gets the honest answer instead of a gap. `estimated` already dims the
+    // row; this is the second format that row needed, because "+1:34.396" reads
+    // as a measurement and "+1 LAP" reads as what actually happened.
+    glyphBox(q(el, '.tm'), row.place === 1 ? formatTime(row.time)
+      : row.lapsDown > 0 ? `+${row.lapsDown} LAP${row.lapsDown > 1 ? 'S' : ''}`
+        : `+${formatGap(row.gap)}`);
     glyphBox(q(el, '.pts .num'), row.points > 0 ? `+${row.points}` : '');
     // The machine's own colour, not the minimap's reading of it. See `livery`
     // in book.ts: `blipColor` is right for a ninety-pixel dot and wrong for a

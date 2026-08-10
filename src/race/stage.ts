@@ -28,7 +28,7 @@ import { clamp01, ease } from '../core/math.ts';
 import { glyphBox } from '../ui/glyphs.ts';
 import {
   bind, curtainCss, curtainTransform, CURTAIN_IN, CURTAIN_OUT, fromHtml, hazardCss,
-  q, rgba, type Bound,
+  LETTERBOX_IN, q, rgba, type Bound,
 } from '../ui/theme.ts';
 import { signBox } from './letters.ts';
 
@@ -185,8 +185,14 @@ export const CSS_STAGE = `
   box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
 #race .ticker .tick .tn { height: calc(var(--u) * 1.05); color: #E8EEF6; min-width: calc(var(--u) * 5.4); }
 #race .ticker .tick .tg { height: calc(var(--u) * 1.05); color: #9FB0C6; margin-left: auto; }
-#race .ticker .tick.you .tn { color: #FFD84D; }
-#race .ticker .tick.you .tp { color: #FFD84D; }
+/* No "you" rule, because there is no "you" line. **The ticker reads the field
+   home; it does not read the player home.** It used to do both: a gold plate
+   with hazard-striped ends printing "1ST PLACE 2:27.591" across the middle of
+   the frame, and two hundred pixels to its left a dark plate with a small gold
+   ordinal printing "1ST | FOREMAN" — the same statement, twice, in two
+   different visual languages, on the one frame the whole race is in service of.
+   The banner is the bigger, louder object and it carries the time, so it keeps
+   the statement; this list is now only the machines still arriving. */
 
 /* ── the wrong way ───────────────────────────────────────────────────────── */
 /* Dead centre and unmissable. It is the one readout in the game that exists to
@@ -692,7 +698,6 @@ export interface TickerEntry {
   name: string;
   gap: string;
   color: number;
-  isPlayer: boolean;
 }
 
 export interface Ticker {
@@ -749,7 +754,6 @@ export function createTicker(): Ticker {
     bind(q(el, '.chip')).set('background',
       `linear-gradient(160deg, ${rgba(entry.color, 1)}, ${rgba(entry.color, 0.55)})`);
     const b = bind(el);
-    b.cls('you', entry.isPlayer);
     root.appendChild(el);
     chips.push({ box: b, el, t: 0 });
   }
@@ -920,7 +924,17 @@ export interface FinishBeat {
  * finish lens orbiting the machine and the ticker landing a plate for each
  * racer as they come home — which is what the gap was always for.
  */
-export const FIN_IN = 0.2;
+/**
+ * How long the bars take to close.
+ *
+ * **Shared with the HUD**, as `LETTERBOX_IN` in `ui/theme.ts`. It has to be:
+ * the instrument set is on the layer under this one and has to be gone before
+ * the bars arrive, or it travels up through them and the player is shown their
+ * finishing place through a guillotine. It was a private 0.2 here and a
+ * `retire > 0.25` dead zone on a `dt/0.9` ramp over there, and the two had
+ * never once been compared.
+ */
+export const FIN_IN = LETTERBOX_IN;
 export const FIN_HOLD = 1.9;
 export const FIN_OUT = 0.45;
 export const FIN_TOTAL = FIN_IN + FIN_HOLD + FIN_OUT;

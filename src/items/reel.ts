@@ -16,16 +16,18 @@
 // with a stalk under a plate reading WHEEL CHOCK, a studded Koopa shell under
 // HARD HAT and a lit-fuse bob-omb under GAS BOTTLE, thirty pixels above this
 // module's own what-hit-you plate drawing the right object in the same frame.
-// `icons.ts` is now the one set, this module publishes it (see
-// `itemIconSvg` re-exported from `index.ts`), and `adoptSlot` repaints the
-// faces of a published socket with it — which is a no-op the moment the module
-// that owns that socket imports the set directly.
+//
+// `icons.ts` is the one set. There was a repaint here for one round — a walk
+// over the published socket's faces rewriting each one from this module — and
+// it is gone, because `ui/icons.ts` imports the set instead of keeping a rival
+// copy of it. A runtime patch that survives the duplication it was patching is
+// just a second bug.
 
 import { clamp01 } from '../core/math.ts';
 import { signBox, signCss, type SignBox } from '../ui/letters.ts';
 import { U_CSS } from '../ui/theme.ts';
 import { ITEMS, REEL_FACES } from './defs.ts';
-import { itemIconBody, itemIconSvg, ITEM_ICON_DEFS, ITEM_ICON_IDS } from './icons.ts';
+import { itemIconSvg, ITEM_ICON_DEFS, ITEM_ICON_IDS } from './icons.ts';
 import type { ItemEntry } from './defs.ts';
 import type { ItemId } from '../types.ts';
 
@@ -824,33 +826,6 @@ export function createItemHud(): ItemHud {
    */
   const key = (e: ItemEntry): string => e.id;
 
-  /**
-   * Repaint the faces of a socket another module published, from this one.
-   *
-   * Only the *inside* of each `<svg data-face="…">` is rewritten. The element
-   * itself, its classes, its viewBox and whatever the owning module has
-   * attached to it survive untouched, so its cross-fade, its drum and its
-   * landing cell keep working exactly as written — the only thing that changes
-   * is which object is drawn. Anything with a `data-face` this module does not
-   * know is left alone rather than blanked.
-   *
-   * Cheap and idempotent: thirteen to forty string comparisons, once at build
-   * and once per race reset, and every one of them a no-op once the owning
-   * module imports `icons.ts` directly.
-   */
-  function adoptSlot(host: Element): number {
-    let painted = 0;
-    for (const svg of Array.from(host.querySelectorAll<SVGElement>('svg[data-face]'))) {
-      const id = svg.dataset.face as ItemId | undefined;
-      if (!id || !(id in ITEMS)) continue;
-      const body = itemIconBody(id);
-      if (svg.innerHTML === body) continue;
-      svg.innerHTML = body;
-      painted++;
-    }
-    return painted;
-  }
-
   function build(): void {
     if (root || typeof document === 'undefined') return;
 
@@ -870,12 +845,20 @@ export function createItemHud(): ItemHud {
 
     // The icon set's paint servers. Mounted before anything that names them,
     // and mounted whether or not this module ends up drawing the socket itself
-    // — `adoptSlot` below hands these same icons to a socket somebody else
-    // published, and a `url(#…)` reference is resolved against the document.
-    defsEl = document.createElement('div');
-    defsEl.id = 'item-icon-defs';
-    defsEl.innerHTML = ITEM_ICON_DEFS;
-    fxRoot.appendChild(defsEl);
+    // — a `url(#…)` reference is resolved against the document, not against the
+    // element that names it.
+    //
+    // ...but exactly once. `ui/icons.ts` re-exports this very block now that
+    // the second icon set is gone, so the HUD mounts it with its own root at
+    // order 100 and this runs at order 50; two copies would put every gradient
+    // id in the document twice, which browsers resolve by taking the first and
+    // which is a bug nobody can see until the day the two differ.
+    if (!document.querySelector('.item-icon-defs')) {
+      defsEl = document.createElement('div');
+      defsEl.id = 'item-icon-defs';
+      defsEl.innerHTML = ITEM_ICON_DEFS;
+      fxRoot.appendChild(defsEl);
+    }
 
     // Screen effects always exist. The slot stands down if the UI module has
     // published one of its own.
@@ -927,29 +910,21 @@ export function createItemHud(): ItemHud {
     flashEl.id = 'item-flash';
     fxRoot.appendChild(flashEl);
 
-    // **The socket stands down. The picture does not.**
+    // **The socket stands down, and the picture goes with it.**
     //
     // Handing the housing to another module is a coordination decision and a
     // fine one — that module's socket carries the drift collar, the shutter and
-    // the landing flare, and two sockets on one screen would be a bug. Handing
-    // over *what is drawn inside it* is not the same decision, and it was made
-    // silently by this one line: the module that took the socket drew its own
-    // set from the `ItemId`s, so a player holding a Wheel Chock was shown a
-    // banana with a stalk on it, and the what-hit-you plate this file draws
-    // thirty pixels below said WHEEL CHOCK over a picture of a chock in the
-    // very same frame.
+    // the landing flare, and two sockets on one screen would be a bug.
     //
-    // So the faces of a published socket are repainted from `icons.ts` — the
-    // element identities, classes and attributes the other module switches on
-    // are untouched, only the geometry inside each `<svg data-face>` changes.
-    // It is idempotent and it is self-cancelling: the day `ui/icons.ts` imports
-    // this set instead of keeping a second one, every face already matches and
-    // this walks the list and writes nothing.
+    // There used to be a repaint here: `adoptSlot` walked every `<svg
+    // data-face>` in the published socket and rewrote its insides from this
+    // module's icons, because the module that took the socket drew a second set
+    // of its own from the `ItemId`s — a banana with a stalk under a plate
+    // reading WHEEL CHOCK. That was a runtime patch over a duplication, and the
+    // duplication is gone: `ui/icons.ts` imports this set. The patch has
+    // nothing left to do, so it is not here either.
     published = document.querySelector('[data-item-slot]');
-    if (published) {
-      adoptSlot(published);
-      return;
-    }
+    if (published) return;
 
     // The drum: one cell per face, plus a copy of the first so the wrap is a
     // continuation rather than a jump back through the whole strip.
@@ -1059,12 +1034,11 @@ export function createItemHud(): ItemHud {
     },
 
     reset(): void {
-      // A published socket may have been torn down and rebuilt with the race —
-      // this module cannot know, and asking is forty string compares that all
-      // come back equal when it has not.
-      if (published) {
-        if (!published.isConnected) published = document.querySelector('[data-item-slot]');
-        if (published) adoptSlot(published);
+      // A published socket may have been torn down and rebuilt with the race,
+      // so the handle is refreshed — but nothing is repainted through it any
+      // more. See the note where `adoptSlot` used to be called.
+      if (published && !published.isConnected) {
+        published = document.querySelector('[data-item-slot]');
       }
       reelPos = 0;
       reelTarget = 0;
