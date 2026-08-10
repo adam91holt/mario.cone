@@ -718,7 +718,10 @@ export function buildSprayer(): THREE.Object3D {
   const plume = new THREE.Mesh(
     new THREE.ConeGeometry(0.5, 1.05, 10, 1, true),
     new THREE.MeshBasicMaterial({
-      color: 0x131A2E, transparent: true, opacity: 0.34,
+      // Bitumen. It was navy, which is the colour of the thing this replaced
+      // rather than of the thing it is — and the plume and the tar it puts on
+      // the glass have to be the same substance or the item is two objects.
+      color: 0x1B140E, transparent: true, opacity: 0.34,
       depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
     }));
   plume.position.set(0, -0.4, 0.1);

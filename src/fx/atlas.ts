@@ -10,6 +10,26 @@
 // Everything is drawn white with an alpha profile. Colour arrives per particle,
 // in linear scene-referred units, so the same sprite is a cold blue mini-turbo
 // spark at 3.0 and a tan puff of desert dust at 0.4.
+//
+// **One rule governs every cell that is not a sign.** No straight edge may be
+// traceable in the silhouette at nine times magnification, because a sprite the
+// player sees forty of at once is judged on its outline and a straight outline
+// is the plainest statement a frame can make that it was computed. The clouds
+// were rejected for it once as a sixteen-sided polygon; the spark cell was
+// carrying the same defect two ways at the same time — a `sqrt` width taper
+// that is a straight line over the range it was used on, and a nose that held
+// full width while the brightness ran out, which drew a flat wall across the
+// leading edge — and the shock ring was a `createRadialGradient` annulus, which
+// is to say a mathematically exact circle of constant thickness laid flat on
+// the road at eight metres across.
+//
+// So every one of them is now rasterised from a **stated function** built out
+// of `bump` — a compact kernel that is C2 where it meets zero — rather than
+// composited out of gradients and rectangles. A sum of C2 functions is C2, and
+// the iso-alpha contours of a C2 field are smooth curves at every zoom. That is
+// a guarantee rather than a tuning pass. The three exceptions are deliberate:
+// the star and the confetti flake are *objects* and want their edges, and the
+// speed-line streak is a soft cross that has none to begin with.
 
 import * as THREE from 'three';
 
@@ -19,7 +39,7 @@ export const ATLAS_ROWS = 3;
 /** Cell indices, packed into an instance attribute. Order matches the drawing
  *  below and must not be reshuffled without updating both. */
 export const CELL = {
-  /** Hot pinpoint with a fast falloff — the mini-turbo spark itself. */
+  /** A comet: round hot head, hairline tail — the mini-turbo spark itself. */
   spark: 0,
   /** Broad soft ball — flame bodies, wheel glows, bloom seeds. */
   glow: 1,
@@ -27,7 +47,8 @@ export const CELL = {
   puff: 2,
   /** Thin horizontal line, tapered at both ends — speed lines. */
   streak: 3,
-  /** Annulus — landing shocks, boost rings, impact pops. */
+  /** A ring of thrown-up ground, out of round — landing shocks, boost rings,
+   *  impact pops. Not a circle: see `drawRing`. */
   ring: 4,
   /** Five-point star — spin-out. */
   star: 5,
@@ -114,6 +135,59 @@ function smooth(edge0: number, edge1: number, x: number): number {
 const TAU = Math.PI * 2;
 
 /**
+ * The compact smooth kernel every analytic cell in this file is built out of.
+ *
+ * `(1 - q²)³` on `q < 1`, zero outside. Two properties, and both of them are
+ * the whole point:
+ *
+ *   It is **exactly zero** past `q = 1`, so a cell built from a finite number
+ *   of these has a support this code can state rather than a gaussian tail that
+ *   has to be clipped somewhere — and a clip is a hard edge.
+ *
+ *   Its first and second derivatives are **both zero at `q = 1`**, so the
+ *   junction between "kernel" and "nothing" is C2. A sum of C2 functions is C2,
+ *   which means the iso-alpha contours of anything assembled from them are
+ *   smooth curves. They cannot resolve into a straight segment at any
+ *   magnification, because there is no straight segment in the source to
+ *   resolve into.
+ */
+function bump(q2: number): number {
+  if (q2 >= 1) return 0;
+  const t = 1 - q2;
+  return t * t * t;
+}
+
+/**
+ * Rasterise a cell from a closure over normalised coordinates.
+ *
+ * `f(x, y)` is called with `x` running 0..1 across the cell and `y` running
+ * -0.5..0.5 down it, and returns alpha. Per-pixel rather than by compositing
+ * gradients, because a silhouette assembled out of overlapping `fillRect`s and
+ * `CanvasGradient`s is the *accidental* outcome of the compositor rather than a
+ * function this file can state — and only a stated function can be checked.
+ */
+function raster(c: CanvasRenderingContext2D, f: (x: number, y: number) => number): void {
+  const cv = document.createElement('canvas');
+  cv.width = SIZE;
+  cv.height = SIZE;
+  const cc = cv.getContext('2d');
+  if (!cc) throw new Error('[fx] 2d context unavailable');
+  const img = cc.createImageData(SIZE, SIZE);
+  const px = img.data;
+  for (let py = 0; py < SIZE; py++) {
+    const y = (py + 0.5) / SIZE - 0.5;
+    for (let pxi = 0; pxi < SIZE; pxi++) {
+      const i = (py * SIZE + pxi) * 4;
+      px[i] = 255; px[i + 1] = 255; px[i + 2] = 255;
+      const a = f((pxi + 0.5) / SIZE, y);
+      px[i + 3] = a <= 0 ? 0 : a >= 1 ? 255 : Math.round(a * 255);
+    }
+  }
+  cc.putImageData(img, 0, 0);
+  c.drawImage(cv, 0, 0);
+}
+
+/**
  * The spark. A **comet**, not a ball — and that difference is most of what
  * separates "a spray of sparks" from "a chain of glowing tic-tacs".
  *
@@ -129,40 +203,96 @@ const TAU = Math.PI * 2;
  *
  * So the cell is built to be stretched. `+X` is the direction of travel (the
  * shader's velocity branch aligns the quad's local X with the screen-space
- * velocity), so the head sits near `u = 0.78` and the tail runs all the way out
- * to `u = 0`, narrowing as it goes. Stretched, that is a comet with a hot nose
- * and a fading trail; unstretched — a spark thrown by something standing still —
- * it is a small bright teardrop, which is still a better spark than a dot.
+ * velocity), so the head sits forward in the cell and the tail runs back toward
+ * `u = 0`, narrowing as it goes.
  *
- * Rasterised column by column so the width can taper independently of the
- * brightness. 256 one-pixel gradients, once, at boot.
+ * **It is a swept kernel, not a column of gradients**, and that is the fix the
+ * cloud cells already had applied to them one round earlier. The previous
+ * version rasterised 256 one-pixel vertical gradients whose half-width was
+ * `0.10 + 0.90 * sqrt(u / NOSE)` and whose brightness past the nose fell while
+ * the width stayed pinned at maximum. Two straight edges came out of that and
+ * both of them photographed:
+ *
+ *   a `sqrt` taper is very nearly a straight line over the range it was used
+ *   on, so the two long sides of the comet were traceable as straight edges at
+ *   9x — the same defect as the 16-gon puff, in the second most-drawn cell in
+ *   the atlas;
+ *
+ *   and holding full width while the brightness ran out gave the leading edge a
+ *   **blunt wall**. A measured 5x crop of a boost came back with a scatter of
+ *   small cyan rectangles with squared-off ends, which is what a stretched bar
+ *   of light with a flat nose looks like. A spark has a round head.
+ *
+ * What is here instead is what a spark *is*: a bright point, photographed while
+ * moving. Thirty-two copies of the compact kernel are laid down the axis, the
+ * radius growing and the brightness rising toward the head — the integral a
+ * shutter takes over a moving point. The silhouette is therefore the outer
+ * envelope of a family of circles, which is a smooth curve everywhere by
+ * construction, has a round nose because the head kernel is round, and reaches
+ * exactly zero inside the cell because the kernel has compact support.
  */
 function drawSpark(c: CanvasRenderingContext2D): void {
-  const h = SIZE * 0.5;
-  /** Where the nose sits along the cell, 0 = tail, 1 = leading edge. */
-  const NOSE = 0.78;
-  for (let x = 0; x < SIZE; x++) {
-    const u = (x + 0.5) / SIZE;
-    // Brightness: a long power-law rise up the tail, a short round nose.
-    const bright = u <= NOSE
-      ? Math.pow(u / NOSE, 1.7)
-      : Math.pow(Math.max(0, 1 - u) / (1 - NOSE), 0.65);
-    if (bright < 0.004) continue;
-    // Width: a hairline at the tail, full at the nose. The taper is what makes
-    // the streak read as something travelling rather than as a bar of light.
-    const w = h * (0.10 + 0.90 * Math.pow(Math.min(1, u / NOSE), 0.5)) * 0.98;
-    const g = c.createLinearGradient(0, h - w, 0, h + w);
-    // A gaussian-ish cross-section. Solid core, no hard edge at any radius.
-    g.addColorStop(0.00, white(0));
-    g.addColorStop(0.20, white(bright * 0.10));
-    g.addColorStop(0.35, white(bright * 0.44));
-    g.addColorStop(0.50, white(bright));
-    g.addColorStop(0.65, white(bright * 0.44));
-    g.addColorStop(0.80, white(bright * 0.10));
-    g.addColorStop(1.00, white(0));
-    c.fillStyle = g;
-    c.fillRect(x, h - w, 1, w * 2);
+  /** Where the head sits along the cell. 0 = tail end, 1 = leading edge. */
+  const HEAD = 0.62;
+  const TAIL = 0.035;
+  /** Half-width of the head, in cell heights. The cell's own half-height is
+   *  0.5, so the support has to end inside that — this plus the margin below is
+   *  what keeps the mip chain from carrying the comet into its neighbours. */
+  const R_HEAD = 0.36;
+  const R_TAIL = 0.030;
+  /**
+   * Samples along the sweep.
+   *
+   * The spacing has to stay under the *tail* radius, which is the smallest one:
+   * crowd the samples toward the head instead and the thin end of the comet
+   * comes apart into a dotted line of individual kernels, which a 9x crop
+   * catches instantly. 32 evenly spaced samples over 0.585 of the cell is a
+   * step of 0.018 against a tail radius of 0.030, so consecutive kernels always
+   * overlap and the envelope is continuous everywhere.
+   */
+  const N = 32;
+
+  const cx = new Float32Array(N);
+  const cr = new Float32Array(N);
+  const cb = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const s = i / (N - 1);               // 0 at the tail, 1 at the head
+    cx[i] = TAIL + (HEAD - TAIL) * s;
+    cr[i] = R_TAIL + (R_HEAD - R_TAIL) * Math.pow(s, 1.35);
+    // A long power-law rise, so the tail is a hairline of light rather than a
+    // second lobe. Divided by the sample's own area so a fat head kernel does
+    // not simply drown the thin tail ones.
+    cb[i] = (0.035 + 0.965 * Math.pow(s, 2.1)) / (cr[i] * cr[i]);
   }
+
+  // One pass to find the peak, so the profile below can be stated in 0..1
+  // rather than depending on how many samples the sweep happens to use.
+  let peak = 0;
+  for (let i = 0; i < N; i++) {
+    let s = 0;
+    for (let k = 0; k < N; k++) {
+      const dx = cx[i]! - cx[k]!;
+      s += cb[k]! * bump((dx * dx) / (cr[k]! * cr[k]!));
+    }
+    if (s > peak) peak = s;
+  }
+  const inv = 1 / peak;
+
+  raster(c, (x, y) => {
+    let a = 0;
+    for (let k = 0; k < N; k++) {
+      const dx = x - cx[k]!;
+      const r = cr[k]!;
+      const q2 = (dx * dx + y * y) / (r * r);
+      if (q2 < 1) a += cb[k]! * bump(q2);
+    }
+    a *= inv;
+    // A shoulder on the accumulated field rather than on any one kernel. It
+    // pulls the faint outer skirt in so the comet has a *defined* body without
+    // giving it a boundary: the curve is smooth, so the alpha still crosses the
+    // eye's threshold at a different radius for every opacity the module uses.
+    return a <= 0 ? 0 : Math.pow(a, 1.25);
+  });
 }
 
 function drawGlow(c: CanvasRenderingContext2D): void {
@@ -342,70 +472,51 @@ function drawCloud(c: CanvasRenderingContext2D, seed: number): void {
   const oct1 = lattice(7, seed + 4.3);
   const oct2 = lattice(15, seed + 9.1);
   const N = field.length - 1;
-  const cv = document.createElement('canvas');
-  cv.width = SIZE;
-  cv.height = SIZE;
-  const cc = cv.getContext('2d');
-  if (!cc) throw new Error('[fx] 2d context unavailable');
-  const img = cc.createImageData(SIZE, SIZE);
-  const px = img.data;
-  const h = SIZE * 0.5;
 
-  for (let y = 0; y < SIZE; y++) {
-    const dy = (y + 0.5 - h) / h;
-    for (let x = 0; x < SIZE; x++) {
-      const i = (y * SIZE + x) * 4;
-      const dx = (x + 0.5 - h) / h;
-      const d = Math.sqrt(dx * dx + dy * dy);
-      // Everything past the inscribed circle is empty. The body has already
-      // reached zero well inside it — this only guarantees the mip chain can
-      // never bleed one cell into its neighbour.
-      px[i] = 255; px[i + 1] = 255; px[i + 2] = 255;
-      if (d >= 0.999) { px[i + 3] = 0; continue; }
+  raster(c, (x, y) => {
+    const dx = (x - 0.5) * 2;
+    const dy = y * 2;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    // Everything past the inscribed circle is empty. The body has already
+    // reached zero well inside it — this only guarantees the mip chain can
+    // never bleed one cell into its neighbour.
+    if (d >= 0.999) return 0;
 
-      // Where on the rim we are, as a smooth periodic function of the angle.
-      const th = Math.atan2(dy, dx);
-      const t = ((th < 0 ? th + TAU : th) / TAU) * N;
-      const ti = t | 0;
-      const s = field[ti]! + (field[ti + 1]! - field[ti]!) * (t - ti);
+    // Where on the rim we are, as a smooth periodic function of the angle.
+    const th = Math.atan2(dy, dx);
+    const t = ((th < 0 ? th + TAU : th) / TAU) * N;
+    const ti = t | 0;
+    const s = field[ti]! + (field[ti + 1]! - field[ti]!) * (t - ti);
 
-      // The warp bites the outside and leaves the core alone: a cloud is ragged
-      // at its edge and dense in its middle, and warping the middle as well
-      // just moves the whole sprite off centre.
-      const rn = (d / CLOUD_R0) * (1 + CLOUD_WARP * s * smooth(0.06, 0.92, d));
-      let a = rn >= 1 ? 0 : CLOUD_PEAK * Math.pow(1 - rn, CLOUD_FALL);
-      if (a > 0) {
-        // Structure at three scales: billows about a third of the cell across,
-        // clumps inside those, and a fine grain over the top so no billow is a
-        // smooth ball. Value noise rather than a ring of gaussian lobes,
-        // because lobes placed inside the body correlate with the radius — they
-        // pile up in the middle, flatten the core into a plateau and lift the
-        // peak by half again, which is a change to the alpha profile dressed up
-        // as a change to the texture.
-        //
-        // The modulation averages 1 by construction, so the *mean* radial
-        // profile is still the monotonic curve every alpha in `index.ts` was
-        // tuned against, while any individual pixel runs between 0.55 and 1.45
-        // of it. That spread is the whole difference between a cloud and a
-        // gradient.
-        const u = x / SIZE;
-        const v = y / SIZE;
-        const m = 0.50 * noise(oct0, 3, u, v)
-          + 0.32 * noise(oct1, 7, u, v)
-          + 0.18 * noise(oct2, 15, u, v);
-        a *= 0.55 + 0.90 * m;
-        // ...and a last analytic vignette. A polynomial rather than a ramp with
-        // endpoints: it is exactly zero at the cell boundary, so the mip chain
-        // can never carry one cell into its neighbour, and it is a smooth
-        // function everywhere, so it cannot be the thing that draws an edge.
-        const d6 = d * d * d;
-        a *= 1 - d6 * d6 * d6 * d;   // 1 - d^10
-      }
-      px[i + 3] = a <= 0 ? 0 : a >= 1 ? 255 : Math.round(a * 255);
-    }
-  }
-  cc.putImageData(img, 0, 0);
-  c.drawImage(cv, 0, 0);
+    // The warp bites the outside and leaves the core alone: a cloud is ragged
+    // at its edge and dense in its middle, and warping the middle as well
+    // just moves the whole sprite off centre.
+    const rn = (d / CLOUD_R0) * (1 + CLOUD_WARP * s * smooth(0.06, 0.92, d));
+    if (rn >= 1) return 0;
+    let a = CLOUD_PEAK * Math.pow(1 - rn, CLOUD_FALL);
+    // Structure at three scales: billows about a third of the cell across,
+    // clumps inside those, and a fine grain over the top so no billow is a
+    // smooth ball. Value noise rather than a ring of gaussian lobes, because
+    // lobes placed inside the body correlate with the radius — they pile up in
+    // the middle, flatten the core into a plateau and lift the peak by half
+    // again, which is a change to the alpha profile dressed up as a change to
+    // the texture.
+    //
+    // The modulation averages 1 by construction, so the *mean* radial profile
+    // is still the monotonic curve every alpha in `index.ts` was tuned
+    // against, while any individual pixel runs between 0.55 and 1.45 of it.
+    // That spread is the whole difference between a cloud and a gradient.
+    const m = 0.50 * noise(oct0, 3, x, y + 0.5)
+      + 0.32 * noise(oct1, 7, x, y + 0.5)
+      + 0.18 * noise(oct2, 15, x, y + 0.5);
+    a *= 0.55 + 0.90 * m;
+    // ...and a last analytic vignette. A polynomial rather than a ramp with
+    // endpoints: it is exactly zero at the cell boundary, so the mip chain can
+    // never carry one cell into its neighbour, and it is a smooth function
+    // everywhere, so it cannot be the thing that draws an edge.
+    const d6 = d * d * d;
+    return a * (1 - d6 * d6 * d6 * d);   // 1 - d^10
+  });
 }
 
 function drawStreak(c: CanvasRenderingContext2D): void {
@@ -430,12 +541,80 @@ function drawStreak(c: CanvasRenderingContext2D): void {
   c.globalCompositeOperation = 'source-over';
 }
 
+/**
+ * The shock ring — a landing, a boost pad, a blast, a mini-turbo firing.
+ *
+ * It used to be five colour stops on a `createRadialGradient`, which is to say
+ * a **perfect annulus of constant width**: the same radius at every angle, the
+ * same thickness at every angle, and a piecewise-linear alpha ramp with a
+ * crease at each stop. It is drawn flat on the road at up to eight and a half
+ * metres across, so it is the largest single sprite the module ever puts on
+ * screen, and at that size a mathematically exact circle of even thickness is
+ * the "computer graphics" tell in its purest form. Nothing in a landing is
+ * circular to a tenth of a percent. Photographed at 9x it read as a neon O
+ * laid on the tarmac.
+ *
+ * So the same treatment the cloud cells got: the radius, the thickness and the
+ * brightness are each a smooth periodic function of the angle, built out of the
+ * band-limited harmonic sum in `cloudField`. What comes out is a ring of
+ * *displaced air and grit* — thicker and brighter where the ground gave more,
+ * thinner where it gave less, and out of round by a few percent everywhere.
+ *
+ * The wall profile is deliberately asymmetric: tight on the outside, where the
+ * shock front is, and trailing away inward, where the disturbance is still
+ * settling. That is the difference between a ring that is *expanding* and a
+ * ring that is merely drawn.
+ */
 function drawRing(c: CanvasRenderingContext2D): void {
-  const h = SIZE * 0.5;
-  c.fillStyle = radial(c, h, h, h * 0.99, [
-    [0.00, 0.0], [0.44, 0.0], [0.62, 0.16], [0.79, 1.0], [0.88, 0.34], [1.00, 0.0],
-  ]);
-  c.fillRect(0, 0, SIZE, SIZE);
+  const shape = cloudField(11.0);
+  const thick = cloudField(12.0);
+  const bright = cloudField(13.0);
+  const N = shape.length - 1;
+
+  /** Mean radius of the wall, in half-cells. Everything past `R0 + T_OUT` is
+   *  empty, and that sum has to stay inside the inscribed circle or the mip
+   *  chain carries the ring into the neighbouring cell. */
+  const R0 = 0.755;
+  /** Half-thickness outward (the front) and inward (the wake). */
+  const T_OUT = 0.155;
+  const T_IN = 0.34;
+  /** How far out of round the ring runs, and how much its thickness varies. */
+  const WOBBLE = 0.048;
+  const VARY = 0.30;
+
+  const sample = (tab: Float32Array, t: number): number => {
+    const i = t | 0;
+    return tab[i]! + (tab[i + 1]! - tab[i]!) * (t - i);
+  };
+
+  raster(c, (x, y) => {
+    const dx = (x - 0.5) * 2;
+    const dy = y * 2;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d >= 0.999) return 0;
+    const th = Math.atan2(dy, dx);
+    const t = ((th < 0 ? th + TAU : th) / TAU) * N;
+
+    const r = R0 * (1 + WOBBLE * (sample(shape, t) * 2 - 1));
+    const vary = 1 + VARY * (sample(thick, t) * 2 - 1);
+    const n = d - r;
+    const half = (n >= 0 ? T_OUT : T_IN) * vary;
+    const q = n / half;
+    // The wall. A compact C2 kernel rather than a gradient with stops: it has
+    // no crease anywhere along the profile, so the ring cannot band into
+    // concentric contours the way a piecewise-linear ramp does under bloom.
+    let a = bump(q * q);
+    // ...biased forward, so the brightest line sits just inside the front edge
+    // rather than dead centre of the wall.
+    if (n < 0) a *= 0.55 + 0.45 * bump(q * q);
+    a *= 0.62 + 0.38 * sample(bright, t);
+    // A faint wash of lifted dust inside the ring, so the middle is not a hole.
+    const inner = 1 - d / r;
+    if (inner > 0) a += 0.075 * inner * inner * (0.6 + 0.4 * sample(bright, t));
+    // Exactly zero at the cell boundary whatever the harmonics did.
+    const d6 = d * d * d;
+    return a * (1 - d6 * d6 * d6 * d);
+  });
 }
 
 function drawStar(c: CanvasRenderingContext2D): void {

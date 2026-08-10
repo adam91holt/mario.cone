@@ -3286,9 +3286,24 @@ export function createFxSystem(ctx: GameContext): GameSystem {
 
     init(): void {
       atlas = createAtlas();
+      // The additive layer is the sparks, and a spark is the one thing here
+      // whose length is set by something the emitter does not control: how fast
+      // the machine happens to be going. A drift flier keeps a quarter of the
+      // kart's velocity, so at racing pace it is doing forty metres a second
+      // *relative to the chase camera* and pins the stretch at whatever ceiling
+      // it is given. At the shared 0.9 that is a two-metre streak — as long as
+      // the kart — and measured crops of a mini-turbo came back with half a
+      // dozen cyan slugs laid across the tarmac.
+      //
+      // So this layer buys a shorter, thinner streak: 0.55 caps a spark at
+      // about a metre and a fifth, and `stretchNarrow` takes back the width it
+      // does not need at that length. The alpha layer keeps the looser
+      // settings, because a wake and a ribbon of tyre smoke are volumes and
+      // want every metre they can get.
       addLayer = createSpriteLayer({
         name: 'fxAdditive', atlas, capacity: LAYER_ADD,
         blending: THREE.AdditiveBlending, renderOrder: 20,
+        maxStretch: 0.55, stretchNarrow: 0.42,
       });
       alphaLayer = createSpriteLayer({
         name: 'fxAlpha', atlas, capacity: LAYER_ALPHA,

@@ -81,6 +81,22 @@ uniform vec3 uCamVel;
  * which a spark should be longer than the kart.
  */
 uniform float uMaxStretch;
+/**
+ * How much of its width a velocity-mode quad gives up as it stretches, 0..1.
+ *
+ * A spark is a *point of light photographed while moving*. Smear a point across
+ * the frame and it gets longer; it does not get fatter. With the half-width
+ * held constant while the length ran out to the ceiling, what the additive
+ * layer actually drew was a capsule of constant thickness — measured on a
+ * mini-turbo, a two-metre cyan lozenge with parallel sides, and a handful of
+ * those lying on the road reads as neon paint rather than as sparks.
+ *
+ * Per layer rather than global, because the alpha layer's velocity quads are
+ * the opposite case: tyre smoke and the speed wake are *volumes* being dragged,
+ * and a volume that thins as it stretches is a volume that disappears exactly
+ * when the machine is going fast enough to need it. They keep their width.
+ */
+uniform float uStretchNarrow;
 
 varying vec2 vUv;
 varying vec4 vColor;
@@ -114,7 +130,13 @@ void main() {
       // open. A spark keeping pace with the chase camera stays a point.
       vec3 vv = (modelViewMatrix * vec4(iVel - uCamVel, 0.0)).xyz;
       float vl = length(vv.xy);
-      along = rad + min(iParams.y * vl, uMaxStretch);
+      float draw = min(iParams.y * vl, uMaxStretch);
+      along = rad + draw;
+      // ...and it narrows as it lengthens. The ratio below is 0 for a sprite
+      // that is not moving across the frame and approaches 1 for one that is
+      // all trail, so a stationary spark keeps its full cross-section and a
+      // fast one is drawn as the thin streak it physically is.
+      rad *= 1.0 - uStretchNarrow * (draw / (draw + rad));
       if (vl > 1e-4) ax = vv.xy / vl;
     }
     vec2 ay = vec2(-ax.y, ax.x);
@@ -155,6 +177,9 @@ export interface SpriteLayerOptions {
   depthTest?: boolean;
   /** Ceiling on velocity stretch, metres of half-length. See `uMaxStretch`. */
   maxStretch?: number;
+  /** How much width a velocity quad trades for length, 0..1. See
+   *  `uStretchNarrow`. Default 0 — volumes keep their cross-section. */
+  stretchNarrow?: number;
 }
 
 export interface SpriteLayer {
@@ -217,6 +242,7 @@ export function createSpriteLayer(opts: SpriteLayerOptions): SpriteLayer {
       tAtlas: { value: opts.atlas },
       uCamVel: { value: camVel },
       uMaxStretch: { value: opts.maxStretch ?? 0.9 },
+      uStretchNarrow: { value: opts.stretchNarrow ?? 0 },
     },
     vertexShader: VERT,
     fragmentShader: FRAG,

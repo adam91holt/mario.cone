@@ -87,7 +87,11 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   // wrong half of the trade: what lands on the glass is *tar*, near-black and
   // wet, and no line marker throws that. The machine and the mess it makes are
   // one object again — see `buildSprayer` and the note over "#item-ink".
-  blooper:        D('blooper', 'Tar Sprayer', 0xFF8A2A, 0x141A2E, 'instant', 1.3),
+  // The accent is what the machine *throws*, and it is bitumen — near-black
+  // with a warm bias — not the navy it was. Navy on a screen effect is squid
+  // ink wearing a new label, which is the half of the rename that a colour
+  // picker can undo on its own.
+  blooper:        D('blooper', 'Tar Sprayer', 0xFF8A2A, 0x1B140E, 'instant', 1.3),
   // Canvas, translucent, floats, and while it is over you nobody can see you.
   boo:            D('boo', 'Dust Sheet', 0xF2EADA, 0x6E5B36, 'instant', 1.2),
   bomb:           D('bomb', 'Gas Bottle', 0x2E3340, 0xFF6B1A, 'aim', 1.0),

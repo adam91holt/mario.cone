@@ -2322,12 +2322,23 @@ export function createItemSystem(ctx: GameContext): GameSystem {
 
       const player = ctx.player;
       if (player) {
-        // The *fraction of the blooper's life still to run*, not an opacity.
-        // How the ink lands, holds, runs off the glass and fades is a picture,
-        // and it belongs to the thing that draws it; all this end owes it is an
-        // honest clock. See `ItemHud.setInk`.
+        // The *fraction of the tar's life still to run*, not an opacity. How the
+        // ink lands, holds, runs off the glass and fades is a picture, and it
+        // belongs to the thing that draws it; all this end owes it is an honest
+        // clock. See `ItemHud.setInk`.
+        //
+        // The second number is the airflow, and it is deliberately the *same
+        // expression* the clock above runs on rather than an eyeballed
+        // approximation of it: the rule is "keep your foot in and the screen
+        // clears in half the time", and a player only ever learns that from
+        // watching the tar tear off the glass as the speed comes up. Two
+        // different speed curves for the rule and the picture would be a lie
+        // told at sixty frames a second.
         const st = states.get(player.id);
-        hud.setInk(st ? clamp01(st.ink / INK_TIME) : 0);
+        hud.setInk(
+          st ? clamp01(st.ink / INK_TIME) : 0,
+          clamp01(player.speed / Math.max(1, player.maxSpeed)),
+        );
       }
       hud.update(dt);
     },
@@ -2622,6 +2633,13 @@ export function createItemSystem(ctx: GameContext): GameSystem {
           hit: st.hitTime > 0 ? st.hitKind : '',
           hitLeft: st.hitTime,
           effects: Array.from(racer.effects),
+          // Seconds of tar left on the glass, and the fraction of its life that
+          // is. The ink is the one effect in this module whose whole design is a
+          // *shape over time*, and an instrument that can only see "inked: yes"
+          // cannot tell a screenful that clears in a second and a half from one
+          // that sits there for six. Anything measuring the item reads these.
+          ink: st.ink,
+          inkFrac: st.ink > 0 ? st.ink / INK_TIME : 0,
           // The reel, in the terms the beat is judged on. A critic timing the
           // roulette off `racer.item` alone can only see the frame it landed;
           // these say how long it was *meant* to run and how far through it is,
