@@ -32,7 +32,7 @@ import { boostRacer, stunRacer } from '../physics/kart.ts';
 import { buildRacingLine, type RacingLine } from '../track/racingline.ts';
 import type { TrackSpline } from '../track/spline.ts';
 import { drawItem, ITEMS, REEL_FACES, type ItemEntry } from './defs.ts';
-import { createBoxField, PICK_RADIUS_SQ, type BoxField } from './boxes.ts';
+import { boxReached, createBoxField, type BoxField } from './boxes.ts';
 import { COIN_PICK_SQ, createCoinField, type CoinField } from './coins.ts';
 import {
   createEntityField, PROJECTILE_SPEED, refreshSunDirection, roadCrown, shadowOffset,
@@ -284,6 +284,24 @@ const HIT_FLOOR = 6.5;
 /** Seconds at the end of the spin over which the chassis is handed back to the
  *  physics orientation, so control returns without a snap. */
 const HIT_RELEASE = 0.18;
+/**
+ * Seconds of protection *after* the spin-out ends.
+ *
+ * Long enough that the kart that just hit you cannot immediately hit you again
+ * while you are still gathering the thing up, short enough that it is not a
+ * free run. Ends in a blink — see `GRACE_BLINK`.
+ */
+const GRACE_AFTER = 0.7;
+/**
+ * ...of which the last stretch is handed to `racer.invulnerable`.
+ *
+ * That field blinks the machine, and this is the only window in which a blink
+ * says something true: you have your kart back, you are still protected, and
+ * the protection is about to stop. It never overlaps the spin-out, so nothing
+ * a player is watching happen to their own machine is delivered on a
+ * half-invisible one.
+ */
+const GRACE_BLINK = 0.4;
 
 // ── scratch ────────────────────────────────────────────────────────────────
 
@@ -376,6 +394,24 @@ interface RacerItems {
   hitColor: number;
   /** Visual emitter clock for that trail. Written only from `update`. */
   hitPuff: number;
+  /**
+   * Seconds of "you cannot be hit again yet", counted by this module.
+   *
+   * Separate from `racer.invulnerable` on purpose, and it is a *visual*
+   * distinction rather than a bookkeeping one. The vehicle rig blinks anything
+   * carrying `invulnerable`, which is the right tell for the half-second after
+   * you get control back and completely wrong for the second and a half a
+   * spin-out plus its grace period actually lasts: a wheel chock used to hand
+   * `stun + 0.55` straight to `invulnerable`, and the machine strobed through
+   * the whole reaction — photographed 0.8s after the hit there was nothing on
+   * the road but a shadow. The spin-out is the most expensive thing that
+   * happens to a player and it has to be *delivered on a solid machine*.
+   *
+   * So the protection lives here for the length of the spin, and only the last
+   * `GRACE_BLINK` seconds of it are handed to `invulnerable` — where the blink
+   * then means what it is supposed to mean: your shield is running out.
+   */
+  grace: number;
 
   /** Visual state, written only from `update`. */
   orbit: THREE.Group | null;
@@ -398,7 +434,7 @@ function newState(id: number): RacerItems {
     shown: 0, guarded: false,
     hitTime: 0, hitTotal: 1, hitKind: 'spin', hitDirX: 0, hitDirZ: 1,
     hitSpeed: 0, hitYaw0: 0, hitEnd: 0, hitOver: 0, hitDir: 1,
-    hitColor: 0xFFF8F0, hitPuff: 0,
+    hitColor: 0xFFF8F0, hitPuff: 0, grace: 0,
     orbit: null, orbitKey: '', aura: null, husk: null, shroud: null, scale: 1,
     phase: id * 1.7, sparkle: 0,
   };
@@ -498,7 +534,10 @@ export function createItemSystem(ctx: GameContext): GameSystem {
    */
   const immune = (racer: Racer): boolean =>
     racer.effects.has('star') || racer.effects.has('bullet')
-    || racer.effects.has('boo') || racer.invulnerable > 0;
+    || racer.effects.has('boo') || racer.invulnerable > 0
+    // ...and the post-hit grace, which spends most of its life *not* written to
+    // `invulnerable` so the spin-out is delivered on a machine you can see.
+    || (states.get(racer.id)?.grace ?? 0) > 0;
 
   /** `Array.find` with a closure allocates, and these run inside the fixed
    *  step on every projectile contact. */
@@ -665,6 +704,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     // `stunRacer` would otherwise silently drop the event and the flags.
     const keep = racer.speed;
     racer.invulnerable = 0;
+    st.grace = P.stun + GRACE_AFTER;
     // `flip` is this module's word; physics knows three. A flip is a spin as
     // far as its own flags are concerned, and the extra flag below is what
     // tells anyone who cares the difference.
@@ -672,7 +712,11 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       kind === 'bump' ? 'bump' : kind === 'squish' ? 'squish' : 'spin', by);
     racer.speed = keep;
     racer.stunned = P.stun;
-    racer.invulnerable = P.stun + 0.55;
+    // **Not** `invulnerable`. `stunRacer` may have written one of its own, and
+    // anything on that field blinks the machine — see `RacerItems.grace`. The
+    // protection is `st.grace`; `invulnerable` is picked up again in
+    // `tickGrace`, once there is a machine under the player's hands to blink.
+    racer.invulnerable = 0;
     if (kind === 'flip') racer.effects.add('flip');
 
     // Off the ground for the heavy ones. Physics only believes a kart is
@@ -765,6 +809,29 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     racer.quat.slerp(_quat, clamp01(left / HIT_RELEASE));
 
     if (left <= 0) endHit(racer, st);
+  }
+
+  /**
+   * The post-hit grace, and the one window in which the machine is allowed to
+   * blink.
+   *
+   * Runs every fixed step for every racer, before anything can hit them. Two
+   * jobs: count the protection down, and hand its last `GRACE_BLINK` seconds to
+   * `racer.invulnerable` — which is what the vehicle rig strobes. While the
+   * spin-out is running, `invulnerable` is held at zero, so the reaction a
+   * player is watching happen to their own kart happens on a solid one.
+   *
+   * `Math.max` rather than a plain write, because a star, a boo and physics'
+   * own kart-on-kart bump all use the same field and this must never shorten
+   * one of theirs.
+   */
+  function tickGrace(racer: Racer, st: RacerItems, dt: number): void {
+    if (st.grace <= 0) return;
+    st.grace = Math.max(0, st.grace - dt);
+    if (racer.stunned > 0 || st.hitTime > 0) return;
+    if (st.grace > 0 && st.grace <= GRACE_BLINK) {
+      racer.invulnerable = Math.max(racer.invulnerable, st.grace);
+    }
   }
 
   /** Clear up after a spin-out. The flags are cleared here rather than left to
@@ -1029,7 +1096,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
       for (let i = 0; i < near.length; i++) {
         const box = boxes.boxes[near[i]!]!;
         if (box.respawn > 0) continue;
-        if (box.pos.distanceToSquared(racer.pos) > PICK_RADIUS_SQ + 1.4) continue;
+        if (!boxReached(box, racer.pos)) continue;
         breakOpen(racer, st, near[i]!);
         break;
       }
@@ -1811,6 +1878,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
   function squishPass(): void {
     for (const small of ctx.racers) {
       if (!small.effects.has('shrunk') || small.invulnerable > 0) continue;
+      if (stateOf(small).grace > 0) continue;
       for (const big of ctx.racers) {
         if (big === small || big.effects.has('shrunk')) continue;
         if (big.pos.distanceToSquared(small.pos) > 6.5) continue;
@@ -1840,7 +1908,10 @@ export function createItemSystem(ctx: GameContext): GameSystem {
     // reason boo belongs here rather than in the branch above: a boo must not
     // pay for the hit with the item it is carrying, and the branch above spends
     // the shield.
-    if (racer.invulnerable > 0 || racer.stunned > 0 || racer.effects.has('boo')) return false;
+    // (`grace` and not only `invulnerable`, because the grace period spends
+    // most of its life off that field on purpose — see `RacerItems.grace`.)
+    if (racer.invulnerable > 0 || racer.stunned > 0 || racer.effects.has('boo')
+      || stateOf(racer).grace > 0) return false;
 
     if (e.kind === 'bomb') {
       explode(e.pos, e.ownerId, e.groundY);
@@ -2360,6 +2431,7 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         const st = stateOf(racer);
         if (st.useLock > 0) st.useLock = Math.max(0, st.useLock - dt);
         if (st.settle > 0) st.settle = Math.max(0, st.settle - dt);
+        tickGrace(racer, st, dt);
         // Before anything else, and before the effects: a spin-out is this
         // module correcting the step physics has just taken, so it has to land
         // on the same step. A star or a bullet cancels it outright.

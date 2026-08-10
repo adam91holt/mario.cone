@@ -4,10 +4,12 @@
 // re-cut layout re-places its own boxes. Two kinds of placement, and the
 // difference between them is the whole design:
 //
-//   Rows. Five boxes spanning the road at the straightest points of the lap.
-//   The racing line runs through one of them, so a leader defending their line
-//   pays nothing to take an item — which is correct, because what they draw
-//   from it is a banana.
+//   Rows. Seven boxes spanning the road, wall to wall, at the six straightest
+//   points of the lap. The racing line runs through one of them, so a leader
+//   defending their line pays nothing to take an item — which is correct,
+//   because what they draw from it is a banana. Nobody else can miss the row
+//   either: the spacing is tighter than the pickup radius, so every line
+//   across the road takes exactly one box.
 //
 //   Detours. Singles out on the gravel of the shortcut and hard on the outside
 //   of the two tightest corners. Those cost real time to reach, and the payment
@@ -35,11 +37,36 @@ const FLOAT = 1.45;
  *  you will miss, and a box you cannot see from the previous corner is a box
  *  nobody plans a lap around. */
 const SIZE = 1.85;
-/** Seconds a taken box stays gone. Long enough to matter in a pack, short
- *  enough that the racer behind you is not simply denied. */
-const RESPAWN = 4.0;
-/** Pickup radius. Generous — missing a box you drove through is maddening. */
+/**
+ * Seconds a taken box stays gone.
+ *
+ * **This number is the item economy.** It was 4.0, and against an eight-kart
+ * field arriving at a row nose to tail that is not a cooldown, it is a wall:
+ * the leaders take the row, and everyone still on their way to it drives over
+ * bare tarmac for the next hundred and sixty metres. Measured over a full
+ * three-lap race that produced three draws in a hundred and forty-five seconds
+ * and one unbroken sixty-four-second stretch with an empty slot — a kart racer
+ * whose item layer the player touches for a tenth of the race.
+ *
+ * 1.5s is about forty metres at racing speed: long enough that the *pack* still
+ * feels the row thin out around it, far too short to deny anybody a lap.
+ */
+const RESPAWN = 1.5;
+/**
+ * Pickup radius, **measured in the road's plane**.
+ *
+ * Generous — missing a box you drove through is maddening — and the word
+ * "plane" is what makes it generous in practice rather than only on paper. The
+ * box floats `FLOAT` = 1.45m up; a straight 3D distance test against a kart
+ * sitting on the tarmac therefore spends 1.45 of its 2.5 metres going *up* and
+ * leaves 2.03m of actual sideways reach, which is how a 2.5m radius quietly
+ * became a 2.0m one and why rows had holes in them. The test compares
+ * horizontal distance and gates the vertical separately: see `PICK_LIFT`.
+ */
 const PICK_RADIUS = 2.5;
+/** Vertical gate on the pickup, metres. Wide enough that a kart landing off a
+ *  kerb still collects, tight enough that a box is not taken from a bridge. */
+const PICK_LIFT = 3.2;
 /**
  * Metres the halo billboard is raised above the box.
  *
@@ -70,10 +97,40 @@ const HALO_R = 0.66;
 /** Metres the contact shadow floats above the tarmac. Small — the polygon
  *  offset on its material is what actually keeps it out of the road. */
 const SHADOW_LIFT = 0.03;
-/** Boxes in a row across the road. Five is the Mario Kart number and it is the
- *  right one: a road that fits four or five karts abreast needs a box for each
- *  of them, or taking one becomes a fight instead of a decision. */
-const ROW = 5;
+/**
+ * Boxes in a row across the road.
+ *
+ * Five is the Mario Kart number on a Mario Kart road. This road is not one: it
+ * is 26 to 30 metres wide, which is nine karts abreast, and five boxes strung
+ * across it left gaps a kart could steer through without noticing — a measured
+ * span of ±9.9m against a 14.5m half-width, two thirds of the tarmac, so a car
+ * on a wide entry passed a whole row cleanly and never knew a row was there.
+ *
+ * Seven, and spaced so that no line across the road misses one (see `LIM_EDGE`
+ * and `PICK_RADIUS`). A row is meant to be a decision about *which* box, never
+ * a decision about whether you get one.
+ */
+const ROW = 7;
+/**
+ * Rows of boxes per lap.
+ *
+ * Four on a 2.2km lap is one every twenty-two seconds of driving *if you take
+ * every single one*, and nobody does — the pack thins each row as it goes
+ * through. Six puts a row roughly every three hundred and sixty metres, which
+ * is the cadence that keeps a slot filled without the circuit reading as a
+ * warehouse aisle.
+ */
+const ROWS = 6;
+/**
+ * Metres of tarmac left outside the outermost box in a row.
+ *
+ * Small on purpose: this is what "spans the road" means, and it used to be 2.6
+ * *before* the cyclic layout took another half-spacing off the top. See the
+ * placement loop — the outermost box lands between `lim - step` and `lim`
+ * depending on where the racing line is, and `PICK_RADIUS` has to cover the
+ * difference.
+ */
+const LIM_EDGE = 1.2;
 
 /**
  * How long the box's own shatter runs.
@@ -332,9 +389,14 @@ export function createBoxField(ctx: GameContext): BoxField {
     scored.sort((a, b) => a.score - b.score);
 
     const chosen: number[] = [];
-    const minGap = L / 6;
+    // Six rows will not fit with a sixth of a lap between each of them, and the
+    // loop fails *silently* if they do not — it simply stops early and the
+    // circuit quietly goes back to four. An eighth of a lap leaves the sort
+    // free to pick the six straightest places without ever bunching two rows
+    // into the same straight.
+    const minGap = L / 8;
     for (const cand of scored) {
-      if (chosen.length >= 4) break;
+      if (chosen.length >= ROWS) break;
       let ok = true;
       for (const c of chosen) {
         const gap = Math.abs(spline.signedDistance(c, cand.d));
@@ -347,17 +409,22 @@ export function createBoxField(ctx: GameContext): BoxField {
     for (const d of chosen) {
       const s = spline.atDistance(d);
       const half = s.width * 0.5;
-      // Span the road, holding clear of each edge so the outermost box is
-      // still takeable without brushing the barrier.
-      const lim = Math.max(3, half - 2.6);
-      // Five boxes distributed *cyclically* across the road, so the row can be
-      // slid sideways onto the racing line without any of them falling off the
-      // end. The obvious version — five fixed slots at lim/2 spacing, drop
-      // anything that ends up outside — silently produced rows of four all the
-      // way round the circuit, because a row that already spans exactly -lim to
-      // +lim loses a box to any shift at all.
+      // Span the road — *all* of it. The margin is only what stops the
+      // outermost box from being unreachable against the barrier; everything
+      // between here and the centreline is covered by a box.
+      const lim = Math.max(3, half - LIM_EDGE);
+      // Boxes distributed *cyclically* across the road, so the row can be slid
+      // sideways onto the racing line without any of them falling off the end.
+      // The obvious version — fixed slots at even spacing, drop anything that
+      // ends up outside — silently produced short rows all the way round the
+      // circuit, because a row that already spans exactly -lim to +lim loses a
+      // box to any shift at all.
       const span = lim * 2;
       const step = span / ROW;
+      // The invariant the whole row rests on: half the spacing must be inside
+      // the pickup radius, or there is a line down the road that misses. At
+      // ROW=7 on a 29m road that is 2.07m against 2.5m, and it only gets safer
+      // as the road narrows.
       // ...and slide the whole row sideways so that one of the five sits
       // exactly on the racing line. That is the entire design of these rows: a
       // leader defending their line pays *nothing* to take an item, which is
@@ -370,7 +437,7 @@ export function createBoxField(ctx: GameContext): BoxField {
       const shift = onLine + lim - (slot + 0.5) * step;
       for (let k = 0; k < ROW; k++) {
         // Wrapped into [-lim, lim]: a box pushed off the right-hand end of the
-        // road comes back on at the left, and the row stays five wide and
+        // road comes back on at the left, and the row stays seven wide and
         // evenly spaced whatever the line is doing here.
         let u = (k + 0.5) * step + shift;
         u -= Math.floor(u / span) * span;
@@ -669,5 +736,19 @@ export function createBoxField(ctx: GameContext): BoxField {
   };
 }
 
-/** Squared pickup radius, shared with the system that runs the test. */
+/**
+ * Does this kart take this box?
+ *
+ * The one place the test lives, so the radius above and the row spacing that
+ * was chosen against it can never drift apart. Horizontal only, with a separate
+ * vertical gate — see `PICK_RADIUS`.
+ */
+export function boxReached(box: ItemBox, pos: THREE.Vector3): boolean {
+  if (Math.abs(box.pos.y - pos.y) > PICK_LIFT) return false;
+  const dx = box.pos.x - pos.x;
+  const dz = box.pos.z - pos.z;
+  return dx * dx + dz * dz <= PICK_RADIUS_SQ;
+}
+
+/** Squared pickup radius, in the road's plane. */
 export const PICK_RADIUS_SQ = PICK_RADIUS * PICK_RADIUS;

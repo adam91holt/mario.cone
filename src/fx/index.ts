@@ -92,7 +92,7 @@ const MARK_QUADS = 2600;
  * wall of translucent circles over the sky, the mountains and the HUD that
  * reviewers kept photographing. Volume comes from *count*, never from diameter.
  */
-const MAX_PUFF = 2.0;
+const MAX_PUFF = 1.35;
 
 /**
  * How long the ignition strike lasts, in **simulation** seconds. See `ignite`.
@@ -121,7 +121,7 @@ const RING_LIFT = 0.14;
  * same hairpin cannot stack up to a whiteout the way they can with per-emitter
  * tuning alone.
  */
-const VEIL_BUDGET = 0.20;
+const VEIL_BUDGET = 0.115;
 
 /**
  * How a surface answers to a tyre. `rate` is puffs per second at top speed;
@@ -285,6 +285,33 @@ interface SurfaceFx {
  * say. Tarmac is untouched at 0.075: a hard surface having nothing to give is
  * the contrast the whole table exists to draw.
  */
+/**
+ * ── and then it went too far, and this is the retreat ──────────────────────
+ *
+ * Measured on an ordinary traffic frame: **804 live alpha sprites, 395 of them
+ * inside twelve metres of the lens**, stacking five to ten deep and reading as
+ * discrete outlined grey lozenges strewn across the tarmac and floating at
+ * windscreen height. The sprite layers were repainting 30.8% of the frame. The
+ * verdict that settled it is the one no amount of argument survives: the frame
+ * was objectively *cleaner* with the module switched off.
+ *
+ * Every rate here is roughly a third of what it was and every opacity about
+ * half again as much. Same integrated density, a quarter of the population —
+ * and the population is what was wrong. Two puffs a frame that overlap into one
+ * body have an outline that changes; eight that do not are eight objects, and
+ * objects are what a reviewer counts.
+ *
+ * `wake` takes the deepest cut of all, from 36 to 9 on tarmac. It is the one
+ * term that fires while a machine is merely going fast, so it is the term that
+ * is on screen for the whole race, and at fourteen sprites in the air behind
+ * every machine it was the litter — pale streaks lying on the road that read as
+ * lane markings. What survives is a suggestion of dragged air; the exhaust, the
+ * road going past and the camera carry speed, exactly as the note above says.
+ *
+ * The one thing that goes *up* is `smoke`, the rubber off a sliding tyre, from
+ * 0.40 to 0.62 — because it is the half of a tarmac drift the module is judged
+ * on, and it now has fewer, fatter, longer-lived puffs to say it with.
+ */
 const SURFACE_FX: Record<Surface, SurfaceFx> = {
   // Tarmac carries no *dust* at all (`rate: 0`), so on a hard surface the whole
   // alpha layer is tyre smoke, the wake and the exhaust — which means the veil
@@ -302,14 +329,14 @@ const SURFACE_FX: Record<Surface, SurfaceFx> = {
   // reasonably read as road markings. Fourteen slightly wider ones is still a
   // veil rather than a cloud, and it is what a still frame at 240 km/h has to
   // be able to show.
-  road:  { color: 0xEAEEF6, deep: 0xD6DCE8, lift: 0.20, rate: 0,   slip: 42,  wake: 36, size: 0.40, wakeSize: 0.32, grow: 2.0, alpha: 0.075, grit: 0.00, sparky: false, mark: 1.00, markTint: 0x3F3E4A, smoke: 0.40, smokeRate: 150 },
-  boost: { color: 0xF3E8D6, deep: 0xE2D9C8, lift: 0.22, rate: 0,   slip: 40,  wake: 36, size: 0.42, wakeSize: 0.32, grow: 2.0, alpha: 0.080, grit: 0.00, sparky: false, mark: 0.80, markTint: 0x423F4D, smoke: 0.40, smokeRate: 150 },
-  dirt:  { color: 0xF7E6C6, deep: 0xDCBE93, lift: 1.42, rate: 200, slip: 125, wake: 44, size: 0.58, wakeSize: 0.46, grow: 2.5, alpha: 0.320, grit: 0.62, sparky: false, mark: 0.85, markTint: 0x9c7444, smoke: 0.12, smokeRate: 26 },
-  sand:  { color: 0xFDF4E0, deep: 0xEBD9AF, lift: 1.52, rate: 215, slip: 130, wake: 46, size: 0.60, wakeSize: 0.48, grow: 2.6, alpha: 0.330, grit: 0.44, sparky: false, mark: 0.72, markTint: 0x9c8050, smoke: 0.10, smokeRate: 22 },
-  grass: { color: 0xE3F0CC, deep: 0xB2CE8C, lift: 1.05, rate: 150, slip: 100, wake: 34, size: 0.52, wakeSize: 0.42, grow: 2.3, alpha: 0.275, grit: 0.54, sparky: false, mark: 0.62, markTint: 0x6d8b4c, smoke: 0.11, smokeRate: 24 },
-  water: { color: 0xF8FDFF, deep: 0xD7EFFA, lift: 1.40, rate: 175, slip: 130, wake: 44, size: 0.48, wakeSize: 0.38, grow: 2.2, alpha: 0.275, grit: 0.36, sparky: false, mark: 0.00, markTint: 0xffffff, smoke: 0.10, smokeRate: 18 },
-  rail:  { color: 0xCFE2FF, deep: 0xCFE2FF, lift: 0.20, rate: 0,   slip: 22,  wake: 0,  size: 0.22, wakeSize: 0.20, grow: 1.4, alpha: 0.90,  grit: 0.00, sparky: true,  mark: 0.00, markTint: 0xffffff, smoke: 0.00, smokeRate: 0 },
-  air:   { color: 0xffffff, deep: 0xffffff, lift: 0.00, rate: 0,   slip: 0,   wake: 0,  size: 0.40, wakeSize: 0.20, grow: 2.0, alpha: 0.00,  grit: 0.00, sparky: false, mark: 0.00, markTint: 0xffffff, smoke: 0.00, smokeRate: 0 },
+  road:  { color: 0xEAEEF6, deep: 0xD6DCE8, lift: 0.20, rate: 0,  slip: 13, wake: 9,  size: 0.44, wakeSize: 0.30, grow: 2.0, alpha: 0.115, grit: 0.00, sparky: false, mark: 1.00, markTint: 0x3F3E4A, smoke: 0.62, smokeRate: 46 },
+  boost: { color: 0xF3E8D6, deep: 0xE2D9C8, lift: 0.22, rate: 0,  slip: 13, wake: 9,  size: 0.46, wakeSize: 0.30, grow: 2.0, alpha: 0.120, grit: 0.00, sparky: false, mark: 0.80, markTint: 0x423F4D, smoke: 0.62, smokeRate: 46 },
+  dirt:  { color: 0xF7E6C6, deep: 0xDCBE93, lift: 1.42, rate: 74, slip: 46, wake: 13, size: 0.62, wakeSize: 0.44, grow: 2.5, alpha: 0.480, grit: 0.80, sparky: false, mark: 0.85, markTint: 0x9c7444, smoke: 0.18, smokeRate: 10 },
+  sand:  { color: 0xFDF4E0, deep: 0xEBD9AF, lift: 1.52, rate: 80, slip: 48, wake: 14, size: 0.64, wakeSize: 0.46, grow: 2.6, alpha: 0.495, grit: 0.58, sparky: false, mark: 0.72, markTint: 0x9c8050, smoke: 0.16, smokeRate: 9 },
+  grass: { color: 0xE3F0CC, deep: 0xB2CE8C, lift: 1.05, rate: 56, slip: 37, wake: 10, size: 0.56, wakeSize: 0.40, grow: 2.3, alpha: 0.415, grit: 0.70, sparky: false, mark: 0.62, markTint: 0x6d8b4c, smoke: 0.17, smokeRate: 9 },
+  water: { color: 0xF8FDFF, deep: 0xD7EFFA, lift: 1.40, rate: 65, slip: 48, wake: 13, size: 0.52, wakeSize: 0.36, grow: 2.2, alpha: 0.415, grit: 0.48, sparky: false, mark: 0.00, markTint: 0xffffff, smoke: 0.15, smokeRate: 7 },
+  rail:  { color: 0xCFE2FF, deep: 0xCFE2FF, lift: 0.20, rate: 0,  slip: 22, wake: 0,  size: 0.22, wakeSize: 0.20, grow: 1.4, alpha: 0.90,  grit: 0.00, sparky: true,  mark: 0.00, markTint: 0xffffff, smoke: 0.00, smokeRate: 0 },
+  air:   { color: 0xffffff, deep: 0xffffff, lift: 0.00, rate: 0,  slip: 0,  wake: 0,  size: 0.40, wakeSize: 0.20, grow: 2.0, alpha: 0.00,  grit: 0.00, sparky: false, mark: 0.00, markTint: 0xffffff, smoke: 0.00, smokeRate: 0 },
 };
 
 /**

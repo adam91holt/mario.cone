@@ -71,9 +71,9 @@ const CSS = `
 #fx-screen .rush.charge {
   background:
     radial-gradient(ellipse farthest-side at 50% 50%,
-      rgba(255,242,216,0) 70%,
-      rgba(255,242,216,0.06) 88%,
-      rgba(255,242,216,0.16) 100%);
+      rgba(255,242,216,0) 84%,
+      rgba(255,242,216,0.03) 93%,
+      rgba(255,242,216,0.08) 100%);
 }
 `;
 
@@ -84,19 +84,71 @@ const CSS = `
  * gets more valuable, and the inner stops are lightened toward white — a
  * saturated hue at 10% over a bright sky is invisible, and the point of the
  * ring is that it is readable without being looked at.
+ *
+ * ── why it is half of what it was, and starts twice as far out ──────────────
+ *
+ * Because it was repainting the world. Measured on a frozen drift, the top-left
+ * corner of the *sky* went cyan at tier one, green at tier two and violet at
+ * tier three, and the tarmac went with it. The sky is a named palette anchor
+ * (ARCHITECTURE section 12) and a gameplay state was hue-rotating it for the
+ * whole of every corner — which is not a peripheral cue, it is a colour grade.
+ *
+ * Two numbers fix it and both matter. The peak comes down by half, so the rim
+ * tints rather than washes; and the first stop moves from 68% of the
+ * half-height out to 84%, which at 900px tall confines the whole gradient to
+ * the outer 70px of the frame instead of the outer 145. What is left is a
+ * coloured edge a player reads without looking at it, over a picture whose own
+ * colours are still its own.
  */
 function chargeCss(tier: number, hex: number): string {
   const r = (hex >> 16) & 0xff, g = (hex >> 8) & 0xff, b = hex & 0xff;
   const lift = (k: number): string =>
     `${Math.round(r + (255 - r) * k)},${Math.round(g + (255 - g) * k)},${Math.round(b + (255 - b) * k)}`;
-  const peak = 0.28 + 0.05 * tier;
+  const peak = 0.14 + 0.025 * tier;
   return `
 #fx-screen .rush.charge.t${tier} {
   background:
     radial-gradient(ellipse farthest-side at 50% 50%,
-      rgba(${lift(0.35)},0) 68%,
-      rgba(${lift(0.22)},${(peak * 0.34).toFixed(3)}) 87%,
+      rgba(${lift(0.35)},0) 83%,
+      rgba(${lift(0.22)},${(peak * 0.34).toFixed(3)}) 93%,
       rgba(${lift(0)},${peak.toFixed(3)}) 100%);
+}`;
+}
+
+/**
+ * One tier's *rush* rule — the sustained edge glow while a boost is live.
+ *
+ * This is the correction to the loudest colour bug the module had. The tier a
+ * player spends three seconds earning was being paid off in a screen flash of
+ * 0.10 lasting a single frame, while the rush — 0.90 for the entire boost, the
+ * thing that is actually on the glass while they are looking at it — ran a
+ * generic warm orange gradient whatever fired it. A violet ultra and a blue
+ * tier one therefore paid off identically, and the one channel with enough
+ * screen time to carry the difference was spending it on a constant.
+ *
+ * So the rush takes the tier. The hot outer stop is the tier's own hue at full
+ * saturation; the inner stops are lifted toward white so the band reads as
+ * *light* rather than as a coloured filter, and the innermost is warmed a
+ * little toward flame in every tier — a boost is fire whatever charged it, and
+ * a rim of pure cyan with no warmth in it reads as a freeze, not as thrust.
+ */
+function rushCss(tier: number, hex: number): string {
+  const r = (hex >> 16) & 0xff, g = (hex >> 8) & 0xff, b = hex & 0xff;
+  // Toward white by k, then a touch toward flame so no tier reads as cold.
+  const mix = (k: number, warm: number): string => {
+    const wr = r + (255 - r) * k, wg = g + (255 - g) * k, wb = b + (255 - b) * k;
+    return `${Math.round(wr + (255 - wr) * warm)},`
+      + `${Math.round(wg + (170 - wg) * warm)},`
+      + `${Math.round(wb + (60 - wb) * warm)}`;
+  };
+  return `
+#fx-screen .rush.boost.b${tier} {
+  background:
+    radial-gradient(ellipse farthest-side at 50% 50%,
+      rgba(${mix(0.45, 0.35)},0) 69%,
+      rgba(${mix(0.34, 0.30)},0.09) 84%,
+      rgba(${mix(0.16, 0.22)},0.30) 94%,
+      rgba(${mix(0.00, 0.14)},0.64) 100%);
 }`;
 }
 
@@ -105,6 +157,9 @@ export interface ScreenFx {
   flash(color: number, amount: number): void;
   /** Warm edge rush, 0..1. Set every frame; it eases on its own. */
   setRush(amount: number): void;
+  /** Which mini-turbo tier the live boost came out of, 0 for anything else.
+   *  The rush is the only cue with enough screen time to carry it. */
+  setRushTier(tier: number): void;
   /** Mini-turbo charge ring, 0..1. Set every frame. */
   setCharge(amount: number): void;
   /** Which tier that ring is showing: 0 uncharged, then whatever
@@ -139,6 +194,7 @@ export function createScreenFx(tierHex: readonly number[]): ScreenFx {
   let charge = 0;
   let chargeTarget = 0;
   let chargeTier = 0;
+  let rushTier = 0;
 
   // Last values actually written to the DOM.
   let wroteFlash = -1;
@@ -147,13 +203,17 @@ export function createScreenFx(tierHex: readonly number[]): ScreenFx {
   let wroteRushScale = -1;
   let wroteCharge = -1;
   let wroteTier = -1;
+  let wroteRushTier = -1;
 
   if (typeof document !== 'undefined') {
     style = document.createElement('style');
     style.textContent = CSS
       + chargeCss(1, tierHex[1] ?? 0x4FC3F7)
       + chargeCss(2, tierHex[2] ?? 0x3CFF6B)
-      + chargeCss(3, tierHex[3] ?? 0xE040FB);
+      + chargeCss(3, tierHex[3] ?? 0xE040FB)
+      + rushCss(1, tierHex[1] ?? 0x4FC3F7)
+      + rushCss(2, tierHex[2] ?? 0x3CFF6B)
+      + rushCss(3, tierHex[3] ?? 0xE040FB);
     document.head.appendChild(style);
 
     root = document.createElement('div');
@@ -175,6 +235,10 @@ export function createScreenFx(tierHex: readonly number[]): ScreenFx {
 
     setRush(amount: number): void {
       rushTarget = amount > 1 ? 1 : amount < 0 ? 0 : amount;
+    },
+
+    setRushTier(tier: number): void {
+      rushTier = tier < 0 ? 0 : tier > 3 ? 3 : tier | 0;
     },
 
     setCharge(amount: number): void {
@@ -234,6 +298,12 @@ export function createScreenFx(tierHex: readonly number[]): ScreenFx {
           rushEl.style.transform = `scale(${s})`;
           wroteRushScale = s;
         }
+        // The tier only changes on the frame a boost fires, so this is a
+        // class swap a handful of times a race rather than a per-frame write.
+        if (rushTier !== wroteRushTier) {
+          rushEl.className = rushTier > 0 ? `rush boost b${rushTier}` : 'rush boost';
+          wroteRushTier = rushTier;
+        }
       }
 
       if (chargeEl) {
@@ -256,6 +326,7 @@ export function createScreenFx(tierHex: readonly number[]): ScreenFx {
         flashHex: `#${(flashHex & 0xffffff).toString(16).padStart(6, '0')}`,
         rush: Math.round(rush * 1000) / 1000,
         rushTarget: Math.round(rushTarget * 1000) / 1000,
+        rushTier,
         charge: Math.round(charge * 1000) / 1000,
         tier: chargeTier,
         opacity: rushEl?.style.opacity ?? '',
@@ -267,9 +338,11 @@ export function createScreenFx(tierHex: readonly number[]): ScreenFx {
       rush = rushTarget = 0;
       charge = chargeTarget = 0;
       chargeTier = 0;
+      rushTier = 0;
       wroteFlash = wroteRush = wroteRushScale = wroteCharge = -1;
       wroteFlashHex = -1;
       wroteTier = -1;
+      wroteRushTier = -1;
     },
 
     dispose(): void {
