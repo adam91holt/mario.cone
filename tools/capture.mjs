@@ -122,6 +122,38 @@ async function rideUntil(game, test, limit = 34, grain = 0.1) {
   return null;
 }
 
+/**
+ * Let the visual springs settle **without moving the simulation.**
+ *
+ * `render()` runs every `update()` — camera boom, drift swing, FOV kick,
+ * particles — and never calls `stepFixed`, so the look of the world catches up
+ * while the world itself holds still. That distinction is the whole reason a
+ * shot of a transient state is possible at all: `advance(0.9)` settles the
+ * camera beautifully and spends nine tenths of a second of race doing it, which
+ * is longer than a mini-turbo charge lasts. The drift shot came back as the
+ * boost shot twice before this existed.
+ *
+ * **The time scale is what actually holds it still.** The engine's own rAF loop
+ * is still running in the page and steps the simulation off the *wall* clock —
+ * see the note on timing the reel in ARCHITECTURE.md — so twenty-eight round
+ * trips at 150-300ms each is four to eight seconds of real time, and four to
+ * eight seconds of race, quietly happening underneath a settle that believes it
+ * froze the frame. Measured: the `drift` shot photographed a genuine drift and
+ * then reported `driftTier: 0` and `boosting: false` in the index, because by
+ * the time the snapshot was taken the kart was a corner further on.
+ *
+ * Deliberately left frozen. The screenshot and the index snapshot happen after
+ * the recipe returns and cost another few hundred milliseconds each, so putting
+ * the clock back here would hand the race exactly the seconds this exists to
+ * take away from it. Every shot begins with `reset()`, and the race director
+ * puts `time.scale` back to 1 in its own reset — so the freeze cannot leak into
+ * the next recipe.
+ */
+async function settle(game, frames = 28) {
+  await game.setTimeScale(0);
+  for (let i = 0; i < frames; i++) await game.render();
+}
+
 /** Metres to the nearest other machine, and how many are within `r`. */
 function crowding(snap, r = 34) {
   const me = snap.racers.find((x) => x.isPlayer);
@@ -172,19 +204,13 @@ const SHOTS = [
       // until there is one. The CPU driver picks the corner, which is the whole
       // point: the frame is of the game drifting, not of a script steering.
       await game.reset({ instant: true });
-      const got = await rideUntil(game,
+      await rideUntil(game,
         (p) => p.drift.active && p.drift.tier >= 1 && p.surface === 'road');
-      // Hold the slide a beat longer if it is still building, so the shot lands
-      // on the loudest part of the charge rather than the instant it sparked.
-      if (got) {
-        for (let i = 0; i < 6; i++) {
-          const s = await game.snapshot();
-          const p = s.racers.find((r) => r.isPlayer);
-          if (!p?.drift.active || p.drift.tier >= 2) break;
-          await game.step(0.1);
-        }
-      }
-      await game.advance(0.35);
+      // Settled without advancing the race. A settle long enough to let the
+      // camera springs arrive is also long enough for the drift to end and the
+      // mini-turbo to fire, and then this is the boost shot with a different
+      // caption — which is what the first two attempts at this recipe produced.
+      await settle(game);
     },
   },
   {
@@ -196,8 +222,8 @@ const SHOTS = [
       await game.reset({ instant: true });
       await rideUntil(game,
         (p) => p.boost.time > 0 && String(p.boost.source ?? '').startsWith('drift'));
-      // Immediately — the boost frame is the point.
-      await game.advance(0.25);
+      // Immediately — the boost frame is the point, and the kick decays.
+      await settle(game);
     },
   },
   {
@@ -210,8 +236,10 @@ const SHOTS = [
       // whether the racers read apart from each other. So it waits for traffic:
       // three machines inside thirty-four metres, at speed, on the road.
       await game.reset({ instant: true });
+      // Past the start-line scramble — everybody is crowded on the grid, and a
+      // photograph of the grid is a different shot on this sheet already.
       await rideUntil(game,
-        (p, snap) => p.speed > 30 && crowding(snap) >= 3, 40);
+        (p, snap) => p.progress > 320 && p.speed > 42 && crowding(snap) >= 3, 40);
       await game.advance(SETTLE);
     },
   },
@@ -238,6 +266,21 @@ const SHOTS = [
       await rideTo(game, 6);
       await game.setInput({ accel: 1, steer: -1 });
       await game.step(1.2);
+      await game.advance(0.8);
+    },
+  },
+  {
+    name: 'pause',
+    caption: 'Paused mid-race: the pause plate, and the controls card that now lives here.',
+    async run(game) {
+      // The controls card moved off the start grid and onto pause, and pause had
+      // no shot — so the card, the only place this game explains itself, was
+      // reviewable nowhere. It is also the one frame where two signs are on
+      // screen together, which is how the four hand-copies of the plate were
+      // caught disagreeing in the first place.
+      await game.reset({ instant: true });
+      await rideTo(game, 7);
+      await game.press('pause');
       await game.advance(0.8);
     },
   },
@@ -315,6 +358,7 @@ function makeGameProxy(page) {
     setCamera: (m) => call('setCamera', m),
     setQuality: (q) => call('setQuality', q),
     setAutopilot: (on) => call('setAutopilot', on),
+    setTimeScale: (s) => call('setTimeScale', s),
     seek: (p) => call('seek', p),
     stats: () => call('stats'),
     snapshot: () => call('snapshot'),
@@ -330,7 +374,12 @@ async function withPage(fn) {
   const server = await createServer({
     root: ROOT,
     logLevel: 'error',
-    server: { host: '127.0.0.1', port: 0 },
+    // No HMR and no file watcher. A full sheet takes four minutes under
+    // software GL, and a source edit made while one is running otherwise
+    // navigates the page out from under it — the capture then fails on a
+    // timeout waiting for a `__GAME` that a half-saved module never installed,
+    // which reads exactly like a boot failure and is not one.
+    server: { host: '127.0.0.1', port: 0, hmr: false, watch: null },
     // A dev server needs no bundling pass, so iteration stays fast.
     optimizeDeps: { include: ['three'] },
   });

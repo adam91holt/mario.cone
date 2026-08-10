@@ -238,9 +238,16 @@ Canonical events — add new ones to this list when you introduce them:
 **Shots, not modes.** `camera:mode` is the player's own control — chase, far,
 look-behind — and the race has no business spending it on ceremony. `camera:shot`
 is the channel for the moments the race can compose better than a follow rig
-can, and `render/camera.ts` answers `grid`, `countdown` and `podium`. `finish`
-is still unanswered and the director borrows a mode for it; the borrow is given
-back the moment anything else touches `camera:mode`.
+can, and `render/camera.ts` answers all four: `grid`, `countdown`, `podium` and
+`finish`. The director used to *borrow* `camera:mode 'near'` for the finish
+because nothing answered the shot it was already emitting in full — racer,
+place, podium, hold and lead — and the borrow silently took the lens off a
+player holding look-behind or a reviewer who had asked for `overhead`. The lens
+that borrow was lending now lives in `config.camera.victory` and the borrow
+apparatus is gone. **Emitting a fully-specified request that nobody has
+subscribed to is the same bug as an event with no listener**, and it is harder
+to see, because a `bus.inspect()` count of zero looks like every other unused
+channel rather than like a feature that was built twice and delivered never.
 
 **An event with no listener is a bug, not a feature.** Eleven of the events
 above were emitted every race into a room that had never had anybody in it, and
@@ -412,8 +419,21 @@ makes screenshots reproducible on a software renderer.
 
 Everything before the flag is `ui/menus`; everything after it is `race/` plus
 the HUD. They are two codebases with a curtain between them, and every seam a
-coherence pass has ever found lives on that curtain. Five things are now shared
+coherence pass has ever found lives on that curtain. Six things are now shared
 rather than reimplemented, and they are shared *as code*, not as a convention:
+
+- **The plate.** `plateCss(scope)` in `src/ui/theme.ts`, called by `#hud`,
+  `#menu`, `#race` and `#coach`. This was the last one, and it was the loudest:
+  the same twenty lines existed in four hand-copies, and they had already come
+  apart. The race's corner radius was 10% tighter than the other two and its
+  drop shadow a different alpha; the coach card had abandoned the shared parts
+  altogether — a 1px hairline where every other sign carries a `.12u` black rim,
+  no chevron texture, and a hazard strip made of *separated dashes* against
+  everybody else's solid gold bar. Photographed together on the pause screen,
+  the CONTROLS card and the PAUSED plate four hundred pixels away read as two
+  products. `theme.ts` was already the answer for the curtain, the cursor, the
+  rail and the map and stopped one item short of the thing all four layers are
+  actually made of.
 
 - **Type.** `src/ui/letters.ts` is the game's display face and `src/ui/glyphs.ts`
   is its numerals. The rule: anything that **names** something is drawn from one

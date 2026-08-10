@@ -1507,8 +1507,9 @@ function driftControl(
     // the inside is a nearer problem than a corner opening up under you, and a
     // driver who cannot pick the speed back up in a third of a second is not
     // going to.
-    const strained = b.driftGrace <= 0
-      && (b.strain > patience || b.inside > patience * 0.45);
+    const overStrained = b.driftGrace <= 0 && b.strain > patience;
+    const overInside = b.driftGrace <= 0 && b.inside > patience * 0.45;
+    const strained = overStrained || overInside;
 
     const rate = K.drift.chargeRate * lerp(0.8, 1.2, racer.stats.handling) * 0.92;
     const next = drift.tier < K.drift.tiers.length ? K.drift.tiers[drift.tier] : null;
@@ -1543,7 +1544,7 @@ function driftControl(
       input.drift = true;
       return drift.dir === 0 ? b.driftDir : drift.dir;
     }
-    const why = strained ? (b.inside > 0 ? WHY_INSIDE : WHY_STRAIN)
+    const why = overInside ? WHY_INSIDE : overStrained ? WHY_STRAIN
       : remaining >= seg.len + 40 ? WHY_PAST
         : remaining <= -hangOn ? WHY_END
           : speed <= K.drift.minSpeed * 1.02 ? WHY_SLOW
