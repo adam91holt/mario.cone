@@ -88,14 +88,27 @@ function hintsFor(screen: ScreenName, courseRow: 0 | 1, cupRow: boolean): string
   }
 }
 
-/** Menu verbs, and the keys that produce them. */
+/**
+ * Menu verbs, and the keys that produce them.
+ *
+ * **No `Q`, and no `E`.** Those two belong to the race: `core/input.ts` maps
+ * `KeyE` to *use item* and `KeyQ` to *look back*, and the coach card prints
+ * them under those names on the pause screen. They were also mapped here — to
+ * confirm and to back — which meant the two keys the game teaches by name did
+ * the opposite job on the other side of the flag: on the results sheet `Q`
+ * threw the player straight out to machine select and `E` confirmed whatever
+ * the cursor happened to be sitting on. Neither was needed. `Esc` and
+ * `Backspace` already back out, `Enter` and `Space` already confirm, and every
+ * rail in the front-end names those. A second binding that contradicts a
+ * legend the same product prints is worse than no binding.
+ */
 const KEYS: Record<string, string> = {
   ArrowUp: 'menu.up', KeyW: 'menu.up',
   ArrowDown: 'menu.down', KeyS: 'menu.down',
   ArrowLeft: 'menu.left', KeyA: 'menu.left',
   ArrowRight: 'menu.right', KeyD: 'menu.right',
-  Enter: 'menu.ok', NumpadEnter: 'menu.ok', Space: 'menu.ok', KeyE: 'menu.ok',
-  Escape: 'menu.back', Backspace: 'menu.back', KeyQ: 'menu.back',
+  Enter: 'menu.ok', NumpadEnter: 'menu.ok', Space: 'menu.ok',
+  Escape: 'menu.back', Backspace: 'menu.back',
 };
 
 /** Pad buttons in the standard mapping: d-pad, A, B, and start. */

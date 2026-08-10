@@ -10,10 +10,18 @@
 //
 // Two halves, deliberately different in kind:
 //
-//   The **card** is the full mapping. It shows itself while the player is
-//   sitting on the grid with nothing to do, which is the one moment in a kart
-//   racer that is already dead time — reading it costs them nothing. It comes
-//   back on pause, and `H` toggles it anywhere.
+//   The **card** is the full mapping. It appears on **pause**, and on `H`
+//   anywhere. It used to appear on the grid as well, on the theory that the
+//   grid is dead time — and that theory is wrong about this game. The grid is
+//   the one composed shot the race owns: a staggered 2x4 under a named gantry,
+//   framed by a camera move written for it, opening out of the launch curtain.
+//   A seven-row card in the bottom-left ninth of that frame covered the outside
+//   grid box, a trackside cone and the first machine of the field, and it was
+//   there in *every* start-line frame this game has ever been photographed in.
+//   It was also redundant on arrival: the launch card states circuit, machine
+//   and class one second earlier, and the countdown owns the centre one second
+//   later. Pause is the moment with genuinely nothing else on the screen, and
+//   pause is where it lives.
 //
 //   The **cues** are one line each, and each one appears only in the situation
 //   that makes it make sense: the item prompt when there is an item to throw,
@@ -32,7 +40,7 @@
 
 import { clamp01, ease } from '../core/math.ts';
 import type { GameContext, GameSystem, RacePhase } from '../types.ts';
-import { bind, fromHtml, hintCss, hintKey, q, U_CSS, type Bound } from './theme.ts';
+import { bind, fromHtml, hintCss, hintKey, plateCss, q, U_CSS, type Bound } from './theme.ts';
 
 /**
  * Cues already spent, keyed by id.
@@ -83,27 +91,24 @@ const CSS = `
 ${hintCss('#coach')}
 
 /* ── the card ─────────────────────────────────────────────────────────────
-   Bottom-left, not centred. Centre is where the countdown lands and where the
+   It is a plate. It used to be a *drawing* of one: a 0.7u radius against every
+   other sign's 0.55, a 1px hairline where they carry a 0.12u black rim, no
+   chevron texture, and a hazard strip made of separated dashes where every
+   other plate in the game wears a solid gold bar. Photographed beside the
+   PAUSED plate four hundred pixels away — the two are on screen together every
+   time this card is — they read as two products. Now there is one description
+   of the sign and it lives in ui/theme.ts.
+
+   The plate rules come first so each sign's own position and padding, at equal
+   specificity, win on source order. */
+${plateCss('#coach')}
+/* Bottom-left, not centred. Centre is where the countdown lands and where the
    road is; a card there would be read as part of the race rather than as
    furniture beside it. */
 #coach .card {
   position: absolute; left: calc(var(--u) * 1.6); bottom: calc(var(--u) * 1.6);
   padding: calc(var(--u) * .95) calc(var(--u) * 1.25) calc(var(--u) * 1.05);
-  border-radius: calc(var(--u) * .7);
-  background: linear-gradient(180deg, rgba(20,23,30,.93), rgba(12,14,19,.95));
-  box-shadow: inset 0 0 0 1px rgba(255,248,240,.13),
-              0 calc(var(--u) * .5) calc(var(--u) * 1.1) rgba(0,0,0,.55);
   opacity: 0; transform: translateY(calc(var(--u) * .5));
-}
-/* The hazard strip is the one piece of chrome every plate in this game wears,
-   so the card reads as part of the same object set rather than a browser
-   dialog that wandered in. */
-#coach .card::before {
-  content: ''; position: absolute; left: 0; right: 0; top: 0;
-  height: calc(var(--u) * .22);
-  border-radius: calc(var(--u) * .7) calc(var(--u) * .7) 0 0;
-  background: repeating-linear-gradient(115deg,
-    #FFC300 0 calc(var(--u) * .5), #14171F calc(var(--u) * .5) calc(var(--u) * 1));
 }
 #coach .card h5 {
   margin: 0 0 calc(var(--u) * .7); padding: 0;
@@ -115,16 +120,13 @@ ${hintCss('#coach')}
 
 /* ── the cue rail ─────────────────────────────────────────────────────────
    One line, low centre, above the road and below the racing. It sits where a
-   player's eye already returns between corners. */
+   player's eye already returns between corners. A plate too — it is a sign the
+   game holds up mid-race, and it was the fifth hand-drawn one. */
 #coach .cue {
   position: absolute; left: 50%; bottom: calc(var(--u) * 3.4);
   transform: translate(-50%, calc(var(--u) * .6));
   display: flex; align-items: center; gap: calc(var(--u) * .6);
-  padding: calc(var(--u) * .5) calc(var(--u) * 1.1);
-  border-radius: calc(var(--u) * .55);
-  background: linear-gradient(180deg, rgba(20,23,30,.92), rgba(12,14,19,.94));
-  box-shadow: inset 0 0 0 1px rgba(255,248,240,.15),
-              0 calc(var(--u) * .34) calc(var(--u) * .8) rgba(0,0,0,.5);
+  padding: calc(var(--u) * .62) calc(var(--u) * 1.1) calc(var(--u) * .5);
   opacity: 0; white-space: nowrap;
 }
 #coach .cue .lbl { color: #FFF8F0; letter-spacing: .1em; }
@@ -188,6 +190,22 @@ export function createCoachSystem(ctx: GameContext): GameSystem {
    */
   let frontEndOpen = false;
   let racePaused = false;
+  /**
+   * ...and the third thing that owns the screen: the flag.
+   *
+   * The stand-off was taught about the menus and about pause and about nothing
+   * else, and this layer draws at `z-index: 60` over the race layer's 25. So on
+   * the frame the gold 1ST PLACE banner and the confetti and the letterbox came
+   * up, the coach was still live underneath none of it and printed THE DIRT IS
+   * SLOWER — STAY ON THE TARMAC across the bottom of the victory shot, half cut
+   * off by a letterbox bar it has never heard of. Ten seconds after winning it
+   * was still there, offering to teach the player to drift.
+   *
+   * A tutorial voice has nothing to say during a ceremony. `finished` covers
+   * the beat and `results` the sheet, and the flag itself drops whatever is in
+   * the air rather than letting a six-second hold run into the celebration.
+   */
+  let raceOver = false;
   let racingFor = 0;
   let everDrifted = false;
   let everUsedItem = false;
@@ -222,12 +240,12 @@ export function createCoachSystem(ctx: GameContext): GameSystem {
 
       root = fromHtml(`
         <div id="coach">
-          <div class="card">
+          <div class="card plate">
             <h5>Controls</h5>
             <div class="rows keys">${rows}</div>
             <div class="rows pad">${pad}</div>
           </div>
-          <div class="cue">${hintKey('', '')}</div>
+          <div class="cue plate">${hintKey('', '')}</div>
         </div>
       `);
       document.body.appendChild(root);
@@ -242,6 +260,16 @@ export function createCoachSystem(ctx: GameContext): GameSystem {
 
       ctx.bus.on('race:phase', (e: { phase: RacePhase }) => {
         phase = e.phase;
+        raceOver = phase === 'finished' || phase === 'results';
+      });
+      // The flag, not the phase change: the finish beat runs for two and a half
+      // seconds inside `racing` for everybody but the leader, and a cue that
+      // starts its hold on the player's own crossing has to die there.
+      ctx.bus.on<{ racer: { isPlayer: boolean } }>('race:finish', ({ racer }) => {
+        if (!racer?.isPlayer) return;
+        raceOver = true;
+        active = null;
+        cueAge = 0;
       });
       // Both edges, both events. See `frontEndOpen` above.
       ctx.bus.on<{ open: boolean }>('ui:menu', ({ open }) => { frontEndOpen = open; });
@@ -262,6 +290,7 @@ export function createCoachSystem(ctx: GameContext): GameSystem {
       hadItem = false;
       active = null;
       cueAge = 0;
+      raceOver = false;
     },
 
     update(dt: number): void {
@@ -275,7 +304,7 @@ export function createCoachSystem(ctx: GameContext): GameSystem {
       // because every cue is spent once per page load, that is the *only* time
       // they would ever be offered it. A tutorial that fires before the player
       // has a kart is worse than none: it is one they will never be shown again.
-      const standOff = frontEndOpen || racePaused;
+      const standOff = frontEndOpen || racePaused || raceOver;
 
       // ── what the player has shown they know ──────────────────────────────
       if (p && !standOff) {
@@ -311,17 +340,22 @@ export function createCoachSystem(ctx: GameContext): GameSystem {
       padRows?.set('display', onPad ? '' : 'none');
 
       // ── the card ─────────────────────────────────────────────────────────
-      // The moments with nothing else to do: sitting on the grid, watching the
-      // lights, and the pause screen. Reading it costs the player nothing at
-      // any of them.
+      // Pause, and `H`. Nothing else.
+      //
+      // The grid used to be on this list, and it is the seam that got this file
+      // rewritten: `phase === 'intro' || phase === 'countdown'` put a
+      // seven-row card over the bottom-left ninth of *every start-line frame
+      // this game has ever produced* — the intro, the hand-off, the course
+      // card, every countdown beat. See the note at the head of the file: the
+      // grid is not dead time here, it is the one shot the race composes.
       //
       // The front-end is the one place it must never appear, and that is not a
       // matter of taste: every screen over there already carries its own rail
       // of the same keycaps, built from the same `hintKey`, so the card lands
       // beside a rail that contradicts it about which keys are live. Two
-      // legends describing one keyboard.
-      const idle = phase === 'intro' || phase === 'countdown';
-      cardWant = !frontEndOpen && (cardPinned || racePaused || idle) ? 1 : 0;
+      // legends describing one keyboard. The ceremony is the same argument at
+      // the other end of the race.
+      cardWant = !frontEndOpen && !raceOver && (cardPinned || racePaused) ? 1 : 0;
       // Out faster than in — furniture should never be the thing still leaving
       // when the lights go green.
       cardShown += (cardWant - cardShown) * clamp01(dt * (cardWant > cardShown ? 6 : 11));

@@ -322,6 +322,11 @@ ${scope} .lbl {
   font-family: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif;
   letter-spacing: .16em; color: rgba(255,248,240,.82);
 }
+/* A keycap with nothing to say. Three keys that all do the same thing — the
+   title screen's ENTER / SPACE / (A) — are three caps in a row and one label
+   between them, or none at all where the headline above has already said it. */
+${scope} .lbl:empty { display: none; }
+${scope} .k:has(.lbl:empty) { gap: 0; }
 `;
 }
 
@@ -417,6 +422,84 @@ export function q<T extends Element = HTMLElement>(root: ParentNode, sel: string
 // module named `theme` is how a game ends up with two.
 
 // ── the plate ──────────────────────────────────────────────────────────────
+//
+// **One sign, drawn once, used four times.** This was the last thing in the
+// product that four modules each owned a copy of. The HUD's plate, the
+// front-end's plate, the race overlay's plate and the coach card were the same
+// twenty lines typed out four times by four agents, and they had already come
+// apart: the race's corner was 10% tighter and its drop shadow a different
+// alpha, and the coach card had given up on the shared parts entirely — a 1px
+// hairline where every other sign has a .12u black rim, no chevron texture at
+// all, and a hazard strip built out of *dashes* where every other sign wears a
+// solid gold bar. Photographed on one frame, the CONTROLS card and the PAUSED
+// plate four hundred pixels away read as two products.
+//
+// The numbers that survived are the HUD's, because this file is where the sign
+// is described and a copy downstream of the description is not a variant, it is
+// a drift. `.55` for the radius (two of the three agreed), `.5` for the drop
+// shadow (likewise), and every layer gets the rim, the strip and the texture
+// whether or not its author remembered them.
+//
+// A caller supplies the scope and gets the whole sign. What stays with the
+// caller is only what is genuinely its own: where the sign sits, how big it is,
+// and what is printed on it.
+
+/**
+ * Corner radius of every plate in the game, in `--u`.
+ *
+ * Exported because two callers legitimately need to *match* it from outside —
+ * the front-end's selection ring has to un-clip the same corner the face
+ * clips — and a second literal is how the race's copy drifted to `.5` in the
+ * first place.
+ */
+export const PLATE_R = 0.55;
+export const PLATE_RADIUS = `calc(var(--u) * ${PLATE_R})`;
+
+/**
+ * The sign, for one layer. `sel` lets a caller mount it on something other than
+ * `.plate` — the coach's card is a plate that happens to be called `.card`.
+ *
+ * The radii on the two pseudo-elements are stated rather than left to the
+ * parent's `overflow: hidden`, so a plate that has to let a selection ring out
+ * of its own box (`overflow: visible`) still clips its own header strip.
+ */
+export function plateCss(scope: string, sel = '.plate'): string {
+  return `
+/* The sign. A dark face with a lit top edge and a hard black rim, so it holds
+   its shape against a white cloud and against wet tarmac without changing. */
+${scope} ${sel} {
+  position: relative;
+  border-radius: ${PLATE_RADIUS};
+  background: linear-gradient(178deg, rgba(60,67,84,.94) 0%, rgba(30,35,45,.95) 46%, rgba(17,20,27,.95) 100%);
+  box-shadow:
+    inset 0 calc(var(--u) * .1) 0 rgba(255,255,255,.28),
+    inset 0 calc(var(--u) * -.14) 0 rgba(0,0,0,.5),
+    0 0 0 calc(var(--u) * .12) rgba(9,11,15,.92),
+    0 calc(var(--u) * .22) calc(var(--u) * .62) rgba(0,0,0,.5);
+  overflow: hidden;
+}
+/* The header strip: the one motif every plate shares. Hazard yellow, four
+   pixels of it, along the top edge — it is what makes six separate readouts
+   read as one signposted set rather than six floating boxes. */
+${scope} ${sel}::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 0;
+  height: calc(var(--u) * .17);
+  border-radius: ${PLATE_RADIUS} ${PLATE_RADIUS} 0 0;
+  background: linear-gradient(90deg, #FFC300, #FF9A1A 60%, #FFC300);
+  opacity: .95;
+}
+/* ...and a whisper of chevron texture across the face, at the threshold of
+   visible. Flat panels read as UI; a surface reads as a sign bolted to a post. */
+${scope} ${sel}::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  border-radius: ${PLATE_RADIUS};
+  background: repeating-linear-gradient(122deg,
+    rgba(255,255,255,.045) 0 calc(var(--u) * .38),
+    rgba(255,255,255,0) calc(var(--u) * .38) calc(var(--u) * .78));
+}
+${scope} ${sel} > * { position: relative; z-index: 1; }
+`;
+}
 
 /**
  * The base stylesheet: the layer, the corners, and the sign every readout is
@@ -464,37 +547,7 @@ export const CSS_BASE = `
 #hud .br { bottom: var(--eb); right: var(--er); flex-direction: column; align-items: flex-end; }
 #hud .tc { top: var(--ey); left: 50%; transform: translateX(-50%); }
 
-/* The sign. A dark face with a lit top edge and a hard black rim, so it holds
-   its shape against a white cloud and against wet tarmac without changing. */
-#hud .plate {
-  position: relative;
-  border-radius: calc(var(--u) * .55);
-  background: linear-gradient(178deg, rgba(60,67,84,.94) 0%, rgba(30,35,45,.95) 46%, rgba(17,20,27,.95) 100%);
-  box-shadow:
-    inset 0 calc(var(--u) * .1) 0 rgba(255,255,255,.28),
-    inset 0 calc(var(--u) * -.14) 0 rgba(0,0,0,.5),
-    0 0 0 calc(var(--u) * .12) rgba(9,11,15,.92),
-    0 calc(var(--u) * .22) calc(var(--u) * .62) rgba(0,0,0,.5);
-  overflow: hidden;
-}
-/* The header strip: the one motif every plate shares. Hazard yellow, four
-   pixels of it, along the top edge — it is what makes six separate readouts
-   read as one signposted set rather than six floating boxes. */
-#hud .plate::before {
-  content: ''; position: absolute; left: 0; right: 0; top: 0;
-  height: calc(var(--u) * .17);
-  background: linear-gradient(90deg, #FFC300, #FF9A1A 60%, #FFC300);
-  opacity: .95;
-}
-/* ...and a whisper of chevron texture across the face, at the threshold of
-   visible. Flat panels read as UI; a surface reads as a sign bolted to a post. */
-#hud .plate::after {
-  content: ''; position: absolute; inset: 0; pointer-events: none;
-  background: repeating-linear-gradient(122deg,
-    rgba(255,255,255,.045) 0 calc(var(--u) * .38),
-    rgba(255,255,255,0) calc(var(--u) * .38) calc(var(--u) * .78));
-}
-#hud .plate > * { position: relative; z-index: 1; }
+${plateCss('#hud')}
 
 /* The .label rule that used to live here is gone with the last text node in
    the module. Nothing in this HUD is set in a font any more: every number and

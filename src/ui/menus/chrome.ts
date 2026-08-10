@@ -36,7 +36,9 @@
 // a blurb, a class copy line, a unit caption, a keycap legend — stays in
 // Trebuchet, because a sentence is not a job for hand-authored path data.
 
-import { U_CSS, hexCss, C, curtainCss, cursorChevronCss, cursorRing, hintCss, MAP } from '../theme.ts';
+import {
+  U_CSS, hexCss, C, curtainCss, cursorChevronCss, cursorRing, hintCss, plateCss, MAP,
+} from '../theme.ts';
 import { signRun } from '../letters.ts';
 import { signCss } from '../letters.ts';
 import type { CourseDef } from '../../types.ts';
@@ -112,40 +114,15 @@ export const CSS_MENU = `
 
 /* ── the sign ───────────────────────────────────────────────────────────── */
 
-#menu .plate {
-  position: relative;
-  border-radius: calc(var(--u) * .55);
-  background: linear-gradient(178deg, rgba(60,67,84,.95) 0%, rgba(30,35,45,.96) 46%, rgba(17,20,27,.96) 100%);
-  box-shadow:
-    inset 0 calc(var(--u) * .1) 0 rgba(255,255,255,.28),
-    inset 0 calc(var(--u) * -.14) 0 rgba(0,0,0,.5),
-    0 0 0 calc(var(--u) * .12) rgba(9,11,15,.92),
-    0 calc(var(--u) * .22) calc(var(--u) * .62) rgba(0,0,0,.5);
-  overflow: hidden;
-}
-#menu .plate::before {
-  content: ''; position: absolute; left: 0; right: 0; top: 0;
-  height: calc(var(--u) * .17);
-  background: linear-gradient(90deg, #FFC300, #FF9A1A 60%, #FFC300);
-  opacity: .95;
-}
-#menu .plate::after {
-  content: ''; position: absolute; inset: 0; pointer-events: none;
-  background: repeating-linear-gradient(122deg,
-    rgba(255,255,255,.045) 0 calc(var(--u) * .38),
-    rgba(255,255,255,0) calc(var(--u) * .38) calc(var(--u) * .78));
-}
-#menu .plate > * { position: relative; z-index: 1; }
+/* The sign, from ui/theme.ts — the same object the HUD and the race overlay
+   print on, not a third description of it. */
+${plateCss('#menu')}
 /* A plate whose selection ring lives outside its own edge. The face still
    clips its header strip and its chevrons — they carry the corner radius
-   themselves — but the ring is allowed out. Without this, every highlight on
-   the course and class screens was drawn and then immediately clipped away by
-   the sign it was drawn around. */
+   themselves, stated in plateCss — but the ring is allowed out. Without this,
+   every highlight on the course and class screens was drawn and then
+   immediately clipped away by the sign it was drawn around. */
 #menu .plate.vis { overflow: visible; }
-#menu .plate.vis::before {
-  border-radius: calc(var(--u) * .55) calc(var(--u) * .55) 0 0;
-}
-#menu .plate.vis::after { border-radius: calc(var(--u) * .55); }
 
 /* ── the display face ───────────────────────────────────────────────────── */
 
@@ -475,10 +452,17 @@ ${cursorChevronCss('#menu', '.rove')}
   pointer-events: none; z-index: -1;
 }
 #menu .start .t { font-size: calc(var(--u) * 1.9); }
+/* The first key the player is ever asked to press, drawn as a key.
+   This used to be small-caps text — "ENTER · SPACE · (A)" — set in Trebuchet
+   with letterspacing, four inches above a prompt rail that was at that same
+   moment naming keys as keycaps. Same keyboard, same screen, two drawings of
+   it. The rail's keycap is the one that survived: it is what every other
+   prompt in this product is made of, including the coach card the player meets
+   sixty seconds later. */
 #menu .start .sub {
-  margin-top: calc(var(--u) * .5);
-  font-size: calc(var(--u) * .68); font-weight: 800; letter-spacing: .2em;
-  text-transform: uppercase; color: rgba(255,248,240,.62);
+  margin-top: calc(var(--u) * .55);
+  display: flex; justify-content: center; align-items: center;
+  gap: calc(var(--u) * .55);
 }
 #menu .cast {
   position: absolute; left: 0; right: 0; bottom: calc(var(--eb) + var(--u) * 1.5);
