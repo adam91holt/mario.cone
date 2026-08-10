@@ -139,7 +139,7 @@ export function rgba(n: number, a: number): string {
  * or the greys stay grey — keeps every blip a distinguishable colour while
  * leaving the hue, which is the part the player actually matches to a machine.
  */
-export function blipColor(n: number, variant = 0): number {
+export function blipColor(n: number): number {
   const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
   const max = Math.max(r, g, b), min = Math.min(r, g, b);
   const l = (max + min) / 2;
@@ -152,12 +152,13 @@ export function blipColor(n: number, variant = 0): number {
     else if (max === g) h = ((b - r) / d + 2) / 6;
     else h = ((r - g) / d + 4) / 6;
   }
-  // A field of eight drawn from seven machines always contains a duplicate.
-  // Nudging the second one round the wheel keeps two blips that would otherwise
-  // be the same dot tellable apart, without breaking the tie to the machine.
-  const L = Math.max(0.48, Math.min(0.8, l + variant * 0.16));
+  // There used to be a `variant` argument here, nudging a duplicated machine
+  // round the wheel so two identical blips could be told apart. There are no
+  // duplicates left to nudge — the field is the cast, one entrant per machine —
+  // and a knob that is always zero is a knob that lies about what the game is.
+  const L = Math.max(0.48, Math.min(0.8, l));
   const S = Math.max(0.55, s);
-  return hslToHex((h + variant * 0.045 + 1) % 1, S, L);
+  return hslToHex(h, S, L);
 }
 
 /**

@@ -236,7 +236,7 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
 
   let cfgNow: RaceConfig = {
     courseId: 'cone-canyon', vehicleId: 'cone', engineClass: '150cc',
-    racerCount: 8, seed: 1,
+    racerCount: R.racerCount, seed: 1,
   };
   /** Grid order for the next race, by racer name — championship order, set when
    *  the player advances a round. Null means "seat a fresh race". */
@@ -275,21 +275,14 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
    * The livery colour a results row, a ticker line or a championship chip is
    * painted in.
    *
-   * A field of eight drawn from a cast of seven always contains a duplicate —
-   * and this table printed both of them in the same paint, so the third and
-   * sixth rows of a results sheet carried identical chips. `blipColor`'s
-   * `variant` exists for exactly this, and counting the machines of the same
-   * kind already on the grid is the rule `ui/minimap.ts` uses, so a chip here
-   * and a blip there stay the same colour.
+   * There used to be a duplicate-counting pass here — a field of eight drawn
+   * from a cast of seven always contained one machine twice, and this table
+   * printed both copies in the same paint. The field is the cast now (see
+   * `racerCount` in core/config.ts), so no two entrants share a machine and the
+   * machine's own colour is the whole answer.
    */
-  const colorOf = (racer: Racer): number => {
-    let variant = 0;
-    for (const other of ctx.racers) {
-      if (other === racer) break;
-      if (other.vehicleId === racer.vehicleId) variant++;
-    }
-    return blipColor(getVehicle(racer.vehicleId).colors.primary, variant);
-  };
+  const colorOf = (racer: Racer): number =>
+    blipColor(getVehicle(racer.vehicleId).colors.primary);
 
   /**
    * Ask the camera for a *shot*, not a mode.

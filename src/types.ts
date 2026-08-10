@@ -48,6 +48,23 @@ export interface VehicleStats {
 export interface VehicleDef {
   id: VehicleId;
   name: string;
+  /**
+   * Who drives it. **The cast lives here and nowhere else.**
+   *
+   * The field used to be dealt out of a flat `CPU_NAMES` array in `main.ts`
+   * indexed by grid slot, while the machines came from `all.filter(v => v.id
+   * !== cfg.vehicleId)` indexed by the same slot — two orders that only lined up
+   * by accident and came apart the moment the player's pick removed an entry
+   * from the pool. BOLLARD was a Sedan or a Road Cone depending on what *you*
+   * had chosen; TARMAC was a helicopter or a plane; the player was 'Foreman' in
+   * whatever they happened to be sitting in. That is a costume rack, not a cast.
+   *
+   * A driver belongs to a machine the way a name belongs to a character, so it
+   * is a field on the machine and every racer — the player included — reads its
+   * own name off its own def. FOREMAN means the cone, on both sides of the
+   * curtain, in every race, whoever is holding the controller.
+   */
+  driver: string;
   /** One-line character read, shown on the select screen. */
   blurb: string;
   stats: VehicleStats;

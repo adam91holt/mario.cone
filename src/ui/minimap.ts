@@ -617,13 +617,12 @@ export function createMinimap(ctx: GameContext): Minimap {
     const racers = ctx.racers;
     if (!racers.length) return;
     const base: number[] = [];
+    // No duplicate-variant nudge any more: the field is the cast, one entrant
+    // per machine (see `racerCount` in core/config.ts), so two blips can only
+    // collide because two *different* machines are painted alike — which is
+    // exactly and only what `spreadBlipColors` is for.
     for (const racer of racers) {
-      let variant = 0;
-      for (const other of racers) {
-        if (other === racer) break;
-        if (other.vehicleId === racer.vehicleId) variant++;
-      }
-      base.push(blipColor(getVehicle(racer.vehicleId).colors.primary, variant));
+      base.push(blipColor(getVehicle(racer.vehicleId).colors.primary));
     }
     const spread = spreadBlipColors(base);
     for (let i = 0; i < racers.length; i++) {
