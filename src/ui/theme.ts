@@ -24,6 +24,8 @@
 //   this HUD is integrated from the `dt` handed to `update()`, which makes a
 //   given frame of a given seed reproducible.
 
+import { config } from '../core/config.ts';
+
 // ── the unit ───────────────────────────────────────────────────────────────
 
 /**
@@ -72,22 +74,27 @@ export const C = {
 /**
  * Mini-turbo tier colours. Index 0 is "charging, no tier yet".
  *
- * **Tier 2 is deliberately not `config.kart.drift.tiers[1].color`.** The sim
- * calls that tier orange, and orange is the one hue this HUD cannot spend: the
- * header strip on every plate is a `#FFC300 → #FF9A1A` gradient, the idle ring
- * is hazard yellow, and the screen grade that fires behind the whole instrument
- * set during a boost is orange too. An orange tier-2 ring measured out at
- * `rgb(255,152,0)` — one notch from the idle `#FFC300`, on an orange field, at
- * the size of a shoelace. Tier 1 and tier 3 read instantly; tier 2 read as *no
- * charge at all*, which is the single most expensive misread in the drift loop.
+ * **Derived, not written.** This used to be a literal `[0xFFC300, 0x4FC3F7,
+ * 0x3CFF6B, 0xE040FB]` sitting a module away from `config.kart.drift.tiers`,
+ * which `fx` reads for the sparks at the wheels — and the two disagreed. The
+ * sim's table called tier two orange; this called it green. One mini-turbo, two
+ * colours, and which one the player got depended on whether they were looking
+ * at their wheels or at the ring round the item socket.
  *
- * Green is the pick because it is the one saturated hue with nothing else in
- * this palette standing on it, it is complementary to the grade behind it, and
- * cyan → green → magenta is three unmistakable steps rather than two plus a
- * near-miss. See the report note: `config.kart.drift.tiers[1].color` should
- * follow, so the sparks at the wheels agree with the ring.
+ * The argument for green is recorded in `core/config.ts` beside the table it
+ * now lives in; the point here is that it can only be made once. A tier's
+ * colour is the sim's statement about a sim state, so the sim's tuning table
+ * owns it and every surface that draws that state reads it from there.
+ *
+ * Index 0 is the exception and is genuinely this module's: it is not a tier at
+ * all but the ring's *idle* colour, the hazard yellow it sits at while a drift
+ * is charging and has reached nothing yet. `fx` puts a warm cream in the same
+ * slot for the same reason — an uncharged spark is not a tier either.
  */
-export const TIER_COLORS = [0xFFC300, 0x4FC3F7, 0x3CFF6B, 0xE040FB] as const;
+export const TIER_COLORS = [
+  C.yellow,
+  ...config.kart.drift.tiers.map((t) => t.color),
+] as const;
 
 /**
  * ...and hue is not enough on its own. Each tier also gets a heavier stroke and
@@ -401,14 +408,13 @@ export function q<T extends Element = HTMLElement>(root: ParentNode, sel: string
   return found;
 }
 
-export const ORDINALS = ['th', 'st', 'nd', 'rd'] as const;
-
-/** "1st", "2nd", "13th" — the suffix only. */
-export function ordinal(n: number): string {
-  const v = n % 100;
-  if (v >= 11 && v <= 13) return 'th';
-  return ORDINALS[v % 10] ?? 'th';
-}
+// The ordinal suffix lives in `ui/glyphs.ts` as `ordinalWord()`, which returns
+// it in the caps the drawn face is cut in. There was a second copy here, in
+// lowercase, that nothing had ever imported — written back when a place was
+// text. Every place indicator in the game is geometry now (the HUD's, the
+// finish banner's, the pause card's, the results sheet's, the director's
+// ticker), and they all call the same function. Two spellings of "2nd" in a
+// module named `theme` is how a game ends up with two.
 
 // ── the plate ──────────────────────────────────────────────────────────────
 

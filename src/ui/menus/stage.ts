@@ -434,7 +434,15 @@ export function createStage(ctx: GameContext): Stage | null {
   // *colour*, and that is now identical.
   renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  installFilmStock(renderer, ctx.config.render.exposure * EXPOSURE_TRIM);
+  // The one number, computed once. The dimmer in `update` writes
+  // `toneMappingExposure` every frame to fade the set under a wipe, and it used
+  // to rebuild its base from a literal `1.16` — the old stock-ACES value this
+  // block was supposed to have retired. So the constructor set the shared
+  // exposure and the very next frame overwrote it with the number the fix was
+  // removing, and `config.render.exposure` moved the race without moving the
+  // front-end. Whatever the base is, both ends of this file now read it here.
+  const EXPOSURE = ctx.config.render.exposure * EXPOSURE_TRIM;
+  installFilmStock(renderer, EXPOSURE);
   renderer.info.autoReset = true;
 
   // Shadows follow the game's own quality switch, and take the same filter the
@@ -1392,7 +1400,7 @@ export function createStage(ctx: GameContext): Stage | null {
       key.intensity = KEY_I * level;
       kick.intensity = KICK_I * level;
       sky.intensity = SKY_I * level;
-      renderer.toneMappingExposure = 1.16 * (0.35 + 0.65 * level);
+      renderer.toneMappingExposure = EXPOSURE * (0.35 + 0.65 * level);
     },
 
     render(): void {

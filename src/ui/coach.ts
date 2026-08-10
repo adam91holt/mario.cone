@@ -42,7 +42,19 @@ import { bind, fromHtml, hintCss, hintKey, q, U_CSS, type Bound } from './theme.
  */
 const spent = new Set<string>();
 
-/** The mapping, as one list, so the card and the cues cannot disagree. */
+/**
+ * The mapping, as one list per device, so the card and the cues cannot disagree.
+ *
+ * **One at a time.** Both lists used to be on the card at once — thirteen rows
+ * stacked bottom-left, a third of the frame on the grid, sitting over the two
+ * machines on the left of the 2x4. Half of it was always wrong for the player
+ * reading it: nobody holds a keyboard and a pad at the same time, and a legend
+ * that lists a control you do not have is a legend you have to filter before
+ * you can use. `ctx.inputState.source` already knows which device the player
+ * last touched — it is how the front-end decides whether to say ENTER or (A) —
+ * so the card shows that half and the other half appears the moment they pick
+ * up the other thing.
+ */
 const CONTROLS: Array<[key: string, label: string]> = [
   ['&uarr; W', 'Accelerate'],
   ['&darr; S', 'Brake'],
@@ -100,10 +112,6 @@ ${hintCss('#coach')}
 }
 #coach .rows { display: grid; gap: calc(var(--u) * .42); }
 #coach .rows .k { justify-content: flex-start; }
-#coach .pad {
-  margin-top: calc(var(--u) * .7); padding-top: calc(var(--u) * .6);
-  border-top: 1px solid rgba(255,248,240,.12);
-}
 
 /* ── the cue rail ─────────────────────────────────────────────────────────
    One line, low centre, above the road and below the racing. It sits where a
@@ -136,6 +144,8 @@ export function createCoachSystem(ctx: GameContext): GameSystem {
   // property, so rebinding every frame would throw that cache away and write
   // the same opacity sixty times a second.
   let card: Bound | null = null;
+  let keyRows: Bound | null = null;
+  let padRows: Bound | null = null;
   let cue: Bound | null = null;
   let cueKey: HTMLElement | null = null;
   let cueLbl: HTMLElement | null = null;
@@ -151,6 +161,33 @@ export function createCoachSystem(ctx: GameContext): GameSystem {
   let cueShown = 0;
 
   let phase: RacePhase = 'loading';
+  /**
+   * True while the front-end has a screen up, and true while the race is
+   * paused. Both are read off the bus rather than off `race.phase`, because
+   * **`phase` cannot tell you either one.**
+   *
+   * The race does not stop existing when the menus come up: it is built at boot
+   * and keeps simulating behind an opaque front-end, so while the player is on
+   * the title screen `race.phase` walks `intro` → `countdown` → `racing` under
+   * them. This card tested `phase === 'intro' || 'countdown'` and so appeared
+   * over the title screen and the machine-select roster for the first few
+   * seconds of the game and then vanished for no reason a player could see —
+   * exactly what the comment below it forbids, and doubling the front-end's own
+   * prompt rail while it lasted. It was also sitting on the launch card during
+   * the hand-off curtain, which is a full-screen transition between two screens
+   * and belongs to neither.
+   *
+   * Pause is the same problem in reverse. `togglePause` moves the phase to
+   * `'loading'` — the same value the front-end's own idle state uses — so this
+   * card could not distinguish "paused, nothing to do, show the mapping" from
+   * "front-end up, it has its own rail" by phase alone, and the promise two
+   * paragraphs down that the card "comes back on pause" was never kept.
+   *
+   * `race/director.ts` already stands off the same way on the same event; this
+   * is that pattern, not a new one.
+   */
+  let frontEndOpen = false;
+  let racePaused = false;
   let racingFor = 0;
   let everDrifted = false;
   let everUsedItem = false;
@@ -187,14 +224,16 @@ export function createCoachSystem(ctx: GameContext): GameSystem {
         <div id="coach">
           <div class="card">
             <h5>Controls</h5>
-            <div class="rows">${rows}</div>
-            <div class="pad rows">${pad}</div>
+            <div class="rows keys">${rows}</div>
+            <div class="rows pad">${pad}</div>
           </div>
           <div class="cue">${hintKey('', '')}</div>
         </div>
       `);
       document.body.appendChild(root);
       card = bind(q(root, '.card'));
+      keyRows = bind(q(root, '.rows.keys'));
+      padRows = bind(q(root, '.rows.pad'));
       const cueEl = q<HTMLElement>(root, '.cue');
       cue = bind(cueEl);
       cueKey = q<HTMLElement>(cueEl, '.key');
@@ -204,6 +243,9 @@ export function createCoachSystem(ctx: GameContext): GameSystem {
       ctx.bus.on('race:phase', (e: { phase: RacePhase }) => {
         phase = e.phase;
       });
+      // Both edges, both events. See `frontEndOpen` above.
+      ctx.bus.on<{ open: boolean }>('ui:menu', ({ open }) => { frontEndOpen = open; });
+      ctx.bus.on<{ on: boolean }>('race:pause', ({ on }) => { racePaused = on; });
 
       // `H` is read here rather than through the input controller on purpose:
       // it is not a gameplay action, it must work while the sim is frozen, and
@@ -226,8 +268,17 @@ export function createCoachSystem(ctx: GameContext): GameSystem {
       if (!root || !card || !cue) return;
       const p = ctx.player;
 
+      // Nothing this system says is true while somebody else owns the screen.
+      // The clocks stop too, not just the drawing: `racingFor` counts the phase
+      // the hidden race is in, so a player who read the title screen for
+      // nineteen seconds got "hold through a corner to drift" over it — and
+      // because every cue is spent once per page load, that is the *only* time
+      // they would ever be offered it. A tutorial that fires before the player
+      // has a kart is worse than none: it is one they will never be shown again.
+      const standOff = frontEndOpen || racePaused;
+
       // ── what the player has shown they know ──────────────────────────────
-      if (p) {
+      if (p && !standOff) {
         if (p.drift.active) everDrifted = true;
         const has = p.item != null;
         if (hadItem && !has) everUsedItem = true;
@@ -253,14 +304,24 @@ export function createCoachSystem(ctx: GameContext): GameSystem {
         }
       }
 
+      // Whichever device the player last touched. `bind` swallows the write
+      // when the answer has not changed, so this costs nothing per frame.
+      const onPad = ctx.inputState.source === 'gamepad';
+      keyRows?.set('display', onPad ? 'none' : '');
+      padRows?.set('display', onPad ? '' : 'none');
+
       // ── the card ─────────────────────────────────────────────────────────
-      // Visible whenever the player is not racing: the grid, the countdown and
-      // the pause screen are all moments with nothing else to do.
-      // `loading` is deliberately not in this set: that is the phase the front
-      // end sits in, and the menus carry their own prompt rail. A second legend
-      // over the title screen would be two things describing one keyboard.
+      // The moments with nothing else to do: sitting on the grid, watching the
+      // lights, and the pause screen. Reading it costs the player nothing at
+      // any of them.
+      //
+      // The front-end is the one place it must never appear, and that is not a
+      // matter of taste: every screen over there already carries its own rail
+      // of the same keycaps, built from the same `hintKey`, so the card lands
+      // beside a rail that contradicts it about which keys are live. Two
+      // legends describing one keyboard.
       const idle = phase === 'intro' || phase === 'countdown';
-      cardWant = cardPinned || idle ? 1 : 0;
+      cardWant = !frontEndOpen && (cardPinned || racePaused || idle) ? 1 : 0;
       // Out faster than in — furniture should never be the thing still leaving
       // when the lights go green.
       cardShown += (cardWant - cardShown) * clamp01(dt * (cardWant > cardShown ? 6 : 11));
@@ -268,14 +329,17 @@ export function createCoachSystem(ctx: GameContext): GameSystem {
       card.set('transform', `translateY(calc(var(--u) * ${((1 - ease.outCubic(cardShown)) * 0.5).toFixed(3)}))`);
 
       // ── the cue ──────────────────────────────────────────────────────────
-      if (active) {
+      // Its clock stops under a stand-off rather than running out behind the
+      // curtain: a cue interrupted by a pause is one the player has not read
+      // yet, and it has already been spent.
+      if (active && !standOff) {
         cueAge += dt;
         // A cue for an item the player has since thrown is a lie; drop it the
         // moment it stops being true rather than serving out its timer.
         const stale = active.id === 'item' && (everUsedItem || !p?.item);
         if (cueAge > active.hold || stale) active = null;
       }
-      const want = active ? 1 : 0;
+      const want = active && !standOff ? 1 : 0;
       cueShown += (want - cueShown) * clamp01(dt * (want > cueShown ? 9 : 12));
       cue.set('opacity', cueShown.toFixed(3));
       cue.set(

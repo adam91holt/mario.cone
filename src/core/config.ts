@@ -87,11 +87,31 @@ export const config = {
       // roughly 0.35s / 0.8s / 1.35s of committed drift. Measured against the
       // sharpest bend on Cone Canyon — a 42m-radius hairpin entered at 58 m/s —
       // a held drift survives well past four seconds, so all three tiers are
-      // reachable there and orange is routine on an ordinary corner. Tiers you
+      // reachable there and tier two is routine on an ordinary corner. Tiers you
       // cannot reach are two thirds of the system no player will ever see.
+      //
+      // **`color` here is the whole game's answer for that tier, not the sim's
+      // private one.** A mini-turbo is signalled in two places at once — sparks
+      // at the wheels (`fx`, which reads this table) and the charge ring round
+      // the item socket (`ui/theme.ts`, whose `TIER_COLORS` is now derived from
+      // this table rather than written out a second time). They were two lists,
+      // and they disagreed: this said tier two was orange and the ring said it
+      // was green, so the same charge state had two colours depending on where
+      // the player happened to be looking.
+      //
+      // Green is the one that survived, and the argument is `ui/theme.ts`'s:
+      // measured on the ring, an orange tier two lands one notch from the idle
+      // hazard yellow, on a plate whose header strip is an orange gradient,
+      // behind a screen grade that goes orange during the boost it is
+      // predicting — it read as *no charge at all*, which is the most expensive
+      // misread in the drift loop. Green is the only saturated hue in this
+      // palette with nothing else standing on it, and blue → green → purple is
+      // three unmistakable steps rather than two and a near-miss. Nothing about
+      // the tarmac made orange better at the wheels; it was only ever the
+      // default nobody had cause to revisit.
       tiers: [
         { at: 0.80, boost: 0.68, power: 24, color: 0x4FC3F7, name: 'blue' },
-        { at: 1.75, boost: 1.20, power: 34, color: 0xFF9800, name: 'orange' },
+        { at: 1.75, boost: 1.20, power: 34, color: 0x3CFF6B, name: 'green' },
         { at: 3.00, boost: 1.85, power: 46, color: 0xE040FB, name: 'purple' },
       ],
       // Charge stops accruing a little past purple, so anything normalising it
