@@ -56,6 +56,10 @@ loads on a phone and runs offline.
 
 ### It was built by agents working in parallel
 
+**→ [How it works, with diagrams](docs/how-it-works.md)** — the build board, the
+review loop, the critic protocol, and why a pass that owns the whole repo had to
+exist.
+
 This repo is an experiment in whether a large number of AI agents can build
 something to a genuinely high bar without a human reviewing each change.
 
