@@ -57,7 +57,7 @@ const TAU = Math.PI * 2;
 /** Pool sizes. Generous — the whole point of a pool is that a spectacular
  *  moment is never the moment it runs out. */
 // The alpha layer carries the whole continuous half of the module now — dust,
-// exhaust from eight machines, tyre haze, smoke, confetti — so it is the one
+// exhaust from a full field, tyre haze, smoke, confetti — so it is the one
 // with the most headroom. A layer that silently drops pushes past its cap
 // thins the effect exactly when the frame is busiest, which is the frame the
 // reviewer photographs.

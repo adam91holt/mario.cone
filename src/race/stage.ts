@@ -15,8 +15,8 @@
 //   a player's foot times against, and the only honest cue for a rocket start
 //   window that is a quarter of a second wide.
 //
-//   The **ticker** is the flag. A kart racer where the other seven machines
-//   quietly stop existing the moment you cross the line has thrown away its
+//   The **ticker** is the flag. A kart racer where the rest of the field
+//   quietly stops existing the moment you cross the line has thrown away its
 //   own ending: the race is still happening behind you, and every one of them
 //   coming home is a result landing.
 //

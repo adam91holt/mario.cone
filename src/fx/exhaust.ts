@@ -1,6 +1,6 @@
 // Where each machine breathes.
 //
-// The single largest hole in the previous pass: eight machines at 240 km/h with
+// The single largest hole in the previous pass: a whole field at 240 km/h with
 // nothing attached to any of them. A racing game is read first as *motion*, and
 // motion at a still frame is carried entirely by what a vehicle is continuously
 // shedding — heat haze off a tailpipe, diesel off a stack, steam off a chimney.

@@ -252,7 +252,7 @@ export function createMinimap(ctx: GameContext): Minimap {
    * The start line, solved once and stamped twice.
    *
    * **The one landmark on the plate, and the pack used to park on top of it.**
-   * A second after the flag all eight machines are within fifteen metres of the
+   * A second after the flag the whole field is within fifteen metres of the
    * line, which at this scale is exactly where the chequer is — so the map's
    * only fixed reference was covered at the one moment a player is most likely
    * to look at it. The geometry is solved when the circuit is built and drawn
@@ -767,7 +767,7 @@ export function createMinimap(ctx: GameContext): Minimap {
 
       // Back of the field first, leader last, player over everything.
       //
-      // Markers overlap — eight machines on a starting grid occupy about fifteen
+      // Markers overlap — a field on a starting grid occupies about fifteen
       // metres of a four-hundred-metre circuit, and no size makes that eight
       // separate objects. What *can* be fixed is the order they stack in, which
       // used to be `ctx.racers` order: arbitrary, and unstable frame to frame as

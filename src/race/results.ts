@@ -335,7 +335,7 @@ export function createResults(onPick: (id: string) => void, sfx: Sfx): Results {
   let live = false;
   let settleAt = 3;
   /** How many finishing-order rows have already been announced, and the clock
-   *  for the championship counter's own tick. The whole cascade — eight rows
+   *  for the championship counter's own tick. The whole cascade — the field
    *  slamming in one at a time, points stamping, totals climbing — was silent. */
   let rowsHeard = 0;
   let countHeard = 0;
@@ -361,7 +361,7 @@ export function createResults(onPick: (id: string) => void, sfx: Sfx): Results {
     glyphBox(q(el, '.psuf'), ordinalWord(row.place));
     signBox(q(el, '.nm'), row.name);
     // The winner's absolute time, everybody else's gap to it. A results table
-    // that prints eight total times makes the reader do the subtraction the
+    // that prints a total time on every row makes the reader do the subtraction the
     // screen exists to do for them.
     //
     // ...and a machine that was still a whole lap out when the flag came in
@@ -498,7 +498,7 @@ export function createResults(onPick: (id: string) => void, sfx: Sfx): Results {
       head.set('opacity', clamp01((t - 0.05) / 0.18).toFixed(3));
 
       // ── the order, a line at a time ──────────────────────────────────────
-      // One tick per line as it lands, climbing, so eight rows read as a run
+      // One tick per line as it lands, climbing, so the column reads as a run
       // being called rather than as the same click eight times.
       while (rowsHeard < rows.length && t >= ROW_DELAY + rowsHeard * ROW_STEP) {
         sfx('ui.tick', 0.5, 0.94 + rowsHeard * 0.055);
