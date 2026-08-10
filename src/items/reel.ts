@@ -449,10 +449,22 @@ const CSS = `
   position: fixed; inset: 0; z-index: 10; pointer-events: none; opacity: 0;
   --wu: max(9px, min(1.06vw, 1.95vh));
 }
+/* **The fade lives on the parts, not on the layer.**
+
+   It used to live here, and that one decision is what made the whole warning
+   read as a pale grey wireframe. A single opacity on the host is applied to the
+   *composite*, so at the 0.6-0.75 this element actually wears for most of a
+   threat, the chevron's fill went 60% transparent along with everything else —
+   and what survived was its cream keyline, over a road the vignette had already
+   tinted the same red the fill was. Photographed at threat 0.65 the entire tell
+   was an empty two-stroke outline low-centre.
+
+   The vignette is *supposed* to be a wash and keeps its fade. The chevron is a
+   sign and now reaches full opacity, so its colour is its colour. */
 #item-warn .vig {
   position: absolute; inset: -16%;
-  background: radial-gradient(ellipse 64% 58% at 50% 50%,
-    rgba(255,40,20,0) 48%, rgba(255,56,26,.36) 72%, rgba(190,10,2,.94) 100%);
+  background: radial-gradient(ellipse 58% 52% at 50% 50%,
+    rgba(255,40,20,0) 40%, rgba(255,56,26,.5) 66%, rgba(196,8,2,1) 100%);
 }
 /* The chevron. Sized in the HUD's own unit so it holds its share of the frame
    at any resolution, and given a hard dark rim so it reads on cloud and on
@@ -483,11 +495,19 @@ const CSS = `
   opacity: .8;
 }
 #item-warn .arrow svg { position: relative; width: 100%; height: 100%; display: block; }
+/* The plate: the same chevron pair drawn once in near-black with a fat stroke,
+   so the sign carries its own dark ground wherever it lands. A coloured shape
+   with only a hairline round it is a shape that has to win an argument with
+   whatever is behind it, and behind this one is a red vignette. */
+#item-warn .arrow .plate {
+  fill: #0B0D14; stroke: #0B0D14; stroke-width: 12; stroke-linejoin: round;
+}
 /* A cream keyline inside the dark rim. Two hard edges, one lighter than
    anything on this circuit and one darker, so the shape survives tarmac, cloud
-   and a red kart equally. */
+   and a red kart equally — and thin, because the arm it is drawn inside is only
+   fourteen units across and a 2.6 keyline was eating a third of it. */
 #item-warn .arrow .core {
-  fill: none; stroke: #FFF6E8; stroke-width: 2.6; stroke-linejoin: round;
+  fill: none; stroke: #FFF6E8; stroke-width: 1.7; stroke-linejoin: round;
 }
 `;
 
@@ -873,17 +893,23 @@ export function createItemHud(): ItemHud {
     warnEl.id = 'item-warn';
     // The chevron pair points along -Y in its own box, so a rotation by the
     // bearing aims it straight at whatever is arriving.
-    const chevrons = `M32 6 L58 34 L48 42 L32 26 L16 42 L6 34 Z
-               M32 26 L58 54 L48 62 L32 46 L16 62 L6 54 Z`;
+    // Fatter arms than the pair this replaces: at 64 units the old chevron's
+    // arm was fourteen across, a five-unit ink stroke took five of them and a
+    // 2.6 cream keyline took most of what was left, so the item's own colour
+    // survived in about three units in the middle of each stroke. Twenty-unit
+    // arms with a thinner keyline give the colour something to be.
+    const chevrons = `M32 3 L61 32 L48 45 L32 29 L16 45 L3 32 Z
+               M32 25 L61 54 L48 67 L32 51 L16 67 L3 54 Z`;
     warnEl.innerHTML = `<div class="vig"></div><div class="arrow"><svg viewBox="0 0 64 64">
-      <path d="${chevrons}"
-        fill="#FF3A20" stroke="#14171F" stroke-width="5" stroke-linejoin="round"/>
+      <path class="plate" d="${chevrons}"/>
+      <path class="body" d="${chevrons}"
+        fill="#FF3A20" stroke="#14171F" stroke-width="4" stroke-linejoin="round"/>
       <path class="core" d="${chevrons}"/>
       </svg></div>`;
     fxRoot.appendChild(warnEl);
     vigEl = warnEl.querySelector('.vig');
     arrowEl = warnEl.querySelector('.arrow');
-    chevronEl = warnEl.querySelector('path');
+    chevronEl = warnEl.querySelector('.body');
 
     hitEl = document.createElement('div');
     hitEl.id = 'item-hit';
@@ -1122,29 +1148,40 @@ export function createItemHud(): ItemHud {
         } else {
           warnPhase += dt * (7 + warnShown * 22);
           const pulse = 0.82 + Math.sin(warnPhase) * 0.18;
-          // **It arrives already loud.** The old curve multiplied a squared
-          // proximity by a pulse that bottomed out at 0.44, so the number this
-          // element actually wore over a race never got past 0.79 and spent
-          // most of its life around a fifth — visible to an instrument, not to
-          // a player. The floor is what fixes that: the moment this is on at
-          // all, something is going to hit you inside a second and a half, and
-          // it says so at better than a third of full strength.
-          warnEl.style.opacity = String((0.42 + 0.5 * warnShown) * pulse);
+          // The layer itself is simply on. What fades is underneath it — see
+          // the note over "#item-warn .vig": one opacity on the host faded the
+          // sign along with the wash and left a wireframe.
+          warnEl.style.opacity = '1';
 
           // Push the red away from the threat, so the thickest part of the
-          // vignette is the edge it is coming from.
+          // vignette is the edge it is coming from. Eleven percent, not five
+          // and a half: at five the wash was very nearly concentric and said
+          // "something" rather than "something, over there".
           const sx = Math.sin(warnBearing);
           const sy = -Math.cos(warnBearing);
           if (vigEl) {
+            // **It arrives already loud.** The old curve multiplied a squared
+            // proximity by a pulse that bottomed out at 0.44, so the number
+            // this actually wore over a race never got past 0.79 and spent most
+            // of its life around a fifth — visible to an instrument, not to a
+            // player. The floor is what fixes that: the moment this is on at
+            // all, something is going to hit you inside a second and a half.
+            vigEl.style.opacity = String((0.42 + 0.5 * warnShown) * pulse);
             vigEl.style.transform =
-              `translate(${(-sx * 5.5).toFixed(2)}%, ${(-sy * 5).toFixed(2)}%)`;
+              `translate(${(-sx * 11).toFixed(2)}%, ${(-sy * 10).toFixed(2)}%)`;
           }
           if (arrowEl) {
+            // The sign reaches full strength and stays there. A chevron that is
+            // half transparent is a chevron whose colour is the road's.
+            arrowEl.style.opacity =
+              String(Math.min(1, 0.55 + 0.9 * warnShown) * (0.88 + (pulse - 0.82) * 0.66));
             // Ride the perimeter of an inset frame rather than a circle: a
             // threat from dead ahead then parks at the top *below the item
             // slot*, and one from behind at the bottom between the coin and
             // position plates, instead of either landing on a readout.
-            const ay = sy < 0 ? 30 : 39;
+            // 34 at the bottom, not 39: the prompt rail parks a keycap card on
+            // the bottom centreline, and a chevron at 39 lands on top of it.
+            const ay = sy < 0 ? 30 : 34;
             const kx = Math.abs(sx) > 1e-3 ? 41 / Math.abs(sx) : 1e9;
             const ky = Math.abs(sy) > 1e-3 ? ay / Math.abs(sy) : 1e9;
             const k = Math.min(kx, ky);

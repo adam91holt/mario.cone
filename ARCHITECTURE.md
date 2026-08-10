@@ -297,6 +297,19 @@ the only thing that may be shown to a player, and `src/items/models.ts` is what
 each one actually is. Anything drawing an item — an icon, a slot, a menu — draws
 the object in `models.ts`, not the object in the id.
 
+**...and there is exactly one flat drawing of each, in `src/items/icons.ts`.**
+`itemIconSvg(id)` / `itemIconBody(id)` / `ITEM_ICON_DEFS` / `ITEM_ICON_IDS`, all
+re-exported from `src/items/index.ts`. **Do not keep a second set.** One existed
+in `src/ui/icons.ts` and it was drawn from the *ids*: the socket at the top of
+the screen — the surface a player looks at more than any other — showed a banana
+with a brown stalk under a plate reading WHEEL CHOCK, a Koopa shell with three
+studs under HARD HAT, a Boo with eyes and hands under DUST SHEET, a lit-fuse
+Bob-omb under GAS BOTTLE and a smiling star under SAFETY AWARD, thirty pixels
+above the item system's own what-hit-you plate drawing the right object in the
+same frame. Until `ui/icons.ts` imports this set, `items/reel.ts` repaints the
+faces of whatever socket carries `data-item-slot` from it at build (`adoptSlot`),
+which is idempotent and becomes a no-op the day the second set is deleted.
+
 **Timing the reel.** `item:roulette` `start` carries `duration` — the seconds
 that spin will actually run — and `item:reel` fires once per face of the drum
 with `remaining` counting down to zero on the settle. A slot drawn by another

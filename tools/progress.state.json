@@ -1,6 +1,6 @@
 {
-  "phase": "Wave 6 landed — polish wave next",
-  "phaseNote": "hud 7.0 and perf 6.0. The item slot and minimap are fixed and the frame cost is down a quarter with the simulation untouched. Both still fail on something measured: a winning position plate cut in half by the letterbox, and a frame-time instrument that cannot see the frames it exists for.",
+  "phase": "Polish wave landed — items and fx go again",
+  "phaseNote": "Both scores fell because the critics reached past the gap they were sent to close. The item economy finding is the one that matters most: the slot is empty for 87% of a race, so the whole item layer is something a player barely touches.",
   "pieces": [
     {
       "id": "feel",
@@ -52,18 +52,18 @@
       "name": "Effects & spectacle",
       "scope": "src/fx",
       "state": "fail",
-      "rounds": 6,
-      "verdict": "6.5/10 after three rounds. Sparks, tyre smoke, boost flames, marks and impacts all firing off the right events.",
-      "gap": "Every smoke puff is a flat-alpha polygon with a hard cookie-cutter rim — at 9x zoom you can count a 16-gon silhouette — so the one particle on screen in every frame reads as a cutout disc rather than smoke."
+      "rounds": 2,
+      "verdict": "6.0/10 after two rounds. The 16-gon puff is gone and the whole particle family with it, since one cell served tyre smoke, dust, impacts and the burnout cloud.",
+      "gap": "The mini-turbo release — the moment the entire drift system exists to pay off — reads as a bug rather than a reward: the rear half of the machine vanishes into a blown-white disc under a hard-edged pale-gold torus lying flat in the road plane, there is no flame at any frame, and the tier colour the player just spent three seconds earning is thrown away for a generic orange."
     },
     {
       "id": "items",
       "name": "Items",
       "scope": "src/items",
       "state": "fail",
-      "rounds": 6,
-      "verdict": "7/10 after three rounds. Boxes, roulette, full item set, coins, and a genuinely strong hit vocabulary — banana spins you 1.00 rotation in 0.73s and drops you 53 to 23 m/s; a green shell flips you 1.08 rotations in 1.02s and launches you.",
-      "gap": "The blooper blacks out ~66% of the central play area at up to 0.97 opacity for six seconds. Mario Kart ink is a nuisance you race through; this one is a blindfold."
+      "rounds": 2,
+      "verdict": "5.5/10 after two rounds. The blooper no longer blacks the screen out, and the roster is renamed and re-arted into this game's own vocabulary instead of Nintendo's.",
+      "gap": "The player's item slot is empty for 87% of a race. A full census — 3 laps, 145 seconds, the game's own CPU driver at the wheel — found 3 draws, one unbroken 63.7s stretch with nothing, and a star, bullet, lightning, red shell or mushroom never once reaching the player's hand. The best-built part of this module is something the player barely gets to touch."
     },
     {
       "id": "ai",
@@ -157,6 +157,10 @@
     }
   ],
   "log": [
+    {
+      "when": "2026-08-10 12:40 UTC",
+      "text": "Polish wave landed. A full-race census found the item slot empty 87% of the time — 3 draws in 145 seconds — which is why items scored 5.5 despite the blooper and the roster both being fixed."
+    },
     {
       "when": "2026-08-10 08:39 UTC",
       "text": "Wave 6 landed. 509,822 triangles across 299 draw calls, down from 678,804 across 370, with the simulation bit-identical. The item slot is no longer a black hole."

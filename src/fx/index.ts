@@ -2120,9 +2120,24 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     const g = 1 - e;
     const a = e * (0.5 + 0.5 * e);
 
+    // ── where the strike is centred, and why it is not at the pipe ───────────
+    //
+    // A camera-facing quad is a *plane through its own centre*, so a two-metre
+    // flare hung at exhaust height — half a metre off the deck — has three
+    // quarters of a metre of itself below the tarmac, and the depth test cuts
+    // it there. What ships is not the four-point star the atlas draws but the
+    // part of it that cleared the road, with a dead-straight edge along the cut
+    // and the quad's own corners showing wherever the additive colour is bright
+    // enough to saturate its falloff. That is the hard-edged wedge, and it is
+    // geometry rather than texture: measuring the atlas cell can never find it.
+    //
+    // So the strike sits about seventy centimetres up — still unmistakably at
+    // the tail of the machine, high enough that the bright half of every quad
+    // is in the air — and the two stars are held to brightnesses that keep the
+    // falloff inside the quad instead of blowing it out to the corners.
+    local(0, 0.14, -s.len * 0.50, _p);
     // The core. Small and blinding — a wash is what this effect was rejected
     // for, so nothing here is allowed to be both broad and bright.
-    local(0, -0.04, -s.len * 0.50, _p);
     add.push(
       _p.x, _p.y, _p.z, 0, 0, 0,
       3.2 * a, 3.1 * a, 2.8 * a, 0.95,
@@ -2136,15 +2151,15 @@ export function createFxSystem(ctx: GameContext): GameSystem {
     const spin = ctx.time.elapsed * 1.2 + racer.id;
     add.push(
       _p.x, _p.y, _p.z, 0, 0, 0,
-      2.9 * a, 2.8 * a, 2.5 * a, 0.95,
-      (2.0 + 2.4 * g + 0.7 * p) * rig, 0, spin, CELL.flare, MODE.billboard,
+      2.4 * a, 2.3 * a, 2.1 * a, 0.95,
+      (1.8 + 2.2 * g + 0.6 * p) * rig, 0, spin, CELL.flare, MODE.billboard,
     );
     // The tier star is deliberately the *larger* of the two, so the hue lands
     // where a white core cannot reach it — on the points, outside the blow-out.
     add.push(
       _p.x, _p.y, _p.z, 0, 0, 0,
-      tint.r * gain * a * 1.4, tint.g * gain * a * 1.4, tint.b * gain * a * 1.4, 0.8,
-      (3.0 + 3.4 * g + 1.0 * p) * rig, 0, spin + 0.785, CELL.flare, MODE.billboard,
+      tint.r * gain * a * 0.9, tint.g * gain * a * 0.9, tint.b * gain * a * 0.9, 0.8,
+      (2.5 + 2.8 * g + 0.8 * p) * rig, 0, spin + 0.785, CELL.flare, MODE.billboard,
     );
     // The scorch. A ring welded flat to the road, expanding fast — the part
     // that says the machine was *shoved*, and the part a reviewer stepping the

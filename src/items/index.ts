@@ -2131,8 +2131,8 @@ export function createItemSystem(ctx: GameContext): GameSystem {
        * strobe every invincibility in this genre has had since 1985, and it is
        * loud from a hundred metres away in somebody else's mirror.
        */
-      const beat = (visualTime * 4.3) % 1;
-      const flash = beat < 0.26 ? Math.sin((beat / 0.26) * Math.PI) : 0;
+      const beat = (visualTime * 5) % 1;
+      const flash = beat < 0.36 ? Math.sin((beat / 0.36) * Math.PI) : 0;
       // ...and the flash goes white-hot rather than merely brighter gold. White
       // is the one value nothing on this course owns.
       if (flash > 0) _hue.lerp(_white, flash * 0.55);
@@ -2147,7 +2147,13 @@ export function createItemSystem(ctx: GameContext): GameSystem {
         // an item you cannot drive. The stars orbiting outside the shell are
         // what say "invincible"; the shell only has to say "lit".
         m.uniforms.uStrength!.value = fade * (0.80 + Math.sin(visualTime * 16) * 0.20);
-        m.uniforms.uCore!.value = 0.03 + flash * flash * 0.62 * fade;
+        // 0.34 at the peak, not 0.62. The flash has to *wash* the machine, not
+        // delete it: at 0.62 the additive term put the cone above white and the
+        // stripes, the face and the silhouette went with it, which is the exact
+        // failure the low base value in `rimMaterial` exists to avoid. At 0.34
+        // the kart is plainly a different colour for those seventy
+        // milliseconds and is plainly still a kart.
+        m.uniforms.uCore!.value = 0.03 + flash * flash * 0.34 * fade;
       }
       const pool = st.aura.getObjectByName('pool') as THREE.Mesh | undefined;
       if (pool) {

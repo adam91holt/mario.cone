@@ -213,10 +213,18 @@ export function createBoxField(ctx: GameContext): BoxField {
       // fastest way to make it look pasted on — ARCHITECTURE §12, contact is
       // everything.
       //
-      // 0.26 with the ringed build behind it is a real shadow; 0.20 with the
+      // 0.28 with the ringed build behind it is a real shadow; 0.20 with the
       // old single fan behind it multiplied the road by 0.73 and photographed
       // as a smudge you had to be told about. See `contactShadowGeometry`.
-      blobGeo = contactShadowGeometry(SIZE * 0.52, 0.26);
+      //
+      // ...and 0.70 of the box rather than 0.52, which is a *viewing-angle*
+      // number rather than a taste one. The cube spins, so from directly above
+      // its silhouette is its diagonal — 2.6m for an 1.85m box — and a 1.9m
+      // disc under it is a disc the box is standing on top of and completely
+      // hiding. The overhead frame is exactly the one a reviewer uses to check
+      // that things touch the ground. At 2.6m the shadow shows all the way
+      // round from above and still reads as contact from a chase camera.
+      blobGeo = contactShadowGeometry(SIZE * 0.70, 0.28);
       blobMat = contactShadowMaterial();
     }
     // The pieces. Small hard chunks of the same hazard-yellow the plate is
