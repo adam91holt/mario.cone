@@ -306,6 +306,53 @@ function lampBoardTexture(steel: number): THREE.CanvasTexture {
   }, THREE.ClampToEdgeWrapping);
 }
 
+/**
+ * The belt housing's skin: dark works grey with a hazard band along the bottom
+ * edge and a rivet line every course.
+ *
+ * Tiled along the bridge rather than stretched over it — sixty-seven metres of
+ * one unstretched decal is a pale slab, and a pale slab across the top of the
+ * frame is what a monorail looks like.
+ */
+function conveyorSkin(): THREE.CanvasTexture {
+  return tex('kit:conveyorSkin', 128, 128, (g, W, H) => {
+    const rnd = rand(0x28ba61);
+    const base = g.createLinearGradient(0, 0, 0, H);
+    base.addColorStop(0, '#79848C');
+    base.addColorStop(0.55, '#5C666D');
+    base.addColorStop(1, '#454E55');
+    g.fillStyle = base;
+    g.fillRect(0, 0, W, H);
+    // Hazard band along the lower edge — v = 0 is the bottom of the box.
+    g.fillStyle = '#F2B705';
+    g.fillRect(0, H * 0.70, W, H * 0.22);
+    g.fillStyle = '#22262E';
+    for (let i = -1; i < 6; i++) {
+      g.beginPath();
+      g.moveTo(i * (W / 4), H * 0.92);
+      g.lineTo(i * (W / 4) + W / 8, H * 0.92);
+      g.lineTo(i * (W / 4) + W / 8 + H * 0.22, H * 0.70);
+      g.lineTo(i * (W / 4) + H * 0.22, H * 0.70);
+      g.closePath();
+      g.fill();
+    }
+    g.fillStyle = 'rgba(10,12,16,0.45)';
+    g.fillRect(0, H * 0.92, W, H * 0.08);
+    // Ribs and rivets.
+    for (let i = 0; i < 4; i++) {
+      const x = (i + 0.5) * (W / 4);
+      g.fillStyle = 'rgba(255,255,255,0.10)';
+      g.fillRect(x, 0, 2, H * 0.70);
+      g.fillStyle = 'rgba(0,0,0,0.22)';
+      g.fillRect(x + 2, 0, 2, H * 0.70);
+    }
+    for (let i = 0; i < 180; i++) {
+      g.fillStyle = `rgba(150,144,130,${(rnd() * 0.16).toFixed(3)})`;
+      g.fillRect(rnd() * W, rnd() * H * 0.7, 1 + rnd() * 5, 1 + rnd() * 2);
+    }
+  });
+}
+
 /** Galvanised plate, for jetty decks and pylon cross-arms. */
 function plateTexture(key: string, base: string, dark: string): THREE.CanvasTexture {
   return tex(`kit:plate:${key}`, 128, 128, (g, W, H) => {
@@ -662,23 +709,31 @@ function buildConveyor(a: BuildArgs): ArrivalParts {
   const accent = a.kit.accent ?? 0xf2b705;
   const span = a.span;
   const st = new Struts();
-  // Trestles. The far one stands taller, because the belt is climbing.
-  tower(st, -span, -3, 9.4, 1.15);
-  tower(st, span, -3, 14.6, 1.15);
+  // Trestles. The far one stands five metres taller, because the belt is
+  // climbing — the whole silhouette is a diagonal and that is the point.
+  const LOW = 11.0, HIGH = 16.4;
+  tower(st, -span, -3, LOW, 1.15);
+  tower(st, span, -3, HIGH, 1.15);
+  // The hanger beam the signage rig swings from, slung under the bridge on two
+  // short rods. A banner hung off nothing is the tell that a structure was
+  // designed round a fitting rather than the other way about.
+  st.add(-13, BANNER_Y + 1.4, 0, 13, BANNER_Y + 1.4, 0, 0.28);
+  st.add(-10, BANNER_Y + 1.4, 0, -10, 11.3, 0, 0.15);
+  st.add(10, BANNER_Y + 1.4, 0, 10, 13.5, 0, 0.15);
   a.group.add(st.mesh(steel, 'kitConveyorTrestle', a.materials));
 
   // The belt housing: a long box, rolled about z so it climbs left to right.
   const run = span * 2 + 26;
-  const rise = 5.4;
-  const angle = Math.atan2(rise, span * 2);
+  const angle = Math.atan2(HIGH - LOW, span * 2);
   const belt = new THREE.Group();
-  belt.position.set(0, (9.9 + 15.1) * 0.5, 0);
+  belt.position.set(0, (LOW + HIGH) * 0.5, 0);
   belt.rotation.z = angle;
 
-  const hood = plateTexture('conveyor', '#9AA3AA', 'rgba(40,46,52,0.35)');
-  const hoodMat = new THREE.MeshStandardMaterial({ map: hood, roughness: 0.55, metalness: 0.3 });
+  const skin = conveyorSkin();
+  skin.repeat.set(run / 6, 1);
+  const hoodMat = new THREE.MeshStandardMaterial({ map: skin, roughness: 0.62, metalness: 0.25 });
   a.materials.push(hoodMat);
-  const housing = new THREE.Mesh(new THREE.BoxGeometry(run, 1.5, 2.9), hoodMat);
+  const housing = new THREE.Mesh(new THREE.BoxGeometry(run, 1.7, 2.9), hoodMat);
   housing.castShadow = true;
   housing.receiveShadow = true;
   belt.add(housing);
@@ -686,16 +741,16 @@ function buildConveyor(a: BuildArgs): ArrivalParts {
   // A rounded hood on top — the silhouette people recognise a conveyor by.
   const capMat = new THREE.MeshStandardMaterial({ color: steel, roughness: 0.42, metalness: 0.45 });
   a.materials.push(capMat);
-  const cap = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, run, 12, 1, false, 0, Math.PI), capMat);
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.15, run, 12, 1, false, 0, Math.PI), capMat);
   cap.rotation.z = Math.PI * 0.5;
-  cap.position.y = 0.7;
+  cap.position.y = 0.8;
   cap.castShadow = true;
   belt.add(cap);
 
   // Toe boards and a walkway handrail down the near side, in high-vis.
   const railMat = new THREE.MeshStandardMaterial({ color: accent, roughness: 0.5 });
   a.materials.push(railMat);
-  for (const y of [-0.55, 0.45, 1.05]) {
+  for (const y of [-0.72, 0.55, 1.15]) {
     const rail = new THREE.Mesh(new THREE.BoxGeometry(run, 0.13, 0.13), railMat);
     rail.position.set(0, y, -1.75);
     rail.castShadow = true;
@@ -721,11 +776,11 @@ function buildConveyor(a: BuildArgs): ArrivalParts {
     const x0 = -run * 0.5 + i * (run / bays);
     const x1 = x0 + run / bays;
     for (const dz of [-1.3, 1.3]) {
-      web.add(x0, -2.3, dz, x1, -2.3, dz, 0.16);
-      web.add(x0, -0.75, dz, x0, -2.3, dz, 0.12);
-      web.add(x0, -0.75, dz, x1, -2.3, dz, 0.10);
+      web.add(x0, -1.6, dz, x1, -1.6, dz, 0.16);
+      web.add(x0, -0.85, dz, x0, -1.6, dz, 0.12);
+      web.add(x0, -0.85, dz, x1, -1.6, dz, 0.10);
     }
-    if (i % 2 === 0) web.add(x0, -2.3, -1.3, x0, -2.3, 1.3, 0.10);
+    if (i % 2 === 0) web.add(x0, -1.6, -1.3, x0, -1.6, 1.3, 0.10);
   }
   belt.add(web.mesh(steel, 'kitConveyorWeb', a.materials));
   a.group.add(belt);
@@ -734,14 +789,14 @@ function buildConveyor(a: BuildArgs): ArrivalParts {
   // outside the barrier. This is what tells you which way the belt runs.
   const chuteMat = new THREE.MeshStandardMaterial({ color: 0x5d666e, roughness: 0.7 });
   a.materials.push(chuteMat);
-  const chute = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.5, 4.2, 8), chuteMat);
-  chute.position.set(span + 11.5, 13.0, 0);
+  const chute = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 2.0, 10, 8), chuteMat);
+  chute.position.set(span + 12, 12.6, 0);
   chute.castShadow = true;
   a.group.add(chute);
   const pileMat = new THREE.MeshLambertMaterial({ color: 0xa9a396 });
   a.materials.push(pileMat);
-  const pile = new THREE.Mesh(new THREE.ConeGeometry(7.5, 8.4, 14), pileMat);
-  pile.position.set(span + 11.5, 1.2, 0);
+  const pile = new THREE.Mesh(new THREE.ConeGeometry(9, 11, 14), pileMat);
+  pile.position.set(span + 12, 2.6, 0);
   pile.castShadow = true;
   pile.receiveShadow = true;
   a.group.add(pile);
@@ -759,10 +814,8 @@ function buildConveyor(a: BuildArgs): ArrivalParts {
   glass.position.set(-span - 2.1, 6.2, 0);
   a.group.add(glass);
 
-  // The belt's underside over the centreline, which is what the banner hangs
-  // from. `run/2` of housing at `angle`, half its depth, is where it is.
   return {
-    banner: addBanner(a, Math.min(span * 2 - 2, 26), 11.6),
+    banner: addBanner(a, Math.min(span * 2 - 2, 26), BANNER_Y + 1.4),
     lamps: addLampBoard(a, BANNER_Y - 3.4),
   };
 }
@@ -850,12 +903,20 @@ function buildJetty(a: BuildArgs): ArrivalParts {
   heap.castShadow = true;
   a.group.add(heap);
 
-  // Two loading chutes hanging over the carriageway, with a dribble of salt
-  // caught in mid-fall under each — the one thing on this circuit that reads as
-  // *vertical* on a lake bed where nothing else is.
+  // Two loading chutes hanging off the deck ends, each with a dribble of salt
+  // caught in mid-fall and a cone of it built up underneath. This is the one
+  // thing on this circuit that reads as *vertical* on a lake bed where nothing
+  // else does, and it is what makes the deck a working jetty rather than a
+  // footbridge with a name on it.
+  //
+  // **Outside the barrier line, and that is a rule rather than a composition
+  // choice.** What comes out of a chute lands, and a three-metre heap of salt
+  // standing on twelve metres of drivable crust is an obstacle the course never
+  // declared and physics has never heard of. Everything the world module places
+  // starts outside the barrier footing for the same reason; so does this.
   const chuteMat = new THREE.MeshStandardMaterial({ color: steel, roughness: 0.5, metalness: 0.3 });
   a.materials.push(chuteMat);
-  for (const sx of [-0.42, 0.42]) {
+  for (const sx of [-1.12, 1.12]) {
     const chute = new THREE.Mesh(new THREE.CylinderGeometry(1.35, 0.75, 3.4, 10), chuteMat);
     chute.position.set(sx * span, 8.3, 0);
     chute.castShadow = true;
@@ -966,13 +1027,13 @@ function buildPylon(a: BuildArgs): ArrivalParts {
   // it, so the cableway has somewhere to be driven from.
   const houseMat = new THREE.MeshStandardMaterial({ color: 0x8a6a4c, roughness: 0.75 });
   a.materials.push(houseMat);
-  const house = new THREE.Mesh(new THREE.BoxGeometry(7.4, 4.2, 6.2), houseMat);
-  house.position.set(-span - 6.4, 1.9, 0);
+  const house = new THREE.Mesh(new THREE.BoxGeometry(7.4, 5.6, 6.2), houseMat);
+  house.position.set(-span - 6.4, 1.5, 0);
   house.castShadow = true;
   house.receiveShadow = true;
   a.group.add(house);
   const roof = new THREE.Mesh(new THREE.BoxGeometry(8.4, 0.5, 7.2), snowMat);
-  roof.position.set(-span - 6.4, 4.2, 0);
+  roof.position.set(-span - 6.4, 4.5, 0);
   roof.castShadow = true;
   a.group.add(roof);
 

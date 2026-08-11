@@ -2936,30 +2936,47 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   const SOFTEN_MAX_PX = 1.6;
 
   /**
-   * Which DOM layers soften with the world, stated as an exclusion.
+   * What softens, and **why it is the boxes rather than the layers**.
    *
-   * By exclusion rather than by name because the list of things drawn over the
-   * race is not this file's to keep: `#hud`, `#race`, `#coach`, `#item-fx`,
-   * `#touch` are today's and the next module to put a plate on the screen will
-   * not know to add itself here. Four things are out:
+   * The first version of this rule filtered each full-screen overlay root —
+   * `body > *` minus the canvas, the boot frame and the front-end — which is the
+   * obvious spelling and it is the expensive one. Measured pairwise on a frozen
+   * mid-race frame at 800x450, sixteen alternating pairs so contention lands on
+   * both members equally:
    *
-   *   `#game`     the canvas. It is the thing that has *already* softened, and
-   *               blurring it again would pay full-resolution fill for the
-   *               privilege of doing the upscale twice.
-   *   `#boot`     the loading frame, which is gone before the governor has a
-   *               measurement and predates every module in the game.
-   *   `#menu`     the front-end. The race is not drawn behind it (see
-   *               `skipDraw`) and its set is a second renderer this ladder does
-   *               not size, so there is no world for it to match.
-   *   `#fx-screen` the boost wash: full-screen gradients with no edge in them,
-   *               so there is nothing for a blur to soften and it would be the
-   *               most expensive layer in the list.
+   *   the roots       `filter` on every overlay root      **+133ms** on 800ms
+   *   the boxes       `filter` on the HUD's clusters      **-33ms** — nothing
    *
-   * Written as one rule with a custom property in it so that changing the
-   * amount is a variable write on `<body>` and never a re-parse of a stylesheet.
+   * A blur costs its *surface*, not its content, and `#hud` and `#race` are
+   * `position: fixed; inset: 0` with `contain: paint`, so filtering one asks the
+   * compositor for a viewport-sized convolution to soften five small boxes. Six
+   * such roots exist. Filtering the boxes themselves is free at the same radius
+   * and is the same picture, because everything between the boxes is
+   * transparent.
+   *
+   * So the rule names the **shared vocabulary** rather than the roots.
+   * ARCHITECTURE §11a: `.plate` is `plateCss(scope)` from `ui/theme.ts` and is
+   * the one sign every readout in this game is printed on, on both sides of the
+   * curtain — it is a contract, not another module's private class name.
+   * `#hud .corner` is the other half, because the minimap and the item socket
+   * are pictures rather than plates.
+   *
+   * `[data-soften]` is the door for everyone else: any module that puts
+   * something sharp over the race can join by marking it, with no edit here.
+   * Three surfaces are deliberately **not** in the list — the canvas, which is
+   * the thing that has already softened; the front-end, behind which the race is
+   * not drawn at all (see `skipDraw`); and the full-screen washes in
+   * `fx/screen.ts`, which are gradients with no edge in them for a blur to find.
+   *
+   * Written as one rule with a custom property in it so that changing the amount
+   * is a variable write on `<body>` and never a re-parse of a stylesheet.
    */
   const SOFTEN_CSS = `
-body.mc-soft > *:not(#game):not(#boot):not(#menu):not(#fx-screen) {
+body.mc-soft #hud .corner,
+body.mc-soft #hud .stage > *,
+body.mc-soft #race .plate,
+body.mc-soft #coach .plate,
+body.mc-soft [data-soften] {
   filter: blur(var(--mc-soften, 0px));
 }
 `;
@@ -3701,7 +3718,22 @@ body.mc-soft > *:not(#game):not(#boot):not(#menu):not(#fx-screen) {
    */
   function contentFrame(): void {
     const canvas = ctx.renderer.domElement;
-    const h = canvas.height || canvas.clientHeight || 720;
+    // ── the pixels the **world** is drawn into, not the ones it lands on ─────
+    //
+    // `liveScale` belongs in here and had fallen out of it. The unit this pass
+    // is denominated in is a pixel of the drawing buffer, and round eight moved
+    // the render scale off the canvas and into targets the post stack owns —
+    // after which `canvas.height` stopped being that number and started being a
+    // constant. So the property this pass was designed around ("a rung that
+    // drops the render scale tightens its own content cut for free; half the
+    // pixels resolve half the detail") had quietly become false, and the whole
+    // content half of the ladder was measuring against a resolution the world
+    // is not drawn at.
+    //
+    // It is safe to move with `liveScale` for the same reason `liveScale` is
+    // safe to move at all: the scale itself now arrives on a ramp (see
+    // `SCALE_RAMP`), so a threshold derived from it arrives on the same ramp.
+    const h = (canvas.height || canvas.clientHeight || 720) * liveScale;
     const pxPerMetre = (h * 0.5) / Math.tan((ctx.camera.fov * Math.PI) / 360);
     _cam.copy(ctx.camera.position);
 
@@ -5157,6 +5189,28 @@ body.mc-soft > *:not(#game):not(#boot):not(#menu):not(#fx-screen) {
          * those and the right one for the second: `mid(0)` to `mid(6)` used to
          * move 654 triangles, which is what round nine is about.
          */
+        /**
+         * Ask for a rung's frame-half the way the **governor** does, and leave
+         * the resolution to travel on its own.
+         *
+         * The one thing `set()` and `mid()` cannot show, because both of them
+         * land the scale on the spot so that the next `render()` photographs
+         * the rung asked for. What a player actually gets is a dissolve, and a
+         * dissolve is only visible in a sequence: call this, then read
+         * `probe().scale` on each of the next few delivered frames and watch it
+         * walk. `scaleRamping` is true until it arrives.
+         *
+         * Exists because "is that a dissolve or a cut" is the question round
+         * nine was sent back for, and it was unanswerable from outside the page
+         * — the only two doors into the ladder both cut on purpose.
+         */
+        ease(i: number): QualityProbe {
+          auto = false;
+          applyRung(i, 'pinned (easing)');
+          contentFrame();
+          externalTouch();
+          return probe();
+        },
         mid(i: number): QualityProbe {
           auto = false;
           applyRung(i, 'pinned (frame-half)');

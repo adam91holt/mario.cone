@@ -404,7 +404,7 @@ export const jackhammerQuarry: CourseDefEx = {
       kerb: { a: '#23262E', b: '#F2B705', pitch: 3.2 },
       paint: '#EFE9D8',
       chequer: { dark: '#23262E', light: '#EFE9D8' },
-      steel: 0x7f8a92,
+      steel: 0x6d777e,
       accent: 0xf2b705,
       banner: { field: '#2C3038', ink: '#F2B705', strip: '#B9C1C8' },
     },
