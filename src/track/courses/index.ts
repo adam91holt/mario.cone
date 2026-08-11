@@ -82,7 +82,42 @@
 // and the rule that comes with it: **a course whose feature set is a subset of
 // another course's is a re-skin.**
 //
-// ── what the four rounds now measure ───────────────────────────────────────
+// ── what the hazard round measures ─────────────────────────────────────────
+//
+// Same seed, same field, only the road changed. `hits` counts every stun edge
+// across all seven racers for a whole race — items and contact included, so it
+// is a *ceiling* on what the hazards did, not their share — and `blocked` is
+// the fraction of its own cycle each hazard spends over the tarmac.
+//
+//                     hazard     cycle  blocked  race    air%   hits
+//     Cone Canyon      rockfall   17s    27%     158s    6.4     35
+//     Jackhammer       truck      24s    20%     163s    9.1     88
+//     Saltpan          surge ×3   19s    30% ea  151s    5.1     40
+//     Switchback       boom       11s    38%     206s    7.9     69
+//
+// Every course still finishes with the whole field on the lead lap or one off
+// it, which is the bar a hazard has to clear before anything else it does
+// counts: *a course the AI cannot get round is not a course.* The one place
+// that failed was the avalanche gate, and it failed exactly the way a hazard
+// on a cycle shorter than its own stun always will — see `HIT_MIN_SPEED` in
+// `hazards.ts`. Before that rule a CPU driver parked under the boom finished
+// the race on **lap zero**; after it the mountain's field is *tighter* than the
+// same race with no hazard in it at all (8468-9210m of progress against
+// 4272-9210m).
+//
+// ── elevation, after ───────────────────────────────────────────────────────
+//
+//                      range     climb/lap   profile
+//     Cone Canyon      26.0m      26.0m      one long swell
+//     Jackhammer       42.4m      42.6m      rim → bench → pit floor → haul
+//     Saltpan          12.9m      17.0m      flat lake with one levee on it
+//     Switchback      115.5m     117.7m      one climb, one plunge
+//
+// The quarry was 19.8m of gentle undulation and is now a staircase into a hole;
+// the saltpan was 3.9m over 3.3km — a ruled line — and now has a 12.5-metre
+// causeway with a launch ramp on the crest at the fastest point of the lap.
+//
+// ── what the four rounds measured before that ──────────────────────────────
 //
 // Same seed, same field, same physics, only the road changed. `before` is the
 // build the critic rejected.
