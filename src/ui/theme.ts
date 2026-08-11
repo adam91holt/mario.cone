@@ -790,6 +790,18 @@ export const CSS_BASE = `
   --eb: calc(var(--u) * 1.05 + env(safe-area-inset-bottom, 0px));
   --er: calc(var(--u) * 1.3 + env(safe-area-inset-right, 0px));
 
+  /* **The thumbs get the bottom corners; the instruments move up.**
+     On a phone the DRIFT pad sits bottom-right and the steering thumb rests
+     bottom-left, and the first build of the touch layer put DRIFT straight on
+     top of the position plate — the biggest number on the screen, in the corner
+     the touch layer also wants. Photographed at 844x390 the two were the same
+     rectangle.
+     Neither module is wrong and this is not a fight either can win locally: a
+     thumb zone is physical, so the plate is the thing that can move. The bottom
+     inset is already the HUD's own parameter for exactly this, so the phone
+     just asks for a bigger one rather than any module reaching into another's
+     DOM. Set by ui/touch.ts when it mounts. */
+
   --yellow: #FFC300;
   --orange: #FF6B1A;
   --white: #FFF8F0;
@@ -806,6 +818,13 @@ export const CSS_BASE = `
    where a permanent full-frame layer is charged to the same budget the road is
    drawn from. */
 #hud .layer { position: absolute; inset: 0; }
+
+/* The phone raises the floor for both bottom corners at once — the coin
+   readout is under the steering thumb for the same reason the position plate
+   is under DRIFT. */
+:root[data-touch="1"] #hud {
+  --eb: calc(var(--u) * 9.4 + env(safe-area-inset-bottom, 0px));
+}
 
 #hud .corner { position: absolute; display: flex; }
 #hud .tl { top: var(--ey); left: var(--ex); flex-direction: column; align-items: flex-start;

@@ -26,6 +26,7 @@ import { createAudioSystem } from './audio/index.ts';
 import { getVehicle, listVehicles } from './vehicles/registry.ts';
 import { createCoachSystem } from './ui/coach.ts';
 import { createHudSystem } from './ui/hud.ts';
+import { createTouchSystem } from './ui/touch.ts';
 import { createMenuSystem } from './ui/menus/index.ts';
 import type {
   GameContext, QualitySettings, RaceConfig, VehicleId,
@@ -100,6 +101,7 @@ async function boot(): Promise<void> {
   engine.add(createQualitySystem(ctx));
   engine.add(createHudSystem(ctx));
   engine.add(createCoachSystem(ctx));
+  engine.add(createTouchSystem(ctx));
   engine.add(createMenuSystem(ctx));
 
   /** Tear down the previous field and build a fresh one. */
