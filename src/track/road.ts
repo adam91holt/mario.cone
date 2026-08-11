@@ -29,10 +29,11 @@ import * as THREE from 'three';
 import { MeshBuilder, fbm, smoothstep, surfaceHeight, type Lane } from './geom.ts';
 import { buildRacingLine, type RacingLine } from './racingline.ts';
 import {
-  makeAsphaltTexture, makeBoostTexture, makeCheckerTexture, makeGravelTexture,
-  makeKerbTexture, makePaintTexture, makeTrackedGravelTexture,
+  makeAsphaltTexture, makeBoostTexture, makeCheckerTexture, makeConcreteTexture,
+  makeGravelTexture, makeKerbTexture, makePaintTexture, makeTrackedGravelTexture,
 } from './textures.ts';
-import { features, type CourseDefEx } from './courses/types.ts';
+import { features, type CourseDefEx, type GateDef, type RampDef } from './courses/types.ts';
+import { rampLength } from './courses/ramp.ts';
 import type { CourseDef, SplineSample, Surface } from '../types.ts';
 import type { TrackSpline } from './spline.ts';
 
@@ -64,6 +65,18 @@ export interface PatchRuntime {
   taper: number;
   /** Decorrelates the edge noise between patches on the same course. */
   seed: number;
+  /**
+   * Skip the ragged edge.
+   *
+   * A scree spill has an edge that noise is *right* for — material that fanned
+   * out of a shoulder has no straight sides. A sheet of standing brine has a
+   * waterline and a built central island has a kerb, and both of those are
+   * ruled. Because `patchScale` is what `sample()` walks as well as what the
+   * paint is swept from, this flag reaches the grip and the picture together:
+   * the island a kart is kept off and the island a player can see are the same
+   * rectangle either way.
+   */
+  hard?: boolean;
 }
 
 /**
@@ -82,6 +95,7 @@ export function patchScale(p: PatchRuntime, rel: number): number {
   const len = p.d1 - p.d0;
   if (rel < 0 || rel > len) return 0;
   const ends = smoothstep(0, p.taper, rel) * smoothstep(0, p.taper, len - rel);
+  if (p.hard) return ends;
   const k = ends * (0.88 + fbm(rel / 19 + p.seed, p.seed) * 0.12);
   return k < 0 ? 0 : k > 1 ? 1 : k;
 }
@@ -499,53 +513,141 @@ export function buildRoad(
   // decides a shape of its own.
   const patches: PatchRuntime[] = [];
   const spills = new Map<string, MeshBuilder>();
+  const brine = new Map<string, MeshBuilder>();
+  const island = new MeshBuilder();
+  const islandKerb = new MeshBuilder();
   const patchDefs = feat.patches ?? [];
   for (let i = 0; i < patchDefs.length; i++) {
     const def = patchDefs[i]!;
+    const style = def.style ?? 'spill';
     const d0 = wrap(start + def.from * L, L);
     const span = Math.max(8, (def.to - def.from) * L);
     const lo = Math.min(def.latFrom, def.latTo);
     const hi = Math.max(def.latFrom, def.latTo);
+    const hard = style !== 'spill';
     const p: PatchRuntime = {
       d0,
       d1: d0 + span,
       surface: def.surface,
       c: (lo + hi) * 0.5,
       hw: (hi - lo) * 0.5,
-      taper: Math.min(24, span * 0.34),
+      // A spill fans out of the shoulder over a third of its length. Water has
+      // a waterline and an island has a nose, so both get a metre and a half —
+      // enough that the mesh does not end on a knife edge, short enough that
+      // the leading edge is a thing you arrive at rather than sink into.
+      taper: hard ? 1.6 : Math.min(24, span * 0.34),
       seed: i * 7.31 + 1.7,
+      ...(hard ? { hard: true } : {}),
     };
     patches.push(p);
 
     const tint = def.tint ?? PATCH_TINT[def.surface] ?? '#8A6A46';
-    let builder = spills.get(tint);
-    if (!builder) { builder = new MeshBuilder(); spills.set(tint, builder); }
+    const band = (t: number) => (s: SplineSample): number => {
+      const k = patchScale(p, wrap(s.distance - p.d0, L));
+      return (p.c + p.hw * k * t) * s.width * 0.5;
+    };
 
-    // Eight lanes across the band. The lateral of each is a function of
-    // distance, because the band narrows toward both ends.
-    const lanes: Lane[] = [];
-    for (let j = 0; j <= 8; j++) {
-      const t = j / 4 - 1; // -1..+1 across the band
-      const lat = (s: SplineSample): number => {
-        const k = patchScale(p, wrap(s.distance - p.d0, L));
-        return (p.c + p.hw * k * t) * s.width * 0.5;
-      };
-      lanes.push({ lat, lift: () => 0.028, u: (s) => lat(s) / 6 });
+    if (style === 'island') {
+      // ── a built central reservation ────────────────────────────────────
+      // Not material lying on the road: a thing installed on it, so it has a
+      // flat top, two hazard-striped flanks and a hard edge all round. This is
+      // what turns one carriageway into two, and a player has to be able to
+      // read at two hundred metres that the gap in front of them is a *choice*
+      // rather than a spill they can drive through.
+      // Built exactly the way a kerb is built in this file, and that is the
+      // point rather than an economy. An island has to say *keep off* from two
+      // hundred metres, and it may not say *wall*: physics knows this band as a
+      // surface, not as an obstacle, so a kart that gets it wrong drives over
+      // it and loses a third of its speed. A concrete slab reads as a wall and
+      // lies; a red-and-white kerb block 14cm proud is the one shape this game
+      // has already taught the player to stay off and to survive.
+      //
+      // It was a plain pale slab for one build and photographed as a smear of
+      // light tarmac you would not brake for.
+      const TOP = 0.14;
+      const top: Lane[] = [];
+      for (let j = 0; j <= 4; j++) {
+        const t = j / 2 - 1;
+        const lat = band(t * 0.82);
+        top.push({ lat, lift: () => TOP, u: 0.03 + (j / 4) * 0.54 });
+      }
+      island.addRibbon(spline, top, { verge, from: d0, to: d0 + span, step: 1.8, vScale: 3.4 });
+      for (const side of [-1, 1] as const) {
+        const outer = band(side);
+        const inner = band(side * 0.82);
+        const flank: Lane[] = [
+          { lat: outer, lift: () => -0.02, u: 0.99 },
+          { lat: inner, lift: () => TOP, u: KERB_FACE_U + 0.03 },
+        ];
+        if (side < 0) flank.reverse();
+        island.addRibbon(spline, flank, { verge, from: d0, to: d0 + span, step: 1.8, vScale: 3.4 });
+      }
+      // A chevron nose on each end, so the leading edge is a thing you are
+      // aimed at rather than a line you arrive on top of.
+      for (const [at, dir] of [[d0, 1], [d0 + span, -1]] as const) {
+        const nose: Lane[] = [
+          { lat: band(-0.55), lift: () => 0.03, u: 0.06 },
+          { lat: band(0), lift: () => 0.03, u: 0.5 },
+          { lat: band(0.55), lift: () => 0.03, u: 0.94 },
+        ];
+        islandKerb.addRibbon(spline, nose, {
+          verge, from: Math.min(at, at + dir * 9), to: Math.max(at, at + dir * 9),
+          step: 1.2, vScale: 2.2,
+        });
+      }
+    } else if (style === 'brine') {
+      // ── standing water ─────────────────────────────────────────────────
+      // Lifted almost to the crown and drawn transparent, so it reads as a
+      // sheet lying *on* the road with the markings still visible under it —
+      // which is exactly how you judge how deep a flooded road is.
+      let builder = brine.get(tint);
+      if (!builder) { builder = new MeshBuilder(); brine.set(tint, builder); }
+      const lanes: Lane[] = [];
+      for (let j = 0; j <= 8; j++) {
+        const t = j / 4 - 1;
+        const lat = band(t);
+        lanes.push({ lat, lift: () => 0.052, u: (s) => lat(s) / 11 });
+      }
+      builder.addRibbon(spline, lanes, {
+        verge, from: d0, to: d0 + span, step: 2, vScale: 11,
+        // Deep in the middle, shallow and bright where it thins to nothing at
+        // the edges — the one cue that says which part of it you can survive.
+        tint: (s, latM, _f, out) => {
+          const half = s.width * 0.5;
+          const k = patchScale(p, wrap(s.distance - p.d0, L)) || 1e-3;
+          const off = Math.abs(latM / half - p.c) / (p.hw * k);
+          const shallow = smoothstep(0.55, 1, off);
+          const v = 0.80 + shallow * 0.42;
+          out.setRGB(v * 0.94, v, v * 1.03);
+        },
+      });
+    } else {
+      let builder = spills.get(tint);
+      if (!builder) { builder = new MeshBuilder(); spills.set(tint, builder); }
+
+      // Eight lanes across the band. The lateral of each is a function of
+      // distance, because the band narrows toward both ends.
+      const lanes: Lane[] = [];
+      for (let j = 0; j <= 8; j++) {
+        const t = j / 4 - 1; // -1..+1 across the band
+        const lat = band(t);
+        lanes.push({ lat, lift: () => 0.028, u: (s) => lat(s) / 6 });
+      }
+      builder.addRibbon(spline, lanes, {
+        verge, from: d0, to: d0 + span, step: 1.6, vScale: 6,
+        // Loose material is not one tone: the middle is churned and dark, the
+        // thin edges are dusted over the tarmac and read pale.
+        tint: (s, latM, _f, out) => {
+          const half = s.width * 0.5;
+          const k = patchScale(p, wrap(s.distance - p.d0, L)) || 1e-3;
+          const off = Math.abs(latM / half - p.c) / (p.hw * k);
+          const depth = 1 - smoothstep(0.45, 1, off);
+          const n = fbm(s.distance / 7 + p.seed, latM / 7) * 0.14;
+          const v = 1 + 0.16 * (1 - depth) + n - depth * 0.10;
+          out.setRGB(v, v * 0.985, v * 0.955);
+        },
+      });
     }
-    builder.addRibbon(spline, lanes, {
-      verge, from: d0, to: d0 + span, step: 1.6, vScale: 6,
-      // Loose material is not one tone: the middle is churned and dark, the
-      // thin edges are dusted over the tarmac and read pale.
-      tint: (s, latM, _f, out) => {
-        const half = s.width * 0.5;
-        const k = patchScale(p, wrap(s.distance - p.d0, L)) || 1e-3;
-        const off = Math.abs(latM / half - p.c) / (p.hw * k);
-        const depth = 1 - smoothstep(0.45, 1, off);
-        const n = fbm(s.distance / 7 + p.seed, latM / 7) * 0.14;
-        const v = 1 + 0.16 * (1 - depth) + n - depth * 0.10;
-        out.setRGB(v, v * 0.985, v * 0.955);
-      },
-    });
   }
   for (const [tint, builder] of spills) {
     if (builder.isEmpty) continue;
@@ -560,8 +662,217 @@ export function buildRoad(
     mesh.receiveShadow = true;
     parent.add(mesh);
   }
+  for (const [tint, builder] of brine) {
+    if (builder.isEmpty) continue;
+    // The only specular surface on the ground plane in the whole game, and the
+    // reason it is worth a Phong shader here when nothing else on the road gets
+    // one: water without a highlight is a blue rectangle. It is two hundred
+    // metres of one course, so the shader cost is paid once and seen once.
+    const mesh = new THREE.Mesh(builder.toGeometry(), new THREE.MeshPhongMaterial({
+      color: new THREE.Color(tint),
+      specular: 0xfff8f0,
+      shininess: 96,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.66,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -5,
+      polygonOffsetUnits: -5,
+    }));
+    mesh.name = 'brine';
+    mesh.receiveShadow = true;
+    parent.add(mesh);
+  }
+  if (!island.isEmpty) {
+    const mesh = new THREE.Mesh(island.toGeometry(), new THREE.MeshLambertMaterial({
+      map: makeKerbTexture(),
+    }));
+    mesh.name = 'island';
+    mesh.receiveShadow = true;
+    mesh.castShadow = true;
+    parent.add(mesh);
+  }
+  if (!islandKerb.isEmpty) {
+    const noseMesh = new THREE.Mesh(islandKerb.toGeometry(), new THREE.MeshLambertMaterial({
+      map: makeKerbTexture({ a: '#22242B', b: '#FFC300' }),
+      polygonOffset: true,
+      polygonOffsetFactor: -5,
+      polygonOffsetUnits: -5,
+    }));
+    noseMesh.name = 'islandNose';
+    noseMesh.receiveShadow = true;
+    parent.add(noseMesh);
+  }
+
+  buildRamps(spline, feat.ramps, start, L, verge, parent);
+  buildGates(spline, feat.gates, start, L, verge, parent);
 
   return { pads, patches, corners, padTexture };
+}
+
+/**
+ * The launch ramp's deck.
+ *
+ * **The ramp itself is not here and cannot be here.** `physics/kart.ts` rebuilds
+ * the ground from the spline — position, `up`, width and the 16cm crown — and
+ * reads no geometry at all, so a wedge of mesh laid on the tarmac would be a
+ * picture of a ramp that every kart in the field drives straight through. The
+ * shape lives in the centreline, put there by `applyRamps` in
+ * `courses/ramp.ts` from the same `RampDef` array this reads.
+ *
+ * So what gets built here is what a ramp is *made of*: a concrete deck up the
+ * run-up, hazard bars across it counting down to a fat one on the lip, and a
+ * raised rail down each side. All of it is swept through `surfacePoint`, which
+ * follows the spline — so it climbs the ramp on its own, and there is no second
+ * copy of the profile to fall out of agreement with the one the kart actually
+ * takes off from.
+ */
+function buildRamps(
+  spline: TrackSpline, ramps: RampDef[] | undefined,
+  start: number, L: number, verge: number, parent: THREE.Group,
+): void {
+  if (!ramps || ramps.length === 0) return;
+
+  const deck = new MeshBuilder();
+  const bars = new MeshBuilder();
+  const rails = new MeshBuilder();
+
+  for (const r of ramps) {
+    const lip = wrap(start + r.at * L, L);
+    const len = rampLength(r);
+    const from = lip - len;
+    const s0 = spline.atDistance(lip);
+    const centre = (r.lateral ?? 0) * s0.width * 0.5;
+    const half = (r.width ?? 14) * 0.5;
+    const across = (lift: number, uScale = 1): Lane[] => {
+      const out: Lane[] = [];
+      for (let j = 0; j <= 8; j++) {
+        const f = j / 8;
+        out.push({ lat: () => centre - half + 2 * half * f, lift: () => lift, u: f * uScale });
+      }
+      return out;
+    };
+
+    // The deck: a concrete apron, not a paint job. It was hazard stripes across
+    // its whole width for one build and photographed as a single enormous
+    // black-and-gold wedge filling half the frame — a ramp has to be *read* in
+    // the second before it arrives, and a surface with no quiet parts has no
+    // loud ones either.
+    deck.addRibbon(spline, across(0.022, 2.2), { verge, from, to: lip, step: 1.3, vScale: 7 });
+
+    // Hazard bars across it every 4.4m, so they strobe under the kart on the
+    // way up. That beat is the only cue a driver gets for how fast the lip is
+    // coming; the deck itself is the same colour all the way along it.
+    for (let d = lip - 2.6; d > from + 1; d -= 4.4) {
+      bars.addRibbon(spline, across(0.028), { verge, from: d - 1.1, to: d, step: 0.55, vScale: 1.6 });
+    }
+    // ...and one at the lip itself, twice as wide. One bar is a marking; a run
+    // of them counting down to a fat one is a take-off board.
+    bars.addRibbon(spline, across(0.03), { verge, from: lip - 2.2, to: lip, step: 0.55, vScale: 3.2 });
+
+    // A rail down each edge, standing 18cm proud. A ramp with a flat painted
+    // edge reads as a decal; a ramp with a lip you can see the side of reads as
+    // a thing that was bolted to the road.
+    for (const side of [-1, 1] as const) {
+      const outer = centre + side * half;
+      const inner = centre + side * (half - 0.5);
+      const rail: Lane[] = [
+        { lat: () => inner, lift: () => 0.18, u: 0.06 },
+        { lat: () => outer, lift: () => 0.18, u: 0.55 },
+        { lat: () => outer + side * 0.10, lift: () => -0.02, u: 0.99 },
+      ];
+      if (side < 0) rail.reverse();
+      rails.addRibbon(spline, rail, { verge, from, to: lip, step: 1.3, vScale: 2.6 });
+    }
+  }
+
+  if (!deck.isEmpty) {
+    const mesh = new THREE.Mesh(deck.toGeometry(), new THREE.MeshLambertMaterial({
+      map: makeConcreteTexture(),
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -4,
+    }));
+    mesh.name = 'rampDeck';
+    mesh.receiveShadow = true;
+    parent.add(mesh);
+  }
+  if (!bars.isEmpty) {
+    const mesh = new THREE.Mesh(bars.toGeometry(), new THREE.MeshLambertMaterial({
+      map: makeKerbTexture({ a: '#1C1F27', b: '#FFC300' }),
+      polygonOffset: true,
+      polygonOffsetFactor: -6,
+      polygonOffsetUnits: -6,
+    }));
+    mesh.name = 'rampBars';
+    mesh.receiveShadow = true;
+    parent.add(mesh);
+  }
+  if (!rails.isEmpty) {
+    const mesh = new THREE.Mesh(rails.toGeometry(), new THREE.MeshLambertMaterial({
+      map: makeKerbTexture({ a: '#FF6B1A', b: '#FFF8F0' }),
+    }));
+    mesh.name = 'rampRails';
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    parent.add(mesh);
+  }
+}
+
+/**
+ * The pinch gate: two blocks standing where the road stops being wide enough.
+ *
+ * The pinch itself is *width*, authored in the course's waypoints, which is why
+ * it is real — the barrier line, the line physics enforces and the ribbon the
+ * road mesh is swept along all come off `s.width` and all narrow together. What
+ * a width pinch has no way of saying is that it is deliberate: a road that
+ * quietly necks from twenty-one metres to eleven over a corner entry reads, at
+ * speed, as a mistake in the level.
+ *
+ * These are the two noses that say it out loud. They stand on the shoulder
+ * rather than on the tarmac — the shoulder is already 70% of top speed, so
+ * nothing here takes anything away from a kart that was not already in trouble
+ * — and they are the only free-standing furniture on the driving surface in the
+ * cup.
+ */
+function buildGates(
+  spline: TrackSpline, gates: GateDef[] | undefined,
+  start: number, L: number, verge: number, parent: THREE.Group,
+): void {
+  if (!gates || gates.length === 0) return;
+
+  const block = new MeshBuilder();
+  for (const g of gates) {
+    const d = wrap(start + g.at * L, L);
+    const len = g.length ?? 26;
+    const h = g.height ?? 1.15;
+    const from = d - len * 0.5;
+    const to = d + len * 0.5;
+    // Battered like a temporary works block: wide at the foot, narrow on top,
+    // and tapered to nothing at both ends so it is a nose rather than a wall.
+    const nose = (f: number): number => Math.min(1, Math.min(f, 1 - f) * 4.5);
+    for (const side of [-1, 1] as const) {
+      const foot = (s: SplineSample): number => side * (s.width * 0.5 + 0.25);
+      const back = (s: SplineSample): number => side * (s.width * 0.5 + 2.3);
+      const lanes: Lane[] = [
+        { lat: foot, lift: () => -0.05, u: 0 },
+        { lat: (s) => side * (s.width * 0.5 + 0.55), lift: (_s, f) => h * nose(f), u: 0.30 },
+        { lat: (s) => side * (s.width * 0.5 + 2.0), lift: (_s, f) => h * nose(f), u: 0.62 },
+        { lat: back, lift: () => -0.15, u: 0.99 },
+      ];
+      if (side < 0) lanes.reverse();
+      block.addRibbon(spline, lanes, { verge, from, to, step: 1.3, vScale: 3 });
+    }
+  }
+  if (block.isEmpty) return;
+  const mesh = new THREE.Mesh(block.toGeometry(), new THREE.MeshLambertMaterial({
+    map: makeKerbTexture({ a: '#22242B', b: '#FFC300' }),
+  }));
+  mesh.name = 'gate';
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  parent.add(mesh);
 }
 
 /**

@@ -107,8 +107,10 @@ export function createEngine(ctx: GameContext, canvas: HTMLCanvasElement): Engin
     meanMs: 0, worstMs: 0, meanSimMs: 0, meanDrawMs: 0,
     wallMs: 0, steps: 0, frames: 0, liveFrames: 0, benchFrames: 0, benchSteps: 0,
     rung: 0, rungLabel: '', renderScale: 1,
-    liveWallMs: 0, liveWorstMs: 0, liveSeconds: 0, governor: '',
+    liveWallMs: 0, liveWorstMs: 0, liveSeconds: 0, governor: '', skipDraw: false,
   };
+  /** Was the last frame's draw actually skipped. Reported by `stats()`. */
+  let drawSkipped = false;
   /** True only inside the rAF loop's own call to `renderFrame`. */
   let driving = false;
   /** ...and inside its own call to `stepFixed`. Everything else stepping the
@@ -241,9 +243,34 @@ export function createEngine(ctx: GameContext, canvas: HTMLCanvasElement): Engin
     const updateMs = t - t0;
 
     renderer.info.reset();
-    // A post-processing stack, if one is installed, owns the final draw.
-    if (ctx.composer && ctx.quality.postfx) ctx.composer.render(frameDt);
-    else renderer.render(scene, camera);
+    // ── the frame nobody can see ───────────────────────────────────────────
+    //
+    // The race is built at boot and keeps simulating behind an opaque front-end
+    // (ARCHITECTURE §11a), and until this line it also kept *drawing* there:
+    // measured on the untouched title screen at 1600x900, 356-538 draw calls
+    // and 794k-827k triangles through the full HDR post stack, every frame,
+    // into a buffer the menu's own opaque set covers edge to edge. Zero of
+    // those pixels ever reached a player. PRESS START was the most expensive
+    // frame in the product — 0.5-0.9fps against 1.5fps actually racing.
+    //
+    // The **update** still runs: the simulation, the cameras, the HUD and the
+    // menus themselves all step exactly as before, so nothing about what the
+    // game *is* changes. Only the draw is skipped, and only when the module
+    // that owns the screen in front says it is covering the whole of it —
+    // `core/quality.ts` sets this off the `ui:menu` edges and takes it back the
+    // instant the front-end starts handing over. See `skipDraw` in types.ts.
+    //
+    // **Never on a harness frame.** `__GAME.render()` and the priming render in
+    // `startRace` must always produce a real picture: a reviewer's screenshot
+    // is the one thing that must not depend on what is on top of the canvas,
+    // and the shader warm-up is the whole point of the priming frame.
+    const skip = driving && budget.skipDraw;
+    drawSkipped = skip;
+    if (!skip) {
+      // A post-processing stack, if one is installed, owns the final draw.
+      if (ctx.composer && ctx.quality.postfx) ctx.composer.render(frameDt);
+      else renderer.render(scene, camera);
+    }
     const drawMs = now() - t;
 
     // ── close the frame ────────────────────────────────────────────────────
@@ -424,6 +451,12 @@ export function createEngine(ctx: GameContext, canvas: HTMLCanvasElement): Engin
         worstMs: +budget.worstMs.toFixed(2),
         drawCalls: info.render.calls,
         triangles: info.render.triangles,
+        // ...and whether there was a draw at all. Without this a reviewer
+        // reading `drawCalls: 0` on a title screen cannot tell a frame the
+        // engine deliberately did not draw from a frame that drew nothing
+        // because the scene had gone missing. Only ever true for a frame the
+        // rAF loop drove; a harness `render()` always draws.
+        drawSkipped,
         programs: info.programs?.length ?? 0,
         geometries: info.memory.geometries,
         textures: info.memory.textures,
