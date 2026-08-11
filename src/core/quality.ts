@@ -874,7 +874,9 @@ export interface ContentTrim {
    *
    *   a rung step of 0.1 on this share moves a batch at half the knee size —
    *   a three-pixel cone, two hundred metres out, behind the fog's near plane —
-   *   by five percent of its instances. Sixty-eight cones become sixty-five.
+   *   by about seven percent of its instances: at `far` 0.5 that batch draws
+   *   0.75 of its density and at 0.4 it draws 0.70, so sixty-eight cones become
+   *   sixty-three. At the knee itself both draw sixty-eight.
    *
    *   the verge the player is driving past is at full density on every rung of
    *   the ladder, which is the property `scatter` could not have at any value.
@@ -1410,11 +1412,12 @@ const LADDER: readonly Rung[] = [
 //                floodlight tower — and a tower that disappears is a tower the
 //                player watched disappear.
 //
-// The classification is measured, not asserted: `levervis` pins a rung on a
-// frozen racing frame, moves one lever, and counts the pixels that changed
+// The classification is measured, not asserted: `tools/levervis.mjs` pins a
+// rung on a frozen frame, moves one lever, and counts the pixels that changed
 // *among the pixels the animation left alone* — three control frames say which
 // those are, because a harness render advances the visual clock and a quarter
-// of the frame moves by itself. The numbers are in the table on `SEAM_HELD`.
+// of the frame moves by itself. The numbers are in the table on `SEAM_HELD`,
+// and so is the one thing that bench cannot see.
 //
 // What this costs, and why it is not a cost: **the ladder still descends at the
 // same rate and still spends every lever.** A rung taken mid-race lands its
@@ -1436,10 +1439,10 @@ const LADDER: readonly Rung[] = [
  *
  * ── What was measured, and the one thing the measurement cannot see ────────
  *
- * A pixel bench (`standvis`) pinned rung 2 on the start/finish straight of
- * Switchback Summit — the heaviest course in the game and the exact shot the
- * review rejected, both grandstands in frame — froze the simulation, and moved
- * one lever at a time. Because a harness render still advances the visual clock
+ * `tools/levervis.mjs --course switchback-summit --at 1.2 --rung 2` pins rung 2
+ * on the start/finish straight of the heaviest course in the game — the exact
+ * shot the review rejected, both grandstands in frame — freezes the simulation,
+ * and moves one lever at a time. Because a harness render still advances the visual clock
  * by a fixed step, three control frames are taken first and only the pixels
  * they found *static* are counted. Two rows are null controls: `none` applies
  * nothing, and `aa` at rung 2 is already off so it applies nothing either.
@@ -1463,7 +1466,7 @@ const LADDER: readonly Rung[] = [
  * crowd is the most animated thing in the frame*, so the mask that removes
  * animation removes the crowd, and the one lever a human reviewer could see
  * from across the room is the one the bench is structurally blind to. Compare
- * `standvis/moment.png` with `standvis/crowdFloor-frame.png` by eye and the
+ * the `moment.png` and `crowdFloor-frame.png` it writes, by eye, and the
  * right-hand stand goes from packed colour to grey terracing with a fringe.
  *
  * That is the whole reason this table is not the argument. **The argument is
@@ -1480,7 +1483,8 @@ const LADDER: readonly Rung[] = [
  *
  * ── What it costs, stated plainly, because it is not free ──────────────────
  *
- * `framehalf`, same course, same frozen mid-lap frame, walking the ladder twice:
+ * `tools/framehalf.mjs`, same course, same frozen mid-lap frame, walking the
+ * ladder twice:
  * once with `set()`, which installs whole rungs the way a race build does, and
  * once with `mid()`, which installs the frame-half only the way a mid-race rung
  * change now does.
@@ -1520,6 +1524,8 @@ const LADDER: readonly Rung[] = [
  * would make the *seam* free, which is the last cost the ladder still owns.
  */
 const SEAM_HELD = ['scale', 'crowd', 'scatter', 'aa', 'tier', 'drawDistance'] as const;
+/** ...and its own union, so `seamDiffers` can be exhaustive over it. */
+type SeamLever = typeof SEAM_HELD[number];
 
 /**
  * A signature of the ladder itself, mixed into the hardware key.
@@ -4172,23 +4178,41 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     ctx.renderer.shadowMap.needsUpdate = true;
   }
 
+  /**
+   * Does this lever differ between the rung the ladder has earned and the rung
+   * the seam last installed?
+   *
+   * Written as a `switch` over `SEAM_HELD`'s own union with a `never` on the
+   * end, so **the list and the code cannot come apart**: adding a name to
+   * `SEAM_HELD` without teaching this function what it means is a type error
+   * rather than a lever that silently reports itself as landed. (The other half
+   * of the pair, `composeSettings`, has to be updated by hand — there is no
+   * exhaustiveness trick for a spread.)
+   */
+  function seamDiffers(lever: SeamLever, f: Rung, s: Rung): boolean {
+    switch (lever) {
+      case 'scale': return f.scale !== s.scale;
+      case 'crowd': return f.content.crowd !== s.content.crowd;
+      case 'scatter': return f.content.scatter !== s.content.scatter;
+      case 'aa': return f.settings.aa !== s.settings.aa;
+      case 'tier': return f.settings.tier !== s.settings.tier;
+      case 'drawDistance': return f.settings.drawDistance !== s.settings.drawDistance;
+      default: { const unhandled: never = lever; return unhandled; }
+    }
+  }
+
   /** Which seam-held levers this rung is still waiting on, for the log. Built
    *  only when the ladder actually moves, so the join is free. */
   function deferredLevers(): string {
     if (seamIndex === index) return '';
     const f = LADDER[index]!;
     const s = LADDER[seamIndex]!;
-    const out: string[] = [];
-    if (f.scale !== s.scale) out.push('scale');
-    if (f.content.crowd !== s.content.crowd) out.push('crowd');
-    if (f.content.scatter !== s.content.scatter) out.push('scatter');
-    if (f.settings.aa !== s.settings.aa) out.push('aa');
-    if (f.settings.tier !== s.settings.tier) out.push('tier');
-    if (f.settings.drawDistance !== s.settings.drawDistance) out.push('drawDistance');
-    // Every name in `out` is one of these, and the assertion is the point of
-    // keeping the list: a lever added to a rung and forgotten here would be a
-    // lever silently landing mid-race.
-    return out.filter((n) => (SEAM_HELD as readonly string[]).includes(n)).join(',');
+    let out = '';
+    for (const lever of SEAM_HELD) {
+      if (!seamDiffers(lever, f, s)) continue;
+      out = out ? `${out},${lever}` : lever;
+    }
+    return out;
   }
 
   function applyRung(next: number, why: string): void {
@@ -5850,6 +5874,32 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
             // Two cuts in a row that changed nothing, or one that made things
             // worse. Whatever is holding this machine up is not on this ladder,
             // so put the last one back and stop spending the game's looks on it.
+            //
+            // ── what this means once half of a rung lands later (round 7) ────
+            //
+            // It fires more readily than it used to, and on this machine it is
+            // *right for the wrong reason*: measured live on Switchback Summit,
+            // rung 3 -> 6 was scored `worse` and stood the ladder down at rung
+            // 5, because on a fill-bound box a rung's frame-half buys nothing
+            // measurable (see the table on `SEAM_HELD`) and the half that would
+            // have bought 2.35x had not been installed yet. The verdict is a
+            // true statement about the cut that was made and a false one about
+            // the ladder.
+            //
+            // Two things keep that from being a trap, and they are both
+            // deliberate. `flushSeam` clears `stalled` whenever it actually
+            // installs something, so the stand-down lasts until the next race
+            // build and no longer; and the *rung* survives the roll-back as an
+            // index, so a machine converges on its rung over a handful of races
+            // instead of inside one. What it costs is that a very slow machine
+            // spends its first race at the picture it started with.
+            //
+            // The alternative was considered and refused: not counting a strike
+            // for a change whose levers were deferred would neuter the one case
+            // this check exists for — a vsync-locked 30Hz panel, where the frame
+            // is 33ms whatever anybody does and the ladder would walk to the
+            // floor inside one race and install it at the next build. The check
+            // has to be able to convict. See the header's note on `FUTILE_*`.
             stalled = true;
             stalledAt = wallMean;
             futile = 0;

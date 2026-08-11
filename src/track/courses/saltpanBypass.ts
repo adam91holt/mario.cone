@@ -1,91 +1,96 @@
 // Course 3 — Saltpan Bypass.
 //
+// **The fast one, the open one, and the one shaped like a wedge.**
+//
 // A temporary two-lane bypass bulldozed across a dry salt lake while the real
-// road is dug up: the widest, longest, emptiest circuit in the cup — 3.3km, up
-// to 36 metres of road, and a horizon with nothing on it.
+// road is dug up: the widest, longest, emptiest circuit in the cup — 3.5km, up
+// to 34 metres of road, and a horizon with nothing on it.
 //
-// **What changed, and why.** This course used to be built on one idea: fourteen
-// corners between 190 and 420 metres of radius, taken absolutely flat, with a
-// single 30-metre chicane as the only place anybody touched the brakes. On the
-// page that reads as a design. Measured, it was the emptiest lap in the game:
-// a fixed-seed autopilot lap of the whole field produced **nine drifts and not
-// one purple mini-turbo**, because a kart at this game's top speed holds a
-// 62-metre radius without lifting and *every corner here was three times that*.
-// The circuit was not asking a question the kart could answer with the one
-// mechanic the game is about.
+// ── the shape, which is the point ──────────────────────────────────────────
 //
-// It is still the fast one. What has changed is that "fast" now means the
-// **north half**, and the south half is what a bypass actually is: the bit
-// where the temporary road threads through the works.
+// A critic played the cup and rejected it at 6.5 on one finding: *"measured
+// off the real driven line, every one of the four is an irregular closed blob
+// of 9-12 similar-radius corners whose longest straight is 72-83 metres — an
+// 11-metre spread, 1.4 seconds at 54 m/s."* The four circuits now differ on
+// the axes MK8 differentiates on, and **this is the one that owns the
+// straight**:
 //
-//   ── the pan (flat out, aimed the whole way) ──
-//   T1  Windrow Kink    R340 right, a hundred metres after the line
-//   T2  Mirage Kink     R360 right, the road at its widest — 36m
-//   T3  Grader Kink     R350 left, the counter-swing
-//   T4  Brine Sweep     R320 right, 223m of arc: the longest single corner
-//                       here, and the one with the salt windrow across it
-//   T5  Marker Right    R132, tightening — the first corner that loads a tyre
-//   ── the works (four corners and a chicane) ──
-//   T6  BEACON RIGHT    R50, 150° and 131 metres of one radius
-//   T7  Culvert Left    R48, 135° back the other way
-//   T8  Crust Sweep     R114, opening, and the run down to the chicane
-//   T9  THE CONTRAFLOW  R30 LEFT at 21m wide. From 36m of road and 60 m/s
-//   T10 Contraflow Exit R30 right straight back out of it
-//   T11 Windsock Right  R52, 130°
-//   T12 Survey Left     R54, 120°
-//   T13 Pan Entry       R48, 125° — the last real corner
-//   T14 Pan Sweep       R149, all the way round onto the line
+//     course           longest straight   R<40m of lap   elevation   aspect
+//     Cone Canyon           320m               30m         26.0m      2.37
+//     Jackhammer            160m              249m         41.6m      1.30
+//     Saltpan               629m               60m         11.7m      1.76
+//     Switchback            240m               70m        115.2m      1.68
 //
-// **The Contraflow is still the hardest corner**: the road pinches from 30
-// metres to 21 in the two hundred before it, and 30 metres of radius is less
-// than two thirds of the tightest thing anywhere else on the lap. What it is no
-// longer is the *only* corner — there are now six places on this circuit where
-// the wheel is properly turned, which is what makes the chicane a climax
-// instead of an anomaly.
+// **640 metres of ruler-straight tarmac** against the quarry's 160 — 3.9x, on
+// an axis the roster previously spread over eleven metres. It is not a cheat
+// either: on a dry lake the temporary road *is* a bulldozed line between two
+// survey pegs, and the plan of this circuit is a **wedge** — a right triangle
+// with a 90-degree vertex at the Pan Entry, a 45 at the Beacon and a 45 at the
+// Contraflow. Three enormous sides and one sharp point. On the select card it
+// cannot be confused with a dogleg, a comb or an hourglass.
 //
-// ── THE FLOOD: round three's signature ─────────────────────────────────────
+//   ── side one: THE BYPASS ──
+//   THE BYPASS        640 metres, dead straight, 34 metres wide, and **three
+//                     sheets of standing brine laid across it**. The start
+//                     line is 110 metres in, so the run to the first corner is
+//                     530 metres and the whole flood is in front of you
+//   T1/T2 kinks       R220 either way, the only shape on this side
+//   ── vertex: THE CONTRAFLOW (45°) ──
+//   T3 Works Right    R60, the road pinching from 30 metres to 21
+//   T4 THE CONTRAFLOW R30 LEFT at 21m wide. From 34m of road and 60 m/s
+//   T5 Contraflow Exit R30 right straight back out of it
+//   T6 Windsock Right R58 onto the works leg
+//   ── side two: the works leg, with THE CAUSEWAY on it ──
+//   CAUSEWAY          the levee, 12.5m up, with the kicker on the crest
+//   T7/T8 kinks       R200 either way
+//   ── vertex: PAN ENTRY (90°) ──
+//   T9 Pan Entry      R55, 50° — the pan's braking point
+//   T10 Pan Sweep     R60, 40°, with the salt windrow across its outside
+//   ── side three: the west leg ──
+//   T11/T12 kinks     R210 either way, two 330-metre runs between them
+//   ── vertex: THE BEACON (45°) ──
+//   T13 Culvert Right R58, 70°
+//   T14 Beacon Right  R46, 65° — the tightest corner outside the chicane, and
+//                     the one that fires you onto the bypass
+//
+// ── THE FLOOD: round three's signature, now on the straight ────────────────
 //
 // A dry lake is only dry until it is not.
 //
-// Three sheets of standing brine lie across the three long straights down the
-// west side of the pan, and they are **the only water in the game**: `water` is
-// 45% of top speed and half the grip, which on the fastest road in the cup — 60
-// m/s, two hundred metres between corners — is the largest single number any
-// surface in this game does to a kart. Nothing else in the cup is anywhere near
-// it; the salt windrow on the Brine Sweep, which used to be this course's only
-// hazard, is 58%.
+// Three sheets of standing brine lie across the bypass — **the only water in
+// the game**: `water` is 45% of top speed and half the grip, which at 60 m/s
+// on the widest road in the cup is the largest single number any surface in
+// this game does to a kart.
 //
-// **You cannot go round them, only through them**, and each one leaves a
-// different dry lane — left, then right, then the middle — so the fast way down
-// this side of the lake is a slalom you learn on lap one and beat on lap two.
-// That is why there are three of them rather than one: one is a hazard, three
-// in a row is a rhythm, and this course has two laps to teach it.
+// They are on the *straight* on purpose, and that is the whole design of this
+// round. A 640-metre straight is the most boring hundred metres a kart racer
+// can contain and the most distinctive shape a map card can carry, and the way
+// to have both is to make the straight a **slalom that is geometrically
+// straight**. You cannot go round the sheets, only through them, and each one
+// leaves a different dry lane — left, then right, then the middle — so the
+// fast way down the bypass is a rhythm you learn on lap one and beat on lap
+// two. Thirty-four metres each, about half a second at racing speed if you get
+// it wrong.
 //
-// Thirty-four metres each, about half a second at racing speed if you get it
-// wrong. It is the only hazard in the cup that costs a *fast* driver more than
-// a slow one, which is exactly right for the round built on speed.
+// Width follows speed here more visibly than anywhere: 34m on the bypass where
+// eight karts fan out four abreast, 21m through the chicane where two of them
+// will not fit, 26-30m through the works. And nothing on the lap is dead
+// straight for longer than the run to the first corner, because the run to the
+// first corner *is* the longest straight.
 //
-// Width follows speed here more visibly than anywhere: 36m across the top of
-// the map where eight karts fan out four abreast, 21m through the chicane where
-// two of them will not fit, 25-28m through the works. And nothing is dead
-// straight for longer than 170m — on a circuit where the karts are at 60 m/s
-// that is under three seconds.
+// The pan is flat: twelve metres of elevation across the whole lap, all but
+// three of it in the causeway, which is what a dry lake is and what makes the
+// horizon do the work instead of the terrain.
 //
-// The pan is flat: four metres of elevation across the whole lap, which is what
-// a dry lake is, and what makes the horizon do the work instead of the terrain.
-//
-// **Two laps.** Every other round in the cup runs three; this one is 3.3
-// kilometres of road, and a third lap of it is the same lap again. Two also
-// changes what the race *is*: there is no settling-in lap here, the pack is
-// still eight wide at the first chicane, and the only place on the circuit
-// where a kart can be genuinely blocked gets used four times instead of six.
+// **Two laps.** Every other round in the cup runs three; this one is 3.5
+// kilometres of road, and a third lap of it is the same lap again.
 //
 // The look is the other half of the design. A dry lake is the highest-key
 // landscape there is — near-white ground throwing light back up into everything
 // standing on it, a cobalt zenith because there is nothing in the air, and no
 // haze worth the name out to three kilometres. Black bitumen on white salt is
 // the highest road-to-ground contrast in the game, and that contrast is what
-// keeps a 36m ribbon readable at 60 m/s.
+// keeps a 34m ribbon readable at 60 m/s.
 
 import { loopFromWaypoints } from './path.ts';
 import { applyRamps } from './ramp.ts';
@@ -93,72 +98,83 @@ import { ring } from './ring.ts';
 import type { CourseDefEx, RampDef } from './types.ts';
 
 /**
- * The ring, driven from the start/finish line at (-461, 232).
+ * The ring, driven east along the bypass.
+ *
+ * The three vertices turn -90, -135 and -135, which is a right isoceles
+ * triangle: one side the hypotenuse and two equal legs. The kink pairs on each
+ * side sum to zero, so the triangle stays a triangle and the sides are still
+ * sides — a kink is there to stop 900 metres of road being one straight, not
+ * to bend the shape.
  *
  * `run` is a straight in metres; `radius`/`turn` is a constant-radius arc, and
- * a negative turn goes right. See `ring.ts` for why a corner here is a declared
- * radius rather than a handful of points on the map.
+ * a negative turn goes right.
  */
 const RING = ring(
-  { x: -461, z: 232, heading: 32.2, y: 1.7, width: 30 },
+  { x: -614, z: 397, heading: 0, y: 1.7, width: 34 },
   [
-    { run: 60, width: 32, y: 1.8, name: 's0' },
-    { radius: 340, turn: -22, width: 34, y: 2.0, name: 'T1 WINDROW KINK' },
-    { run: 55, width: 35, y: 2.3, name: 's1' },
-    { radius: 360, turn: -18, width: 36, y: 2.7, name: 'T2 MIRAGE KINK' },
-    { run: 55, width: 36, y: 3.1, name: 's2' },
-    { radius: 350, turn: 20, width: 36, y: 3.5, name: 'T3 GRADER KINK' },
-    { run: 55, width: 35, y: 3.7, name: 's3' },
-    { radius: 320, turn: -40, width: 35, y: 3.8, name: 'T4 BRINE SWEEP' },
-    { run: 55, width: 32, y: 3.2, name: 's4' },
-    { radius: 132, turn: -40, width: 29, y: 2.6, name: 'T5 MARKER RIGHT' },
-    { run: 45, width: 26, y: 2.0, name: 's5' },
-    // T6/T7. The pair the whole rebuild turns on: 131 metres of 50-metre radius
-    // and then 113 metres of 48 the other way, with a run between them long
-    // enough that they are two corners rather than an esse. An esse cancels a
-    // drift — you lay it, kill it and re-lay it, and nothing ever charges.
-    { radius: 50, turn: -150, width: 25, y: 1.5, name: 'T6 BEACON RIGHT' },
-    { run: 198, width: 26, y: 1.0, name: 's6' },
-    { radius: 48, turn: 135, width: 26, y: 0.5, name: 'T7 CULVERT LEFT' },
-    { run: 60, width: 29, y: 0.4, name: 's7' },
-    { radius: 114, turn: -50, width: 30, y: 0.9, name: 'T8 CRUST SWEEP' },
-    { run: 184, width: 22, y: 1.6, name: 's8' },
-    { radius: 30, turn: 80, width: 21, y: 1.8, name: 'T9 THE CONTRAFLOW' },
-    { run: 45, width: 21, y: 2.0, name: 's9' },
-    { radius: 30, turn: -85, width: 21, y: 2.3, name: 'T10 CONTRAFLOW EXIT' },
-    // ── THE CAUSEWAY ──────────────────────────────────────────────────────
+    // ── side one: the hypotenuse, and the fastest road in the game ────────
+    { run: 640, width: 34, y: 2.2, name: 'THE BYPASS' },
+    { radius: 220, turn: -20, width: 33, y: 2.4, name: 'T1 MIRAGE KINK' },
+    { run: 170, width: 32, y: 2.6, name: 's1' },
+    { radius: 220, turn: 20, width: 32, y: 2.6, name: 'T2 GRADER KINK' },
+    { run: 126.7, width: 30, y: 2.6, name: 's2' },
+    // ── vertex: THE CONTRAFLOW ────────────────────────────────────────────
+    // The sharp point of the wedge, and the hardest corner on the circuit: the
+    // road pinches from 30 metres to 21 in the two hundred before it, and 30
+    // metres of radius is barely half the tightest thing anywhere else.
+    { radius: 60, turn: -50, width: 26, y: 2.8, name: 'T3 WORKS RIGHT' },
+    { run: 45, width: 22, y: 3.0, name: 's3' },
+    { radius: 30, turn: 80, width: 21, y: 3.2, name: 'T4 THE CONTRAFLOW' },
+    { run: 45, width: 21, y: 3.2, name: 's4' },
+    { radius: 30, turn: -85, width: 21, y: 3.2, name: 'T5 CONTRAFLOW EXIT' },
+    { run: 60, width: 26, y: 3.0, name: 's5' },
+    { radius: 58, turn: -80, width: 28, y: 2.8, name: 'T6 WINDSOCK RIGHT' },
+    // ── side two: the works leg ───────────────────────────────────────────
+    { run: 124.9, width: 28, y: 3.0, name: 's6' },
+    // ── THE CAUSEWAY ─────────────────────────────────────────────────────
     // The one vertical idea a dry lake is allowed to have, and it is *built*
     // rather than geological: the bypass has to get over the salt works' old
-    // tramway embankment, so it climbs the levee at 18%, runs 26 metres along
+    // tramway embankment, so it climbs the levee at 16%, runs 26 metres along
     // the crest twelve and a half metres above the pan, and falls off the far
-    // side at 22%.
-    //
-    // A critic measured this circuit at 15.2 metres of climb a lap over 3.3
-    // kilometres — the steepest sustained sixty-metre window on the whole road
-    // was 3.8% — and said, correctly, that at a common scale its elevation
-    // profile is a flat line. A salt pan *is* flat; that is what it is for. So
-    // the answer is not to corrugate it, it is to put one thing on it that
-    // stands up, and to put the thing at the fastest point on the lap: you come
-    // out of the Contraflow, over the boost strip on `s10`, and straight at an
-    // embankment with a kicker on top of it. See `RAMPS`.
-    { run: 96, width: 28, y: 3.0, name: 's10' },
+    // side at 22%. There is a kicker on the crest — see `RAMPS`.
     { run: 54, width: 25, y: 11.6, name: 'CAUSEWAY CLIMB' },
     { run: 26, width: 23, y: 12.5, name: 'CAUSEWAY TOP' },
     { run: 46, width: 29, y: 2.6, name: 'CAUSEWAY DROP' },
-    { radius: 52, turn: -130, width: 28, y: 3.5, name: 'T11 WINDSOCK RIGHT' },
-    { run: 210, width: 31, y: 4.1, name: 's11' },
-    { radius: 54, turn: 120, width: 30, y: 4.3, name: 'T12 SURVEY LEFT' },
-    { run: 210, width: 28, y: 3.7, name: 's12' },
-    { radius: 48, turn: -125, width: 27, y: 3.0, name: 'T13 PAN ENTRY' },
-    { run: 206, width: 30, y: 2.4, name: 's13' },
-    { radius: 149, turn: -55, width: 30, y: 2.0, name: 'T14 PAN SWEEP' },
-    { run: 60, width: 31, y: 1.7, name: 's14' },
+    { run: 90, width: 30, y: 2.2, name: 's7' },
+    { radius: 200, turn: 20, width: 30, y: 2.0, name: 'T7 SURVEY KINK' },
+    { run: 130, width: 30, y: 2.0, name: 's8' },
+    { radius: 200, turn: -20, width: 30, y: 2.0, name: 'T8 CULVERT KINK' },
+    { run: 69.9, width: 30, y: 2.0, name: 's9' },
+    // ── vertex: PAN ENTRY, the right angle ────────────────────────────────
+    { radius: 55, turn: -50, width: 29, y: 1.8, name: 'T9 PAN ENTRY' },
+    { run: 90, width: 30, y: 1.8, name: 's10' },
+    { radius: 60, turn: -40, width: 30, y: 1.8, name: 'T10 PAN SWEEP' },
+    // ── side three: the west leg ──────────────────────────────────────────
+    { run: 348, width: 31, y: 1.8, name: 's11' },
+    { radius: 210, turn: 18, width: 31, y: 1.8, name: 'T11 CRUST KINK' },
+    { run: 328.5, width: 30, y: 1.8, name: 's12' },
+    { radius: 210, turn: -18, width: 30, y: 1.8, name: 'T12 MARKER KINK' },
+    { run: 175, width: 28, y: 1.8, name: 's13' },
+    // ── vertex: THE BEACON ────────────────────────────────────────────────
+    { radius: 58, turn: -70, width: 28, y: 1.7, name: 'T13 CULVERT RIGHT' },
+    { run: 90, width: 28, y: 1.7, name: 's14' },
+    { radius: 46, turn: -65, width: 30, y: 1.7, name: 'T14 BEACON RIGHT' },
   ],
   { step: 16 },
 );
 
-/** Metres from the ring's origin to the start/finish line. */
-const START = 45;
+/**
+ * Metres from the ring's origin to the start/finish line — 110 into the
+ * bypass, which leaves 530 metres of it in front of the grid and 110 behind.
+ *
+ * The number is chosen for the **grid**, not for the lap. `track/index.ts`
+ * parks the back row 47 metres behind the chequer and the intro formation
+ * rolls in from eleven metres further back again, so 58 metres of straight,
+ * level, unpainted road behind the line is the minimum this course has to
+ * provide. It provides 110, and there is no boost strip within a kilometre of
+ * it in either direction.
+ */
+const START = 110;
 const on = (name: string, along = 0.5): number =>
   ((RING.distanceAlong(name, along) - START) / RING.length + 1) % 1;
 
@@ -190,13 +206,13 @@ export const saltpanBypass: CourseDefEx = {
     step: 10,
     bankGain: 20,
     maxBank: 0.20,
-    // Longer easing than the tighter circuits: half the corners here are
-    // 300-360m arcs, so the camber has two hundred metres to arrive in and no
+    // Longer easing than the tighter circuits: a third of the corners here are
+    // 200-220m kinks, so the camber has two hundred metres to arrive in and no
     // reason to hurry.
     bankSmooth: 70,
   }),
   width: 32,
-  // Two. See the header — 3.3km, and the third lap is the second one again.
+  // Two. See the header — 3.5km, and the third lap is the second one again.
   laps: 2,
   // Twelve metres of salt crust either side. Running wide out here does not end
   // your race the way it does in the quarry — it just costs you the corner, and
@@ -206,7 +222,7 @@ export const saltpanBypass: CourseDefEx = {
   offSurface: 'sand',
   walls: true,
   // Low barriers. On a lake bed there is nothing to armco against, and a 1.5m
-  // wall running the length of a 3.3km circuit would fence in the one view the
+  // wall running the length of a 3.5km circuit would fence in the one view the
   // course is built around.
   wallHeight: 1.1,
   groundSize: 6400,
@@ -215,65 +231,43 @@ export const saltpanBypass: CourseDefEx = {
   checkpoints: 40,
 
   features: {
-    // **Three strips, and they are the longest in the cup.** Thirty-two metres
-    // of ramp against Jackhammer Quarry's eighteen, because the question the
-    // pan asks is not "can you get back on the throttle" — you never came off
-    // it — but "did you aim the sweeper properly two hundred metres ago". Two
-    // are laid on the north S where the racing line already is, so they pay the
-    // driver who took the right line rather than whoever was nearest the
-    // middle. The third is the way out of the chicane, which is where the lap's
-    // slowest kart most wants a shove.
+    // **Three strips, and they are the longest in the cup.** Thirty metres of
+    // ramp against Jackhammer Quarry's sixteen, because the question the pan
+    // asks is not "can you get back on the throttle" — you never came off it —
+    // but "did you aim the sweeper properly two hundred metres ago".
     //
-    // None is within four hundredths of a lap of the windrow: a strip buried
-    // under a patch stops existing for every CPU driver in the field. See
-    // `SurfacePatchDef`.
+    // None is on the bypass, and that is deliberate twice over: a boost pad on
+    // the fastest road in the game is decoration, and the bypass is where the
+    // brine is. A strip buried under a patch stops existing for every CPU
+    // driver in the field — `findPads` in `ai/knowledge.ts` confirms each
+    // declared strip by probing `sample()` for `'boost'` and silently drops the
+    // ones that do not answer. See `SurfacePatchDef`.
     pads: [
-      { at: on('T1 WINDROW KINK', 0.55), lateral: -0.30, width: 7, length: 32 },
-      { at: on('T2 MIRAGE KINK', 0.50), lateral: 0.28, width: 7, length: 32 },
-      { at: on('s10', 0.35), lateral: 0.26, width: 7, length: 30 },
+      { at: on('s5', 0.45), lateral: -0.30, width: 7, length: 30 },
+      { at: on('s7', 0.35), lateral: 0.26, width: 7, length: 32 },
+      { at: on('s11', 0.30), lateral: 0.28, width: 7, length: 32 },
     ],
     // The closed carriageway: the crust runs straight on past the chicane's
     // first apex. It is 58% of top speed while you are on it, so from 60 m/s it
     // is a trap — and with a mushroom it is the fastest thing on the circuit.
     // `side: 1` is the driver's left, which is the apex of this left-hander.
-    shortcuts: [{ from: on('s8', 0.86), to: on('s9', 0.6), side: 1 }],
+    shortcuts: [{ from: on('s3', 0.30), to: on('s4', 0.60), side: 1 }],
     // **The kicker on the causeway.** See `RAMPS` above; the deck is in the
     // centreline and this is what paints it.
     ramps: RAMPS,
-    // **The drift.** A dry lake is a wind machine, and what it moves is salt.
-    // A metre-deep windrow has blown across the *outside* half of the Brine
-    // Sweep — the longest single corner on the circuit, taken flat — and it is
-    // `sand`, which is 58% of top speed. Nothing is blocking the road: the fast
-    // line is still there, it is just narrower than it looks, and a kart pushed
-    // wide by a rival at 60 m/s finds out where the edge of it is. It is the
-    // only surface hazard in the cup that punishes *being overtaken* rather
-    // than braking late.
-    //
-    // Near-white, because it is salt: on the darkest tarmac in the cup it is
-    // the most legible hazard in the game, visible from most of the sweeper
-    // before you reach it. You are meant to see it the whole way in and still
-    // have to decide how close to run to it.
     patches: [
-      {
-        from: on('T4 BRINE SWEEP', 0.12), to: on('T4 BRINE SWEEP', 0.88),
-        latFrom: 0.40, latTo: 1, surface: 'sand', tint: '#E4DECA',
-      },
-
       // ── THE FLOOD: round three's signature ──────────────────────────────
       //
-      // A dry lake is only dry until it is not. Three sheets of standing brine
-      // lie across the three long straights on the west side of the pan, and
-      // they are the only water in the game: `water` is 45% of top speed and
-      // half the grip, which on the fastest road in the cup — 60 m/s, 210
-      // metres between corners — is the biggest single number any surface in
-      // this game does to a kart.
+      // Three sheets of standing brine across the bypass, at 0.40, 0.60 and
+      // 0.80 of its length — so from the line you cross the first at 145
+      // metres, the second at 275, the third at 405, and you are back on dry
+      // salt with 90 metres left to line up the Mirage Kink.
       //
       // **You cannot go round them, only through them**, and each one leaves a
-      // different dry lane, so the fast way down this side of the lake is a
-      // slalom: left, right, then thread the middle. That is the mechanic, and
-      // it is why there are three of them rather than one big one — one is a
-      // hazard, three in a row is a *rhythm*, and a rhythm is the thing a
-      // player learns on lap one and beats on lap two.
+      // different dry lane: the first leaves the driver's left, the second the
+      // driver's right, the third both shoulders. So the fast way down the
+      // longest straight in the game is a slalom — and the straight stays
+      // geometrically straight, which is what keeps this circuit's silhouette.
       //
       // 34 metres each: about half a second at racing speed if you get it
       // wrong, which is a place, not a race. `style: 'brine'` builds it as a
@@ -281,65 +275,71 @@ export const saltpanBypass: CourseDefEx = {
       // that the centreline reads underneath it, because judging the depth of
       // a flooded road *is* the skill. Lateral is in the spline's frame, so
       // `-1` is the driver's right; see `SurfacePatchDef`.
-      //
-      // Nowhere near a boost strip: the nearest is on `s10`, a fifth of a lap
-      // back. A pad buried under a patch stops existing for every CPU driver
-      // in the field.
       {
-        from: on('s11', 0.24), to: on('s11', 0.40),
+        from: on('THE BYPASS', 0.400), to: on('THE BYPASS', 0.453),
         latFrom: -1, latTo: 0.18, surface: 'water', tint: '#5D909C', style: 'brine',
       },
       {
-        from: on('s12', 0.30), to: on('s12', 0.46),
+        from: on('THE BYPASS', 0.600), to: on('THE BYPASS', 0.653),
         latFrom: -0.18, latTo: 1, surface: 'water', tint: '#5D909C', style: 'brine',
       },
       {
-        from: on('s13', 0.34), to: on('s13', 0.50),
+        from: on('THE BYPASS', 0.800), to: on('THE BYPASS', 0.853),
         latFrom: -0.52, latTo: 0.52, surface: 'water', tint: '#5D909C', style: 'brine',
+      },
+
+      // **The drift.** A dry lake is a wind machine, and what it moves is salt.
+      // A metre-deep windrow has blown across the *outside* half of the Pan
+      // Sweep — the long right that opens onto the west leg, taken flat — and
+      // it is `sand`, which is 58% of top speed. Nothing is blocking the road:
+      // the fast line is still there, it is just narrower than it looks, and a
+      // kart pushed wide by a rival at 60 m/s finds out where the edge of it
+      // is. It is the only surface hazard in the cup that punishes *being
+      // overtaken* rather than braking late.
+      //
+      // Near-white, because it is salt: on the darkest tarmac in the cup it is
+      // the most legible hazard in the game.
+      {
+        from: on('T10 PAN SWEEP', 0.12), to: on('T10 PAN SWEEP', 0.88),
+        latFrom: 0.40, latTo: 1, surface: 'sand', tint: '#E4DECA',
       },
     ],
     // ── THE SURGE: what stops the slalom being memorised ───────────────────
     //
-    // Three sheets of standing brine, each leaving a different dry lane, is a
-    // rhythm — and a rhythm is a thing a player learns on lap one and then owns
-    // for the rest of the race. On a two-lap circuit that means the signature
-    // of round three is solved halfway through it.
+    // Three sheets, each leaving a different dry lane, is a rhythm — and a
+    // rhythm is a thing a player learns on lap one and then owns for the rest
+    // of the race. On a two-lap circuit that means the signature of round three
+    // is solved halfway through it.
     //
     // So the lake moves. A **bore** — a metre and a half of brine with a foam
     // crest on it, twenty-six metres of it along the road — rolls in off the
-    // pan, crosses the road, and drains back. One per band, and the three are a
-    // third of a cycle apart, so at any moment one of the three crossings is
+    // pan, crosses the road, and drains back. One per sheet, and the three are
+    // a third of a cycle apart, so at any moment one of the three crossings is
     // being swept and the other two are as you left them. *Which* one is the
     // thing that changes.
     //
-    // The cycle is nineteen seconds against a sixty-second lap: 3.2 cycles a
-    // lap, so lap two arrives a fifth of a cycle out of step with lap one and
-    // the pattern you learned is off by a band. That is the entire point, and
-    // it is why the period is a prime-ish number rather than a round one.
+    // Nineteen seconds a cycle against a lap of about seventy: 3.7 cycles a
+    // lap, so lap two arrives well out of step with lap one and the pattern you
+    // learned is off by a band. That is the entire point, and it is why the
+    // period is a prime rather than a round number.
     //
     // `bump` rather than `spin`: water shoves, it does not throw you. 0.55s and
     // most of your speed — which on the fastest road in the cup is still a
-    // place. `lateral` names the side the lake is on; `width` is how far across
-    // the road the bore gets before the pan takes it back. See `HazardDef`.
-    //
-    // `lateral` is where each bore **rests**, and each one is the middle of its
-    // own band's dry lane — the band above it says which: the first leaves the
-    // driver's left dry (`latTo: 0.18`, so the lane is +0.18..+1 and its middle
-    // is +0.60), the second the driver's right, and the third leaves both
-    // shoulders, of which the bore takes the right-hand one. The sign of that
-    // number is also the edge of the road the lake is on, which is where the
-    // water comes in from.
+    // place. `lateral` is where each bore **rests**, and each one is the middle
+    // of its own sheet's dry lane; the sign of that number is also the edge of
+    // the road the lake is on, which is where the water comes in from.
     hazards: [
-      { at: on('s11', 0.32), kind: 'surge', period: 19, phase: 0,
+      { at: on('THE BYPASS', 0.427), kind: 'surge', period: 19, phase: 0,
         lateral: 0.60, hit: 'bump', lead: 1.6, signAt: 96 },
-      { at: on('s12', 0.38), kind: 'surge', period: 19, phase: 1 / 3,
+      { at: on('THE BYPASS', 0.627), kind: 'surge', period: 19, phase: 1 / 3,
         lateral: -0.60, hit: 'bump', lead: 1.6, signAt: 96 },
-      { at: on('s13', 0.42), kind: 'surge', period: 19, phase: 2 / 3,
+      { at: on('THE BYPASS', 0.827), kind: 'surge', period: 19, phase: 2 / 3,
         lateral: -0.76, hit: 'bump', lead: 1.6, signAt: 96 },
     ],
-    // The works corners run 1/48 to 1/54 of curvature and the pan's sweepers
-    // 1/320 to 1/360, so a threshold at 1/85 kerbs exactly the six corners a
-    // player brakes for and leaves the flat-out half of the lap clean.
+    // The works corners run 1/30 to 1/60 of curvature and the pan's sweeps and
+    // kinks 1/140 to 1/220, so a threshold at 1/85 kerbs exactly the five
+    // corners a player brakes for and leaves the flat-out three quarters of the
+    // lap clean.
     kerbCurvature: 0.0118,
 
     // Almost nothing. The rim is 34m of low swell starting 700 metres out —
@@ -351,12 +351,14 @@ export const saltpanBypass: CourseDefEx = {
       rimEnd: 1600,
       rimHeight: 34,
       landmarks: [
-        // Sat on the horizon for the whole of the north S.
-        { x: 900, z: 1250, radius: 420, height: 210, kind: 'mesa' },
-        // Beyond the works, so the chicane has something behind it.
-        { x: 1180, z: -980, radius: 340, height: 175, kind: 'mesa' },
-        // A needle out west, past the Pan Sweep.
-        { x: -1550, z: -120, radius: 210, height: 190, kind: 'spire' },
+        // Sat on the horizon for the whole of the bypass. You spend the
+        // longest straight in the game driving at this.
+        { x: 1680, z: 320, radius: 400, height: 205, kind: 'mesa' },
+        // Beyond the works, so the chicane and the causeway have something
+        // behind them.
+        { x: 980, z: -980, radius: 330, height: 175, kind: 'mesa' },
+        // A needle out west, past the Pan Sweep and down the whole west leg.
+        { x: -1500, z: -260, radius: 220, height: 195, kind: 'spire' },
       ],
     },
   },
@@ -377,7 +379,7 @@ export const saltpanBypass: CourseDefEx = {
     fog: { color: 0xeef4f8, near: 900, far: 3000 },
     sun: { color: 0xfffdf4, intensity: 3.3, azimuth: 4.05, elevation: 0.58 },
     // Fresh black bitumen on white salt: the highest road-to-ground contrast in
-    // the game, which is what keeps a 36m-wide ribbon readable at 60 m/s.
+    // the game, which is what keeps a 34m-wide ribbon readable at 60 m/s.
     road: { base: '#1E222C', line: '#FFF8F0', edge: '#FFC300' },
     props: {
       saltpan: true, cones: true, crowds: true,
