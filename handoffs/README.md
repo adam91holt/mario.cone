@@ -155,11 +155,41 @@ The prompt drives it, but the shape is:
 
 ---
 
+## 4a. Tests
+
+```
+npm test          typecheck + smoke + countdown + phone + steer
+npm run smoke     the boot gate. typecheck-clean has passed on a build that did not boot
+```
+
+Each acceptance test was written from a **real report**, not from a fix, and
+each one failed before its fix landed:
+
+| | Guards |
+|---|---|
+| `tools/countdown.mjs` | nothing moves, and no boost is granted, before the flag |
+| `tools/phone.mjs` | the race waits for the player, and there are controls on glass |
+| `tools/steercheck.mjs` | left is left — it drives real key events, because `setInput()` bypasses the device layer |
+
+`tools/countdown.mjs` prints one standing **WARN** that is deliberately not a
+failure: the start grid on cone-canyon stands on a boost strip, so the flag
+hands the whole field a `pad` boost, landing on the same frame the rocket start
+is evaluated. That is a course-layout defect rather than the timing one the test
+guards, and it belongs to `courses` — see §5.
+
+---
+
 ## 5. What is owed, in order
 
 1. **courses** — re-judge. It is at 6.5 and the gap is measured: give each
    circuit a layout signature that survives being reduced to its map outline,
-   and prove it with the cover-the-names test on the four map cards.
+   and prove it with the cover-the-names test on the four map cards. **Also
+   move the start grid off the boost strip** — `tools/countdown.mjs` warns
+   about it on every run. The grid sits at `startDistance - 12` and reads
+   `surface: 'boost'`, so the flag hands every racer a free `pad` boost on the
+   exact frame `evaluateStart` grades the rocket start, which means the
+   mechanic the countdown exists for is being drowned out by a shove nobody
+   earned. Either the strip moves or the grid does.
 2. **perf** — re-run. At 7.0. Take `crowd` off the mid-race ladder and put it
    under the same seam rule the render scale obeys: set once at `reset()`, never
    moved while `race.phase === 'racing'`.

@@ -9,7 +9,11 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "capture": "node tools/capture.mjs",
-    "smoke": "node tools/capture.mjs --smoke"
+    "smoke": "node tools/capture.mjs --smoke",
+    "test:countdown": "node tools/countdown.mjs",
+    "test:phone": "node tools/phone.mjs",
+    "test:steer": "node tools/steercheck.mjs",
+    "test": "npm run typecheck && npm run smoke && npm run test:countdown && npm run test:phone && npm run test:steer"
   },
   "repository": {
     "type": "git",
