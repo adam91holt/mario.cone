@@ -1,6 +1,6 @@
 {
-  "phase": "Paused at the owner’s request",
-  "phaseNote": "Build paused 2026-08-11. Nothing is running and the tree is clean and pushed. The last wave landed two verdicts for performance (7.0, 7.0) and one for the course roster (6.5) before its final agent died with the container; those verdicts are recorded here rather than re-bought. Every critic this wave still picked Mario Kart in the blind side-by-side. The phone build shipped and is live, but no critic has ever played it on glass.",
+  "phase": "Wave landed: courses 7.0, perf 7.0",
+  "phaseNote": "The courses+perf wave finished all eight agents clean on 2026-08-11. Neither piece passed and both still lose the blind side-by-side against Mario Kart, but the round-1 gaps are closed and measured: the four circuits are now different shapes by the numbers, and the quality ladder no longer moves a visible lever while the player is watching. What each piece earned instead is a sharper gap — the courses are four shapes in one world, and the ladder is down to a single lever that only half the frame obeys. A critic also caught the player-reported camera burial, on Jackhammer Quarry: two of five shots came back as a full frame of grey scree with no kart and no road, because the benches sit hard against the road with no boom clearance.",
   "pieces": [
     {
       "id": "feel",
@@ -124,9 +124,9 @@
       "name": "Course roster",
       "scope": "src/track/courses",
       "state": "fail",
-      "rounds": 7,
-      "verdict": "6.5. Hazards exist now — the courses can touch the player, closing the absence the last round failed on. One round this wave; the second died with the container before it returned.",
-      "gap": "All four courses are the same shape. Measured off the real driven line, every one is an irregular closed blob of 9-12 similar-radius corners whose longest straight is 72-83m — cone-canyon 83, saltpan 80, quarry 73, switchback 72, a spread of 11m or 1.4s at 54 m/s. So the roster reads as one circuit re-dressed in four ground colours rather than as four places, and on the select screen the four map cards are literally interchangeable."
+      "rounds": 9,
+      "verdict": "7.0, up from 6.5. The layout gap is closed and measured: longest straight 621m on saltpan against 151m in the quarry (4.1x), elevation 115.2m on switchback against 13.6m on saltpan (8.5x), bounding-box aspect 2.35 on canyon against 1.29 in the quarry. The four map cards — dogleg, comb, wedge, hourglass — now pass the cover-the-names test. Two rounds this wave, 6.0 then 7.0, both losing the blind A/B.",
+      "gap": "The four circuits are now genuinely different shapes but they are still the same place. The same yellow truss gantry, hazard-striped banner, twin grandstands, crowd, bunting, five-bulb light rig and grid geometry appear pixel-for-pixel at all four start lines, and the road kit — striped panel barrier on grey drums, red/white kerb, white edge line, dashed centre — is identical on every course, so choosing a circuit changes the map card and the terrain tint and never changes the world you arrive in."
     },
     {
       "id": "themewire",
@@ -142,9 +142,9 @@
       "name": "Performance",
       "scope": "engine-wide",
       "state": "fail",
-      "rounds": 8,
-      "verdict": "7.0. Draw calls 539 to 326, and the ladder finally has a content half rather than being a resolution slider — the bloom pyramid and a grounded contact shadow survive to the bottom rung. Two rounds this wave, both scored 7.0, both lost the blind A/B to Mario Kart.",
-      "gap": "The ladder's own moves are now the worst thing the player sees. Round one: a rung change froze a live frame for 3,101ms and 1,494ms against a 512-875ms median, because applyScale() calls setPixelRatio() and reallocates the drawing buffer — the machinery built to smooth the frame delivered the biggest hitch of the session, at the moment the game was already failing. Round two fixed that and exposed the next one: the crowd trim is the ladder's most visible lever and the governor spends it mid-race on the start/finish straight, so the grandstands go from a packed house to bare grey tiers between one frame and the next, in front of the player."
+      "rounds": 10,
+      "verdict": "7.0. The seam rule landed — the crowd trim and every other visible-pop lever are now locked before the flag — but locking them cost the governor its mid-race authority, which round one scored 6.0 for. Two rounds this wave, 6.0 then 7.0, both losing the blind A/B.",
+      "gap": "Mid-race the governor has one working lever, render scale, and it scales the 3D without the DOM HUD: a struggling player watches the world dissolve to half resolution and break into stair-steps underneath numerals that stay pixel-perfect. The seam the ladder rule exists to forbid is now the ladder itself, and the collapse path takes 1.00 to 0.50 in a single frame rather than easing."
     },
     {
       "id": "coherence",
