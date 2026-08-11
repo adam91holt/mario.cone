@@ -36,12 +36,34 @@
 //   T13 Pan Entry       R48, 125° — the last real corner
 //   T14 Pan Sweep       R149, all the way round onto the line
 //
-// **The signature is still the Contraflow**, and it is still the only place two
-// karts will not fit: the road pinches from 30 metres to 21 in the two hundred
-// before it, and 30 metres of radius is less than two thirds of the tightest
-// thing anywhere else on the lap. What it is no longer is the *only* corner —
-// there are now six places on this circuit where the wheel is properly turned,
-// which is what makes the chicane a climax instead of an anomaly.
+// **The Contraflow is still the hardest corner**: the road pinches from 30
+// metres to 21 in the two hundred before it, and 30 metres of radius is less
+// than two thirds of the tightest thing anywhere else on the lap. What it is no
+// longer is the *only* corner — there are now six places on this circuit where
+// the wheel is properly turned, which is what makes the chicane a climax
+// instead of an anomaly.
+//
+// ── THE FLOOD: round three's signature ─────────────────────────────────────
+//
+// A dry lake is only dry until it is not.
+//
+// Three sheets of standing brine lie across the three long straights down the
+// west side of the pan, and they are **the only water in the game**: `water` is
+// 45% of top speed and half the grip, which on the fastest road in the cup — 60
+// m/s, two hundred metres between corners — is the largest single number any
+// surface in this game does to a kart. Nothing else in the cup is anywhere near
+// it; the salt windrow on the Brine Sweep, which used to be this course's only
+// hazard, is 58%.
+//
+// **You cannot go round them, only through them**, and each one leaves a
+// different dry lane — left, then right, then the middle — so the fast way down
+// this side of the lake is a slalom you learn on lap one and beat on lap two.
+// That is why there are three of them rather than one: one is a hazard, three
+// in a row is a rhythm, and this course has two laps to teach it.
+//
+// Thirty-four metres each, about half a second at racing speed if you get it
+// wrong. It is the only hazard in the cup that costs a *fast* driver more than
+// a slow one, which is exactly right for the round built on speed.
 //
 // Width follows speed here more visibly than anywhere: 36m across the top of
 // the map where eight karts fan out four abreast, 21m through the chicane where
@@ -194,6 +216,45 @@ export const saltpanBypass: CourseDefEx = {
       {
         from: on('T4 BRINE SWEEP', 0.12), to: on('T4 BRINE SWEEP', 0.88),
         latFrom: 0.40, latTo: 1, surface: 'sand', tint: '#E4DECA',
+      },
+
+      // ── THE FLOOD: round three's signature ──────────────────────────────
+      //
+      // A dry lake is only dry until it is not. Three sheets of standing brine
+      // lie across the three long straights on the west side of the pan, and
+      // they are the only water in the game: `water` is 45% of top speed and
+      // half the grip, which on the fastest road in the cup — 60 m/s, 210
+      // metres between corners — is the biggest single number any surface in
+      // this game does to a kart.
+      //
+      // **You cannot go round them, only through them**, and each one leaves a
+      // different dry lane, so the fast way down this side of the lake is a
+      // slalom: left, right, then thread the middle. That is the mechanic, and
+      // it is why there are three of them rather than one big one — one is a
+      // hazard, three in a row is a *rhythm*, and a rhythm is the thing a
+      // player learns on lap one and beats on lap two.
+      //
+      // 34 metres each: about half a second at racing speed if you get it
+      // wrong, which is a place, not a race. `style: 'brine'` builds it as a
+      // sheet rather than a spill — ruled edges, glossy, transparent enough
+      // that the centreline reads underneath it, because judging the depth of
+      // a flooded road *is* the skill. Lateral is in the spline's frame, so
+      // `-1` is the driver's right; see `SurfacePatchDef`.
+      //
+      // Nowhere near a boost strip: the nearest is on `s10`, a fifth of a lap
+      // back. A pad buried under a patch stops existing for every CPU driver
+      // in the field.
+      {
+        from: on('s11', 0.24), to: on('s11', 0.40),
+        latFrom: -1, latTo: 0.18, surface: 'water', tint: '#5D909C', style: 'brine',
+      },
+      {
+        from: on('s12', 0.30), to: on('s12', 0.46),
+        latFrom: -0.18, latTo: 1, surface: 'water', tint: '#5D909C', style: 'brine',
+      },
+      {
+        from: on('s13', 0.34), to: on('s13', 0.50),
+        latFrom: -0.52, latTo: 0.52, surface: 'water', tint: '#5D909C', style: 'brine',
       },
     ],
     // The works corners run 1/48 to 1/54 of curvature and the pan's sweepers

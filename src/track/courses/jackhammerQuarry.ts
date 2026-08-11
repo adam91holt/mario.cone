@@ -16,7 +16,8 @@
 //   T4  Tipping Right     38m right, hard on the brakes, the road narrows to 19
 //   T5  Bench One         a 24m LEFT, straight off a hard right. 17m of road.
 //   T6  Bench Two         a 24m right straight back out of it. 17m wide.
-//   T7  Pit Entry         the lip. The floor drops 19m in 160m — 20% at its steepest.
+//   T7  Pit Entry         the lip. The floor drops 19m in 160m — 20% at its
+//                         steepest — and **THE CUT** is halfway down it.
 //   T8  Floor One         a fast left across the pit floor at its widest, 21m
 //   T9  THE CRUSHER       24m right at 16m wide — the narrowest road in the cup
 //   T10 Crusher Exit      and immediately 26m the same way. 188° in 100 metres.
@@ -26,13 +27,33 @@
 //   T14 Haul Road         117° right, climbing, blind over the lip
 //   T15 Gate Sweep        the long right back up to the weighbridge
 //
+// ── THE CUT: round two's signature ─────────────────────────────────────────
+//
+// **Eleven metres of tarmac**, on the plunge into the pit, at the fastest and
+// steepest point on the lap.
+//
+// The other three rounds each own a mechanic: a fork, a flood, a launch ramp.
+// This one owns *width*, which is the crudest thing a circuit can do to a
+// driver and the only one that cannot be out-driven. The haul road threads
+// between two rock benches, necks from nineteen metres to eleven over forty,
+// holds it for twenty, and opens out again — and eleven metres is a metre
+// wider than two karts and their mistakes. It takes nothing off your speed. It
+// takes away the option of being alongside somebody.
+//
+// It is authored as *width* in the waypoint table, which is what makes it real
+// rather than scenery: the barrier line, the wall physics enforces and the
+// ribbon the road mesh is swept along all come off `s.width` and all close in
+// together. `features.gates` puts the two striped nose blocks on it, because a
+// road that quietly halves its width at 55 m/s reads as a bug rather than as a
+// design unless something says otherwise. See `GateDef`.
+//
 // The two rules Cone Canyon is held to hold here too, and both bite harder.
 // *Width follows speed*: 24m on the weighbridge straight, 21m on the fast run
-// across the floor, 17m through the benches, 16m through the Crusher. And
-// *nothing is dead straight for longer than the run to the first corner*: the
-// longest true straight on the lap is the 130m plunge into the pit, and it is
-// pointing downhill at a corner you cannot see the exit of. The run from the
-// line to T1 is 83 metres.
+// across the floor, 17m through the benches, 16m through the Crusher, 11m
+// through the Cut. And *nothing is dead straight for longer than the run to
+// the first corner*: the longest true straight on the lap is the 130m plunge
+// into the pit, and it is pointing downhill at a corner you cannot see the exit
+// of. The run from the line to T1 is 83 metres.
 //
 // The elevation is the pit, and only the pit: the rim road is level to within
 // a metre for the first half of the lap, then the floor falls away 19m through
@@ -116,8 +137,36 @@ const WAYPOINTS: Waypoint[] = [
   // T7 Pit Entry
   { x: 139, z: -212, y: -2.7, width: 19 },
   { x: 128, z: -215, y: -4.4, width: 19 },
-  { x: 116, z: -215, y: -7.1, width: 19 },
-  { x: 74, z: -203, y: -10.9, width: 20 },
+  { x: 116, z: -215, y: -7.1, width: 17 },
+  // ── THE CUT ──────────────────────────────────────────────────────────────
+  // Round two's signature, and the whole of it is in this column of numbers.
+  // The haul road threads between two rock benches on the way into the pit and
+  // the tarmac necks to **eleven metres** for twenty of them — a metre wider
+  // than two karts and their mistakes, on the fastest, steepest, straightest
+  // piece of road on the circuit, pointing downhill at a corner nobody can see
+  // the exit of.
+  //
+  // It is a pinch rather than a chicane on purpose: it takes nothing off your
+  // speed and everything off your options. Two karts arrive at 55 m/s and one
+  // of them is not going through.
+  //
+  // Authored as *width*, which is what makes it real rather than decorative.
+  // The barrier line, the wall physics enforces and the ribbon the road mesh is
+  // swept along all come off `s.width`, so they all close in together — see
+  // `features.gates` for the two blocks that say so out loud, and `GateDef` for
+  // why the blocks themselves are only signage.
+  // The approach stays *wide* — 19m, 17m — on purpose, and that is a
+  // measured correction rather than a taste. Narrowing the run-in as well made
+  // the whole circuit **faster**: the AI's racing line is built from
+  // `width/2 - margin`, so a narrow approach is a line that cannot swing, and a
+  // line that cannot swing is a straighter, quicker one. Mean speed came back
+  // 50.2 m/s against the 45.2 this course is supposed to be the slowest in the
+  // cup at. The pinch has to arrive *at* the pinch: 17 metres to 11 in
+  // twenty-five, which is also more frightening than a taper.
+  { x: 105, z: -212, y: -8.1, width: 12 },
+  { x: 95, z: -209, y: -9.0, width: 11 },
+  { x: 85, z: -206, y: -9.9, width: 12.5 },
+  { x: 74, z: -203, y: -10.9, width: 18 },
   { x: 32, z: -191, y: -14.8, width: 20 },
   { x: -10, z: -180, y: -17.9, width: 21 },
   // T8 Floor One
@@ -266,6 +315,19 @@ export const jackhammerQuarry: CourseDefEx = {
       { from: 0.437, to: 0.462, latFrom: -1, latTo: -0.05, surface: 'dirt', tint: '#B8B2A3' },
       { from: 0.758, to: 0.790, latFrom: 0.0, latTo: 1, surface: 'dirt', tint: '#6C6659' },
     ],
+    // **The Cut's gate.** Two battered, hazard-striped nose blocks standing on
+    // the shoulder either side of the narrowest tarmac in the game. The lap
+    // fraction is measured off the built spline rather than guessed — a scan
+    // for minimum width puts the 11-metre point at 0.4959 — because the pinch
+    // is authored as a *width* in the waypoint table above and the marker has
+    // to sit exactly on it or it is marking the wrong thing.
+    //
+    // The blocks are signage and nothing else: they stand on the verge, which
+    // is already 70% of top speed, so they take nothing from a kart that was
+    // not in trouble before it reached them. What actually pinches is the road,
+    // and it pinches for the barrier and the wall physics enforces at the same
+    // time, because all three come off `s.width`. See `GateDef`.
+    gates: [{ at: 0.496, length: 30, height: 1.2 }],
     // A shade higher than Cone Canyon's, because half this circuit is under
     // 40m of radius and kerbing all of it would leave nothing to aim at.
     kerbCurvature: 0.005,

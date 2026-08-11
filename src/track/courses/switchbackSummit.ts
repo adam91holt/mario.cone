@@ -38,10 +38,44 @@
 //                         The breather is now the purple corner
 //   T12 THE RIDGE         the crest at 116m. The road goes light, the valley opens
 //   T13 Cutting Sweep     R50, 155° right, falling at 17%
-//   T14 Spillway Left     R170, still falling, with the washout across it
+//   --- THE KICKER        24 metres of level shelf and a 3.6m lip, and then the
+//                         mountain is not there any more
+//   T14 Spillway Left     R170, the landing, with the washout on its exit
 //   T15 Valley Sweep      R48, 120° at the bottom, and the brakes matter
 //
-// **Three set pieces.**
+// ── THE KICKER: round four's signature ─────────────────────────────────────
+//
+// **The only place in the cup a kart leaves the ground because somebody built
+// it a ramp**, and the reason the noun had to exist at all.
+//
+// A critic measured this course against the other three and found that the one
+// with 116 metres of climb and a 40% plunge in it produced **less airtime than
+// the flat quarry** — 5.9% against 7.9% — and fired five `kart:launch` events
+// in a whole race. Every metre of air on this mountain was an accident: a kart
+// falling off the back of a gradient change, never a kart *aimed* at anything.
+// `TrackFeatures` could express paint, material, a gravel cut and a gantry, and
+// nothing whatsoever that took a kart off the ground on purpose.
+//
+// Eighty metres out of the Cutting Sweep are now a run-in, a shelf and a gap.
+// The shelf is the trick and it is a *negative* number — the road stops
+// descending for twenty-four metres — because you cannot launch a kart off a
+// road that is already pointing at the ground. Then 3.6 metres of lip, and then
+// the west face falls at 63%.
+//
+// Measured on the built spline: the road climbs to **+24.7%** at the lip,
+// crests at 2631m and 82.4 metres of altitude, and is at **-62.8%** nine
+// metres later. A kart arrives at fifty metres a second, cannot follow a crest
+// tighter than `v²/g` — 73 metres of radius — and leaves climbing at 11°. The
+// ballistic arc against the road's own profile puts it back down **73 metres
+// and 1.5 seconds later**, in the first third of the Spillway.
+//
+// Across a race that took the field from 12 landed tricks to **36**, tier-3
+// mini-turbos from 80 to 100, and the longest single flight anybody holds from
+// 1.28 to 1.73 seconds. See `RAMPS` below, `ramp.ts` for the profile and why it
+// is not a smoothstep, and `RampDef` for why the shape has to live in the
+// centreline rather than in a wedge of mesh.
+//
+// **Four set pieces.**
 //
 // *The Spur* is a level out-and-back onto a rock promontory two thirds of the
 // way up. It is the tightest corner on the circuit (30m radius, 20m of road)
@@ -66,8 +100,10 @@
 // Sharper and it would be a jump; this is a brow, and a brow is scarier.
 //
 // Width follows speed, and here it follows *gradient* too: 28-30m on the valley
-// floor where the karts are flat out, 24-26m on the traverses, 20m at the Spur.
-// The longest dead straight on the lap is 130 metres.
+// floor where the karts are flat out, 24-26m on the traverses, 20m at the Spur,
+// and 23m across the kicker's deck — a road that pinches into a ramp and opens
+// out behind it, because a take-off you do not have to aim at is a bump. The
+// longest dead straight on the lap is 130 metres.
 //
 // ── the look, and why the numbers below are what they are ──────────────────
 //
@@ -91,8 +127,9 @@
 //     every object in the game. It is cold blue-grey schist now.
 
 import { loopFromWaypoints } from './path.ts';
+import { applyRamps } from './ramp.ts';
 import { ring } from './ring.ts';
-import type { CourseDefEx } from './types.ts';
+import type { CourseDefEx, RampDef } from './types.ts';
 
 /**
  * The ring, driven from the valley floor at (-309, -314).
@@ -135,7 +172,28 @@ const RING = ring(
     { radius: 240, turn: 24, width: 26, y: 116, name: 'T12 THE RIDGE' },
     { run: 65, width: 27, y: 103, name: 'm12' },
     { radius: 50, turn: -155, width: 26, y: 88, name: 'T13 CUTTING SWEEP' },
-    { run: 80, width: 28, y: 68, name: 'm13' },
+    // ── THE KICKER ────────────────────────────────────────────────────────
+    // The eighty metres out of the Cutting Sweep used to be one straight
+    // falling at 25%. It is now a run-in, a **shelf**, and a gap.
+    //
+    // The shelf is the whole trick, and it is a negative number: the road stops
+    // descending for twenty-four metres. That is what a take-off is — you
+    // cannot launch a kart off a road that is already pointing at the ground,
+    // and the lip itself (2.8m of it, applied to the waypoints by `applyRamps`)
+    // only works because it sits on something level. The 23m width is the
+    // aiming mark: the road pinches into the deck and opens out behind it.
+    //
+    // Then the mountain goes. `m13b` drops 11.4 metres in 32, peaking past 50%,
+    // which is not a road a kart can follow at fifty metres a second — and is
+    // not meant to be. It is the gap. The landing is the first twenty metres of
+    // the Spillway, a 170-metre sweeper wide enough to come down sideways in.
+    //
+    // Note the floors: `ring.ts` refuses a straight shorter than 20 metres
+    // after closure, which is the right rule and the reason the shelf is 24
+    // rather than the 18 it wants to be.
+    { run: 24, width: 27, y: 80, name: 'm13' },
+    { run: 24, width: 23, y: 79.4, name: 'THE KICKER' },
+    { run: 32, width: 28, y: 68, name: 'm13b' },
     { radius: 170, turn: 30, width: 29, y: 52, name: 'T14 SPILLWAY LEFT' },
     { run: 105, width: 28, y: 26, name: 'm14' },
     { radius: 48, turn: 120, width: 27, y: 12, name: 'T15 VALLEY SWEEP' },
@@ -149,11 +207,34 @@ const START = 0;
 const on = (name: string, along = 0.5): number =>
   ((RING.distanceAlong(name, along) - START) / RING.length + 1) % 1;
 
+/**
+ * **The signature, and the only one of its kind in the cup.**
+ *
+ * The lip sits on the last metre of the shelf — `on('THE KICKER', 1)` — with
+ * twenty-two metres of deck behind it and 2.8 metres of rise across them,
+ * which is a run-up slope of `2 × 2.8 / 22` = 25% at the lip and zero at its
+ * foot. See `ramp.ts` for why the maximum has to be at the *top*: an eased
+ * hands the kart a level road at exactly the instant it should be pointing at
+ * the sky, and `kart:launch` wants 3 m/s along the ground normal, which a crest
+ * cannot give you and this can.
+ *
+ * This array is read twice. `applyRamps` below puts the deck into the
+ * centreline, which is the only place kart physics can feel it — it rebuilds
+ * the ground from the spline and never looks at a triangle. `buildRoad` reads
+ * the same array to paint the chevrons and the lip bar onto it. There is no
+ * second copy of the shape.
+ */
+const RAMPS: RampDef[] = [
+  { at: on('THE KICKER', 1), length: 22, lip: 3.6, fall: 0.30, width: 15 },
+];
+
 export const switchbackSummit: CourseDefEx = {
   id: 'switchback-summit',
   name: 'Switchback Summit',
   cup: 'hazard',
-  points: loopFromWaypoints(RING.waypoints, {
+  points: loopFromWaypoints(applyRamps(RING.waypoints, RAMPS, {
+    length: RING.length, startDistance: START,
+  }), {
     width: 26,
     step: 10,
     bankGain: 20,
@@ -214,10 +295,30 @@ export const switchbackSummit: CourseDefEx = {
     //
     // Cold grey schist, the same rock the cutting above it is made of, so it
     // reads as something that fell rather than as something that was painted.
+    // **The kicker.** See `RAMPS` above and `ramp.ts`; the deck itself is in
+    // the centreline, and this is what paints it.
+    ramps: RAMPS,
+    // The washout has been moved down the hill and out of the landing zone,
+    // and the numbers are measured rather than guessed. A kart leaves the lip
+    // at 2631m climbing at 11°, and the ballistic arc against the road's own
+    // profile puts it back down about **73 metres later**, at 2700m — which was
+    // four metres inside the old leading edge of the scree. Landing at fifty
+    // metres a second on loose rock is not a decision, it is a coin toss, and
+    // the entire point of a jump is that you get to aim it.
+    //
+    // So the scree now sits in the last third of the Spillway, thirty-five
+    // metres of it across the outer quarter of the road, and it is deliberately
+    // a *smaller* hazard than it was. Measured: the first attempt put it across
+    // 60% of the road from the corner exit onto the straight below, and the
+    // field's time on loose surfaces went from 14% of the race to 29% while
+    // mean speed fell from 51.8 to 44.5 m/s. A mountain with a launch ramp on
+    // it does not also need the biggest surface hazard in the cup a second
+    // later; one set piece per hundred metres, and this hundred metres already
+    // has one.
     patches: [
       {
-        from: on('T14 SPILLWAY LEFT', 0.05), to: on('T14 SPILLWAY LEFT', 0.95),
-        latFrom: 0.22, latTo: 1, surface: 'dirt', tint: '#9AA2B4',
+        from: on('T14 SPILLWAY LEFT', 0.62), to: on('T14 SPILLWAY LEFT', 0.99),
+        latFrom: 0.46, latTo: 1, surface: 'dirt', tint: '#9AA2B4',
       },
     ],
     // Seven corners here run 1/44 to 1/54 of curvature and the traverses 1/130

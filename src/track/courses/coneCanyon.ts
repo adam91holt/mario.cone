@@ -55,10 +55,33 @@
 // pit straight, at 250 metres from the line, and no other straight on the lap
 // reaches 180.
 //
-// **This is the warm one, and it is still the plain one.** Round one of a cup
-// teaches the vocabulary: three laps, four strips, one gravel cut, no surface
-// hazard on the racing line. Everything the other three rounds do differently
-// is measured against this.
+// **This is the warm one, and it is no longer the plain one.**
+//
+// It was, and that was the problem. Round one of a cup teaches the vocabulary —
+// three laps, four strips, one gravel cut, no surface hazard on the racing line
+// — and a critic who played all four rounds found that the *other three* had
+// nothing on top of that vocabulary either. Four courses, one grammar, four
+// colour grades.
+//
+// So round one keeps the job of being legible and gains one thing of its own:
+//
+// ── THE SPLIT ──────────────────────────────────────────────────────────────
+//
+// **The Carousel is a divided carriageway.** A hundred metres of raised,
+// kerbed concrete island runs down the outside half of the longest corner in
+// the game, and you have to pick a side of it a hundred and fifty metres
+// before there is any evidence about which one was right:
+//
+//   * the **inside** is 12.7m wide, the shorter arc, the line the worn tarmac
+//     points at, and where every CPU driver in the field will be;
+//   * the **outside** is 8.2m, a longer way round 47 metres of radius, empty,
+//     and has a boost strip on its exit.
+//
+// It is the only fork in the cup and the only hazard in the cup that punishes
+// *indecision* — the Contraflow punishes arriving too fast, the quarry's Cut
+// punishes being alongside, the mountain's washout punishes landing badly, and
+// this punishes still being in the middle at turn-in. See `features.patches`,
+// and `SurfacePatchDef.style` for why an island is built rather than spilled.
 
 import { loopFromWaypoints } from './path.ts';
 import { ring } from './ring.ts';
@@ -102,12 +125,22 @@ const RING = ring(
     // The one corner on the lap that is genuinely flat out and still has to be
     // aimed. Every circuit needs one; this is it.
     { radius: 126, turn: 52, width: 26, y: 11, name: 'T4 RIMROCK SWEEP' },
-    { run: 146, width: 23, y: 7, name: 'r4' },
+    { run: 146, width: 24, y: 7, name: 'r4' },
     // T5. The signature. 152 metres of 47-metre radius, which is a shade under
     // three seconds at the speed it is taken — a purple needs about one — and
     // it never changes radius, so the drift laid at turn-in is the drift that
     // comes out the far side.
-    { radius: 47, turn: -185, width: 21, y: 4, name: 'T5 THE CAROUSEL' },
+    //
+    // **And it is now a divided carriageway** — see `features.patches` below.
+    // 24 metres rather than 21, which looks like a violation of *width follows
+    // speed* and is the opposite of one: the corner is split lengthways by a
+    // raised island, so what a kart actually drives is a 12.7-metre inside lane
+    // or a 8.2-metre outside lane, and **both of those are narrower than the
+    // 21 metres this corner used to be**. The extra three metres buy the second
+    // lane; nobody gets a wider road out of it. It was briefly 26 and the drift
+    // census caught it: a wider corner is a shallower line through the same
+    // radius, and tier-3 mini-turbos across the field fell from 68 to 56.
+    { radius: 47, turn: -185, width: 24, y: 4, name: 'T5 THE CAROUSEL' },
     { run: 147, width: 24, y: 1, name: 'r5' },
     { radius: 52, turn: 140, width: 24, y: -2, name: 'T6 THE LONG LEFT' },
     { run: 52, width: 20, y: -5, name: 'r6' },
@@ -161,6 +194,13 @@ export const coneCanyon: CourseDefEx = {
     // for the drift rather than a thing you drive over.
     pads: [
       { at: on('r1', 0.45), lateral: -0.32, width: 5.5, length: 20 },
+      // **The outside lane's payment.** Laid past the end of the island, on the
+      // Carousel's exit, at the lateral the *outer* line comes off at — so it
+      // is collected by a kart that committed to the long way round and missed
+      // by one that took the apex. Without it the split is not a split: the
+      // inside lane is shorter, and a choice between short and long with
+      // nothing else on the table is not a choice.
+      { at: on('T5 THE CAROUSEL', 0.93), lateral: 0.66, width: 5.5, length: 20 },
       { at: on('r5', 0.35), lateral: 0.30, width: 5.5, length: 22 },
       { at: on('r7', 0.30), lateral: 0.30, width: 5.5, length: 18 },
       { at: on('r10', 0.45), lateral: -0.32, width: 5.5, length: 22 },
@@ -170,6 +210,40 @@ export const coneCanyon: CourseDefEx = {
     // mini-turbo, a disaster from a standing start. `side: -1` is the driver's
     // right, which is the apex of this right-hander; see `ShortcutDef`.
     shortcuts: [{ from: on('T7 DIGGERS ELBOW', 0.12), to: on('T7 DIGGERS ELBOW', 0.88), side: -1 }],
+
+    // ── THE SPLIT: round one's signature, and the only fork in the cup ──────
+    //
+    // A hundred metres of raised concrete island down the Carousel, kerbed in
+    // black and gold on both flanks. It turns the longest corner in the game
+    // into two roads and forces the decision at turn-in, a hundred and fifty
+    // metres before there is any evidence about which was right:
+    //
+    //   * **the inside**, 12.7 metres wide, is the apex line and the shorter
+    //     arc. It is what the worn line on the tarmac points at and what every
+    //     CPU driver takes, so it is also where the traffic is.
+    //   * **the outside**, 8.2 metres, is a longer way round a 47-metre corner
+    //     with a boost strip on its exit (see `pads`). Clean air, and you come
+    //     off it with a shove; get it wrong and you have driven the long way
+    //     round for nothing.
+    //
+    // `style: 'island'` is what makes it a *built* thing rather than a spill —
+    // hard parallel edges, a flat top 14cm proud, striped kerbs down both
+    // flanks. See `SurfacePatchDef`. The band sits on the driver's **left**
+    // (the spline's `+`), which is the outside of this right-hander: the worn
+    // line runs at about -0.76 of the half width through here, so the island is
+    // clear of it by four metres and nothing has to swerve for it. That is the
+    // point — an island a CPU driver ploughs into every lap is not a choice,
+    // it is a bug with a kerb on it.
+    //
+    // Clipping it is `dirt`: 70% of top speed, recoverable, and quite enough to
+    // decide a place. It is the one hazard in the cup that punishes *indecision*
+    // rather than braking late or being overtaken.
+    patches: [
+      {
+        from: on('T5 THE CAROUSEL', 0.18), to: on('T5 THE CAROUSEL', 0.86),
+        latFrom: 0.06, latTo: 0.32, surface: 'dirt', style: 'island',
+      },
+    ],
     // Raised from 0.005. Eight corners run 1/32 to 1/66 of curvature and the
     // Rimrock Sweep runs 1/126, so a threshold at 1/125 puts a rumble strip on
     // everything a player brakes for and leaves the one flat-out sweeper clean.

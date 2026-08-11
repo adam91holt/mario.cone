@@ -5267,3 +5267,52 @@ STEP 4 — If FINISHED:
   f. Standing gaps no single piece owns, for the next coherence pass: the purple tier-3 mini-turbo has still never been seen by anyone; a single carried item is not drawn in the world at all because the orbit rig is only built for count>1; the finish letterbox guillotines the position badge on the one beat it matters.
 
 Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
+
+### 🤖 Claude — 2026-08-11 03:10 UTC
+
+Routine tick — wave alive, committed at `04e6611`, typecheck clean. `claude` up 2h03m, agents writing seconds ago; 9 started, 5 returned.
+
+**One verdict is a direct consequence of my own directive, so I should own it.** I told `perf` to seal the front-end, because three of five rung changes had been made with the title screen up and that's the worst possible surface to change resolution on. It did exactly that. The critic then measured the front-end at **0.6–0.8 fps on PRESS START** — making it simultaneously the most expensive frame in the game *and* the one frame the governor is now forbidden by construction to touch.
+
+Both halves are true, which is what makes it a good catch rather than a contradiction. Changing quality under a static composed screen looks like a bug; refusing to ever act there means the worst frame rate in the product is the one thing nothing is allowed to fix. The seal needs to be "don't change the picture mid-composition" rather than "never act here" — settle the rung before the screen is shown, or on the way out of it. That's the next directive.
+
+`courses` holds at 6.5 with the structural complaint restated: four circuits assembled from one vocabulary — flat closed asphalt loop, 3–5 boost pads, 0–2 gravel patches, 1–2 cuts, 3–5 background mesas.
+
+Also worth noting: `tools/census.mjs` appeared — the drift census promoted from a builder's scratch probe to a committed tool. That's the right instinct, since it's now the acceptance test for the entire course roster.
+
+### 🧑 Prompt — 2026-08-11 04:12 UTC
+
+MARIO.CONE build loop — hourly. Repo adam91holt/mario.cone (PUBLIC), branch claude/mario-kart-racing-game-z8wdf1. WFDIR=/root/.claude/projects/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/subagents/workflows
+
+EVERY TICK, before anything else: `node tools/session.mjs`. It refreshes docs/session/prompts.md and docs/session/session.jsonl — the conversation that is building this game, which the user asked to be published and kept current. It exits non-zero if a message body was truncated; if that happens fix the tool rather than committing a mangled archive. Commit the refresh with whatever else the tick produces.
+
+Do NOT trust any run id written here — resolve it: RUN=$(ls -t $WFDIR | head -1). Current run: coherence pass = wf_85410807-a0a.
+
+STEP 1 — PROVE the wave is alive. Two checks; the second has never been wrong:
+  date -u
+  ls -lt --time-style=+%H:%M:%S $WFDIR/$RUN/agent-*.jsonl | head -3
+  ps -eo etime,comm | grep -w claude
+(a) Newest agent-*.jsonl mtime older than ~25 minutes = dead. USE `ls -t`; a plain `ls | tail` sorts ALPHABETICALLY and once hid the only live agent behind eleven finished ones.
+(b) ELAPSED of the main `claude` process. DECISIVE. If claude has been alive for LESS time than the gap since the last agent write, the container restarted and every in-flight agent is dead, however recent the mtimes look. Two agents whose last write is the IDENTICAL second is the same signature. Do NOT grep for claude in a `--sort=-pcpu | head -4` list — Chrome outranks it and it will not appear.
+Never judge by files existing or Chrome counts: subagents run IN-PROCESS inside the main claude process, so `ps aux | grep claude` shows nothing for a healthy wave.
+
+Count: node -e "const fs=require('fs');let s=0,r=0;for(const l of fs.readFileSync(process.argv[1],'utf8').trim().split('\n')){try{const e=JSON.parse(l);if(e.type==='started')s++;if(e.type==='result')r++;}catch{}}console.log(s,r)" $WFDIR/$RUN/journal.jsonl
+Concurrency is 2 on this 4-core box.
+
+STEP 2 — If DEAD, RESUME, DO NOT RELAUNCH:
+  Workflow({scriptPath:"<the same script>", resumeFromRunId:"<the dead RUN>", args:<the SAME args object, byte-for-byte>})
+Completed agent() calls return from cache instantly and only the killed agents re-run, carry intact. Args must match exactly or the cache misses. First `npx tsc --noEmit`, then commit and push whatever exists (say in the message if unverified). Read the dead run's journal for results that already have a `score` — those verdicts are earned and must never be re-bought.
+IF TYPECHECK FAILS INSIDE A FILE A DEAD AGENT WAS MID-WRITE ON, that is NOT transient — the agent is not coming back to finish it, and the resumed agent restarts that step from scratch. `git checkout --` those files rather than committing a build that cannot compile.
+AFTER ANY LAUNCH OR RESUME, VERIFY: grep 'YOUR PIECE' AND 'Observed:' out of each new agent transcript.
+
+STEP 3 — If ALIVE: `npx tsc --noEmit`. If clean, commit and push. Do NOT run captures or smoke while agents are active, and never pkill on any pattern matching "capture.mjs".
+
+STEP 4 — If FINISHED:
+  a. `npx tsc --noEmit` then `node tools/capture.mjs --smoke`. Typecheck-clean has passed on a build that did not boot; smoke is the real gate.
+  b. `node tools/capture.mjs` and LOOK at the PNGs with Read. Never trust an agent's summary.
+  c. Update tools/progress.state.json with the real verdicts, `node tools/progress.mjs`, `node tools/readmeshots.mjs`.
+  d. Commit, push, PR (base main, draft false), merge, then `git fetch origin main && git reset --hard origin/main && git push --force-with-lease` (merges are squashed, so ff-only will refuse).
+  e. Remaining work, in order: COURSES re-judge — it scored 5.0 because theme.ground never painted terrain and thirteen theme.props keys had zero reads; that wiring now exists, so its job is to USE it and prove the four courses are distinguishable from the overhead shot without the minimap. Then PERF re-run, which regressed to 475 draw calls and 667k triangles when the item economy fix put 102 boxes on the course. Then closing verdicts on wave 1 (feel, camera, track, look, cast), merged long ago and never judged.
+  f. Standing gaps no single piece owns, for the next coherence pass: the purple tier-3 mini-turbo has still never been seen by anyone; a single carried item is not drawn in the world at all because the orbit rig is only built for count>1; the finish letterbox guillotines the position badge on the one beat it matters.
+
+Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
