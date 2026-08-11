@@ -380,6 +380,35 @@ export const jackhammerQuarry: CourseDefEx = {
     // leaves the Floor Sweep and the haul-road kinks unmarked.
     kerbCurvature: 0.009,
 
+    // ── the kit: what a working pit is built out of ────────────────────────
+    //
+    // A critic photographed the four grids and found the same yellow truss, the
+    // same navy banner and the same striped panel barrier on all of them. This
+    // is the round that answers it hardest, because a quarry owns none of those
+    // objects. See `KitDef`.
+    //
+    //   * **The conveyor.** An inclined overland belt on two steel trestles
+    //     runs shot rock across the haul road to the stockpile, and the grid
+    //     stands under it. It *climbs* across the frame rather than spanning it
+    //     level, so the establishing shot has a direction in it.
+    //   * **The jersey barrier.** Continuous battered concrete with a
+    //     black-and-yellow toe band, no posts and no capping rail — which is
+    //     what actually stands beside a haul road, and which reads as a wall
+    //     where the speedway's panel reads as a fence.
+    //   * **Hazard kerbs.** A pit paints black and yellow on anything a
+    //     hundred-tonne machine can hit. Red and white is a grandstand's
+    //     colour scheme.
+    kit: {
+      arrival: 'conveyor',
+      barrier: 'jersey',
+      kerb: { a: '#23262E', b: '#F2B705', pitch: 3.2 },
+      paint: '#EFE9D8',
+      chequer: { dark: '#23262E', light: '#EFE9D8' },
+      steel: 0x7f8a92,
+      accent: 0xf2b705,
+      banner: { field: '#2C3038', ink: '#F2B705', strip: '#B9C1C8' },
+    },
+
     // ── the pit ───────────────────────────────────────────────────────────
     //
     // **The first fifty to a hundred and sixty metres beyond the shoulder has

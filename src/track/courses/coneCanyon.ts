@@ -360,6 +360,16 @@ export const coneCanyon: CourseDefEx = {
     // brakes for and leaves the one flat-out sweeper clean.
     kerbCurvature: 0.0083,
 
+    // ── the kit: the poster round keeps the poster ─────────────────────────
+    //
+    // Round one is the one circuit in the cup that is a *speedway*, and the
+    // yellow truss gantry, the striped panel barrier and the red-and-white kerb
+    // are what a speedway is made of. A cup needs one round that looks like the
+    // box art, so this is the reference the other three are differentiated
+    // *from* — see `KitDef`. Declared rather than omitted so the roster reads
+    // as four choices instead of three plus a default.
+    kit: { arrival: 'gantry', barrier: 'panel' },
+
     // ── the canyon, and the round it did not have one ──────────────────────
     //
     // A critic photographed this course and wrote: *"Cone Canyon has no canyon.

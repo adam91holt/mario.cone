@@ -395,6 +395,34 @@ export const switchbackSummit: CourseDefEx = {
     // unmarked.
     kerbCurvature: 0.0118,
 
+    // ── the kit: a mountain pass ───────────────────────────────────────────
+    //
+    // See `KitDef`. The mountain is the only round where the answer to *"what
+    // is over the start line"* is not a piece of plant:
+    //
+    //   * **The cableway.** A tall galvanised lattice mast on one side of the
+    //     road, a shorter one on the other, two cables slung between them and
+    //     two gondolas hanging on the span. It is the only arrival structure in
+    //     the cup whose interesting part is *above* the frame line, so this is
+    //     the one grid where a player looks up.
+    //   * **The snow fence.** Vertical timber slats with real gaps in them —
+    //     alpha, not paint — on raking posts, with packed snow along the foot.
+    //     The only barrier in the cup you can see the landscape through, which
+    //     matters most on the course that has 115 metres of landscape.
+    //   * **Slate and snow** on the kerb, because red and white on a mountain
+    //     in the snow is a car park barrier, and the poles a real pass marks
+    //     its edges with are black and white.
+    kit: {
+      arrival: 'pylon',
+      barrier: 'snowfence',
+      kerb: { a: '#2F3A46', b: '#EDF3F8', pitch: 2.8 },
+      paint: '#FFF8F0',
+      chequer: { dark: '#2B3440', light: '#F2F7FB' },
+      steel: 0xb7c0c9,
+      accent: 0xe04a2b,
+      banner: { field: '#123B52', ink: '#F2F7FB', strip: '#E04A2B' },
+    },
+
     // ── the mountain ──────────────────────────────────────────────────────
     //
     // Sized against the snow ramp in `render/theme.ts`, which runs from roughly

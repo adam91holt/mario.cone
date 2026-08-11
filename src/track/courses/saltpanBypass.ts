@@ -72,6 +72,30 @@
 // two. Thirty-four metres each, about half a second at racing speed if you get
 // it wrong.
 //
+// ── and then a critic drove it and said the straight was empty ─────────────
+//
+// *"Saltpan's 621m straight is ~11s of holding accelerate with nothing on it,
+// and all three of its hazards sit between 163m and 419m of a 3519m lap,
+// leaving 3100m empty."* Both halves of that were fair, and they are different
+// faults:
+//
+//   * **The straight had only punishments on it.** Three sheets to avoid and a
+//     bore to dodge is eleven seconds of not-losing, with nothing to win. So
+//     the third band now has a reward on the far side of it: cross it on the
+//     wide shoulder — the long way round — and thirty-two metres of boost ramp
+//     is waiting where you land. The straight is a *choice* now rather than a
+//     corridor.
+//   * **The lake only flooded in one place.** A dry lake does not drain in the
+//     first twelve per cent of a lap. There are two more crossings now, one on
+//     the works leg and one out on the west leg, each leaving its dry lane on
+//     the opposite hand from the other, so the four stations sit about a
+//     kilometre apart the whole way round.
+//
+// The bypass is also the one straight in the cup with a **building** on it:
+// the salt works' loading jetty crosses it at the start line, on timber piles,
+// with two chutes hanging over the carriageway and a windrow of raw salt on
+// the deck. See `kit`.
+//
 // Width follows speed here more visibly than anywhere: 34m on the bypass where
 // eight karts fan out four abreast, 21m through the chicane where two of them
 // will not fit, 26-30m through the works. And nothing on the lap is dead
@@ -253,6 +277,24 @@ export const saltpanBypass: CourseDefEx = {
       // exactly this stretch: two three-hundred-metre runs with one strip
       // between them, six hundred metres apart. There are two now.
       { at: on('s12', 0.55), lateral: -0.28, width: 7, length: 32 },
+      // ── the payoff for reading the flood ────────────────────────────────
+      //
+      // A critic drove the bypass and reported *"621 metres of holding
+      // accelerate with nothing on it"*. Three sheets of standing brine were
+      // already on it, and the fault in that is real: a sheet is something to
+      // **avoid**, and eleven seconds of avoiding things with no upside is a
+      // corridor, not a straight. So the last sheet now has a reward on the
+      // other side of it. Cross the third band on the far shoulder — the wide
+      // side, the long way round — and thirty-two metres of ramp is waiting
+      // where you land.
+      //
+      // It is fifteen metres past the sheet's trailing edge and on lateral
+      // 0.76, and the sheet is declared to 0.52 and built with **ruled** edges
+      // that never grow past the declaration (`style: 'brine'`), so the point
+      // `findPads` probes — the pad's own centre, at the pad's own lateral —
+      // cannot land on water. See `SurfacePatchDef` on why that is the
+      // invariant rather than the along-track rule of thumb.
+      { at: on('THE BYPASS', 0.895), lateral: 0.76, width: 7, length: 32 },
     ],
     // The closed carriageway: the crust runs straight on past the chicane's
     // first apex. It is 58% of top speed while you are on it, so from 60 m/s it
@@ -310,6 +352,34 @@ export const saltpanBypass: CourseDefEx = {
         from: on('T10 PAN SWEEP', 0.12), to: on('T10 PAN SWEEP', 0.88),
         latFrom: 0.40, latTo: 1, surface: 'sand', tint: '#E4DECA',
       },
+
+      // ── the other two thirds of the lake ────────────────────────────────
+      //
+      // **The flood used to stop at the bypass.** A critic measured it exactly:
+      // *"all three of its hazards sit between 163m and 419m of a 3519m lap,
+      // leaving 3100m empty"*. Every sheet, every bore and the whole signature
+      // of round three lived in the first twelve per cent of the circuit, and
+      // the works leg and the west leg — two thirds of the lap — were dry
+      // tarmac with a kink in it.
+      //
+      // A lake does not drain in one place. These are the two crossings where
+      // the pan comes over the bypass on the other two sides of the triangle:
+      // one on the works leg between the culvert kinks, one out on the west leg
+      // where the crust is thinnest. Each leaves its dry lane on the opposite
+      // hand from the other, so neither teaches you the other, and the four
+      // hazard stations now sit roughly a kilometre apart all the way round
+      // instead of stacked in the first eleven seconds.
+      //
+      // Neither covers a boost strip at the point `findPads` probes: the west
+      // leg's strip is at 0.55 of its segment and this sheet ends at 0.24.
+      {
+        from: on('s8', 0.30), to: on('s8', 0.52),
+        latFrom: -1, latTo: 0.30, surface: 'water', tint: '#5D909C', style: 'brine',
+      },
+      {
+        from: on('s12', 0.14), to: on('s12', 0.24),
+        latFrom: -0.30, latTo: 1, surface: 'water', tint: '#5D909C', style: 'brine',
+      },
     ],
     // ── THE SURGE: what stops the slalom being memorised ───────────────────
     //
@@ -366,12 +436,47 @@ export const saltpanBypass: CourseDefEx = {
         lateral: 0.15, hit: 'bump', lead: 1.6, signAt: 96 },
       { at: on('THE BYPASS', 0.827), kind: 'surge', period: 11, phase: 2 / 3,
         lateral: -0.02, hit: 'bump', lead: 1.6, signAt: 96 },
+      // The works leg and the west leg. Thirteen and seventeen seconds rather
+      // than eleven, and prime against each other and against the bypass's
+      // three, so no two stations on this circuit ever come round together —
+      // see `HazardDef.period` on why a hazard whose cycle matches the field's
+      // own spread turns seven racers into one sample.
+      { at: on('s8', 0.41), kind: 'surge', period: 13, phase: 0.45,
+        lateral: 0.22, hit: 'bump', lead: 1.6, signAt: 88 },
+      { at: on('s12', 0.19), kind: 'surge', period: 17, phase: 0.80,
+        lateral: -0.22, hit: 'bump', lead: 1.6, signAt: 88 },
     ],
     // The works corners run 1/30 to 1/60 of curvature and the pan's sweeps and
     // kinks 1/140 to 1/220, so a threshold at 1/85 kerbs exactly the five
     // corners a player brakes for and leaves the flat-out three quarters of the
     // lap clean.
     kerbCurvature: 0.0118,
+
+    // ── the kit: a salt works, not a speedway ──────────────────────────────
+    //
+    // See `KitDef`. Two of the three pieces here exist to keep the *view* open,
+    // which is the one thing this circuit has that the other three do not:
+    //
+    //   * **The jetty.** A timber-piled loading deck crossing the bypass, with
+    //     two chutes hanging over the carriageway and a windrow of raw salt on
+    //     the deck. Horizontal where the quarry's conveyor climbs, bleached
+    //     where it is grey, and standing on piles rather than lattice.
+    //   * **The salt wall.** 0.82 metres and no higher. A 1.5m panel run down
+    //     3.5 kilometres of lake bed fences in the horizon this whole course is
+    //     built around — the same reason `wallHeight` is already 1.1 here.
+    //   * **Works blue on white**, on the kerb, the capping and the banner. The
+    //     lines go hazard yellow: on the darkest tarmac in the cup under the
+    //     brightest ground, white paint is the one colour that disappears.
+    kit: {
+      arrival: 'jetty',
+      barrier: 'seawall',
+      kerb: { a: '#1E5FA8', b: '#FFF8F0', pitch: 2.6 },
+      paint: '#FFC300',
+      chequer: { dark: '#123A63', light: '#FFFFFF' },
+      steel: 0x2e6c9e,
+      accent: 0xf3f1e8,
+      banner: { field: '#F1EFE6', ink: '#1B4E7E', strip: '#2E6C9E' },
+    },
 
     // Almost nothing, and that is the point of a dry lake — but *almost* is
     // load-bearing. The rim is 34m of low swell starting 700 metres out, enough

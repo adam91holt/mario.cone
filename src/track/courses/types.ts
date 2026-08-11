@@ -389,6 +389,94 @@ export interface ShortcutDef {
 }
 
 /**
+ * ── the kit: what the circuit is *built out of* ────────────────────────────
+ *
+ * A critic played the cup after the shapes were fixed and rejected it on a
+ * finding that no amount of further geometry could have answered:
+ *
+ *   *"The four circuits are now genuinely different shapes but they are still
+ *   the same place — identical start gantry, banner, grandstands, chequered
+ *   strip, kerb, barrier, asphalt and edge line on all four — so choosing a
+ *   course changes the map card and the terrain tint and never changes the
+ *   world you arrive in."*
+ *
+ * They were right, and the proof was four screenshots: `cone-canyon-grid.png`,
+ * `jackhammer-quarry-grid.png`, `saltpan-bypass-grid.png` and
+ * `switchback-summit-grid.png` shared the same yellow truss gantry to the
+ * pixel, the same navy hazard banner, the same five-bulb board and the same
+ * orange-and-white striped panel barrier on grey drums. A course was a
+ * *layout*; the thing standing over it was a constant.
+ *
+ * So a course now also declares its **kit** — the two pieces of built world a
+ * driver is looking at for the whole race:
+ *
+ *   * **`arrival`** — what stands over the start line, carries the circuit's
+ *     name and counts the race in. A truss gantry on a speedway, a conveyor
+ *     bridge over a quarry, a loading jetty over a salt works, a cable-car
+ *     pylon pair on a mountain. It is the establishing shot of the course and
+ *     it is the frame the player stares at through the whole countdown.
+ *   * **`barrier`** — what runs down both edges of the road for the entire lap.
+ *     This is, by area, the single most-seen object in the game after the
+ *     tarmac, and it was one object.
+ *
+ * ── where it is built, and why not in `track/` ─────────────────────────────
+ *
+ * `track/gantry.ts`, `track/barriers.ts` and `track/road.ts` build one of each,
+ * unconditionally, and they are not this module's files. `courses/kit.ts` is
+ * therefore a **system**, not a builder: it listens for `track:built`, hides
+ * the stock pieces the course has replaced, and stands its own in their place —
+ * exactly the intervention `render/ground.ts` already makes on the shoulder
+ * gravel, and for exactly the same reason. If the road module ever grows a
+ * barrier vocabulary of its own, this evaporates into a parameter.
+ *
+ * A course that declares no kit gets the stock look and nothing changes. Cone
+ * Canyon deliberately keeps it: the yellow truss and the striped panel *are*
+ * the speedway, and a cup needs one round that looks like the poster.
+ */
+export type ArrivalKind = 'gantry' | 'conveyor' | 'jetty' | 'pylon';
+
+/**
+ * What the edge of the road is made of.
+ *
+ *   * `panel`     — the stock roadworks kit: orange/white striped board on a
+ *                   concrete footing with steel posts and a capping rail.
+ *   * `jersey`    — a continuous battered concrete safety barrier, no posts, no
+ *                   rail, black-and-yellow toe bands at the joints. What a
+ *                   working pit actually puts beside a haul road.
+ *   * `seawall`   — a low salt-crusted rendered wall with a blue capping, half
+ *                   the height of anything else in the cup, so the one view the
+ *                   saltpan is built around stays open.
+ *   * `snowfence` — vertical timber slats on raking posts, gaps between them,
+ *                   snow packed along the foot. The only barrier in the cup you
+ *                   can see the landscape *through*.
+ */
+export type BarrierKind = 'panel' | 'jersey' | 'seawall' | 'snowfence';
+
+export interface KitDef {
+  /** What stands over the start line. Defaults to the stock truss gantry. */
+  arrival?: ArrivalKind;
+  /** What runs down both edges of the road. Defaults to the stock panel. */
+  barrier?: BarrierKind;
+  /**
+   * Kerb livery. Red-and-white is a speedway's kerb and nowhere else's — a
+   * quarry paints hazard black-and-yellow on anything a truck can hit, a salt
+   * works paints works blue, and a mountain pass paints the snow poles.
+   * `pitch` is metres of one full stripe pair.
+   */
+  kerb?: { a: string; b: string; pitch?: number };
+  /** Road markings — edge lines, centre dashes and grid boxes. */
+  paint?: string;
+  /** The chequered strip on the line. Both halves, so it can be read on snow. */
+  chequer?: { dark: string; light: string };
+  /** Structural steel of the arrival piece. */
+  steel?: number;
+  /** Its high-vis accent: handrails, toe boards, cabins. */
+  accent?: number;
+  /** The name banner it carries: background, lettering, hazard strip. */
+  banner?: { field: string; ink: string; strip: string };
+}
+
+/**
  * A hero landform: a butte, a mesa or a spire, placed on the map so it sits at
  * the vanishing point of a straight. Landmarks are what a lap is navigated by —
  * without one, every corner exit looks like every other corner exit.
@@ -472,6 +560,12 @@ export interface TrackFeatures {
   ramps?: RampDef[];
   /** Nose blocks marking a width pinch. See `GateDef`. */
   gates?: GateDef[];
+  /**
+   * **What this circuit is built out of.** See `KitDef` — the arrival
+   * structure over the line and the barrier down both edges of the road.
+   * Omitted means the stock speedway kit.
+   */
+  kit?: KitDef;
   /** Lap fraction of the start gantry; defaults to the start line. */
   gantryAt?: number;
   /** Curvature above which a kerb is laid on the inside of a corner. */

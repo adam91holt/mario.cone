@@ -165,12 +165,12 @@
 // forty metres in front of the player. No timing instrument in this file could
 // ever have caught that; a `setDrawRange` costs nothing at all.
 //
-// Four levers are behind the seam and land at boot, at a race build behind the
-// closed launch board, or at a window resize: `crowd`, `scatter`, `aa`,
-// `drawDistance`. Six are live, every one either denominated in projected
-// pixels — so the only things it can move are already too small to resolve —
-// or invisible on the frame it lands: `scale`, `tier`, `particles`, `minPx`,
-// `thinFar`, `shellPx`. See `SEAM_HELD` for the measurements behind each.
+// Three levers are behind the seam and land at boot, at a race build behind the
+// closed launch board, or at a window resize: `crowd`, `aa`, `drawDistance`.
+// Seven are live, every one either denominated in projected pixels — so the
+// only things it can move are already too small to resolve — or invisible on
+// the frame it lands: `scale`, `tier`, `particles`, `minPx`, `thinFar`,
+// `scatter`, `shellPx`. See `SEAM_HELD` for the measurements behind each.
 //
 // **Round eight moved two of them.** Round seven's list had six behind the
 // seam, and the review that followed measured what that cost: at the floor,
@@ -426,18 +426,39 @@ export interface ContentTrim {
    */
   crowd: number;
   /**
-   * Share of each scatter batch's instances that are drawn, thinned evenly
-   * across the batch rather than off one end. See `stratify`.
+   * The verge's density at the **far end** of the ramp — a second multiplier on
+   * `thinFar`, applied through the same projected-size test and nowhere else.
    *
-   * **Reset-only.** It is a share of a population and a share has no distance,
-   * so spending it takes cones out of the verge the player is driving past as
-   * readily as out of the one behind them. `thinFar` is the same lever pointed
-   * through the eye instead of through the census, and that half is live.
+   * ── What this used to be, and why round nine moved it ─────────────────────
+   *
+   * A flat share of every scatter batch, installed at a seam: a cut worth
+   * -124k to -168k triangles by the table on `LADDER`, and the single biggest
+   * thing on the ladder that a mid-race rung could not touch. It was behind the
+   * seam for one reason and it was the right one — a share of a population has
+   * no distance, so spending it takes cones out of the verge the player is
+   * driving past as readily as out of the one behind them.
+   *
+   * But *that* is a property of how the lever was **denominated**, not of the
+   * cones. Pointed through the eye instead of through the census it obeys the
+   * seam rule mechanically, exactly as `thinFar` already did — see (a) in the
+   * seam block below. So it is no longer a share of its own: it is the far end
+   * of `thinFar`'s ramp, `far = thinFar * scatter`, and every rung of the
+   * ladder still draws the identical verge at the knee.
+   *
+   * What that buys, measured: the review that convicted round eight walked
+   * `mid(0)` to `mid(6)` on one frozen frame and moved **654 triangles and one
+   * draw call** — the entire in-race authority of a seven-rung ladder. The same
+   * walk moves the whole scatter cut now, because the whole scatter cut is on
+   * the near side of the seam.
+   *
+   * 1 leaves the ramp to `thinFar` alone, which is what rung 0 means.
    */
   scatter: number;
   /**
    * ...and the share a scatter batch is thinned to once its instances have
    * shrunk to nothing, on a linear ramp from full density at `THIN_KNEE_PX`.
+   * Multiplied by `scatter` to give the ramp's far end; on its own it is what
+   * the ramp would be worth with the verge's own share left at 1.
    *
    * ── Why the ladder needed this ────────────────────────────────────────────
    *
@@ -686,9 +707,9 @@ function rung(
  * ── Reading a row ──────────────────────────────────────────────────────────
  *
  * The first object is settings and the second is content. `aa`, `drawDistance`
- * and `crowd`/`scatter` are the seam-held half; the `scale` argument, the tier,
- * `particles`, `thinFar`, `minPx` and `shellPx` land on the frame the rung is
- * taken on. See `SEAM_HELD`.
+ * and `crowd` are the seam-held half; the `scale` argument, the tier,
+ * `particles`, `thinFar`, `scatter`, `minPx` and `shellPx` land on the frame
+ * the rung is taken on. See `SEAM_HELD`.
  *
  * The order of what a player can name, on the way down: sub-pixel dressing and
  * distant machines first, then the verge's density, then the crowd's back rows.
@@ -698,12 +719,15 @@ function rung(
  *   third of the submissions — and the crowd loses the back rows under the
  *   canopy. Nothing has left the frame that has a name.
  *
- *   **sparse** halves the verge's clutter and takes the crowd to a third. The
- *   cones thin evenly rather than stopping (see `stratify`), so a taper is
- *   still a taper, with wider spacing.
+ *   **sparse** halves the verge's clutter *at the far end of the ramp* and
+ *   takes the crowd to a third. The cones thin evenly rather than stopping (see
+ *   `stratify`), so a taper is still a taper, with wider spacing — and the
+ *   taper beside the player is untouched at every rung, because the ramp is
+ *   anchored at the knee.
  *
- *   **floor** is a sixth of the crowd and a third of the verge. It is the
- *   emptiest frame the game can draw and it is still, in every other respect,
+ *   **floor** is a sixth of the crowd and, past the knee, less than a tenth of
+ *   the verge. It is the emptiest frame the game can draw and it is still, in
+ *   every other respect,
  *   the same game: the same shadow policy, the same 2048 shadow map, the same
  *   post stack, the same grade, the same glow on the item box, the same fog.
  */
@@ -794,13 +818,29 @@ const LADDER: readonly Rung[] = [
 //     `thinFar`   the same instrument pointed at density: a scatter batch thins
 //                 on a ramp as it shrinks, anchored so a rung changes nothing
 //                 at the near end. See `ContentTrim.thinFar`, `THIN_KNEE_PX`.
+//     `scatter`   **round nine.** The verge's own share, which used to be a
+//                 flat multiplier installed at a seam, is now the far end of
+//                 that same ramp — `far = thinFar * scatter` — so it inherits
+//                 the anchor and the argument along with the instrument. At the
+//                 knee every rung draws the identical verge; the whole of the
+//                 largest content lever on the table is now on the near side of
+//                 the seam. See `ContentTrim.scatter`.
 //     `particles` a cap on what the *next* burst may spawn. Nothing already in
 //                 the air changes.
-//     `scale`     (c). The whole picture goes very slightly soft, under a HUD
-//                 that is DOM at native resolution and does not move with it.
-//                 See `freeScalePath` — this is the round-eight entry and the
-//                 reason it is here rather than below is that the *cost* the
-//                 seam was avoiding no longer exists.
+//     `scale`     (c), and round nine had to *earn* the (c). The whole picture
+//                 goes soft — but "the whole picture" was a lie while the HUD
+//                 was DOM at native resolution and did not move with it: on one
+//                 frozen frame, `set(0)` against `mid(6)`, the mountain ridge
+//                 gained visible upscale stair-stepping while "1/3", "0:13.9",
+//                 "7TH" and the minimap stayed **bit-identical**. Soft world,
+//                 razor HUD, in the same photograph — which is the seam this
+//                 rule was written to forbid, arriving from the one direction
+//                 the rule did not look. See `softenOverlays`: every DOM layer
+//                 over the race now carries a matching blur off the same
+//                 number, so the frame goes soft as one thing. And the lever
+//                 itself is ramped rather than stepped — see `SCALE_RAMP`,
+//                 because a change small enough not to be watched still cannot
+//                 arrive all at once.
 //     `tier`      (a), by accident of what the field actually drives:
 //                 `SHADOW_EXTENT` in `render/lighting.ts`, 62 / 52 / 46m. The
 //                 outer edge of the shadow frustum moves ten metres.
@@ -811,10 +851,10 @@ const LADDER: readonly Rung[] = [
 //
 //     `crowd`     the one a person found: the back rows of every stand on the
 //                 course, at once, whether the stand is behind the camera or
-//                 forty metres ahead of it.
-//     `scatter`   the same shape one object down — cones disappearing from the
-//                 verge the player is driving past. The *distance*-graded half
-//                 of the same lever is `thinFar`, and that half is live.
+//                 forty metres ahead of it. It stays here, and it stays here on
+//                 the evidence of somebody's eyes rather than on a rule: the
+//                 stand a player is looking at is metres away and enormous, so
+//                 there is no projected-size ramp that would reach it.
 //     `aa`        the FXAA resolve is every edge in the frame at once, and the
 //                 only lever whose effect is uniform *and* sharp-edged.
 //     `drawDistance` whole batches switch off at their own ring: 35k triangles
@@ -823,8 +863,10 @@ const LADDER: readonly Rung[] = [
 //
 // The argument is **mechanical**, not empirical: a lever is seam-safe when the
 // thing it changes is, at the moment it changes, smaller than a player can
-// resolve — a property of how the lever is *denominated*. `crowd` and `scatter`
-// are shares of a population and a share has no distance.
+// resolve — a property of how the lever is *denominated*. `crowd` is a share of
+// a population and a share has no distance. Note which way that cuts: it is a
+// statement about the *denomination*, not about the cones, and round nine
+// re-denominated the second of the two rather than arguing with it.
 //
 // `tools/levervis.mjs` was built to score this by pixels and the result is
 // worth keeping for what it says about the *bench* rather than the levers: on a
@@ -872,7 +914,7 @@ const LADDER: readonly Rung[] = [
  * The levers a rung may only install at a seam, named once so that the ladder,
  * the composer and the log all agree about which they are. See the block above.
  */
-const SEAM_HELD = ['scale', 'crowd', 'scatter', 'aa', 'drawDistance'] as const;
+const SEAM_HELD = ['scale', 'crowd', 'aa', 'drawDistance'] as const;
 /** ...and its own union, so `seamDiffers` can be exhaustive over it. */
 type SeamLever = typeof SEAM_HELD[number];
 
@@ -1083,6 +1125,53 @@ const PANIC_SETTLE_FRAMES = 2;
  * flicker.
  */
 const SCALE_HOLD_S = 2;
+/**
+ * How far the render scale may travel in one frame of a 60Hz display.
+ *
+ * ── Why the biggest lever on the ladder is now the slowest one ──────────────
+ *
+ * Because a dissolve is not a cut. Round eight made `scale` live and left it a
+ * step function, and the review that followed caught the consequence live: the
+ * collapse path took **1.00 to 0.50 in a single frame** — `collapsed (152x
+ * budget) x6` at nine seconds — so the one thing a player was guaranteed to see
+ * the governor do was the whole picture changing size at once, underneath the
+ * course's beauty sweep. Every other lever in this file is graded (a ramp
+ * anchored at a knee, a cap on the next burst, a threshold in projected
+ * pixels); this one was not, and it is the loudest.
+ *
+ * ── ...and why it is denominated per *frame* and paced by the wall clock ────
+ *
+ * The unit rule (§2) says a person waiting is measured in wall seconds and a
+ * statistic in delivered frames, and this is neither: it is an *animation*, and
+ * an animation is frames **at a rate**. So the step is `SCALE_RAMP` per 16.7ms
+ * of the frame that just went by, which reads correctly at both ends of the
+ * range this file exists across:
+ *
+ *   at 60fps        0.04 a frame — 1.00 to 0.50 takes 13 frames, 0.21s. A
+ *                   dissolve, which is what a player at 60fps can see.
+ *   at 20fps        0.12 a frame — four frames, still 0.21s.
+ *   at 0.7fps       the whole traverse in one frame, and correctly: a machine
+ *                   delivering a picture every 1.4 seconds has no motion to
+ *                   dissolve *into*, every frame it draws is already a cut, and
+ *                   spending thirteen of them easing the rescue in would be
+ *                   eighteen seconds of the worst frame rate in the session to
+ *                   avoid an artefact nobody can perceive at that rate.
+ *
+ * That last row is the one that matters, and it is why the pacing is not simply
+ * "0.04 a frame": the naive version turns the emergency path into a slideshow
+ * of thirteen intermediate resolutions on exactly the machine the emergency
+ * path exists for. It also bounds the cost — each step is a resize of the post
+ * stack's own targets, and only a machine fast enough to afford thirteen of
+ * them ever asks for thirteen.
+ */
+const SCALE_RAMP = 0.04;
+/** ...and the frame period that rate is quoted against. Not `TARGET_MS`: this
+ *  is a statement about how fast a change may be *watched*, which does not
+ *  change if the target frame rate ever does. */
+const SCALE_RAMP_MS = 1000 / 60;
+/** Below this the ramp has arrived. One percent is `setRenderScale`'s own
+ *  quantisation, so a smaller epsilon would ask for resizes of nought pixels. */
+const SCALE_EPS = 0.005;
 /** Seconds of quiet after a harness-driven frame before measuring resumes. */
 const BENCH_HOLD = 4;
 /**
@@ -1986,6 +2075,27 @@ export interface QualityProbe {
   scaleSteps: number;
   scaleFlushWhy: string;
   /**
+   * The lever is mid-dissolve, and the frames it has spent dissolving.
+   *
+   * `scaleSteps` counts *arrivals* and this counts the frames between them, so
+   * the pair is the one honest answer to "was that a dissolve or a cut": a
+   * session with `scaleSteps: 3` and `scaleRampFrames: 3` cut three times.
+   * See `SCALE_RAMP`.
+   */
+  scaleRamping: boolean;
+  scaleRampFrames: number;
+  /**
+   * CSS pixels of blur the DOM layers over the race are carrying, so that the
+   * interface is exactly as sharp as the world behind it.
+   *
+   * 0 at full resolution, and 0 is the only value that costs nothing — under
+   * `SOFTEN_MIN_PX` no layer is filtered at all. Reported next to `scale`
+   * because the two are the same decision: a review that reads one without the
+   * other is reading the half of the frame that a round-nine critic
+   * photographed against the other half. See `softenOverlays`.
+   */
+  soften: number;
+  /**
    * The pixels the world is actually drawn into, as `WxH`, and the canvas it is
    * resolved onto beside it.
    *
@@ -2035,13 +2145,20 @@ export interface QualityProbe {
   content: {
     crowd: number; scatter: number; thinFar: number; minPx: number; shellPx: number;
     /**
-     * ...and what the two seam-held shares are **actually installed at**, which
+     * ...and what the seam-held share is **actually installed at**, which
      * between a mid-race rung change and the next race build is a different
      * rung's answer. `crowd` above is what the standing rung wants; this is what
      * the grandstands have on them right now. A probe where those two disagree
      * is the seam rule working. See `SEAM_HELD`.
+     *
+     * `scatterLive` is kept beside it and is now always equal to `scatter`,
+     * because round nine took that lever off the seam — reported rather than
+     * deleted so a review comparing two builds can see *that* it moved.
      */
     crowdLive: number; scatterLive: number;
+    /** The two scatter shares multiplied out: the density a batch is thinned to
+     *  at the far end of the ramp. 1 is a ladder spending nothing on the verge. */
+    scatterFar: number;
     crowdGeos: number; batches: number; cullables: number; shells: number;
     culled: number; shelled: number;
     /** Scatter batches the distance ramp is holding below the standing share
@@ -2778,6 +2895,122 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     return c && typeof c.setRenderScale === 'function' ? c : null;
   }
 
+  // ── the other half of the frame ───────────────────────────────────────────
+  //
+  // Everything below this comment exists because the render scale governs the
+  // *3D* and the 3D is not the whole picture. The HUD, the race's plates, the
+  // coach card and the item socket are DOM, drawn by the browser at the
+  // display's own resolution, and they do not move when the world does.
+  //
+  // Round eight made resolution the ladder's one live lever and round nine's
+  // reviewer photographed the result: at `mid(6)` the crowd was a smear, the
+  // barrier stripes had lost their edges and the ridge line was stair-stepped,
+  // while "1/3", "0:13.9", "7TH" and the minimap were pixel-for-pixel identical
+  // to the rung-0 frame. Two products in one photograph.
+  //
+  // The fix is one number published two ways. `setRenderScale` softens the
+  // world by drawing it smaller and resolving it back up; this softens the DOM
+  // by the amount that upscale costs, so the two halves of the frame arrive at
+  // the same sharpness and the *change* between two rungs is uniform across the
+  // picture — which is criterion (c) of the seam rule, and the criterion the
+  // `scale` lever was claiming without paying for.
+
+  /**
+   * How many pixels of blur one pixel of upscale is worth.
+   *
+   * A bilinear resolve from `s` of the buffer spreads a texel over `1/s - 1`
+   * extra pixels of the target, so that is the ramp: 0 at full resolution,
+   * 1.0 buffer-pixels at the ladder's floor, and *nothing at all* until the
+   * ladder has actually spent something. Divided by the device pixel ratio
+   * because CSS blur is quoted in CSS pixels and the upscale happens in the
+   * drawing buffer — on a 2x display half a CSS pixel of blur is one buffer
+   * pixel of it, which is exactly what the world lost.
+   */
+  const SOFTEN_K = 1;
+  /** Below this the blur is not a picture, it is a compositing layer for
+   *  nothing. Under it the softener switches off entirely rather than asking
+   *  the browser to filter a full-screen layer by a twentieth of a pixel. */
+  const SOFTEN_MIN_PX = 0.1;
+  /** ...and a ceiling, so a composer with a lower floor than this ladder's can
+   *  never turn the instrument set into fog. */
+  const SOFTEN_MAX_PX = 1.6;
+
+  /**
+   * Which DOM layers soften with the world, stated as an exclusion.
+   *
+   * By exclusion rather than by name because the list of things drawn over the
+   * race is not this file's to keep: `#hud`, `#race`, `#coach`, `#item-fx`,
+   * `#touch` are today's and the next module to put a plate on the screen will
+   * not know to add itself here. Four things are out:
+   *
+   *   `#game`     the canvas. It is the thing that has *already* softened, and
+   *               blurring it again would pay full-resolution fill for the
+   *               privilege of doing the upscale twice.
+   *   `#boot`     the loading frame, which is gone before the governor has a
+   *               measurement and predates every module in the game.
+   *   `#menu`     the front-end. The race is not drawn behind it (see
+   *               `skipDraw`) and its set is a second renderer this ladder does
+   *               not size, so there is no world for it to match.
+   *   `#fx-screen` the boost wash: full-screen gradients with no edge in them,
+   *               so there is nothing for a blur to soften and it would be the
+   *               most expensive layer in the list.
+   *
+   * Written as one rule with a custom property in it so that changing the
+   * amount is a variable write on `<body>` and never a re-parse of a stylesheet.
+   */
+  const SOFTEN_CSS = `
+body.mc-soft > *:not(#game):not(#boot):not(#menu):not(#fx-screen) {
+  filter: blur(var(--mc-soften, 0px));
+}
+`;
+
+  let softenStyle: HTMLStyleElement | null = null;
+  /** The blur currently installed, in CSS pixels. -1 until the first write, so
+   *  boot always publishes once. */
+  let softenPx = -1;
+
+  function installSoftener(): void {
+    if (softenStyle || typeof document === 'undefined' || !document.head) return;
+    const el = document.createElement('style');
+    el.id = 'mc-quality-soften';
+    el.textContent = SOFTEN_CSS;
+    document.head.appendChild(el);
+    softenStyle = el;
+  }
+
+  /**
+   * Match the DOM's sharpness to the world's.
+   *
+   * Called from wherever `liveScale` moves — including every step of the ramp,
+   * so the two go soft together rather than the world dissolving under a HUD
+   * that snaps at the end. Costs one class toggle and one custom-property write
+   * on the frames where the number actually changes, and nothing at all on the
+   * frames where it does not, which is almost all of them: at full resolution
+   * the rule is not even matched and no layer is filtered.
+   */
+  function softenOverlays(scale: number): void {
+    if (typeof document === 'undefined') return;
+    const body = document.body;
+    if (!body) return;
+    const want = scale >= 1 - SCALE_EPS
+      ? 0
+      : Math.min(SOFTEN_MAX_PX, (SOFTEN_K * (1 / scale - 1)) / baseRatio());
+    // Hundredths: finer than the browser will resolve into a different blur and
+    // coarse enough that a ramp step is a handful of writes rather than one per
+    // frame for ever.
+    const q = Math.round(want * 100) / 100;
+    if (q === softenPx) return;
+    softenPx = q;
+    if (q < SOFTEN_MIN_PX) {
+      body.classList.remove('mc-soft');
+      body.style.removeProperty('--mc-soften');
+      return;
+    }
+    installSoftener();
+    body.style.setProperty('--mc-soften', `${q}px`);
+    body.classList.add('mc-soft');
+  }
+
   /** What the ladder wants the 3D drawn at. */
   let wantScale = 1;
   /** ...and what it is *actually* being drawn at, which between seams is not
@@ -2810,28 +3043,111 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    */
   function applyScale(scale: number): void {
     wantScale = scale;
-    serviceScale();
+    // **Recorded, not serviced.** The travelling is `serviceScale`'s, once per
+    // delivered frame, because the lever is a ramp now and a ramp needs frames
+    // to run across — see `SCALE_RAMP`. The callers that must have the whole
+    // thing immediately are the ones that are not a player watching a race, and
+    // they say so by calling `flushScale` on the next line: a seam, a bench, a
+    // reviewer pinning a rung.
+  }
+
+  /** True while the render scale is easing toward a target it has not reached.
+   *  Nothing decides anything on the strength of it; it is what keeps
+   *  `SCALE_HOLD_S` gating the *start* of a traverse rather than every step. */
+  let ramping = false;
+  /** Frames the ramp has spent travelling this session, and the traverses it
+   *  has completed. Reported so a review can tell a dissolve from a cut without
+   *  filming one. */
+  let rampFrames = 0;
+
+  /**
+   * Ease the render resolution toward whatever the ladder last asked for.
+   *
+   * Called once per delivered frame with the wall gap that frame took, so a
+   * request the rate limit refused is never simply forgotten and a request it
+   * allowed arrives as a dissolve rather than as a cut. Does nothing at all
+   * without a free path — there the seam is still the only door.
+   *
+   * Two gates, and they gate different things:
+   *
+   *   `SCALE_HOLD_S` gates the **start** of a traverse. It is the whole of the
+   *   mid-race safety argument and it is one line rather than a moment gate
+   *   because the caller is already gated: a rung change went through
+   *   `pictureLocked()` and `onAStraight()` before it got here. What it adds is
+   *   a floor on how often the picture may change size regardless of how fast
+   *   the ladder is moving — a panic pop that reaches the floor in one step
+   *   travels once, not six times.
+   *
+   *   `SCALE_RAMP` paces the **steps** of one. Deliberately not subject to the
+   *   hold: a ramp that had to wait two seconds between its own frames would be
+   *   a slideshow of intermediate resolutions, which is worse than the cut it
+   *   replaces.
+   */
+  function serviceScale(gapMs: number): void {
+    if (!freeScalePath()) return;
+    if (Math.abs(liveScale - wantScale) < SCALE_EPS) { ramping = false; return; }
+    if (!ramping) {
+      if (liveSeconds - lastScaleAt < SCALE_HOLD_S) return;
+      ramping = true;
+    }
+    stepScale(gapMs);
   }
 
   /**
-   * Land the render scale if the ladder has asked for one it has not got.
+   * One frame of the ramp.
    *
-   * Called on the frame a rung changes and again on every delivered frame, so a
-   * request the rate limit refused is never simply forgotten. Does nothing at
-   * all without a free path — there the seam is still the only door.
+   * The step is `SCALE_RAMP` scaled by how long the last delivered frame
+   * actually took, which is what makes the same constant mean "a quarter of a
+   * second" on a machine at 60fps and "get on with it" on one at 0.7 — see
+   * `SCALE_RAMP` for why that is the right shape rather than a compromise.
    *
-   * The rate limit is the whole of the mid-race safety argument, and it is one
-   * line rather than a moment gate because the *caller* is already gated: a
-   * rung change went through `pictureLocked()` and `onAStraight()` before it got
-   * here. What `SCALE_HOLD_S` adds is a floor on how often the picture may
-   * change size regardless of how fast the ladder is moving — a panic pop that
-   * reaches the floor in one step lands one resize, not six.
+   * A gap of zero is a frame this file was not allowed to count: the page was
+   * hidden, the harness drove it, the draw was skipped. It is worth exactly one
+   * 60Hz step, so a page that only ever produces those still arrives eventually
+   * and never arrives in a jump.
    */
-  function serviceScale(): void {
-    if (!freeScalePath()) return;
-    if (Math.abs(liveScale - wantScale) < 1e-3) return;
-    if (liveSeconds - lastScaleAt < SCALE_HOLD_S) return;
-    flushScale('live');
+  function stepScale(gapMs: number): void {
+    const free = freeScalePath();
+    if (!free) return;
+    const pace = gapMs > 0 ? Math.max(1, gapMs / SCALE_RAMP_MS) : 1;
+    const step = SCALE_RAMP * pace;
+    const delta = wantScale - liveScale;
+    const next = Math.abs(delta) <= step
+      ? wantScale
+      : liveScale + (delta > 0 ? step : -step);
+    free.setRenderScale!(next);
+    liveScale = next;
+    rampFrames++;
+    // The DOM travels with it, every step, or the world dissolves under a HUD
+    // that snaps at the end — which is the same seam one frame wide.
+    softenOverlays(liveScale);
+    if (Math.abs(liveScale - wantScale) < SCALE_EPS) {
+      // Arrived. Everything a landing owes the rest of the file is owed once,
+      // at the end, rather than thirteen times on the way: one `quality:changed`
+      // for the listeners that size themselves off it, one cleared window, one
+      // entry in the rate limit.
+      landScale('live');
+    } else {
+      // Mid-traverse the only thing that has to be true is that `stats()` is not
+      // lying about the resolution a reviewer is looking at.
+      publish();
+    }
+  }
+
+  /** Book a completed traverse: the bookkeeping every landing owes, by either
+   *  path, exactly once. */
+  function landScale(why: string): void {
+    ramping = false;
+    scaleSteps++;
+    lastScaleAt = liveSeconds;
+    lastFlushWhy = why;
+    // The frames before this one were drawn at a different resolution, so the
+    // window is about to compare two different games.
+    clearWindow();
+    ctx.bus.emit('quality:changed', {
+      quality: ctx.quality, scale: liveScale, rung: index, label: LADDER[index]?.label ?? '',
+    });
+    publish();
   }
 
   /**
@@ -2854,51 +3170,46 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    * whether the window it is about to take is worth anything.
    */
   function flushScale(why: string): boolean {
-    if (liveScale > wantScale - 1e-3 && liveScale < wantScale + 1e-3) return false;
+    if (liveScale > wantScale - SCALE_EPS && liveScale < wantScale + SCALE_EPS) {
+      ramping = false;
+      return false;
+    }
     const free = freeScalePath();
     if (free) {
       free.setRenderScale!(wantScale);
       liveScale = wantScale;
-      scaleSteps++;
-      lastScaleAt = liveSeconds;
-      lastFlushWhy = why;
-      // The frames before this one were drawn at a different resolution, so the
-      // window is about to compare two different games. Everything the fallback
-      // path says below applies here too — the only difference is the cost of
-      // the frame that does it.
-      clearWindow();
-      ctx.bus.emit('quality:changed', {
-        quality: ctx.quality, scale: liveScale, rung: index, label: LADDER[index]?.label ?? '',
-      });
-      publish();
+      softenOverlays(liveScale);
+      // Everything the fallback path says below applies here too — the only
+      // difference is the cost of the frame that does it.
+      landScale(why);
       return true;
     }
     const want = baseRatio() * wantScale;
     const have = ctx.renderer.getPixelRatio();
     if (have > want - 1e-3 && have < want + 1e-3) {
       liveScale = wantScale;
+      ramping = false;
       return false;
     }
     ctx.renderer.setPixelRatio(want);
     liveScale = wantScale;
     scaleFlushes++;
-    scaleSteps++;
-    lastScaleAt = liveSeconds;
-    lastFlushWhy = why;
+    // On this path the canvas itself moved, so the DOM over it is the one thing
+    // that did *not* — exactly the seam `softenOverlays` exists for, and more
+    // acute here than on the free path.
+    softenOverlays(liveScale);
     // Everything in the window was measured at a different resolution, and the
     // frames immediately after this one are the reallocation rather than the
     // game. `clearWindow` also drops `changeEntry`, so a flush can never be
     // charged to a rung change as `changeMs` — it is not one, and pretending
     // otherwise would put the number this round is judged on back where it was.
-    clearWindow();
-    // So that `ui/menus/stage.ts` — the one other renderer in the product, and
-    // the one this file only half owns the frame of — can size its own backing
-    // store off the scale that is now real. Existing listeners destructure
-    // `quality`, which has not changed, and are unaffected.
-    ctx.bus.emit('quality:changed', {
-      quality: ctx.quality, scale: liveScale, rung: index, label: LADDER[index]?.label ?? '',
-    });
-    publish();
+    //
+    // ...and `landScale` emits `quality:changed`, so that `ui/menus/stage.ts` —
+    // the one other renderer in the product, and the one this file only half
+    // owns the frame of — can size its own backing store off the scale that is
+    // now real. Existing listeners destructure `quality`, which has not changed,
+    // and are unaffected.
+    landScale(why);
     return true;
   }
 
@@ -3324,16 +3635,21 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   }
 
   /**
-   * ...and the half that waits for a seam: the two population shares.
+   * ...and the half that waits for a seam: the crowd.
    *
-   * These are the levers a player can watch being spent — a stand's back rows,
-   * a verge's cones — so they are installed at boot, at a race build behind the
-   * closed launch board, and on a window resize, and never in between. See
-   * `SEAM_HELD` for the measurement that put them here and `flushSeam` for the
-   * three doors.
+   * One lever now rather than two. It is the one a player can watch being spent
+   * — a stand's back rows going at once, forty metres in front of them — so it
+   * is installed at boot, at a race build behind the closed launch board, and
+   * on a window resize, and never in between. See `SEAM_HELD` for why it stays
+   * and `flushSeam` for the three doors.
    *
-   * They are state rather than a per-frame decision, and re-applying an
-   * unchanged share writes nothing.
+   * `scatter` used to be here and is not: round nine put it on `thinFar`'s
+   * projected-size ramp, where it is `contentFrame`'s business every frame. All
+   * that is left of it here is the *floor* the ramp writes between a seam and
+   * the first frame drawn after it — see the loop below.
+   *
+   * State rather than a per-frame decision, and re-applying an unchanged share
+   * writes nothing.
    */
   function applySeamContent(next: ContentTrim): void {
     seamContent = next;
@@ -3349,14 +3665,14 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       c.at = want;
       c.geo.setDrawRange(0, want >= c.full ? Infinity : want);
     }
+    // The verge goes back to **full**, and `contentFrame` thins it again on the
+    // very next frame from where the camera actually is. There is exactly one
+    // frame between a seam and that pass — the priming render — and full is the
+    // right thing to draw on it: it is the only share that is correct at every
+    // distance, so a frame drawn before the ramp has run is never a frame drawn
+    // at some other rung's density.
     for (const s of scatter) {
-      // The *floor* the ramp works down from, not the count itself: the count
-      // is written every frame by `contentFrame`, which multiplies this share by
-      // the batch's own projected size. Written here anyway so that a frame
-      // between a seam and the next `contentFrame` — there is exactly one, the
-      // priming render — is never drawn at the previous rung's density.
-      const want = Math.max(1, Math.round(s.full * Math.max(0, Math.min(1, next.scatter))));
-      if (s.at !== want) { s.at = want; s.mesh.count = want; }
+      if (s.at !== s.full) { s.at = s.full; s.mesh.count = s.full; }
     }
   }
 
@@ -3416,23 +3732,29 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
 
     // ── the verge's density, as a function of how big a cone is on screen ──
     //
-    // The seam-safe half of the scatter lever. `seamContent.scatter` is the
-    // share the standing *seam* rung allows at all — installed at a race build,
-    // never moved in between — and this scales it down further for any batch
-    // that has become small, on a ramp rather than a step, so nothing changes
-    // state on a frame: a batch drifting past the knee loses one instance per
-    // frame out of seventy.
+    // **The whole scatter lever, and all of it live.** `far` is the density a
+    // batch is taken to once its instances have shrunk to nothing, and it is
+    // the product of the two shares the rung carries: `thinFar`, which is the
+    // ramp, and `scatter`, which used to be a flat multiplier installed at a
+    // seam and is now the far end of the same ramp. Round nine's change is that
+    // one multiplication — see `ContentTrim.scatter`.
+    //
+    // Anchored at the knee, which is what makes it seam-safe and what makes the
+    // product legitimate: at `THIN_KNEE_PX` the factor is exactly 1 for every
+    // rung of the ladder, whatever either share says, so the verge a player is
+    // driving past is at full density at rung 0 and at the floor alike and a
+    // rung change cannot be watched happening. Everything a rung moves is
+    // already smaller than the knee.
     //
     // No hysteresis, deliberately, and it is the one lever in this file that
     // does not need it. A dead band exists to stop a *binary* flag strobing on
     // a batch that sits exactly on the threshold; a count that moves
     // continuously with distance has nothing to strobe between.
-    const far = content.thinFar;
-    const share = Math.max(0, Math.min(1, seamContent.scatter));
+    const far = Math.max(0, Math.min(1, content.thinFar * content.scatter));
     let thinned = 0;
     for (let i = 0; i < scatter.length; i++) {
       const s = scatter[i]!;
-      let f = share;
+      let f = 1;
       if (far < 1) {
         const dx = s.cx - _cam.x, dy = s.cy - _cam.y, dz = s.cz - _cam.z;
         const near = Math.max(1, Math.sqrt(dx * dx + dy * dy + dz * dz) - s.radius);
@@ -3443,7 +3765,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
           // the rung's effect grows as the thing shrinks. See `ContentTrim.
           // thinFar`.
           const t = px / THIN_KNEE_PX;
-          f = share * (far + (1 - far) * t);
+          f = far + (1 - far) * t;
           thinned++;
         }
       }
@@ -3693,7 +4015,6 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // rung rows differ would be the log lying about the picture.
       case 'scale': return Math.abs(liveScale - f.scale) > 1e-3;
       case 'crowd': return f.content.crowd !== s.content.crowd;
-      case 'scatter': return f.content.scatter !== s.content.scatter;
       case 'aa': return f.settings.aa !== s.settings.aa;
       case 'drawDistance': return f.settings.drawDistance !== s.settings.drawDistance;
       default: { const unhandled: never = lever; return unhandled; }
@@ -4166,6 +4487,9 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       scaleFlushes,
       scaleSteps,
       scaleFlushWhy: lastFlushWhy,
+      scaleRamping: ramping,
+      scaleRampFrames: rampFrames,
+      soften: softenPx < 0 ? 0 : softenPx,
       scenePx: `${Math.max(2, Math.round(bufW() * liveScale))}x${Math.max(2, Math.round(bufH() * liveScale))}`,
       canvasPx: `${bufW()}x${bufH()}`,
       seamRung: seamIndex,
@@ -4179,7 +4503,8 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       content: {
         crowd: content.crowd, scatter: content.scatter,
         thinFar: content.thinFar, minPx: content.minPx, shellPx: content.shellPx,
-        crowdLive: seamContent.crowd, scatterLive: seamContent.scatter,
+        crowdLive: seamContent.crowd, scatterLive: content.scatter,
+        scatterFar: +(content.thinFar * content.scatter).toFixed(3),
         crowdGeos: contentCrowd, batches: contentScatter,
         cullables: contentCullable, shells: contentShells,
         culled: culledNow, shelled: shelledNow, thinned: thinnedNow,
@@ -4824,12 +5149,13 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
          * between it and the `set()` walk is what the next race build lands.
          *
          * That difference is much smaller than it was. Round eight moved
-         * `scale` and `tier` out of the seam-held half, so the only levers a
-         * `mid()` walk still cannot reach are `crowd`, `scatter`, `aa` and
-         * `drawDistance` — and the largest single lever on the table, the
-         * resolution, is now in the walk rather than behind it. Note that
-         * triangles and draw calls are the *wrong* instrument for it: the
-         * resolution moves neither.
+         * `scale` and `tier` out of the seam-held half and round nine moved
+         * `scatter`, so the only levers a `mid()` walk still cannot reach are
+         * `crowd`, `aa` and `drawDistance` — and the two largest things on the
+         * table, the resolution and the verge, are both in the walk. Note that
+         * triangles and draw calls are the *wrong* instrument for the first of
+         * those and the right one for the second: `mid(0)` to `mid(6)` used to
+         * move 654 triangles, which is what round nine is about.
          */
         mid(i: number): QualityProbe {
           auto = false;
@@ -5286,7 +5612,12 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // rate limit would let it land, is a rung whose *picture* has to arrive
       // eventually. `serviceScale` is a no-op on every frame where the buffer
       // already matches, which is almost all of them.
-      serviceScale();
+      //
+      // It is handed the gap this frame took, because the lever is a ramp and
+      // the ramp is paced by the wall clock — see `SCALE_RAMP`. `secs` is zero
+      // on a frame this file is not allowed to count, and a frame that was not a
+      // picture is worth one 60Hz step rather than a jump.
+      serviceScale(secs * 1000);
 
       // `benchFrames` only moves when `renderFrame` was called from outside the
       // rAF loop: the front end primes exactly one such frame per race start,
@@ -5661,6 +5992,15 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // left to put it back. Same argument as `skipDraw` below.
       wantScale = 1;
       flushScale('dispose');
+      // ...and the softening that matched it, including the stylesheet. Same
+      // argument one layer up: this file is the only thing that ever blurs the
+      // interface, so a governor that is disposed at the floor would leave a
+      // permanently soft HUD with nobody left to sharpen it. `flushScale` above
+      // has already put `softenPx` back to 0 through `softenOverlays`; what is
+      // left is the rule itself.
+      softenOverlays(1);
+      softenStyle?.parentNode?.removeChild(softenStyle);
+      softenStyle = null;
       clearShells();
       crowdGeos.length = 0;
       scatter.length = 0;
