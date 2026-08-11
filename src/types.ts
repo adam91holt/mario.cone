@@ -325,6 +325,20 @@ export interface QualitySettings {
   particles: number;
   drawDistance: number;
   aa: boolean;
+  /**
+   * The bloom pyramid, separately from the rest of the post stack.
+   *
+   * `postfx` is all-or-nothing and turning it off is a cliff: the atmosphere,
+   * the film stock, the vignette and the grade all go with it, `THREE.FogExp2`
+   * comes back on the scene, and every material in the game recompiles in the
+   * one frame the governor picked to rescue a machine that was already failing
+   * — measured at 762ms and thirty new programs. The pyramid on its own is a
+   * bright pass and eight blits over five mips, and dropping it changes the
+   * picture by a little rather than by everything.
+   *
+   * Undefined means on, so a tier that predates this field keeps its bloom.
+   */
+  bloom?: boolean;
 }
 
 export interface TimeState {
@@ -472,6 +486,40 @@ export interface FrameBudget {
    */
   liveFrames: number;
   benchFrames: number;
+  /**
+   * Fixed steps driven from **outside** the rAF loop — `__GAME.step()`.
+   *
+   * The other half of telling a bench from a player, and the half that
+   * `benchFrames` cannot cover. A capture recipe like `rideUntil` steps the
+   * simulation for three or four seconds of wall time inside one
+   * `page.evaluate` and renders nothing at all; the rAF callback that lands
+   * afterwards then measures a gap that is entirely somebody else's work. That
+   * gap is not a frame this machine drew, and the only honest way to know is a
+   * *causal* one — did the harness run in it — rather than "was it longer than
+   * two seconds", which is a rule that throws away exactly the frames a slow
+   * machine is made of. See `STALL_MS`'s grave in `core/quality.ts`.
+   */
+  benchSteps: number;
+
+  // ── what the quality governor has settled on ─────────────────────────────
+  //
+  // Written by `core/quality.ts`, not by the engine, and kept here so that
+  // `stats()` can report the governor's verdict without `engine.ts` having to
+  // know the governor exists. The engine initialises them and never touches
+  // them again; with no governor installed they simply read as rung 0.
+  /** Index into the ladder. 0 is the most expensive. */
+  rung: number;
+  rungLabel: string;
+  /** Fraction of the display's own resolution the 3D is drawn at. */
+  renderScale: number;
+  /** Mean wall time between *delivered* frames as the governor measures it —
+   *  its own short window, cleared on every change. 0 until it has one. */
+  liveWallMs: number;
+  liveWorstMs: number;
+  /** Real seconds of delivered play the governor has actually accrued. */
+  liveSeconds: number;
+  /** What the governor is doing or waiting for, in one word. */
+  governor: string;
 }
 
 export interface RenderStats {
@@ -509,6 +557,22 @@ export interface RenderStats {
   particles?: number;
   /** 0 when shadows are off, so "no shadow map" and "a small one" differ. */
   shadowSize?: number;
+  /** Which rung of the ladder, and its name. A tier alone cannot say: the
+   *  ladder has six rungs across three tiers. */
+  rung?: number;
+  rungLabel?: string;
+  /** Fraction of the display's resolution the 3D is drawn at. The single
+   *  largest thing the ladder spends, so a review that does not report it is
+   *  reporting half the picture. */
+  renderScale?: number;
+  /** The governor's own wall-clock window — mean and worst delivered frame —
+   *  which is a different instrument from `wallMs`'s sixty-frame mean and is
+   *  the one the ladder actually decides on. */
+  liveWallMs?: number;
+  liveWorstMs?: number;
+  liveSeconds?: number;
+  /** One word: what the governor is doing, or why it is not. */
+  governor?: string;
 
   /** Per-system cost, most expensive first. Systems under 5µs are omitted. */
   systems?: SystemCost[];

@@ -33,7 +33,7 @@ import {
   makeKerbTexture, makePaintTexture, makeTrackedGravelTexture,
 } from './textures.ts';
 import { features, type CourseDefEx } from './courses/types.ts';
-import type { CourseDef, SplineSample } from '../types.ts';
+import type { CourseDef, SplineSample, Surface } from '../types.ts';
 import type { TrackSpline } from './spline.ts';
 
 /** A boost strip resolved to absolute distances and lateral metres. */
@@ -43,6 +43,56 @@ export interface PadRuntime {
   lat0: number;
   lat1: number;
 }
+
+/**
+ * A surface patch resolved to absolute distances and a lateral band.
+ *
+ * The band is carried as *fractions of the half width* rather than metres,
+ * because a spill runs down the side of a road whose width changes underneath
+ * it — Switchback's washout crosses two metres of narrowing and Jackhammer's
+ * sump apron three.
+ */
+export interface PatchRuntime {
+  d0: number;
+  d1: number;
+  surface: Surface;
+  /** Centre of the band, as a fraction of the half width. */
+  c: number;
+  /** Half the band, same units. */
+  hw: number;
+  /** Metres over which the band fades in at each end. */
+  taper: number;
+  /** Decorrelates the edge noise between patches on the same course. */
+  seed: number;
+}
+
+/**
+ * How much of a patch's lateral band is present `rel` metres into it: 0 for
+ * none, 1 for the whole declared band.
+ *
+ * **This is called by the paint below and by `sample()` in `track/index.ts`,
+ * and that is the whole point of it existing.** A spill that a player can see
+ * and a spill a kart can feel have to be the same shape, and the way to
+ * guarantee that is not to write the shape down twice. The ends fade in over a
+ * third of the patch so it fans out of the shoulder instead of starting at a
+ * ruled transverse line, and the noise term only ever eats *into* the declared
+ * band — a patch never grows past what the course asked for.
+ */
+export function patchScale(p: PatchRuntime, rel: number): number {
+  const len = p.d1 - p.d0;
+  if (rel < 0 || rel > len) return 0;
+  const ends = smoothstep(0, p.taper, rel) * smoothstep(0, p.taper, len - rel);
+  const k = ends * (0.88 + fbm(rel / 19 + p.seed, p.seed) * 0.12);
+  return k < 0 ? 0 : k > 1 ? 1 : k;
+}
+
+/** Fallback material colour per surface, when a course does not name one. */
+const PATCH_TINT: Partial<Record<Surface, string>> = {
+  dirt: '#8A6A46',
+  sand: '#CDBB98',
+  grass: '#5F7A3C',
+  water: '#4A6E82',
+};
 
 export interface CornerSpan {
   from: number;
@@ -55,6 +105,7 @@ export interface CornerSpan {
 
 export interface RoadBuild {
   pads: PadRuntime[];
+  patches: PatchRuntime[];
   corners: CornerSpan[];
   /** Scrolled every frame so the chevrons crawl toward the driver. */
   padTexture: THREE.Texture | null;
@@ -436,7 +487,81 @@ export function buildRoad(
     parent.add(cutMesh);
   }
 
-  return { pads, corners, padTexture };
+  // ── surface patches: the spill, the windrow, the washout ────────────────
+  // Material lying *on* the racing surface, which is a different idea from the
+  // gravel cut above: the cut is a route off the tarmac that saves distance,
+  // and a patch is tarmac that has stopped behaving like tarmac. It is laid at
+  // the shortcut's polygon offset but a few millimetres higher, so it covers
+  // the centre dashes and the edge line — a spill does not politely stop at
+  // the paint.
+  //
+  // The band comes from `patchScale`, which `sample()` also calls. Nothing here
+  // decides a shape of its own.
+  const patches: PatchRuntime[] = [];
+  const spills = new Map<string, MeshBuilder>();
+  const patchDefs = feat.patches ?? [];
+  for (let i = 0; i < patchDefs.length; i++) {
+    const def = patchDefs[i]!;
+    const d0 = wrap(start + def.from * L, L);
+    const span = Math.max(8, (def.to - def.from) * L);
+    const lo = Math.min(def.latFrom, def.latTo);
+    const hi = Math.max(def.latFrom, def.latTo);
+    const p: PatchRuntime = {
+      d0,
+      d1: d0 + span,
+      surface: def.surface,
+      c: (lo + hi) * 0.5,
+      hw: (hi - lo) * 0.5,
+      taper: Math.min(24, span * 0.34),
+      seed: i * 7.31 + 1.7,
+    };
+    patches.push(p);
+
+    const tint = def.tint ?? PATCH_TINT[def.surface] ?? '#8A6A46';
+    let builder = spills.get(tint);
+    if (!builder) { builder = new MeshBuilder(); spills.set(tint, builder); }
+
+    // Eight lanes across the band. The lateral of each is a function of
+    // distance, because the band narrows toward both ends.
+    const lanes: Lane[] = [];
+    for (let j = 0; j <= 8; j++) {
+      const t = j / 4 - 1; // -1..+1 across the band
+      const lat = (s: SplineSample): number => {
+        const k = patchScale(p, wrap(s.distance - p.d0, L));
+        return (p.c + p.hw * k * t) * s.width * 0.5;
+      };
+      lanes.push({ lat, lift: () => 0.028, u: (s) => lat(s) / 6 });
+    }
+    builder.addRibbon(spline, lanes, {
+      verge, from: d0, to: d0 + span, step: 1.6, vScale: 6,
+      // Loose material is not one tone: the middle is churned and dark, the
+      // thin edges are dusted over the tarmac and read pale.
+      tint: (s, latM, _f, out) => {
+        const half = s.width * 0.5;
+        const k = patchScale(p, wrap(s.distance - p.d0, L)) || 1e-3;
+        const off = Math.abs(latM / half - p.c) / (p.hw * k);
+        const depth = 1 - smoothstep(0.45, 1, off);
+        const n = fbm(s.distance / 7 + p.seed, latM / 7) * 0.14;
+        const v = 1 + 0.16 * (1 - depth) + n - depth * 0.10;
+        out.setRGB(v, v * 0.985, v * 0.955);
+      },
+    });
+  }
+  for (const [tint, builder] of spills) {
+    if (builder.isEmpty) continue;
+    const mesh = new THREE.Mesh(builder.toGeometry(), new THREE.MeshLambertMaterial({
+      map: makeGravelTexture(tint),
+      vertexColors: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    }));
+    mesh.name = 'spill';
+    mesh.receiveShadow = true;
+    parent.add(mesh);
+  }
+
+  return { pads, patches, corners, padTexture };
 }
 
 /**

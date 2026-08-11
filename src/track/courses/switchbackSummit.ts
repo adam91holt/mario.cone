@@ -48,6 +48,41 @@
 // floor where the karts are flat out, 24-26m on the traverses, 20m at the Spur.
 // The longest dead straight is the 180m of descent immediately after the Ridge,
 // which is pointing downhill at 17% and is not restful.
+//
+// ── the look, and why the numbers below are what they are ──────────────────
+//
+// A critic photographed this course and read it as "a works yard on a green
+// hill next to a meringue". Both halves of that were the course's own fault,
+// not the renderer's, because `render/theme.ts` paints the alpine surface off
+// two things a *course* supplies: `theme.ground`, and how high the land stands
+// relative to the nearest road (`rel`).
+//
+//   * **The meringue.** The snow ramp runs from about `rel` 35 to `rel` 135.
+//     `rimHeight` was 200, which puts the *whole* rim between `rel` 79 and 207
+//     — above the ramp before it starts — so every ridge on the circuit came
+//     back one flat blue-white with no snowline and no rock under it. The rim
+//     is 95 now: `plateau * terrace * erosion` spreads that across `rel` 2 to
+//     115, which lands the ramp on the land itself. Bare schist near the
+//     circuit, the snowline arriving about five hundred metres out, white only
+//     past it. The hero peaks are re-sized against the same ramp — see the
+//     `terrain` block.
+//   * **The green hill.** The far field settles onto `groundY`, and `groundY`
+//     was -35: thirty-five metres *below* the valley-floor road, which is
+//     exactly the band `alpine.paint` reads as tussock, so a kilometre of
+//     landscape came back saturated pasture green. The plain is level with the
+//     valley floor now, which is what a valley floor is.
+//   * **The warm tan.** `theme.ground` was 0x8f8c74, a warm olive-tan, and it
+//     is both the far-field albedo *and* (via `sunRig`) the colour of the
+//     bounce light on every object in the game. Warm tan on one side of the
+//     road, pasture green on the other. It is cold blue-grey schist now, so the
+//     tussock beside the shoulder mixes down to a dry alpine grey-green instead
+//     of a golf course.
+//
+// The hero landforms follow from the same arithmetic: anything topping out much
+// over `rel` 140 is a white lump, so the near peaks are sized to *stand through*
+// the snowline rather than to start above it, and two low rock buttresses sit
+// close enough to the circuit to be looked at rather than admired from a
+// distance.
 
 import { loopFromWaypoints, type Waypoint } from './path.ts';
 import type { CourseDefEx } from './types.ts';
@@ -199,64 +234,149 @@ export const switchbackSummit: CourseDefEx = {
   walls: true,
   wallHeight: 1.6,
   groundSize: 5600,
-  // The valley floor sits 35m below the start straight, which is what gives the
-  // climb something to be measured against from the road itself.
-  groundY: -35,
+  // The plain the valley floor road runs across, and nothing more ambitious
+  // than that. It used to be -35, on the reasoning that a datum below the start
+  // straight gives the climb something to be measured against — but the climb
+  // is measured against the *road*, which gains 116m either way, and the only
+  // thing the low datum bought was a kilometre of far field sitting five to
+  // thirty metres under the nearest tarmac, which is the exact band
+  // `alpine.paint` reads as tussock. That is where the pasture green came from.
+  groundY: 4,
   startDistance: 50,
   checkpoints: 36,
 
   features: {
-    // Every strip on this circuit is on the way *up*. Climbing at 8-11% costs
-    // roughly a fifth of the kart's acceleration, and a boost pad halfway up a
-    // traverse is worth twice what the same pad is worth on the flat.
+    // **Five strips, every one of them on the way up, none on the way down.**
+    // That asymmetry is the lap structure here, and it is the opposite of
+    // Cone Canyon's — where the strips are the reward for a clean corner, these
+    // are compensation for a gradient. Climbing at 8-11% costs roughly a fifth
+    // of the kart's acceleration, so a pad halfway up a traverse is worth twice
+    // what the same pad is worth on the flat; the descent is 17% downhill and
+    // has more speed than anybody can use already.
     pads: [
       { at: 0.130, lateral: 0.30, width: 6, length: 20 },
       { at: 0.258, lateral: -0.30, width: 6, length: 20 },
-      { at: 0.455, lateral: 0.30, width: 6, length: 20 },
-      { at: 0.600, lateral: -0.28, width: 6, length: 20 },
+      { at: 0.348, lateral: 0.28, width: 6, length: 18 },
+      { at: 0.470, lateral: 0.30, width: 6, length: 20 },
+      { at: 0.612, lateral: -0.28, width: 6, length: 20 },
     ],
     // Across the inside of the Spur. The cut is laid on the gravel shoulder, so
     // it holds you to 70% of top speed while saving the tip of the promontory —
     // worth it out of a mini-turbo, and free with a mushroom in the slot.
     shortcuts: [{ from: 0.371, to: 0.403, side: 1 }],
+    // **The washout, in the Spillway.** Half the road on the fastest part of
+    // the descent is under the scree that comes off the cutting above it — you
+    // arrive at 17% downhill and have to decide whether to give up the inside
+    // line or take the loose stuff. It is the only place in the cup where a
+    // corner is *narrowed by its surface* rather than by its barriers.
+    // See `SurfacePatchDef` for the lateral frame; this is the uphill (left)
+    // half of the road, which is also the geometrically quick side.
+    //
+    // Cold grey schist, the same rock the cutting above it is made of, so it
+    // reads as something that fell rather than as something that was painted.
+    patches: [
+      { from: 0.868, to: 0.892, latFrom: 0.22, latTo: 1, surface: 'dirt', tint: '#9AA2B4' },
+    ],
     kerbCurvature: 0.0048,
 
-    // A real mountain, not a rim. 200m of relief starting 200m off the
-    // shoulder, and a massif inside the ring tall enough that you cannot see
-    // across the circuit — which is what makes a lap feel like a journey
-    // instead of a loop.
+    // ── the mountain ──────────────────────────────────────────────────────
+    //
+    // Sized against the snow ramp in `render/theme.ts`, which runs from roughly
+    // `rel` 35 to `rel` 135 above the nearest road. **Every number here is
+    // chosen so that the land crosses that ramp rather than starting above it.**
+    //
+    // The rim was 200m tall. `plateau * terrace * erosion` never takes 200 below
+    // `rel` 79, so the entire rim began most of the way up the ramp and the
+    // whole landscape came back one flat blue-white — a critic called it a
+    // meringue and was right. At 95 the same product spreads the land from
+    // `rel` 2 to 115: grey schist near the circuit, the snowline arriving about
+    // five hundred metres out, white only past that. The line moves *with the
+    // distance from the road*, which is the one thing that reads as altitude
+    // from inside a kart.
+    //
+    // The heroes are sized the same way. The hard part is that the bottom
+    // fifteen or twenty per cent of any landform is hidden behind the
+    // embankment and the barrier, so a peak whose rock band lives in its lowest
+    // fifth has no rock band at all as far as a player is concerned. The near
+    // ones are therefore 100-145m — their visible middle is scree, their top
+    // quarter is snow — and only the far ones, which are seen through a
+    // kilometre of aerial perspective and *should* be white, are allowed to
+    // stand clear of the ramp entirely.
+    //
+    // `rimStart` is also what holds the whole landscape off the 50-160m band
+    // the world module fills with `room()` — conveyors, berms, parked plant —
+    // which tests whether a spot is free and not whether it is level. Nothing
+    // steep may begin inside it, which is why the rim waits until 180m and the
+    // hero gate (`rimStart * 0.7` to `rimStart * 1.5`) does not open until 126.
     terrain: {
-      rimStart: 200,
-      rimEnd: 760,
-      rimHeight: 200,
+      rimStart: 180,
+      rimEnd: 620,
+      rimHeight: 95,
       landmarks: [
         // The peak the whole circuit is wrapped around. Its foot is held clear
         // of the road by the same gate as the rim, so it rises out of the
         // middle of the ring rather than through the tarmac.
-        { x: 70, z: 60, radius: 320, height: 215, kind: 'mesa' },
+        { x: 70, z: 60, radius: 320, height: 145, kind: 'mesa' },
+        // A rock tooth outside the Foot of the Climb — the near landmark the
+        // first traverse is aimed at, and the one place on this course you see
+        // exposed schist at eye level instead of on a skyline.
+        { x: 585, z: -335, radius: 195, height: 105, kind: 'spire' },
+        // The bluff on the outside of the Cutting Sweep, so the descent has a
+        // wall on it rather than open air on both sides.
+        { x: -700, z: 300, radius: 250, height: 100, kind: 'mesa' },
         // The far side of the valley, seen from the whole descent.
-        { x: -1050, z: 480, radius: 430, height: 300, kind: 'mesa' },
+        { x: -1050, z: 480, radius: 430, height: 200, kind: 'mesa' },
         // Behind the Spur, so the promontory has something to be a promontory
         // in front of.
-        { x: 1150, z: -180, radius: 380, height: 265, kind: 'mesa' },
+        { x: 1150, z: -180, radius: 380, height: 185, kind: 'mesa' },
         // A needle past the Col, on the skyline of the climb.
-        { x: 320, z: 1020, radius: 260, height: 290, kind: 'spire' },
+        { x: 320, z: 1020, radius: 260, height: 215, kind: 'spire' },
       ],
     },
   },
 
   theme: {
-    ground: 0x8f8c74,
+    // **Cold schist, and it has to be declared cold.** `theme.ground` is not
+    // only the far-field albedo: `sunRig()` turns it into the ground half of
+    // the hemisphere fill, so it is the colour of the light bouncing back up
+    // onto every kart, cone and barrier on the circuit. At 0x8f8c74 — a warm
+    // olive-tan — the land beyond the barrier read as desert on the cut side
+    // while `ALPINE_TURF` made the fill side pasture green, and a critic
+    // photographed the two of them either side of the same road. Blue-grey
+    // schist mixes that tussock down to a dry alpine grey-green and cools the
+    // bounce at the same time.
+    //
+    // The exact value is solved backwards rather than picked. `alpine.paint`
+    // lays `ALPINE_TURF` (0x67704a — a properly saturated pasture green) over
+    // the base at about 45% for every metre of ground that sits below the
+    // nearest road, which is *all* of the 26m embankment band and most of what
+    // a chase camera can see. So what a player looks at is not this colour, it
+    // is `0.55 * this + 0.45 * turf`, and the only way that mix comes back as
+    // dry alpine grey-green is if the declared colour leans the other way. At
+    // 0x9490a8 the mix lands on roughly rgb(126,128,121): neutral, with the
+    // green left in it as a tint rather than as the subject.
+    ground: 0x9490a8,
     // Altitude: the zenith goes almost navy and the horizon goes to a cold
     // white. Nothing else in the cup has a sky this dark at the top.
-    sky: { top: 0x0c47a4, bottom: 0xb6def6, horizon: 0xeaf4ff },
+    sky: { top: 0x0a3a9a, bottom: 0xc6e2f8, horizon: 0xf2f9ff },
     // Cool, deep aerial perspective. The far ridges have to grey out or the
-    // 300m peaks read as cardboard cut-outs stood behind the track.
-    fog: { color: 0xc6dcee, near: 480, far: 3000 },
-    sun: { color: 0xfff6e8, intensity: 2.95, azimuth: 5.25, elevation: 0.6 },
-    // Dark cold tarmac with white edge marking — a mountain road is kerbed in
-    // white paint and snow poles, not in hazard yellow.
-    road: { base: '#3C3F47', line: '#FFF8F0', edge: '#FFF8F0' },
+    // 250m peaks read as cardboard cut-outs stood behind the track.
+    fog: { color: 0xbdd6ec, near: 440, far: 3000 },
+    // Morning, and low: the elevation is clamped to the house band by
+    // `sunRig()`, so the only thing a course really controls is *where* the
+    // light comes from. This one rakes across the traverses from the west,
+    // which is a quarter turn away from the quarry's and a half from the
+    // canyon's — four courses, four shadow directions.
+    sun: { color: 0xfff4e6, intensity: 2.85, azimuth: 5.25, elevation: 0.55 },
+    // **The pale one, and it is the only pale road in the game.** All four
+    // courses ran a base between #2B2D34 and #3A3D46 — four dark neutrals five
+    // per cent of luminance apart, which a critic photographed together and
+    // read as one road surface. A mountain pass is not fresh bitumen: it is
+    // weathered chipseal that has had thirty winters of grit and salt on it,
+    // and going *up* in value is the one direction none of the other three can
+    // go. White edge marking, because a mountain road is kerbed in paint and
+    // snow poles, not in hazard yellow.
+    road: { base: '#6B7383', line: '#FFF8F0', edge: '#FFF8F0' },
     props: {
       alpine: true, cones: true, crowds: true,
       snowPoles: true, pines: true, avalancheFence: true,

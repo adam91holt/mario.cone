@@ -13,7 +13,7 @@
 
 import * as THREE from 'three';
 import { TrackSpline } from './spline.ts';
-import { buildRoad, type PadRuntime } from './road.ts';
+import { buildRoad, patchScale, type PadRuntime, type PatchRuntime } from './road.ts';
 import { buildBarriers } from './barriers.ts';
 import { buildGantry, type GantryLights } from './gantry.ts';
 import { buildTerrain } from './terrain.ts';
@@ -35,6 +35,7 @@ export function createTrackSystem(ctx: GameContext): TrackSystem {
   let group: THREE.Group | null = null;
   let track: Track | null = null;
   let pads: PadRuntime[] = [];
+  let patches: PatchRuntime[] = [];
   let padTexture: THREE.Texture | null = null;
   let banner: THREE.Object3D | null = null;
   let lights: GantryLights | null = null;
@@ -94,6 +95,7 @@ export function createTrackSystem(ctx: GameContext): TrackSystem {
     buildTerrain(spline, course, group);
 
     pads = road.pads;
+    patches = road.patches;
     padTexture = road.padTexture;
 
     const checkpoints = buildCheckpoints(spline, course);
@@ -117,6 +119,19 @@ export function createTrackSystem(ctx: GameContext): TrackSystem {
        * The track owns what the tarmac *is*: physics asks what surface it is
        * standing on and gets 'boost' back on a strip, which is what makes boost
        * pads a track feature rather than a physics special case.
+       *
+       * Two things live inside the ribbon. Boost strips are paint, and a
+       * **surface patch** is material — the crusher fines across a bench, the
+       * salt windrow on the outside of a flat-out sweeper, the scree washout on
+       * a 17% descent. Patches are walked after the pads and win where they
+       * overlap: something lying on the road beats something painted under it.
+       *
+       * The band comes from `patchScale()` in `road.ts`, which is the same
+       * function the ribbon is *painted* from. That is deliberate. These four
+       * patches spent a whole round declared in three course files, described
+       * at length, and dead — `sample()` decided surface from lateral distance
+       * alone and returned `road` for every one of them — so the shape is
+       * written down once and read from both sides rather than mirrored.
        */
       sample(worldPos: THREE.Vector3, out?: SplineSample): SplineSample {
         const s = spline.nearest(worldPos, out);
@@ -131,6 +146,15 @@ export function createTrackSystem(ctx: GameContext): TrackSystem {
             if (lateral < p.lat0 || lateral > p.lat1) continue;
             const rel = ((s.distance - p.d0) % L + L) % L;
             if (rel <= p.d1 - p.d0) { surface = 'boost'; break; }
+          }
+          for (let i = 0; i < patches.length; i++) {
+            const p = patches[i]!;
+            const k = patchScale(p, ((s.distance - p.d0) % L + L) % L);
+            if (k <= 0) continue;
+            const f = lateral / half;
+            if (f < p.c - p.hw * k || f > p.c + p.hw * k) continue;
+            surface = p.surface;
+            break;
           }
         } else if (a <= half + vergeWidth) {
           surface = course.vergeSurface ?? 'dirt';

@@ -4868,3 +4868,184 @@ Confirmed: `racerCount: 7`, with each machine now permanently bound to one drive
 ### 🤖 Claude — 2026-08-10 22:00 UTC
 
 Real progress, visible in one frame. The **fabricated results are gone** — gaps are now organic (+0.058, +0.483, +1.183, +1.241, +1.958, +5.308) instead of that synthetic +0.080/+0.160/+0.240 ladder. The **championship column works** (15/12/10/8/6/4/2, was all zeros). The player is **FOREMAN** in the same naming system as everyone else, not "SEDAN", with the machine said in silhouette and the driver in words. Best lap and your splits are new. And the world is visible behind the sheet instead of blacked out.
+
+### 🤖 Claude — 2026-08-10 22:02 UTC
+
+Coherence pass merged (`0fd9a16`) and live. **The single worst bug of the whole build turned up here**, and it's worth your attention.
+
+**The results screen was inventing the race.** `race/director.ts` clamped every estimated finisher to `lastFinishTime + 0.08`, so the sheet printed `+0.080 / +0.160 / +0.240 / +0.320 / +0.400 / +0.480 / +0.560` straight down the table — *the identical ladder on a different course with different racers*. A harness snapshot at phase `results` showed every racer still on lap 0, between 786 m and 1169 m of a 6527 m race, while the sheet confidently printed a winner's time of 2:43.417.
+
+The screen whose entire job is telling you what just happened was describing a race that hadn't happened. Fixed — the gaps are organic now (`+0.058, +0.483, +1.183, +1.241, +1.958, +5.308`), and I confirmed that on the frame rather than taking the agent's word. The CHAMPIONSHIP column works too; it had been reading **0 for all eight** while awarding +15/+12/+10 four inches to its left.
+
+**Also landed:** one shadow policy across the whole repo — the thing five separate critics each found and none could fix. And the cast stopped shuffling: drivers were being re-dealt onto machines every race, and the player showed up as "SEDAN", a machine name, among seven character names. Now each machine owns its driver permanently, so the silhouette says machine and the word says driver.
+
+**One thing I flagged rather than accepted:** the field is now **7 racers, down from 8**. Binding one driver to one machine with seven machines does that arithmetic on its own — but the critic had asked for eight with a second-string driver name, and Mario Kart runs twelve. It buys perfect cast identity at the cost of a smaller grid. Say the word if you'd rather have the eighth back and I'll carry it as a directive.
+
+Next wave is running: **courses** (finally unblocked — the theme wiring it needed now exists, so its job this round is to *use* it and prove the four courses are distinguishable from the overhead shot without the minimap) and **perf** (re-measuring against a course that changed underneath it — 757k triangles now, against 520k when it last passed through). Routing and carry verified.
+
+### 🧑 Prompt — 2026-08-10 22:16 UTC
+
+MARIO.CONE build loop — hourly. Repo adam91holt/mario.cone (PUBLIC), branch claude/mario-kart-racing-game-z8wdf1. WFDIR=/root/.claude/projects/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/subagents/workflows
+
+EVERY TICK, before anything else: `node tools/session.mjs`. It refreshes docs/session/prompts.md and docs/session/session.jsonl — the conversation that is building this game, which the user asked to be published and kept current. It exits non-zero if a message body was truncated; if that happens fix the tool rather than committing a mangled archive. Commit the refresh with whatever else the tick produces.
+
+Do NOT trust any run id written here — resolve it: RUN=$(ls -t $WFDIR | head -1). Current run: coherence pass = wf_85410807-a0a.
+
+STEP 1 — PROVE the wave is alive. Two checks; the second has never been wrong:
+  date -u
+  ls -lt --time-style=+%H:%M:%S $WFDIR/$RUN/agent-*.jsonl | head -3
+  ps -eo etime,comm | grep -w claude
+(a) Newest agent-*.jsonl mtime older than ~25 minutes = dead. USE `ls -t`; a plain `ls | tail` sorts ALPHABETICALLY and once hid the only live agent behind eleven finished ones.
+(b) ELAPSED of the main `claude` process. DECISIVE. If claude has been alive for LESS time than the gap since the last agent write, the container restarted and every in-flight agent is dead, however recent the mtimes look. Two agents whose last write is the IDENTICAL second is the same signature. Do NOT grep for claude in a `--sort=-pcpu | head -4` list — Chrome outranks it and it will not appear.
+Never judge by files existing or Chrome counts: subagents run IN-PROCESS inside the main claude process, so `ps aux | grep claude` shows nothing for a healthy wave.
+
+Count: node -e "const fs=require('fs');let s=0,r=0;for(const l of fs.readFileSync(process.argv[1],'utf8').trim().split('\n')){try{const e=JSON.parse(l);if(e.type==='started')s++;if(e.type==='result')r++;}catch{}}console.log(s,r)" $WFDIR/$RUN/journal.jsonl
+Concurrency is 2 on this 4-core box.
+
+STEP 2 — If DEAD, RESUME, DO NOT RELAUNCH:
+  Workflow({scriptPath:"<the same script>", resumeFromRunId:"<the dead RUN>", args:<the SAME args object, byte-for-byte>})
+Completed agent() calls return from cache instantly and only the killed agents re-run, carry intact. Args must match exactly or the cache misses. First `npx tsc --noEmit`, then commit and push whatever exists (say in the message if unverified). Read the dead run's journal for results that already have a `score` — those verdicts are earned and must never be re-bought.
+IF TYPECHECK FAILS INSIDE A FILE A DEAD AGENT WAS MID-WRITE ON, that is NOT transient — the agent is not coming back to finish it, and the resumed agent restarts that step from scratch. `git checkout --` those files rather than committing a build that cannot compile.
+AFTER ANY LAUNCH OR RESUME, VERIFY: grep 'YOUR PIECE' AND 'Observed:' out of each new agent transcript.
+
+STEP 3 — If ALIVE: `npx tsc --noEmit`. If clean, commit and push. Do NOT run captures or smoke while agents are active, and never pkill on any pattern matching "capture.mjs".
+
+STEP 4 — If FINISHED:
+  a. `npx tsc --noEmit` then `node tools/capture.mjs --smoke`. Typecheck-clean has passed on a build that did not boot; smoke is the real gate.
+  b. `node tools/capture.mjs` and LOOK at the PNGs with Read. Never trust an agent's summary.
+  c. Update tools/progress.state.json with the real verdicts, `node tools/progress.mjs`, `node tools/readmeshots.mjs`.
+  d. Commit, push, PR (base main, draft false), merge, then `git fetch origin main && git reset --hard origin/main && git push --force-with-lease` (merges are squashed, so ff-only will refuse).
+  e. Remaining work, in order: COURSES re-judge — it scored 5.0 because theme.ground never painted terrain and thirteen theme.props keys had zero reads; that wiring now exists, so its job is to USE it and prove the four courses are distinguishable from the overhead shot without the minimap. Then PERF re-run, which regressed to 475 draw calls and 667k triangles when the item economy fix put 102 boxes on the course. Then closing verdicts on wave 1 (feel, camera, track, look, cast), merged long ago and never judged.
+  f. Standing gaps no single piece owns, for the next coherence pass: the purple tier-3 mini-turbo has still never been seen by anyone; a single carried item is not drawn in the world at all because the orbit rig is only built for count>1; the finish letterbox guillotines the position badge on the one beat it matters.
+
+Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
+
+### 🤖 Claude — 2026-08-10 22:17 UTC
+
+Routine tick — wave alive, committed at `5e06c0e`, typecheck clean.
+
+`claude` up 5h08m, both agents writing seconds ago; 2 started, 0 returned. Session archive at **490 turns**.
+
+`perf` went to `core/engine.ts`, `core/quality.ts` and `render/post.ts` — the right three. Its gap was never the quality ladder itself but the two numbers the ladder reads, and one of those is the engine's own frame timing; `post.ts` is where the floor rung's rescue move costs a 762 ms first frame it should be pre-compiling away. `courses` is reading the theme wiring before touching a course, which is exactly what its directive asked: the blocker it reported last time has been built since, so its job is to *use* it rather than re-report it.
+
+### 🧑 Prompt — 2026-08-10 23:16 UTC
+
+MARIO.CONE build loop — hourly. Repo adam91holt/mario.cone (PUBLIC), branch claude/mario-kart-racing-game-z8wdf1. WFDIR=/root/.claude/projects/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/subagents/workflows
+
+EVERY TICK, before anything else: `node tools/session.mjs`. It refreshes docs/session/prompts.md and docs/session/session.jsonl — the conversation that is building this game, which the user asked to be published and kept current. It exits non-zero if a message body was truncated; if that happens fix the tool rather than committing a mangled archive. Commit the refresh with whatever else the tick produces.
+
+Do NOT trust any run id written here — resolve it: RUN=$(ls -t $WFDIR | head -1). Current run: coherence pass = wf_85410807-a0a.
+
+STEP 1 — PROVE the wave is alive. Two checks; the second has never been wrong:
+  date -u
+  ls -lt --time-style=+%H:%M:%S $WFDIR/$RUN/agent-*.jsonl | head -3
+  ps -eo etime,comm | grep -w claude
+(a) Newest agent-*.jsonl mtime older than ~25 minutes = dead. USE `ls -t`; a plain `ls | tail` sorts ALPHABETICALLY and once hid the only live agent behind eleven finished ones.
+(b) ELAPSED of the main `claude` process. DECISIVE. If claude has been alive for LESS time than the gap since the last agent write, the container restarted and every in-flight agent is dead, however recent the mtimes look. Two agents whose last write is the IDENTICAL second is the same signature. Do NOT grep for claude in a `--sort=-pcpu | head -4` list — Chrome outranks it and it will not appear.
+Never judge by files existing or Chrome counts: subagents run IN-PROCESS inside the main claude process, so `ps aux | grep claude` shows nothing for a healthy wave.
+
+Count: node -e "const fs=require('fs');let s=0,r=0;for(const l of fs.readFileSync(process.argv[1],'utf8').trim().split('\n')){try{const e=JSON.parse(l);if(e.type==='started')s++;if(e.type==='result')r++;}catch{}}console.log(s,r)" $WFDIR/$RUN/journal.jsonl
+Concurrency is 2 on this 4-core box.
+
+STEP 2 — If DEAD, RESUME, DO NOT RELAUNCH:
+  Workflow({scriptPath:"<the same script>", resumeFromRunId:"<the dead RUN>", args:<the SAME args object, byte-for-byte>})
+Completed agent() calls return from cache instantly and only the killed agents re-run, carry intact. Args must match exactly or the cache misses. First `npx tsc --noEmit`, then commit and push whatever exists (say in the message if unverified). Read the dead run's journal for results that already have a `score` — those verdicts are earned and must never be re-bought.
+IF TYPECHECK FAILS INSIDE A FILE A DEAD AGENT WAS MID-WRITE ON, that is NOT transient — the agent is not coming back to finish it, and the resumed agent restarts that step from scratch. `git checkout --` those files rather than committing a build that cannot compile.
+AFTER ANY LAUNCH OR RESUME, VERIFY: grep 'YOUR PIECE' AND 'Observed:' out of each new agent transcript.
+
+STEP 3 — If ALIVE: `npx tsc --noEmit`. If clean, commit and push. Do NOT run captures or smoke while agents are active, and never pkill on any pattern matching "capture.mjs".
+
+STEP 4 — If FINISHED:
+  a. `npx tsc --noEmit` then `node tools/capture.mjs --smoke`. Typecheck-clean has passed on a build that did not boot; smoke is the real gate.
+  b. `node tools/capture.mjs` and LOOK at the PNGs with Read. Never trust an agent's summary.
+  c. Update tools/progress.state.json with the real verdicts, `node tools/progress.mjs`, `node tools/readmeshots.mjs`.
+  d. Commit, push, PR (base main, draft false), merge, then `git fetch origin main && git reset --hard origin/main && git push --force-with-lease` (merges are squashed, so ff-only will refuse).
+  e. Remaining work, in order: COURSES re-judge — it scored 5.0 because theme.ground never painted terrain and thirteen theme.props keys had zero reads; that wiring now exists, so its job is to USE it and prove the four courses are distinguishable from the overhead shot without the minimap. Then PERF re-run, which regressed to 475 draw calls and 667k triangles when the item economy fix put 102 boxes on the course. Then closing verdicts on wave 1 (feel, camera, track, look, cast), merged long ago and never judged.
+  f. Standing gaps no single piece owns, for the next coherence pass: the purple tier-3 mini-turbo has still never been seen by anyone; a single carried item is not drawn in the world at all because the orbit rig is only built for count>1; the finish letterbox guillotines the position badge on the one beat it matters.
+
+Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
+
+### 🤖 Claude — 2026-08-10 23:17 UTC
+
+Routine tick — wave alive, committed at `2323e9c`. `claude` up 6h08m, agents writing seconds ago; 5 started, 3 returned.
+
+**Courses jumped 5.0 → 6.5.** The theme wiring got used — the four circuits no longer photograph as the same brown desert bypass, which was the entire point of this round. Then the critic moved past what it was sent to check and named the deeper version:
+
+> All four courses are the same fenced asphalt loop with different scenery behind them — no jump, drop, tunnel, crossing, narrowing or split anywhere in the roster.
+
+That's the more expensive fault, and a fair one: scenery is what a course *looks* like, layout is what it *plays* like. Fixing the first made the second visible. Round 2 is in all four course files against it, and `perf` continues in quality and post. Typecheck clean.
+
+### 🧑 Prompt — 2026-08-11 00:17 UTC
+
+MARIO.CONE build loop — hourly. Repo adam91holt/mario.cone (PUBLIC), branch claude/mario-kart-racing-game-z8wdf1. WFDIR=/root/.claude/projects/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/subagents/workflows
+
+EVERY TICK, before anything else: `node tools/session.mjs`. It refreshes docs/session/prompts.md and docs/session/session.jsonl — the conversation that is building this game, which the user asked to be published and kept current. It exits non-zero if a message body was truncated; if that happens fix the tool rather than committing a mangled archive. Commit the refresh with whatever else the tick produces.
+
+Do NOT trust any run id written here — resolve it: RUN=$(ls -t $WFDIR | head -1). Current run: coherence pass = wf_85410807-a0a.
+
+STEP 1 — PROVE the wave is alive. Two checks; the second has never been wrong:
+  date -u
+  ls -lt --time-style=+%H:%M:%S $WFDIR/$RUN/agent-*.jsonl | head -3
+  ps -eo etime,comm | grep -w claude
+(a) Newest agent-*.jsonl mtime older than ~25 minutes = dead. USE `ls -t`; a plain `ls | tail` sorts ALPHABETICALLY and once hid the only live agent behind eleven finished ones.
+(b) ELAPSED of the main `claude` process. DECISIVE. If claude has been alive for LESS time than the gap since the last agent write, the container restarted and every in-flight agent is dead, however recent the mtimes look. Two agents whose last write is the IDENTICAL second is the same signature. Do NOT grep for claude in a `--sort=-pcpu | head -4` list — Chrome outranks it and it will not appear.
+Never judge by files existing or Chrome counts: subagents run IN-PROCESS inside the main claude process, so `ps aux | grep claude` shows nothing for a healthy wave.
+
+Count: node -e "const fs=require('fs');let s=0,r=0;for(const l of fs.readFileSync(process.argv[1],'utf8').trim().split('\n')){try{const e=JSON.parse(l);if(e.type==='started')s++;if(e.type==='result')r++;}catch{}}console.log(s,r)" $WFDIR/$RUN/journal.jsonl
+Concurrency is 2 on this 4-core box.
+
+STEP 2 — If DEAD, RESUME, DO NOT RELAUNCH:
+  Workflow({scriptPath:"<the same script>", resumeFromRunId:"<the dead RUN>", args:<the SAME args object, byte-for-byte>})
+Completed agent() calls return from cache instantly and only the killed agents re-run, carry intact. Args must match exactly or the cache misses. First `npx tsc --noEmit`, then commit and push whatever exists (say in the message if unverified). Read the dead run's journal for results that already have a `score` — those verdicts are earned and must never be re-bought.
+IF TYPECHECK FAILS INSIDE A FILE A DEAD AGENT WAS MID-WRITE ON, that is NOT transient — the agent is not coming back to finish it, and the resumed agent restarts that step from scratch. `git checkout --` those files rather than committing a build that cannot compile.
+AFTER ANY LAUNCH OR RESUME, VERIFY: grep 'YOUR PIECE' AND 'Observed:' out of each new agent transcript.
+
+STEP 3 — If ALIVE: `npx tsc --noEmit`. If clean, commit and push. Do NOT run captures or smoke while agents are active, and never pkill on any pattern matching "capture.mjs".
+
+STEP 4 — If FINISHED:
+  a. `npx tsc --noEmit` then `node tools/capture.mjs --smoke`. Typecheck-clean has passed on a build that did not boot; smoke is the real gate.
+  b. `node tools/capture.mjs` and LOOK at the PNGs with Read. Never trust an agent's summary.
+  c. Update tools/progress.state.json with the real verdicts, `node tools/progress.mjs`, `node tools/readmeshots.mjs`.
+  d. Commit, push, PR (base main, draft false), merge, then `git fetch origin main && git reset --hard origin/main && git push --force-with-lease` (merges are squashed, so ff-only will refuse).
+  e. Remaining work, in order: COURSES re-judge — it scored 5.0 because theme.ground never painted terrain and thirteen theme.props keys had zero reads; that wiring now exists, so its job is to USE it and prove the four courses are distinguishable from the overhead shot without the minimap. Then PERF re-run, which regressed to 475 draw calls and 667k triangles when the item economy fix put 102 boxes on the course. Then closing verdicts on wave 1 (feel, camera, track, look, cast), merged long ago and never judged.
+  f. Standing gaps no single piece owns, for the next coherence pass: the purple tier-3 mini-turbo has still never been seen by anyone; a single carried item is not drawn in the world at all because the orbit rig is only built for count>1; the finish letterbox guillotines the position badge on the one beat it matters.
+
+Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
+
+### 🤖 Claude — 2026-08-11 00:18 UTC
+
+Routine tick — wave alive, committed at `5c2895f`, typecheck clean. `claude` up 7h09m, agent writing 4 seconds ago; 8 started, 7 returned, so the wave is nearly done.
+
+**One thing is worth surfacing, because it's now a pattern rather than a bug.** `perf` scored 7.0 then 6.5, and across three rounds it has failed three times on the *same shape*:
+
+- **Round 1** — the warm-up gate was counted in *rendered frames*, so it couldn't fire on a machine slow enough to need it.
+- **Round 2** — recounted in seconds, and `STALL_MS` discarded the exact frames the governor exists to measure: 1.66 s of "live" time accrued across 200 s of wall clock.
+- **Round 3** — the futility gate is bypassed by the panic path, which is the only path a slow machine ever takes; and the moment gate asks `race.phase` what's on screen, which can't see the front-end *and* whose clock nearly stops when the machine is slow.
+
+Three different mechanisms, one root: **every safeguard has been built on a signal that degrades in exactly the conditions the safeguard exists for.** A governor whose instruments stop working when the machine slows down isn't a governor.
+
+Each round the builder fixed the specific instrument it was told about and reached for another one with the same property. That's a design fault, not an implementation one, and I'll say so plainly in the next directive rather than let it be patched a fourth time. Courses holds at 6.5 with its layouts still one design four times.
+
+### 🧑 Prompt — 2026-08-11 00:58 UTC
+
+<task-notification>
+<task-id>wbkwm000l</task-id>
+<tool-use-id>toolu_01VXmvXHGtyPn8CZS1iXbZke</tool-use-id>
+<output-file>/tmp/claude-0/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/tasks/wbkwm000l.output</output-file>
+<status>completed</status>
+<summary>Dynamic workflow "Build and adversarially review a wave of MARIO.CONE pieces" completed</summary>
+<result>{"passed":[],"outstanding":[{"piece":"courses","score":6.5,"gap":"Three of the four courses contain no corner that is both tight enough to force a drift and long enough to hold one, so the three-tier mini-turbo — the game's signature mechanic — barely fires anywhere except Jackhammer Quarry.","directive":"Add at least two corners each to Cone Canyon, Saltpan Bypass and Switchback Summit in the 35-50m radius band with 120m+ of constant-radius arc — the window where the drift line beats the steer line and the arc still lasts the ~2.5s a tier-3 charge needs. Arc length is NOT what is missing and lengthening corners will not fix it: Cone Canyon already has a 245m corner (at 0.43 lap) and a 149m corner (at 0.97), but they sit at R=56 and R=46 and get taken flat; Saltpan's fourteen corners are all 190-420m of radius. Radius is the missing variable. Concretely, on Cone Canyon tighten T5/T6 (the two 370m arcs, currently measuring R=113 at 0.79 and 0.90) to R≈45 over their existing length, and put the braking point back at the end of the pit straight that was reverted at T2; on Saltpan tighten Beacon Right and Culvert Right (T6/T7) from 200/190m to R≈45-55 so the lap has more than one place anybody turns the wheel; on Switchback Summit tighten Summit Traverse (T11, the 380m \"breather\") to a held R≈40 sweeper along the top so the roster's finale has one purple corner in it. Verify by re-running a fixed-seed autopilot lap and counting drifts and tier-3 fires across the eight-racer field: the current numbers are 25/6, 75/23, 13/1 and 14/3 (drifts/tier-3) for canyon, quarry, saltpan, summit, with longest held drift 1.26s, 2.56s, 1.27s and 1.07s. Target is every course clearing 8 drifts per racer per lap and at least one racer holding past 2.5s."},{"piece":"perf","score":6.5,"gap":"The moment gate asks the race director what is on screen, but `race.phase` cannot see the front-end and its clock nearly stops when the machine is slow — so in a real 180-second session every one of the five rung changes landed either on the title screen or within two tenths of a second of the flag, which is precisely the one thing this piece exists to prevent.","directive":"Fix `pictureLocked()` — it reads `ctx.race?.phase` and nothing else, and both of its blind spots fired live. (1) Subscribe to the `ui:menu` edges and treat the front-end as sealed, the way `race/director.ts` already does with `frontEndOpen`. ARCHITECTURE §11a states outright that the race keeps simulating behind an opaque front-end and that `race.phase` \"cannot tell you\" whether the menus are up; `core/quality.ts` has exactly one `bus.on` in it (`quality:changed`) and no `ui:menu` listener. Consequence, photographed: in a 180s live session the three changes logged `phase:\"intro\"` (t=24.6s, 56.4s, 83.9s) were all made with the MARIO.CONE title screen and the seven-machine roster on the display — the same static composed surface the `isSealed()` comment calls \"the single worst surface in the product to change the resolution on\" when it argues for sealing pause. The `phase` field on `QualityChange` says `intro` \"is the only other legal\" answer, so the log itself certifies these as legal; they were not. (2) Re-denominate `CEREMONY_GRACE`. `sinceCeremony += secs` counts wall seconds of *delivered play*, but the beat it protects is measured in *race* seconds — and at 0.7fps one delivered frame is 1.4s of wall time and only 0.067s of race time (engine.ts caps at 8 fixed steps/frame), so 1.2s of grace is a single frame. Measured: rung 3→4 fired between race time 0.0 and 0.2s — on GO — and rung 4→5 at race time 1.2s. Gate the flag guard on `ctx.race.time` or on fixed steps since the flag so it covers the same two seconds at any frame rate. This is the third instance of the same shape the header already catalogues twice (a warm-up counted in frames, a stall counted in milliseconds): a constant whose protection shrinks in proportion to how slow the machine is. (3) While you are in there: pre-size the post stack's eight render targets and the shadow map for every rung inside `precompileLadder()`. A rung change currently costs 3.1x a steady frame — measured 1083ms against a 350ms steady state at 320x180, with recovery spread over five frames (33/133/267/317/350) — and it is not a shader compile, because I measured the program count flat at 82 across all six rungs. It is `setPixelRatio` → `renderer.setSize` + `composer.setSize` reallocating sceneTarget, ldrTarget, depthTexture and five bloom mips, plus the shadow-map realloc. `precompileLadder()`'s own comment identifies these levers as the ones that \"reallocate buffers\" and then deliberately excludes them because they do not recompile anything — so the file fixed the shader half of \"the rescue move being, by a factor of three, the worst hitch of the session\" and left the buffer half, which still measures a factor of three. `SKIP_FRAMES = 3` then hides that hitch from the instrument, so the governor is structurally blind to the cost of its own action."}],"detail":[{"piece":"courses","name":"Course roster","rounds":2,"passed":false,"verdict":{"score":6.5,"pass":false,"mkReference":"Mario Kart 8 Deluxe, Mario Kart Stadium at 150cc, lap 1 — the banked left off the start straight, held on a single drift long enough for the sparks to run blue to orange to purple, in a lap that contains roughly 9-10 discrete drifts. Every one of MK8D's 48 courses carries at least one designated \"purple corner\": a constant-radius sweeper tight enough that the drift line beats the steer line and long enough to hold ~2.5s. The roster-level version of the same reference is the Mushroom Cup select grid, where four thumbnails at ~180px are separable by road shape and by biome, and no two courses in a cup share a mood.","blindPick":"mario-kart","biggestGap":"Three of the four courses contain no corner that is both tight enough to force a drift and long enough to hold one, so the three-tier mini-turbo — the game's signature mechanic — barely fires anywhere except Jackhammer Quarry.","directive":"Add at least two corners each to Cone Canyon, Saltpan Bypass and Switchback Summit in the 35-50m radius band with 120m+ of constant-radius arc — the window where the drift line beats the steer line and the arc still lasts the ~2.5s a tier-3 charge needs. Arc length is NOT what is missing and lengthening corners will not fix it: Cone Canyon already has a 245m corner (at 0.43 lap) and a 149m corner (at 0.97), but they sit at R=56 and R=46 and get taken flat; Saltpan's fourteen corners are all 190-420m of radius. Radius is the missing variable. Concretely, on Cone Canyon tighten T5/T6 (the two 370m arcs, currently measuring R=113 at 0.79 and 0.90) to R≈45 over their existing length, and put the braking point back at the end of the pit straight that was reverted at T2; on Saltpan tighten Beacon Right and Culvert Right (T6/T7) from 200/190m to R≈45-55 so the lap has more than one place anybody turns the wheel; on Switchback Summit tighten Summit Traverse (T11, the 380m \"breather\") to a held R≈40 sweeper along the top so the roster's finale has one purple corner in it. Verify by re-running a fixed-seed autopilot lap and counting drifts and tier-3 fires across the eight-racer field: the current numbers are 25/6, 75/23, 13/1 and 14/3 (drifts/tier-3) for canyon, quarry, saltpan, summit, with longest held drift 1.26s, 2.56s, 1.27s and 1.07s. Target is every course clearing 8 drifts per racer per lap and at least one racer holding past 2.5s.","evidence":["DRIFT STARVATION (the headline). One fixed-seed autopilot lap, identical AI/physics/vehicle/seed, only the course changed. Drifts across the whole 8-racer field per lap: Cone Canyon 25, Jackhammer Quarry 75, Saltpan Bypass 13, Switchback Summit 14 — i.e. 3.1 / 9.4 / 1.6 / 1.8 per racer. Tier-3 (purple) fires per lap across the entire field: 6 / 23 / 1 / 3. Saltpan produces ONE purple mini-turbo per lap among eight racers.","LONGEST DRIFT ANYONE HOLDS, per lap
+... (truncated 15027 chars, full result in /tmp/claude-0/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/tasks/wbkwm000l.output)</result>
+<diagnostics>Per-agent results: /root/.claude/projects/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/subagents/workflows/wf_332891d0-538/journal.jsonl — one {"type":"result",...} line per completed agent with its full return value.
+If the result above is empty or unexpected, Read this file BEFORE diagnosing — do not assume agents returned non-empty results.
+To re-run with edited post-processing: Workflow({scriptPath: '/home/user/mario.cone/tools/wave.workflow.mjs', resumeFromRunId: 'wf_332891d0-538', args: "{\"pieces\":[\"courses\",\"perf\"],\"rounds\":2,\"carry\":{\"courses\":{\"score\":5,\"pass\":false,\"blindPick\":\"mario-kart\",\"biggestGap\":\"All four courses render as the same brown desert bypass — same tarmac, verge, barriers, hoardings, hills and sky — so the only thing telling a player which course they are on is the minimap silhouette.\",\"directive\":\"THE BLOCKER IS GONE — YOUR JOB THIS ROUND IS TO USE THE WIRING, NOT TO REPORT THAT IT IS MISSING. When you were last judged, theme.ground was read in exactly one place as a hemisphere-light colour and never painted terrain, and all thirteen theme.props keys had zero property reads anywhere in src. That has since been built: src/render/theme.ts is now the single place that decides what a theme key means and it throws by name on an unrecognised key, with four ground surfaces carrying their own colour ramps and procedural detail maps, plus src/render/ground.ts, groundtex.ts, src/world/themes.ts and landprops.ts. Read those first. Then make the four courses look like four places. Acceptance test, and run it yourself: capture the overhead and far shots for all four courses and put them side by side — if you cannot tell which is which without the minimap, you are not done. Two specific faults already measured: Switchback Summit's alpine.paint gives the hero peaks a single flat blue-grey with no snowline and no exposed rock while the road-level ground beyond the barrier is warm tan on one side and saturated pasture green on the other, so it reads as a works yard on a green hill next to a meringue rather than somewhere above the treeline; and world set-pieces hang in open sky on Jackhammer Quarry in the very first frame of that course. Also vary lap structure — four 3-lap walled loops each with 3-4 pads and exactly one gravel-inside-a-corner shortcut is one course design repeated four times — and use the declared-but-unused patches surface feature so at least one course has something on the racing line other than tarmac.\",\"evidence\":[\"All four courses photograph as the same brown desert bypass\",\"Saltpan Bypass declares near-white salt as theme.ground and measured rgb(122,100,59) off-road, within 12 points of Switchback Summit's\",\"All thirteen theme.props keys had zero property reads anywhere in src at the time of judging\",\"Switchback Summit's peaks are one flat blue-grey with no snowline and no exposed rock\",\"Set-pieces hang in open sky in the first frame of Jackhammer Quarry\"]},\"perf\":{\"score\":6,\"pass\":false,\"blindPick\":\"mario-kart\",\"biggestGap\":\"The quality governor's instrument is broken one layer down: STALL_MS discards the exact frames the governor exists to measure, so liveSeconds accrued 1.66s across 200s of wall time and probe() read priming, samples 0, for three minutes on the machine it exists to protect.\",\"directive\":\"Fix the instrument before anything else, then re-measure against a course that has changed underneath you. (1) STALL_MS in src/core/quality.ts discards the very frames the governor exists to measure. Detect a suspended page from document.visibilityState and a visibilitychange edge, not from a numeric frame-length cut-off, so a genuine 2.4s frame counts as 2.4s. Round 1 failed this file for a warm-up gate counted in rendered frames that could not fire on a slow machine; the gate is now counted in seconds and the seconds accumulator has exactly the same property one layer down. Do not fix it a third time in the same shape. (2) Move the verdictPending futility block ABOVE the panic branch — the panic branch returns before it, so the safeguard that stops cutting when cutting stops working is unreachable on the only path a slow machine ever takes. (3) Pre-compile the floor rung's program set at init; switching to the floor cost a 762ms first frame and took programs from 75 to 101, so the ladder's rescue move is itself the worst hitch of the session. (4) Take shadows off the floor rung's cut list — drop shadow resolution to 256 and keep the map, and give up bloom or draw distance instead; the game now has one shadow policy across every module and the floor rung must not be the one place that breaks it. (5) THE COURSE HAS CHANGED SINCE YOU LAST SAW IT: the item economy fix put 102 boxes in 11 rows on Cone Canyon and the field is now 7 racers, so the budget you tuned against is gone. Smoke currently reports 757,050 triangles across 456 draw calls, against 519,908 and 314 when you last passed through. Instance the boxes and re-check the ladder against the real cost.\",\"evidence\":[\"liveSeconds accrued 1.66s across 200s of wall time; probe() read priming, samples 0, from t=22s to t=225s\",\"A drop from rung 1 to rung 2 made the frame 77% worse and futile stayed 0 for the whole run\",\"Switching to the floor rung cost a 762ms first frame and took programs from 75 to 101\",\"Rung 5 leaves the cone with no cast shadow on the dirt at all\",\"Smoke now reports 757,050 triangles across 456 draw calls, up from 519,908 across 314\"]}}}"}) — agents whose (prompt, opts) are unchanged replay from cache.</diagnostics>
+<usage><agent_count>8</agent_count><agents_done>8</agents_done><agents_error>0</agents_error><agents_skipped>0</agents_skipped><agents_empty_result>0</agents_empty_result><subagent_tokens>2169353</subagent_tokens><tool_uses>1171</tool_uses><duration_ms>10557035</duration_ms></usage>
+</task-notification>
+
+### 🤖 Claude — 2026-08-11 00:58 UTC
+
+Wave finished — courses 6.5, perf 6.5. Running the gates.
+
+### 🤖 Claude — 2026-08-11 01:00 UTC
+
+Shadows are visibly on the road now, the pack races three abreast, and the FOREMAN nameplate carries the driver identity into the race. Landing the wave.
