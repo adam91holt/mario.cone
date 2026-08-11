@@ -1,220 +1,159 @@
 // Course 4 — Switchback Summit.
 //
-// The one with a hill in it. Cone Canyon moves 28 metres up and down over a
+// The one with a hill in it. Cone Canyon moves 29 metres up and down over a
 // lap; this moves **116**, and it does it in one direction at a time: a
-// 1.6-kilometre climb up the eastern face and a 700-metre plunge down the
-// western one. Half the lap is spent looking up at road you have not driven
+// 1.9-kilometre climb up the eastern face and a kilometre-long plunge back down
+// the western one. Half the lap is spent looking up at road you have not driven
 // yet, and the other half looking down at road you already have.
 //
 // It is also the only circuit in the cup that runs anticlockwise, so every
 // corner loads the other side of the kart.
 //
-//   T1  Culvert Kink        320m left along the valley floor, flat
-//   T2  Batter Kink         300m left, still flat, still climbing nothing
-//   T3  Foot of the Climb   110m left — and the road tips up to 11%
-//   T4  First Traverse      130m RIGHT, the only right on the climb
-//   T5  Spur Entry          60m left onto the promontory
-//   T6  THE SPUR            26m through 120° at the tip. 20m wide, and level.
-//   T7  Spur Exit           61° right, back onto the mountain
-//   T8  Second Traverse     95m left, climbing at 8%
-//   T9  Shoulder Left       85m, the road pinned to the side of the hill
-//   T10 The Col             75m left over the saddle
-//   T11 Summit Traverse     380m of left along the top, the only breather
-//   T12 THE RIDGE           the crest. The road goes light and the valley opens
-//   T13 Cutting Sweep       150m left, falling at 17%
-//   T14 Spillway Left       170m, still falling
-//   T15 Valley Sweep        90m left at the bottom, and the brakes matter
+// **...and it is now actually a switchback road.** For two rounds this course
+// was called Switchback Summit and had exactly one switchback in it. Fifteen
+// corners, fourteen of them between 80 and 380 metres of radius, all taken flat
+// — a fixed-seed autopilot lap of the whole field produced eighteen drifts and
+// three purple mini-turbos, the worst numbers in the cup after the saltpan, and
+// the longest slide anybody held was 1.38 seconds. The corner the critic
+// singled out, the 380-metre "Summit Traverse" along the top, was doing what
+// every other corner here was doing: nothing.
 //
-// **Two set pieces.**
+// A road that climbs 116 metres up a face does it in **hairpins**, because that
+// is the only way a road gains height on a slope, and a hairpin is the corner
+// this game's drift is built for. So the traverses are now joined by seven
+// corners between 44 and 54 metres of radius, each holding one radius the whole
+// way through — see `ring.ts` for why that last part is the whole fix.
+//
+//   T1  Culvert Kink      R539 left along the valley floor, flat
+//   T2  Batter Kink       R195 left, still flat, still climbing nothing
+//   T3  Foot of the Climb R48, 110° — and the road tips up to 11%
+//   T4  First Traverse    R52, 145° RIGHT, the only right on the way up
+//   T5  Spur Entry        R130 left onto the promontory
+//   T6  THE SPUR          R30 through 165° at the tip. 20m wide, and level
+//   T7  Spur Exit         R54, 100° right, back onto the mountain
+//   T8  Second Traverse   R222 left, climbing at 8%
+//   T9  Shoulder Left     R46, 150° — the road pinned to the side of the hill
+//   T10 The Col           R180, 100° right over the saddle
+//   T11 SUMMIT TRAVERSE   R44, 175° and 134 metres of one radius along the top.
+//                         The breather is now the purple corner
+//   T12 THE RIDGE         the crest at 116m. The road goes light, the valley opens
+//   T13 Cutting Sweep     R50, 155° right, falling at 17%
+//   T14 Spillway Left     R170, still falling, with the washout across it
+//   T15 Valley Sweep      R48, 120° at the bottom, and the brakes matter
+//
+// **Three set pieces.**
 //
 // *The Spur* is a level out-and-back onto a rock promontory two thirds of the
-// way up. It is the tightest corner on the circuit (26m radius, 20m of road)
+// way up. It is the tightest corner on the circuit (30m radius, 20m of road)
 // and it is deliberately the one place on the climb where the road stops
-// climbing — you arrive with no speed, you leave with no speed, and the
-// hundred metres either side of it are the same height to within two metres.
-// That is not decoration: the embankment either side of a road is anchored to
-// *that* road's elevation, so two legs of a switchback that pass within sixty
-// metres of each other at different heights bury the lower one. Level legs are
-// what makes a switchback buildable at all here.
+// climbing — you arrive with no speed, you leave with no speed, and the hundred
+// metres either side of it are the same height to within a metre. That is not
+// decoration: the embankment either side of a road is anchored to *that* road's
+// elevation, so two legs of a switchback that pass within sixty metres of each
+// other at different heights bury the lower one. Level legs are what makes a
+// switchback buildable here at all.
 //
-// *The Ridge* is the crest at the top of the climb, at 116m — the highest point
-// in the game. The road curves over it at about 12 milliradians per metre,
-// which at the 50 m/s you arrive at is 31 m/s² of unloading against 34 of
-// gravity: nine tenths of the kart's weight taken off the wheels in a car's
-// length. It goes light, the camera lifts, and the whole west face appears at
-// once. Sharper and it would be a jump; this is a brow, and a brow is scarier.
+// *Summit Traverse* is the new one and it is the answer to the round's verdict.
+// A hundred and thirty-four metres of 44-metre radius held flat along the top
+// of the mountain at 107 metres, with nothing either side of it — the longest
+// single sustained drift in the cup, on the highest road in the game, on the
+// last corner before the crest.
 //
-// Width follows speed, and here it follows *gradient* too: 30m on the valley
+// *The Ridge* is that crest, at 116m — the highest point in the game. The road
+// curves over it at about 12 milliradians per metre, which at the speed you
+// arrive is most of the kart's weight taken off the wheels in a car's length.
+// It goes light, the camera lifts, and the whole west face appears at once.
+// Sharper and it would be a jump; this is a brow, and a brow is scarier.
+//
+// Width follows speed, and here it follows *gradient* too: 28-30m on the valley
 // floor where the karts are flat out, 24-26m on the traverses, 20m at the Spur.
-// The longest dead straight is the 180m of descent immediately after the Ridge,
-// which is pointing downhill at 17% and is not restful.
+// The longest dead straight on the lap is 130 metres.
 //
 // ── the look, and why the numbers below are what they are ──────────────────
 //
-// A critic photographed this course and read it as "a works yard on a green
-// hill next to a meringue". Both halves of that were the course's own fault,
-// not the renderer's, because `render/theme.ts` paints the alpine surface off
-// two things a *course* supplies: `theme.ground`, and how high the land stands
-// relative to the nearest road (`rel`).
+// A critic once photographed this course and read it as "a works yard on a
+// green hill next to a meringue". Both halves of that were the course's own
+// fault, because `render/theme.ts` paints the alpine surface off two things a
+// *course* supplies: `theme.ground`, and how high the land stands relative to
+// the nearest road (`rel`).
 //
 //   * **The meringue.** The snow ramp runs from about `rel` 35 to `rel` 135.
-//     `rimHeight` was 200, which puts the *whole* rim between `rel` 79 and 207
-//     — above the ramp before it starts — so every ridge on the circuit came
-//     back one flat blue-white with no snowline and no rock under it. The rim
-//     is 95 now: `plateau * terrace * erosion` spreads that across `rel` 2 to
-//     115, which lands the ramp on the land itself. Bare schist near the
-//     circuit, the snowline arriving about five hundred metres out, white only
-//     past it. The hero peaks are re-sized against the same ramp — see the
-//     `terrain` block.
+//     `rimHeight` was 200, which puts the *whole* rim above the ramp before it
+//     starts, so every ridge came back one flat blue-white with no snowline and
+//     no rock under it. The rim is 95: `plateau * terrace * erosion` spreads
+//     that across `rel` 2 to 115, which lands the ramp on the land itself.
 //   * **The green hill.** The far field settles onto `groundY`, and `groundY`
-//     was -35: thirty-five metres *below* the valley-floor road, which is
-//     exactly the band `alpine.paint` reads as tussock, so a kilometre of
-//     landscape came back saturated pasture green. The plain is level with the
-//     valley floor now, which is what a valley floor is.
-//   * **The warm tan.** `theme.ground` was 0x8f8c74, a warm olive-tan, and it
-//     is both the far-field albedo *and* (via `sunRig`) the colour of the
-//     bounce light on every object in the game. Warm tan on one side of the
-//     road, pasture green on the other. It is cold blue-grey schist now, so the
-//     tussock beside the shoulder mixes down to a dry alpine grey-green instead
-//     of a golf course.
-//
-// The hero landforms follow from the same arithmetic: anything topping out much
-// over `rel` 140 is a white lump, so the near peaks are sized to *stand through*
-// the snowline rather than to start above it, and two low rock buttresses sit
-// close enough to the circuit to be looked at rather than admired from a
-// distance.
+//     was -35 — thirty-five metres *below* the valley-floor road, which is
+//     exactly the band `alpine.paint` reads as tussock. The plain is level with
+//     the valley floor now, which is what a valley floor is.
+//   * **The warm tan.** `theme.ground` was a warm olive-tan, and it is both the
+//     far-field albedo *and* (via `sunRig`) the colour of the bounce light on
+//     every object in the game. It is cold blue-grey schist now.
 
-import { loopFromWaypoints, type Waypoint } from './path.ts';
+import { loopFromWaypoints } from './path.ts';
+import { ring } from './ring.ts';
 import type { CourseDefEx } from './types.ts';
 
-/** The ring, driven from the valley floor at (-319, -311, 0). */
-const WAYPOINTS: Waypoint[] = [
-  { x: -319, z: -311, y: 0.6, width: 27 },
-  { x: -287, z: -320, y: 0.4, width: 28 },
-  { x: -255, z: -329, y: 0.7, width: 28 },
-  { x: -223, z: -337, y: 1.1, width: 29 },
-  // T1 Culvert Kink
-  { x: -191, z: -346, y: 1.5, width: 29 },
-  { x: -164, z: -352, y: 1.8, width: 29 },
-  { x: -137, z: -356, y: 2.1, width: 29 },
-  { x: -110, z: -357, y: 2.4, width: 29 },
-  { x: -83, z: -356, y: 2.7, width: 29 },
-  { x: -55, z: -353, y: 3, width: 29 },
-  { x: -29, z: -348, y: 3.3, width: 29 },
-  { x: 1, z: -340, y: 3.6, width: 29 },
-  { x: 32, z: -332, y: 4, width: 29 },
-  { x: 62, z: -325, y: 4.3, width: 30 },
-  { x: 92, z: -317, y: 4.7, width: 30 },
-  // T2 Batter Kink
-  { x: 122, z: -310, y: 5, width: 30 },
-  { x: 147, z: -302, y: 5.3, width: 30 },
-  { x: 171, z: -293, y: 5.6, width: 30 },
-  { x: 194, z: -281, y: 6.4, width: 30 },
-  { x: 222, z: -266, y: 8.4, width: 29 },
-  { x: 249, z: -251, y: 11.3, width: 28 },
-  { x: 276, z: -235, y: 14.4, width: 27 },
-  // T3 Foot of the Climb
-  { x: 304, z: -220, y: 17.4, width: 26 },
-  { x: 325, z: -205, y: 20.1, width: 26 },
-  { x: 342, z: -184, y: 22.8, width: 26 },
-  { x: 354, z: -161, y: 25.4, width: 26 },
-  { x: 363, z: -135, y: 28.1, width: 26 },
-  { x: 372, z: -110, y: 30.8, width: 25 },
-  // T4 First Traverse
-  { x: 381, z: -84, y: 33.5, width: 25 },
-  { x: 392, z: -60, y: 36.2, width: 25 },
-  { x: 409, z: -38, y: 38.9, width: 25 },
-  { x: 429, z: -21, y: 41.6, width: 25 },
-  { x: 453, z: -8, y: 44.4, width: 25 },
-  { x: 485, z: 6, y: 47.7, width: 24 },
-  { x: 517, z: 19, y: 51, width: 23 },
-  // T5 Spur Entry
-  { x: 549, z: 33, y: 53.4, width: 22 },
-  { x: 564, z: 42, y: 54.2, width: 22 },
-  { x: 576, z: 56, y: 54.4, width: 22 },
-  // T6 THE SPUR
-  { x: 594, z: 84, y: 54.6, width: 20 },
-  { x: 598, z: 94, y: 54.8, width: 20 },
-  { x: 597, z: 105, y: 54.9, width: 20 },
-  { x: 592, z: 114, y: 55, width: 20 },
-  { x: 583, z: 121, y: 55, width: 20 },
-  { x: 573, z: 124, y: 55.2, width: 20 },
-  { x: 547, z: 125, y: 55.4, width: 21 },
-  { x: 521, z: 126, y: 55.6, width: 21 },
-  // T7 Spur Exit
-  { x: 496, z: 127, y: 55.8, width: 22 },
-  { x: 482, z: 130, y: 56.1, width: 22 },
-  { x: 470, z: 138, y: 56.7, width: 22 },
-  { x: 461, z: 149, y: 58, width: 22 },
-  { x: 449, z: 174, y: 59.8, width: 23 },
-  { x: 437, z: 199, y: 62, width: 23 },
-  { x: 424, z: 223, y: 64.1, width: 24 },
-  // T8 Second Traverse
-  { x: 412, z: 248, y: 66, width: 24 },
-  { x: 403, z: 263, y: 67.6, width: 24 },
-  { x: 391, z: 276, y: 69.2, width: 24 },
-  { x: 367, z: 298, y: 71.4, width: 24 },
-  { x: 342, z: 320, y: 74, width: 24 },
-  { x: 318, z: 342, y: 76.5, width: 25 },
-  { x: 294, z: 364, y: 79, width: 25 },
-  // T9 Shoulder Left
-  { x: 270, z: 386, y: 81.4, width: 25 },
-  { x: 248, z: 400, y: 83.5, width: 25 },
-  { x: 224, z: 407, y: 85.6, width: 25 },
-  { x: 192, z: 412, y: 87.9, width: 25 },
-  { x: 160, z: 416, y: 90.4, width: 25 },
-  { x: 128, z: 420, y: 92.9, width: 25 },
-  { x: 97, z: 424, y: 95.3, width: 24 },
-  { x: 65, z: 428, y: 97.8, width: 24 },
-  // T10 The Col
-  { x: 33, z: 432, y: 99.9, width: 24 },
-  { x: 20, z: 433, y: 101.2, width: 24 },
-  { x: 7, z: 431, y: 102.5, width: 24 },
-  // T11 Summit Traverse
-  { x: -29, z: 423, y: 103.8, width: 26 },
-  { x: -55, z: 416, y: 104.5, width: 26 },
-  { x: -81, z: 407, y: 104.9, width: 26 },
-  { x: -106, z: 397, y: 105.2, width: 26 },
-  { x: -130, z: 385, y: 105.6, width: 26 },
-  { x: -153, z: 371, y: 106.8, width: 26 },
-  { x: -177, z: 355, y: 109.9, width: 26 },
-  // T12 The Ridge
-  { x: -201, z: 340, y: 113.6, width: 26 },
-  { x: -215, z: 329, y: 116, width: 26 },
-  { x: -227, z: 316, y: 115.2, width: 26 },
-  { x: -246, z: 291, y: 111.4, width: 26 },
-  { x: -264, z: 266, y: 106.3, width: 27 },
-  { x: -283, z: 242, y: 101.1, width: 27 },
-  { x: -302, z: 217, y: 95.9, width: 27 },
-  { x: -321, z: 193, y: 90.6, width: 27 },
-  { x: -339, z: 168, y: 85.4, width: 28 },
-  // T13 Cutting Sweep
-  { x: -358, z: 144, y: 80.3, width: 28 },
-  { x: -373, z: 119, y: 75.2, width: 28 },
-  { x: -384, z: 91, y: 70.2, width: 28 },
-  { x: -392, z: 61, y: 64.9, width: 28 },
-  { x: -400, z: 30, y: 59.5, width: 28 },
-  { x: -408, z: -1, y: 54.1, width: 29 },
-  { x: -416, z: -31, y: 48.7, width: 29 },
-  // T14 Spillway Left
-  { x: -425, z: -62, y: 43.5, width: 29 },
-  { x: -430, z: -90, y: 38.5, width: 29 },
-  { x: -430, z: -119, y: 33.6, width: 29 },
-  { x: -425, z: -148, y: 28.7, width: 29 },
-  { x: -416, z: -175, y: 23.7, width: 29 },
-  { x: -403, z: -204, y: 18.5, width: 28 },
-  { x: -390, z: -232, y: 13.2, width: 28 },
-  // T15 Valley Sweep
-  { x: -377, z: -261, y: 8.2, width: 27 },
-  { x: -363, z: -283, y: 4.3, width: 27 },
-  { x: -343, z: -301, y: 1.9, width: 27 },
-];
+/**
+ * The ring, driven from the valley floor at (-309, -314).
+ *
+ * Positive turns go left, which is most of them: this is the anticlockwise one.
+ * `y` is the elevation the road reaches by the end of each segment, so the
+ * ledger below reads as the climb it is — 0.8 on the floor, 55 level across the
+ * Spur, 116 on the Ridge, and back to 2 in the valley.
+ */
+const RING = ring(
+  { x: -309, z: -314, heading: -16.2, y: 0.6, width: 27 },
+  [
+    { run: 55, width: 28, y: 0.8, name: 'm0' },
+    { radius: 539, turn: 20, width: 29, y: 1.5, name: 'T1 CULVERT KINK' },
+    { run: 75, width: 29, y: 3, name: 'm1' },
+    { radius: 195, turn: 12, width: 30, y: 5, name: 'T2 BATTER KINK' },
+    { run: 55, width: 28, y: 9, name: 'm2' },
+    { radius: 48, turn: 110, width: 26, y: 15, name: 'T3 FOOT OF THE CLIMB' },
+    { run: 90, width: 26, y: 22, name: 'm3' },
+    { radius: 52, turn: -145, width: 25, y: 31, name: 'T4 FIRST TRAVERSE' },
+    { run: 40, width: 24, y: 42, name: 'm4' },
+    { radius: 130, turn: 30, width: 22, y: 50, name: 'T5 SPUR ENTRY' },
+    // The Spur, and the hundred metres either side of it, are level on purpose.
+    { run: 35, width: 20, y: 54.5, name: 'm5' },
+    { radius: 30, turn: 165, width: 20, y: 55, name: 'T6 THE SPUR' },
+    { run: 35, width: 21, y: 55.5, name: 'm6' },
+    { radius: 54, turn: -100, width: 22, y: 58, name: 'T7 SPUR EXIT' },
+    { run: 90, width: 24, y: 64, name: 'm7' },
+    { radius: 222, turn: 24, width: 24, y: 70, name: 'T8 SECOND TRAVERSE' },
+    { run: 115, width: 25, y: 78, name: 'm8' },
+    { radius: 46, turn: 150, width: 24, y: 84, name: 'T9 SHOULDER LEFT' },
+    { run: 125, width: 25, y: 94, name: 'm9' },
+    { radius: 180, turn: -100, width: 25, y: 101, name: 'T10 THE COL' },
+    { run: 130, width: 26, y: 104, name: 'm10' },
+    // The finale's purple corner. 134 metres of 44-metre radius at 107m of
+    // altitude, and the reason this course stopped being the flattest-driving
+    // circuit in the cup on the one instrument that matters.
+    { radius: 44, turn: 175, width: 25, y: 107, name: 'T11 SUMMIT TRAVERSE' },
+    { run: 65, width: 26, y: 112, name: 'm11' },
+    { radius: 240, turn: 24, width: 26, y: 116, name: 'T12 THE RIDGE' },
+    { run: 65, width: 27, y: 103, name: 'm12' },
+    { radius: 50, turn: -155, width: 26, y: 88, name: 'T13 CUTTING SWEEP' },
+    { run: 80, width: 28, y: 68, name: 'm13' },
+    { radius: 170, turn: 30, width: 29, y: 52, name: 'T14 SPILLWAY LEFT' },
+    { run: 105, width: 28, y: 26, name: 'm14' },
+    { radius: 48, turn: 120, width: 27, y: 12, name: 'T15 VALLEY SWEEP' },
+    { run: 55, width: 27, y: 2, name: 'm15' },
+  ],
+  { step: 15 },
+);
+
+/** Metres from the ring's origin to the start/finish line. */
+const START = 0;
+const on = (name: string, along = 0.5): number =>
+  ((RING.distanceAlong(name, along) - START) / RING.length + 1) % 1;
 
 export const switchbackSummit: CourseDefEx = {
   id: 'switchback-summit',
   name: 'Switchback Summit',
   cup: 'hazard',
-  points: loopFromWaypoints(WAYPOINTS, {
+  points: loopFromWaypoints(RING.waypoints, {
     width: 26,
     step: 10,
     bankGain: 20,
@@ -234,7 +173,7 @@ export const switchbackSummit: CourseDefEx = {
   walls: true,
   wallHeight: 1.6,
   groundSize: 5600,
-  // The plain the valley floor road runs across, and nothing more ambitious
+  // The plain the valley-floor road runs across, and nothing more ambitious
   // than that. It used to be -35, on the reasoning that a datum below the start
   // straight gives the climb something to be measured against — but the climb
   // is measured against the *road*, which gains 116m either way, and the only
@@ -242,95 +181,92 @@ export const switchbackSummit: CourseDefEx = {
   // thirty metres under the nearest tarmac, which is the exact band
   // `alpine.paint` reads as tussock. That is where the pasture green came from.
   groundY: 4,
-  startDistance: 50,
+  startDistance: START,
   checkpoints: 36,
 
   features: {
     // **Five strips, every one of them on the way up, none on the way down.**
-    // That asymmetry is the lap structure here, and it is the opposite of
-    // Cone Canyon's — where the strips are the reward for a clean corner, these
-    // are compensation for a gradient. Climbing at 8-11% costs roughly a fifth
-    // of the kart's acceleration, so a pad halfway up a traverse is worth twice
+    // That asymmetry is the lap structure here, and it is the opposite of Cone
+    // Canyon's — where the strips are the reward for a clean corner, these are
+    // compensation for a gradient. Climbing at 8-11% costs roughly a fifth of
+    // the kart's acceleration, so a pad halfway up a traverse is worth twice
     // what the same pad is worth on the flat; the descent is 17% downhill and
     // has more speed than anybody can use already.
     pads: [
-      { at: 0.130, lateral: 0.30, width: 6, length: 20 },
-      { at: 0.258, lateral: -0.30, width: 6, length: 20 },
-      { at: 0.348, lateral: 0.28, width: 6, length: 18 },
-      { at: 0.470, lateral: 0.30, width: 6, length: 20 },
-      { at: 0.612, lateral: -0.28, width: 6, length: 20 },
+      { at: on('m3', 0.45), lateral: 0.30, width: 6, length: 20 },
+      { at: on('m7', 0.45), lateral: -0.30, width: 6, length: 20 },
+      { at: on('m8', 0.40), lateral: 0.28, width: 6, length: 18 },
+      { at: on('m9', 0.40), lateral: 0.30, width: 6, length: 20 },
+      { at: on('m10', 0.40), lateral: -0.28, width: 6, length: 20 },
     ],
     // Across the inside of the Spur. The cut is laid on the gravel shoulder, so
     // it holds you to 70% of top speed while saving the tip of the promontory —
     // worth it out of a mini-turbo, and free with a mushroom in the slot.
-    shortcuts: [{ from: 0.371, to: 0.403, side: 1 }],
+    // `side: 1` is the driver's left, which is the apex of this left-hander.
+    shortcuts: [{ from: on('T6 THE SPUR', 0.1), to: on('T6 THE SPUR', 0.9), side: 1 }],
     // **The washout, in the Spillway.** Half the road on the fastest part of
     // the descent is under the scree that comes off the cutting above it — you
     // arrive at 17% downhill and have to decide whether to give up the inside
     // line or take the loose stuff. It is the only place in the cup where a
-    // corner is *narrowed by its surface* rather than by its barriers.
-    // See `SurfacePatchDef` for the lateral frame; this is the uphill (left)
-    // half of the road, which is also the geometrically quick side.
+    // corner is *narrowed by its surface* rather than by its barriers. See
+    // `SurfacePatchDef` for the lateral frame; this is the uphill (left) half
+    // of the road, which is also the geometrically quick side.
     //
     // Cold grey schist, the same rock the cutting above it is made of, so it
     // reads as something that fell rather than as something that was painted.
     patches: [
-      { from: 0.868, to: 0.892, latFrom: 0.22, latTo: 1, surface: 'dirt', tint: '#9AA2B4' },
+      {
+        from: on('T14 SPILLWAY LEFT', 0.05), to: on('T14 SPILLWAY LEFT', 0.95),
+        latFrom: 0.22, latTo: 1, surface: 'dirt', tint: '#9AA2B4',
+      },
     ],
-    kerbCurvature: 0.0048,
+    // Seven corners here run 1/44 to 1/54 of curvature and the traverses 1/130
+    // to 1/539, so a threshold at 1/85 kerbs the switchbacks and leaves the
+    // fast road along the face unmarked.
+    kerbCurvature: 0.0118,
 
     // ── the mountain ──────────────────────────────────────────────────────
     //
     // Sized against the snow ramp in `render/theme.ts`, which runs from roughly
     // `rel` 35 to `rel` 135 above the nearest road. **Every number here is
     // chosen so that the land crosses that ramp rather than starting above it.**
+    // At 95 the rim spreads from `rel` 2 to 115: grey schist near the circuit,
+    // the snowline arriving about five hundred metres out, white only past
+    // that. The line moves *with the distance from the road*, which is the one
+    // thing that reads as altitude from inside a kart.
     //
-    // The rim was 200m tall. `plateau * terrace * erosion` never takes 200 below
-    // `rel` 79, so the entire rim began most of the way up the ramp and the
-    // whole landscape came back one flat blue-white — a critic called it a
-    // meringue and was right. At 95 the same product spreads the land from
-    // `rel` 2 to 115: grey schist near the circuit, the snowline arriving about
-    // five hundred metres out, white only past that. The line moves *with the
-    // distance from the road*, which is the one thing that reads as altitude
-    // from inside a kart.
+    // The heroes are sized the same way. The bottom fifth of any landform is
+    // hidden behind the embankment and the barrier, so a peak whose rock band
+    // lives down there has no rock band at all as far as a player is concerned.
+    // The near ones are therefore 100-145m — their visible middle is scree,
+    // their top quarter is snow — and only the far ones, seen through a
+    // kilometre of aerial perspective and which *should* be white, are allowed
+    // to stand clear of the ramp entirely.
     //
-    // The heroes are sized the same way. The hard part is that the bottom
-    // fifteen or twenty per cent of any landform is hidden behind the
-    // embankment and the barrier, so a peak whose rock band lives in its lowest
-    // fifth has no rock band at all as far as a player is concerned. The near
-    // ones are therefore 100-145m — their visible middle is scree, their top
-    // quarter is snow — and only the far ones, which are seen through a
-    // kilometre of aerial perspective and *should* be white, are allowed to
-    // stand clear of the ramp entirely.
-    //
-    // `rimStart` is also what holds the whole landscape off the 50-160m band
-    // the world module fills with `room()` — conveyors, berms, parked plant —
-    // which tests whether a spot is free and not whether it is level. Nothing
-    // steep may begin inside it, which is why the rim waits until 180m and the
-    // hero gate (`rimStart * 0.7` to `rimStart * 1.5`) does not open until 126.
+    // `rimStart` is also what holds the landscape off the 50-160m band the
+    // world module fills with `room()` — conveyors, berms, parked plant — which
+    // tests whether a spot is free and not whether it is level. Nothing steep
+    // may begin inside it, which is why the rim waits until 180m and the hero
+    // gate (`rimStart * 0.7` to `rimStart * 1.5`) does not open until 126.
     terrain: {
       rimStart: 180,
       rimEnd: 620,
       rimHeight: 95,
       landmarks: [
-        // The peak the whole circuit is wrapped around. Its foot is held clear
-        // of the road by the same gate as the rim, so it rises out of the
-        // middle of the ring rather than through the tarmac.
-        { x: 70, z: 60, radius: 320, height: 145, kind: 'mesa' },
         // A rock tooth outside the Foot of the Climb — the near landmark the
         // first traverse is aimed at, and the one place on this course you see
         // exposed schist at eye level instead of on a skyline.
-        { x: 585, z: -335, radius: 195, height: 105, kind: 'spire' },
+        { x: 610, z: -520, radius: 195, height: 105, kind: 'spire' },
         // The bluff on the outside of the Cutting Sweep, so the descent has a
         // wall on it rather than open air on both sides.
-        { x: -700, z: 300, radius: 250, height: 100, kind: 'mesa' },
+        { x: -790, z: 250, radius: 250, height: 100, kind: 'mesa' },
         // The far side of the valley, seen from the whole descent.
-        { x: -1050, z: 480, radius: 430, height: 200, kind: 'mesa' },
+        { x: -1180, z: 520, radius: 430, height: 200, kind: 'mesa' },
         // Behind the Spur, so the promontory has something to be a promontory
         // in front of.
-        { x: 1150, z: -180, radius: 380, height: 185, kind: 'mesa' },
+        { x: 1150, z: 120, radius: 380, height: 185, kind: 'mesa' },
         // A needle past the Col, on the skyline of the climb.
-        { x: 320, z: 1020, radius: 260, height: 215, kind: 'spire' },
+        { x: 180, z: 1080, radius: 260, height: 215, kind: 'spire' },
       ],
     },
   },
@@ -339,12 +275,7 @@ export const switchbackSummit: CourseDefEx = {
     // **Cold schist, and it has to be declared cold.** `theme.ground` is not
     // only the far-field albedo: `sunRig()` turns it into the ground half of
     // the hemisphere fill, so it is the colour of the light bouncing back up
-    // onto every kart, cone and barrier on the circuit. At 0x8f8c74 — a warm
-    // olive-tan — the land beyond the barrier read as desert on the cut side
-    // while `ALPINE_TURF` made the fill side pasture green, and a critic
-    // photographed the two of them either side of the same road. Blue-grey
-    // schist mixes that tussock down to a dry alpine grey-green and cools the
-    // bounce at the same time.
+    // onto every kart, cone and barrier on the circuit.
     //
     // The exact value is solved backwards rather than picked. `alpine.paint`
     // lays `ALPINE_TURF` (0x67704a — a properly saturated pasture green) over
@@ -368,14 +299,11 @@ export const switchbackSummit: CourseDefEx = {
     // which is a quarter turn away from the quarry's and a half from the
     // canyon's — four courses, four shadow directions.
     sun: { color: 0xfff4e6, intensity: 2.85, azimuth: 5.25, elevation: 0.55 },
-    // **The pale one, and it is the only pale road in the game.** All four
-    // courses ran a base between #2B2D34 and #3A3D46 — four dark neutrals five
-    // per cent of luminance apart, which a critic photographed together and
-    // read as one road surface. A mountain pass is not fresh bitumen: it is
-    // weathered chipseal that has had thirty winters of grit and salt on it,
-    // and going *up* in value is the one direction none of the other three can
-    // go. White edge marking, because a mountain road is kerbed in paint and
-    // snow poles, not in hazard yellow.
+    // **The pale one, and it is the only pale road in the game.** A mountain
+    // pass is not fresh bitumen: it is weathered chipseal that has had thirty
+    // winters of grit and salt on it, and going *up* in value is the one
+    // direction none of the other three can go. White edge marking, because a
+    // mountain road is kerbed in paint and snow poles, not in hazard yellow.
     road: { base: '#6B7383', line: '#FFF8F0', edge: '#FFF8F0' },
     props: {
       alpine: true, cones: true, crowds: true,

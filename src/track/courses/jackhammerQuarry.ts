@@ -229,7 +229,13 @@ export const jackhammerQuarry: CourseDefEx = {
       { at: 0.120, lateral: -0.30, width: 5.5, length: 16 },
       { at: 0.270, lateral: 0.30, width: 5.5, length: 16 },
       { at: 0.545, lateral: 0.26, width: 5.5, length: 16 },
-      { at: 0.735, lateral: 0.32, width: 5.5, length: 16 },
+      // Moved from 0.735. `SurfacePatchDef` says no strip may come within four
+      // hundredths of a lap of a patch, and this one sat 0.023 from the leading
+      // edge of the sump spill: `findPads` in `ai/knowledge.ts` confirms every
+      // declared strip by probing `sample()` for `'boost'` and silently drops
+      // the ones that do not answer, so a fifth of this circuit's boost economy
+      // existed for the player and not for a single CPU driver in the field.
+      { at: 0.706, lateral: 0.32, width: 5.5, length: 16 },
       { at: 0.945, lateral: -0.30, width: 5.5, length: 16 },
     ],
     // **Two cuts, and they are opposites.** The first runs across the inside of

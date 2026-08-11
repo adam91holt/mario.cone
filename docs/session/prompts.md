@@ -5119,3 +5119,106 @@ Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wa
 ### 🤖 Claude — 2026-08-11 01:13 UTC
 
 Container restarted — that kills the wave. Confirming and resuming.
+
+### 🤖 Claude — 2026-08-11 01:13 UTC
+
+Dead — both agents' last write on the identical second (01:06:23), `claude` 7m06s old against that gap. Typecheck is clean and no `src` changes were lost; they were still measuring, not editing.
+
+### 🤖 Claude — 2026-08-11 01:14 UTC
+
+Container restart killed the wave at 01:06:23 — both agents' last write on the identical second, `claude` back up 7m06s old against that gap. Resumed; both builders are back with their carried directives intact, verified in the new transcripts.
+
+Nothing was lost. Both agents were still *measuring* rather than editing, which is exactly what their directives asked for — `courses` running its drift census, `perf` inventorying every gate in the file before touching any of them. Typecheck was clean and `src` was untouched, so there was no half-written file to reason about this time.
+
+Session archive committed at `d682627` — 502 turns.
+
+### 🧑 Prompt — 2026-08-11 01:50 UTC
+
+how many tokens have been used so far on this project?
+
+### 🤖 Claude — 2026-08-11 01:50 UTC
+
+Let me actually count it rather than estimate — the usage data is in the transcripts.
+
+### 🤖 Claude — 2026-08-11 01:50 UTC
+
+2.5 GB across 278 transcripts — streaming rather than loading them:
+
+### 🤖 Claude — 2026-08-11 01:52 UTC
+
+**Roughly 14.9 billion tokens.** Counted from the transcripts, not estimated:
+
+| | main session | 278 subagents | total |
+|---|---|---|---|
+| **cache reads** | 686.8 M | 13,925.8 M | **14.6 B** |
+| **cache writes** | 32.0 M | 265.4 M | 297.4 M |
+| **output** | 1.6 M | 5.2 M | **6.8 M** |
+| **fresh input** | 0.004 M | 1.7 M | 1.7 M |
+
+**The number that actually matters is the output: 6.8 million tokens.** That's the generated work — the TypeScript, the verdicts, the commit messages, the reasoning. Everything else is re-reading context.
+
+**Why cache reads dominate so absurdly (98% of the total).** Every one of those 278 agents re-reads its whole conversation on every single turn. A critic that has captured twelve screenshots and read four source files is carrying maybe 150k tokens of context, and it pays that again on each of its 60-odd turns. 65,124 subagent messages × a large context each is how you get to 14 billion.
+
+Critically, **cache reads are ~10× cheaper than fresh input**, which is the only reason this is affordable at all. Only 1.7 M tokens were genuinely fresh input across every agent — everything else hit the cache. If this had run without prompt caching it would have been a fundamentally different proposition.
+
+**For scale:** 278 agents, 65,124 subagent messages, 6 days. The repo they produced is about 1.4 MB of JavaScript. The critics have been the expensive part by a wide margin — a builder writes code, but a critic captures twelve 1600×900 frames, reads them as images, drives the harness, and does it again every round. That's the cost of the thing that makes this work at all: nobody grading their own homework.
+
+### 🧑 Prompt — 2026-08-11 01:52 UTC
+
+Stop hook feedback:
+[~/.claude/stop-hook-git-check.sh]: There are uncommitted changes in the repository. Please commit and push these changes to the remote branch.
+
+### 🤖 Claude — 2026-08-11 01:53 UTC
+
+The courses agent did something better than what it was asked. Committing:
+
+### 🤖 Claude — 2026-08-11 01:53 UTC
+
+Committed at `25ad62e`. Wave alive — `claude` up 47 minutes, agents writing seconds ago.
+
+**The courses agent did something better than what I asked for, and its reasoning corrects mine.** I told it to tighten specific corners to R≈45. Instead it went a level down and built `src/track/courses/ring.ts` — straights and *exact circular arcs*, so a corner can be stated as `{ radius: 47, turn: -165 }` rather than nudged into shape.
+
+The justification is the sharpest diagnosis in the build:
+
+`loopFromWaypoints` turns map points into a spline, which is the right way to sketch a shape and the wrong way to state a radius. **A corner authored as five hand-placed points has no radius at all** — it has a peak curvature in the middle and long tails either side. Measured across all four circuits, the mean radius through a corner ran ~1.4× its tightest point, and **not one corner in the game held a single radius for as much as a hundred metres**.
+
+And that, not corner tightness, is what was ending the drifts. The widest arc a committed drift can be steered to is ~56 m at 45 m/s; the tightest is ~23 m. So a corner running 70 m → 37 m → 70 m is **outside the holdable band at both ends** — the driver lays the drift, the road opens under it, the slide runs wide, and the charge is thrown away.
+
+Which means my directive was aimed slightly wrong. I said "radius is the missing variable, not arc length" and that was closer than the obvious answer, but the real variable is *radius consistency*. Tightening a corner that still varies 1.4× would have produced another 1.3-second drift ceiling and another failed round.
+
+### 🧑 Prompt — 2026-08-11 02:09 UTC
+
+MARIO.CONE build loop — hourly. Repo adam91holt/mario.cone (PUBLIC), branch claude/mario-kart-racing-game-z8wdf1. WFDIR=/root/.claude/projects/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/subagents/workflows
+
+EVERY TICK, before anything else: `node tools/session.mjs`. It refreshes docs/session/prompts.md and docs/session/session.jsonl — the conversation that is building this game, which the user asked to be published and kept current. It exits non-zero if a message body was truncated; if that happens fix the tool rather than committing a mangled archive. Commit the refresh with whatever else the tick produces.
+
+Do NOT trust any run id written here — resolve it: RUN=$(ls -t $WFDIR | head -1). Current run: coherence pass = wf_85410807-a0a.
+
+STEP 1 — PROVE the wave is alive. Two checks; the second has never been wrong:
+  date -u
+  ls -lt --time-style=+%H:%M:%S $WFDIR/$RUN/agent-*.jsonl | head -3
+  ps -eo etime,comm | grep -w claude
+(a) Newest agent-*.jsonl mtime older than ~25 minutes = dead. USE `ls -t`; a plain `ls | tail` sorts ALPHABETICALLY and once hid the only live agent behind eleven finished ones.
+(b) ELAPSED of the main `claude` process. DECISIVE. If claude has been alive for LESS time than the gap since the last agent write, the container restarted and every in-flight agent is dead, however recent the mtimes look. Two agents whose last write is the IDENTICAL second is the same signature. Do NOT grep for claude in a `--sort=-pcpu | head -4` list — Chrome outranks it and it will not appear.
+Never judge by files existing or Chrome counts: subagents run IN-PROCESS inside the main claude process, so `ps aux | grep claude` shows nothing for a healthy wave.
+
+Count: node -e "const fs=require('fs');let s=0,r=0;for(const l of fs.readFileSync(process.argv[1],'utf8').trim().split('\n')){try{const e=JSON.parse(l);if(e.type==='started')s++;if(e.type==='result')r++;}catch{}}console.log(s,r)" $WFDIR/$RUN/journal.jsonl
+Concurrency is 2 on this 4-core box.
+
+STEP 2 — If DEAD, RESUME, DO NOT RELAUNCH:
+  Workflow({scriptPath:"<the same script>", resumeFromRunId:"<the dead RUN>", args:<the SAME args object, byte-for-byte>})
+Completed agent() calls return from cache instantly and only the killed agents re-run, carry intact. Args must match exactly or the cache misses. First `npx tsc --noEmit`, then commit and push whatever exists (say in the message if unverified). Read the dead run's journal for results that already have a `score` — those verdicts are earned and must never be re-bought.
+IF TYPECHECK FAILS INSIDE A FILE A DEAD AGENT WAS MID-WRITE ON, that is NOT transient — the agent is not coming back to finish it, and the resumed agent restarts that step from scratch. `git checkout --` those files rather than committing a build that cannot compile.
+AFTER ANY LAUNCH OR RESUME, VERIFY: grep 'YOUR PIECE' AND 'Observed:' out of each new agent transcript.
+
+STEP 3 — If ALIVE: `npx tsc --noEmit`. If clean, commit and push. Do NOT run captures or smoke while agents are active, and never pkill on any pattern matching "capture.mjs".
+
+STEP 4 — If FINISHED:
+  a. `npx tsc --noEmit` then `node tools/capture.mjs --smoke`. Typecheck-clean has passed on a build that did not boot; smoke is the real gate.
+  b. `node tools/capture.mjs` and LOOK at the PNGs with Read. Never trust an agent's summary.
+  c. Update tools/progress.state.json with the real verdicts, `node tools/progress.mjs`, `node tools/readmeshots.mjs`.
+  d. Commit, push, PR (base main, draft false), merge, then `git fetch origin main && git reset --hard origin/main && git push --force-with-lease` (merges are squashed, so ff-only will refuse).
+  e. Remaining work, in order: COURSES re-judge — it scored 5.0 because theme.ground never painted terrain and thirteen theme.props keys had zero reads; that wiring now exists, so its job is to USE it and prove the four courses are distinguishable from the overhead shot without the minimap. Then PERF re-run, which regressed to 475 draw calls and 667k triangles when the item economy fix put 102 boxes on the course. Then closing verdicts on wave 1 (feel, camera, track, look, cast), merged long ago and never judged.
+  f. Standing gaps no single piece owns, for the next coherence pass: the purple tier-3 mini-turbo has still never been seen by anyone; a single carried item is not drawn in the world at all because the orbit rig is only built for count>1; the finish letterbox guillotines the position badge on the one beat it matters.
+
+Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
