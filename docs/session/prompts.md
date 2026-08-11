@@ -5356,3 +5356,462 @@ Smoke passes, and two numbers moved a lot: **player speed 49.7 → 84.7 m/s**, a
 ### 🤖 Claude — 2026-08-11 04:21 UTC
 
 This is the best frame the game has produced. The kart is holding a real drift with blue tier sparks through a corner that keeps one radius the whole way — `ring.ts` visibly working — the item slot draws actual art, and the minimap shows a genuinely more varied circuit than the old blobby loop. The 84.7 m/s is the mini-turbo chain finally paying out.
+
+### 🤖 Claude — 2026-08-11 04:24 UTC
+
+Wave merged (`6f447e9`) and live. Two things worth your time.
+
+**The game got noticeably better.** Smoke player speed jumped **49.7 → 84.7 m/s** and draw calls fell **539 → 326**. I looked at a drift frame and it's the best this project has produced: the kart holding a real slide with blue tier sparks through a corner that keeps *one radius* the whole way round, item slot drawing actual art, gold 1ST plate, a genuinely varied circuit on the minimap. The mini-turbo chain is finally paying out — which is exactly what the last two rounds of course work were for.
+
+**Both pieces now fail on an absence rather than a defect**, which is a different and more interesting place to be stuck.
+
+*Nothing on any course can ever touch the player.* The proof is one grep and the critic led with it: **`stunRacer` has exactly one caller in the entire game** — `items/index.ts:846` — and neither `src/track/` nor `src/world/` imports physics at all. Every course is stamped `cup: 'hazard'` and `TrackFeatures` has no noun that could express a hazard. So the circuits are shapes to be driven, not places that fight back, and no amount of corner authoring reaches it. It also measured Cone Canyon and Jackhammer Quarry as *literally the same course twice* — same lap count, same surface set, 28.6 m vs 27.6 m elevation range, 37.1% vs 35.5% of the lap under an 80 m radius.
+
+*The quality ladder is a resolution slider and nothing else.* Top rung to floor removes **3.7% of the triangles** for 2.1×. So a machine needing more than that walks to the bottom, gets a 736×414 picture, **and still misses** — the live session ended pinned at the floor rung at 3.1 fps with nothing left to spend. Its own audit names the two real targets and no rung touches either.
+
+Next round is aimed squarely at both absences: a hazard noun in the track vocabulary, and a content rung in the ladder.
+
+### 🧑 Prompt — 2026-08-11 04:27 UTC
+
+Could we add iOS support with detection for when on a phone and force landscape view
+
+### 🤖 Claude — 2026-08-11 04:28 UTC
+
+Good ask, and there's one thing to flag upfront: **iOS Safari cannot actually force landscape.** `screen.orientation.lock()` is unimplemented there and needs fullscreen, which iPhone Safari doesn't grant. So the honest version is a rotate-to-play gate on iOS, a real lock where the platform allows it. And a keyboard game on a phone needs touch controls or "iOS support" means nothing.
+
+Let me see what's already there.
+
+### 🤖 Claude — 2026-08-11 04:28 UTC
+
+The `'touch'` source is already declared in `InputState` and **never produced by anything** — another built-but-never-connected case. Viewport meta is already correct. Let me read the input path properly.
+
+### 🤖 Claude — 2026-08-11 04:28 UTC
+
+Now I have the shape. Two files: a touch source in `core/input.ts`, and the on-screen controls plus orientation gate in `src/ui/touch.ts`.
+
+### 🤖 Claude — 2026-08-11 04:29 UTC
+
+Now the touch layer itself:
+
+### 🤖 Claude — 2026-08-11 04:30 UTC
+
+Typecheck errors are only in `src/core/quality.ts` — the perf agent mid-write, not my files. Now let me verify the touch layer actually renders at phone size, in both orientations:
+
+### 🤖 Claude — 2026-08-11 04:32 UTC
+
+Both orientations behave correctly and there are no page errors. Let me look at the landscape frame:
+
+### 🤖 Claude — 2026-08-11 04:32 UTC
+
+The controls render — but there's a real bug visible: **the DRIFT button is sitting on top of the position plate.** Two modules both claiming the bottom-right corner, which is the exact class of collision this project keeps finding. Let me check who owns that corner.
+
+### 🤖 Claude — 2026-08-11 04:33 UTC
+
+The HUD already parameterises its edge insets as `--ex/--ey/--er/--eb` — so the correct fix is to widen the bottom inset on a touch device, not to reach into the HUD's internals.
+
+### 🤖 Claude — 2026-08-11 04:33 UTC
+
+Now `touch.ts` must set that flag, and I should verify the collision is actually gone rather than assume:
+
+### 🤖 Claude — 2026-08-11 04:35 UTC
+
+That failure is environmental — Vite hot-reloaded because a live agent wrote to `src` mid-run, destroying the page context. Disabling HMR so an agent's edit can't yank the page:
+
+### 🤖 Claude — 2026-08-11 04:36 UTC
+
+Collision fixed — the 1ST plate now sits clearly above DRIFT, and the coin readout lifted on the left too. Committing:
+
+### 🤖 Claude — 2026-08-11 04:37 UTC
+
+Done and pushed (`c0fa115`). Two things you should know, one of them a straight answer to your question.
+
+**iOS cannot be forced into landscape, and I haven't pretended otherwise.** `screen.orientation.lock()` is unimplemented in Safari on iOS, and the spec only allows a lock while the document is fullscreen — which iPhone Safari doesn't grant a canvas either. Every "force landscape" recipe out there is one of: an Android-only lock, a CSS `rotate(90deg)` hack that breaks touch coordinates *and* the safe-area insets, or a promise that silently rejects. So it takes a real lock where one exists, and otherwise puts up a **rotate gate the player can't race behind**. Portrait genuinely can't show this game — the HUD's four corners and a road running to a horizon both need the long axis.
+
+**Touch controls, because "iOS support" without them means nothing.** Auto-throttle, like Mario Kart Tour and for the same reason: a phone gives you two thumbs, steering needs one continuously and drift needs the other exactly when a corner arrives — a pedal would need a third. Brake is still there, just not where a thumb rests. The steering pad has **no target to hit**: touch anywhere in the left half and it drops an anchor where your thumb landed. A fixed stick makes you look at your thumb; an anchored one lets you look at the road.
+
+**It collided with the HUD on the first build, and the tool caught it.** DRIFT went bottom-right — the corner the position plate already owns — and photographed at 844×390 the two were literally the same rectangle. A thumb zone is physical, so the plate is what moves. The HUD already parameterises its own edge insets, so the phone just asks for a bigger bottom one and both bottom corners lift together; no module reaches into another's DOM. `touchshot.mjs` now *asserts* the rectangles don't intersect rather than trusting my eye.
+
+Verified at a real iPhone 13 viewport in both orientations: controls shown/gate hidden in landscape, gate shown/controls hidden in portrait, no page errors.
+
+One honest caveat: it'll be **slow on a phone** at 745k triangles, and the quality ladder can currently only change resolution — that's exactly the gap `perf` is failing on right now. So it'll be playable but not smooth until that lands. I excluded `src/core/quality.ts` from the commit because the perf agent has it open mid-write and it doesn't compile; everything I touched does.
+
+### 🧑 Prompt — 2026-08-11 04:37 UTC
+
+Stop hook feedback:
+[~/.claude/stop-hook-git-check.sh]: There are uncommitted changes in the repository. Please commit and push these changes to the remote branch.
+
+### 🤖 Claude — 2026-08-11 04:37 UTC
+
+The perf agent is live (writing 4 seconds ago) and has `quality.ts` mid-refactor — transient, not mine to commit or revert. Committing the courses file, which compiles, and arming a waiter for the rest:
+
+### 🤖 Claude — 2026-08-11 04:38 UTC
+
+Committed at `741e04e` — the courses file, which compiles: `TrackFeatures` gaining a way to express a thing that moves and can hit you, which it has never had.
+
+`src/core/quality.ts` is still out. The perf agent is live and writing (4 seconds ago, `claude` up 3h31m), and it has that file mid-refactor — errors are `Cannot find namespace 'THREE'`, the signature of an import being moved.
+
+That's the one case where **waiting is the correct action**: reverting destroys work in progress, and committing publishes a build that can't build. It's specifically different from the dead-agent case earlier today, where reverting *was* right because nobody was coming back to finish it. Same symptom, opposite action, and the tell is process age against the write gap.
+
+I've armed a waiter for the settled state rather than re-checking by hand — it fires when `src` has been quiet for 75 seconds *and* typecheck passes, and I'll commit then.
+
+### 🧑 Prompt — 2026-08-11 05:00 UTC
+
+<task-notification>
+<task-id>bkl5a54yv</task-id>
+<tool-use-id>toolu_01GS4CDLdaXdNfSz7QMmkFZJ</tool-use-id>
+<output-file>/tmp/claude-0/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/tasks/bkl5a54yv.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for quality.ts to settle and compile" completed (exit code 0)</summary>
+</task-notification>
+
+### 🤖 Claude — 2026-08-11 05:00 UTC
+
+The tree settled after 22 minutes and compiles — re-verified independently. Committing:
+
+### 🤖 Claude — 2026-08-11 05:01 UTC
+
+Committed at `8a7b16f`. The tree took **22 minutes** to settle, and the waiting was the work — `quality.ts` spent most of that mid-refactor with `THREE` unresolved, which reverting would have destroyed and committing would have published.
+
+`src/track/courses/hazards.ts` exists now, and its header opens by quoting the verdict that produced it:
+
+> A critic played the four rounds and rejected them on one sentence: *"nothing on any of the four courses can ever touch the player, so each course is a shape to be driven rather than a place that fights back."* The proof was a single grep. `stunRacer` — physics' own published entry point for "something just happened to this kart" — had **exactly one caller in the entire game**, and neither `track/` nor `world/` imported physics at all. Four circuits stamped `cup: 'hazard'` and not one hazard between them.
+>
+> **This is the second caller.**
+
+That last line is the whole fix stated in five words. All four course files moved with it, and the quality ladder landed alongside — the other absence this round, where a ladder that could only change resolution had nothing left to spend once it hit the floor.
+
+### 🧑 Prompt — 2026-08-11 05:08 UTC
+
+There is an issue when I open the currently deployed game on my iPhone, it just starts moving the car before the countdown and there are no controls
+
+### 🤖 Claude — 2026-08-11 05:09 UTC
+
+Two separate things there, and one of them is my fault for not merging.
+
+### 🤖 Claude — 2026-08-11 05:09 UTC
+
+Confirmed: **the touch layer isn't on `main`** — my commits are on the branch, unmerged. That's why there are no controls, and that one's on me.
+
+The car moving is a separate, real bug. Let me reproduce it against exactly what's deployed rather than guess:
+
+### 🤖 Claude — 2026-08-11 05:17 UTC
+
+While that runs, let me check the handoff path directly — there's a known fact in this codebase that's very likely the cause.
+
+### 🧑 Prompt — 2026-08-11 05:19 UTC
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. **Primary Request and Intent:**
+
+   The overarching project (from before compaction) is MARIO.CONE: a Mario Kart-class kart racer in TypeScript + Three.js starring roadworks machines (road cone, plane, helicopter, digger, train, truck, car), built by fanned-out AI agents. The user's standing requirements: break into smallest judgeable pieces (agent decides the pieces), fan out sub-agents one per piece, /loop on each, a **separate sub-agent with fresh context must check the actual rendered result and play the real game — never the builder's summary**, that critic must be a really harsh critic, compare blind side-by-side against actual Mario Kart and name the single biggest gap when ours loses, **no fixed number of rounds**, spawn a fresh agent between major waves to play the whole game and smooth it into one coherent thing, keep a simple live progress page, ThreeJS in a browser, "fan out sub-agents and ultracode". Later: "We should use typescript"; "keep going until the game is fully built, and make sure you keep merging".
+
+   Within this session the user made these explicit new requests:
+   - Add a GitHub Action deploying to GitHub Pages so they can play it; offered to make the repo public.
+   - (After playing) Fix inverted left/right steering; show the user how the controls work; they didn't know how to deploy weapons; add hints.
+   - Status queries: "How's everything tracking", "what stage are we at, whats it up to?", "We have lots of waves to go yet?"
+   - "how many tokens have been used so far on this project?"
+   - Grab the Claude session JSON with all prompts, commit it to the repo, keep it updated all the time — then "yes go ahead, publish it".
+   - Create an MD file with a mermaid diagram explaining what's happening (someone asked what created the progress artifact).
+   - "Could we add iOS support with detection for when on a phone and force landscape view".
+   - **Most recent:** "There is an issue when I open the currently deployed game on my iPhone, it just starts moving the car before the countdown and there are no controls."
+
+2. **Key Technical Concepts:**
+   - TypeScript + Three.js 0.185 + Vite, strict tsconfig; everything procedural (no textures/models/audio/fonts); ~1.4 MB JS, 440 KB gzipped.
+   - Deterministic simulation: `fixedUpdate(dt)` at 120 Hz, seeded `ctx.rng`, no `Math.random()`, no wall-clock reads. `update(dt, alpha)` visuals only; `alpha` is a 0..1 blend.
+   - `window.__GAME` harness: `reset()`, `step(s)` (sim, no draw), `advance(s)` (sim + render), `setInput()`, `setAutopilot()`, `snapshot()`, `stats()`, `seek()`.
+   - Strict file ownership encoded in `ARCHITECTURE.md` + `src/types.ts`; `npm run typecheck` catches cross-module breaks.
+   - Wave workflow (`tools/wave.workflow.mjs`): builder → fresh critic; critic writes MK8 reference **from memory before looking**, then drives the real build, then blind A/B, then verdict `{score, pass, blindPick, biggestGap, directive, evidence}`. Pass bar 8.5.
+   - Coherence workflow (`tools/coherence.workflow.mjs`): survey → smooth (whole-repo ownership) → judge; the only exception to file ownership; must never run during a wave.
+   - **Liveness protocol:** `ls -t` on agent transcripts; DECISIVE test is elapsed age of the main `claude` process vs the write gap. Subagents run in-process so `ps aux | grep claude` shows nothing for a healthy wave. Two agents writing on the identical second = suspend signature.
+   - **Resume, don't relaunch:** `Workflow({scriptPath, resumeFromRunId, args})` with byte-identical args replays completed agents from cache.
+   - Dead agent mid-write → `git checkout --` those files. Live agent mid-write → **wait**.
+   - Container suspends every 35–90 minutes; durable hourly Routine `trig_01EAQCQD9TToG7aSacVrcW2s`.
+   - Steering convention: `yaw += steer * turnRate` against heading `(sin yaw, 0, cos yaw)`; positive steer turns **LEFT**; devices are negated, not the simulation.
+
+3. **Files and Code Sections:**
+
+   - **`tools/wave.workflow.mjs`** — added `themewire` and `perf` pieces to PIECES; added `evidenceLine()`:
+     ```js
+     function evidenceLine(evidence) {
+       if (!evidence) return '';
+       return Array.isArray(evidence) ? evidence.join(' | ') : String(evidence);
+     }
+     ```
+     Fixes a silent pipeline-stage throw that dropped pieces to `null`.
+
+   - **`tools/coherence.workflow.mjs`** (new) — survey/smooth/judge with `SEAM_SCHEMA` naming seam kinds: visual, timing, tone, audio, language, input, continuity, **dead-end**.
+
+   - **`src/core/input.ts`** — steering fix (device mapping negated, not the sim), plus new touch support:
+     ```ts
+     export interface TouchSample {
+       steer: number; accel: number; brake: number; drift: boolean; item: boolean;
+     }
+     // in sample():
+     const tou = touch;
+     if (tou) state.source = 'touch';
+     let steerTarget: number;
+     if (has('steer')) steerTarget = clamp(virtual.steer!, -1, 1);
+     else if (tou) steerTarget = -tou.steer;
+     else if (pad) steerTarget = -pad.steer;
+     else steerTarget = (raw.left ? 1 : 0) - (raw.right ? 1 : 0);
+     const pick = <T>(k: keyof VirtualInput, v: () => T, t: T, p: T, r: T): T =>
+       has(k) ? v() : tou ? t : pad ? p : r;
+     ```
+     Plus `setTouch(sample) { touch = sample; }`.
+
+   - **`src/ai/driver.ts`** — corrected the `angBetween` doc comment which had asserted the opposite convention on every count (that comment caused the shipped inversion).
+
+   - **`src/ui/coach.ts`** (new, then improved by the coherence agent) — controls card (pause + `H` only) and contextual cues (item/drift/off-road), each firing once per page load, state surviving `reset()`.
+
+   - **`src/ui/touch.ts`** (new) — phone controls. Anchored steering pad (`STEER_RANGE = 84`), DRIFT/ITEM/BRAKE buttons, auto-throttle only during `racing`/`finished`, rotate gate, `isTouchDevice()` honouring `?touch=1`/`?touch=0`, `isPhone()` short-edge ≤500. Sets `document.documentElement.setAttribute('data-touch', '1')`.
+
+   - **`src/ui/theme.ts`** — added the touch inset override so the HUD's bottom corners clear the thumbs:
+     ```css
+     :root[data-touch="1"] #hud {
+       --eb: calc(var(--u) * 9.4 + env(safe-area-inset-bottom, 0px));
+     }
+     ```
+
+   - **`src/main.ts`** — registered `createTouchSystem(ctx)`; boot calls `await startRace()` at line ~233 (relevant to the current bug).
+
+   - **`tools/steercheck.mjs`** (new) — drives real key events because `setInput()` short-circuits the device path.
+   - **`tools/session.mjs`** (new) — publishes `docs/session/prompts.md` + `docs/session/session.jsonl`; message text never truncated, closing check re-reads its own output; credentials redacted.
+   - **`tools/touchshot.mjs`** (new) — iPhone 13 viewport, both orientations, asserts DRIFT does not intersect `#hud .br`; `hmr: false`.
+   - **`tools/readmeshots.mjs`**, **`tools/census.mjs`**, **`docs/how-it-works.md`** (7 mermaid diagrams), **`README.md`**.
+   - **`src/track/courses/ring.ts`**, **`ramp.ts`**, **`hazards.ts`** — agent-authored primitives.
+   - **`/tmp/mc-main/probe.mjs`** (new, in a worktree at `origin/main`) — boots at iPhone viewport, sends NO input, logs phase/speed/progress/menuUp/countdown each second for 10s.
+
+4. **Errors and fixes:**
+   - **Carry `evidence` type mismatch** — schema says array, I passed strings; `.join` threw inside a pipeline stage, silently dropping pieces to `null`. Fixed with `evidenceLine()`; stopped and relaunched the run; verified carry via `grep 'Observed:'`.
+   - **Inverted steering (user-reported)** — fixed at device mapping, not simulation, because the AI was already consistent with physics. Root cause: a doc comment asserting the wrong convention, which the key mapping had been written to match.
+   - **Coach card gated on `race.phase`** — my bug; the race simulates behind opaque menus so the card appeared over the title screen. The coherence agent fixed it by gating on the front-end's own state.
+   - **Coach card was a *drawing* of a plate** (0.7u radius vs 0.55, 1px hairline, dashed hazard strip) — fixed by the coherence agent to use shared `plateCss`.
+   - **`session.mjs` truncated a 16,851-char prompt** — its own guard caught it; fixed so message text is never truncated, with the check re-reading the written output.
+   - **DRIFT button overlapped the HUD position plate** at 844×390 — fixed via `--eb` override; added an overlap assertion to the tool.
+   - **"Execution context was destroyed"** during touch capture — a live agent's edit triggered Vite HMR; fixed with `server: { hmr: false }`.
+   - **Repo-visibility API call blocked by the Claude Code permission classifier**, and the Pages API path blocked by the agent proxy (403). I stopped and explained rather than working around it; the user did both settings themselves.
+   - **`github.io` blocked by the egress proxy** for curl and WebFetch — I verified deployment via the GitHub API and stated plainly that I could not load the page itself.
+
+5. **Problem Solving:**
+   Established process-age as the decisive liveness test; resume-over-relaunch; the dead-vs-live agent distinction for half-written files. Diagnosed and fixed: fabricated results times, the item-box economy (slot empty 87% → acceptance test), drift starvation (radius consistency, not arc length), shadows across five pieces, and `perf`'s recurring "instrument that can't see a slow machine" pattern (three rounds, three mechanisms, one shape).
+
+6. **All user messages:**
+   - "How's everything tracking? Can you send some screenshots of how the game looks" (earlier context)
+   - "can we have a github action that deploys the game to github pages so i can play it? we can make the repo public"
+   - "you can use gh cli to do that?"
+   - "ok made it public and set pages to actions, check it"
+   - "i want to be able to play the game as is"
+   - "the controls are the wrong way around for left and right and we also need to be showing the user how the controls work, i dont know how to deploy the weapons, we should have some hints if they dont know how to do things"
+   - "What's the url for the game again. Can we add a readme and stuff and explain how this is being built in it and how it's all setup and some screenshots etc"
+   - "what stage are we at, whats it up to?"
+   - "We have lots of waves to go yet?"
+   - "how many tokens have been used so far on this project?"
+   - "Is it possible for you to grab this Claude json session with all the prompts and make it get committed to the repo and updated all the time"
+   - "yes go ahead, publish it"
+   - "Someone asked me this — '@Adam Holt what did you use to create that artifact that showed what it was building? I hadn't come across that one before' Could you maybe create a Md file with a mermaid diagram to show what's happening"
+   - "Could we add iOS support with detection for when on a phone and force landscape view"
+   - "There is an issue when I open the currently deployed game on my iPhone, it just starts moving the car before the countdown and there are no controls"
+   - Plus many repeated stop-hook messages ("There are uncommitted changes in the repository. Please commit and push these changes to the remote branch.") and hourly self-authored Routine firings beginning "MARIO.CONE build loop — hourly."
+
+7. **Pending Tasks:**
+   - **Diagnose and fix the iPhone bug** the user just reported (car moving before the countdown).
+   - **Merge the touch layer to `main` and deploy it** — this is the direct cause of "no controls" on the deployed build.
+   - Land the in-flight courses+perf wave (`wf_a4784a0d-17d`, task `wgn6y4m4h`) when it completes.
+   - Standing gaps for the next coherence pass: purple tier-3 mini-turbo never seen; a single carried item not drawn in the world (orbit rig only built for `count > 1`); finish letterbox guillotines the position badge.
+   - Closing verdicts on wave 1 (feel, camera, track, look, cast) — merged long ago, never judged.
+   - Board goal: every piece in `tools/progress.state.json` reaching `"pass"` (currently 0 of 17).
+
+8. **Current Work:**
+   Diagnosing the user's iPhone report. I established two distinct causes:
+   - **"No controls" is confirmed and is mine to fix:** `git ls-tree origin/main --name-only src/ui/` returned no `touch.ts` — the touch layer is committed on the branch (`c0fa115`, `741e04e`, `8a7b16f`) but **unmerged to main**, so the deployed build predates it entirely.
+   - **"Car moves before countdown" is a real bug under investigation.** I created a git worktree of exactly what's deployed at `/tmp/mc-main` (from `origin/main`), symlinked `node_modules`, and wrote `/tmp/mc-main/probe.mjs` to boot at an iPhone 13 viewport (844×390, `isMobile`, `hasTouch`), send **no input at all**, and log phase / speed / progress / menuUp / countdown once per second for 10 seconds.
+   
+   Static evidence gathered so far pointing at the cause: `src/main.ts:233` does `await startRace()` at boot, and in `src/race/director.ts` the `frontEndOpen` flag (set from the `ui:menu` bus edges at line 271) is used **only** to gate `canPause()` at line 1278 — nothing stops the race simulating while the front-end is up. This matches the fact already documented in `src/ui/coach.ts` by the coherence agent: the race is built at boot and keeps simulating behind an opaque front-end, so `race.phase` walks `intro` → `countdown` → `racing` underneath the player.
+   
+   The probe exceeded its 400 s foreground timeout and moved to background as task `b87fbjiyg`; a waiter task `bfgiq7qe2` is polling its output file. The last check of `/tmp/claude-0/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/tasks/b87fbjiyg.output` returned no output yet.
+
+9. **Optional Next Step:**
+   Read the probe output at `/tmp/claude-0/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/tasks/b87fbjiyg.output` to confirm whether the kart accrues speed/progress while the front-end is up and before the visible countdown. Then fix the race-behind-the-menus behaviour (most likely by not starting or by freezing the race while `frontEndOpen`, and/or restarting cleanly on launch), and **merge the touch layer to `main` so the deployed build has controls** — directly addressing the user's report: "it just starts moving the car before the countdown and there are no controls." My stated finding to the user was: "Confirmed: **the touch layer isn't on `main`** — my commits are on the branch, unmerged. That's why there are no controls, and that one's on me. The car moving is a separate, real bug."
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /root/.claude/projects/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
+
+### 🤖 Claude — 2026-08-11 05:19 UTC
+
+I'll check the probe output now.
+
+### 🤖 Claude — 2026-08-11 05:19 UTC
+
+The probe is still running (competing for CPU with a live wave). Let me read the actual code paths while it finishes.
+
+### 🤖 Claude — 2026-08-11 05:34 UTC
+
+I have the mechanism. Let me make the fix.
+
+### 🤖 Claude — 2026-08-11 05:35 UTC
+
+**Reproduced on the deployed build.** Title screen up, zero input, and the kart goes 0 → 75 km/h and travels 273 units of track. A whole race running behind the wordmark.
+
+Now the acceptance test for the fix:
+
+### 🤖 Claude — 2026-08-11 05:46 UTC
+
+While that runs, let me verify my selectors match the real DOM and check the wave.
+
+### 🤖 Claude — 2026-08-11 06:08 UTC
+
+The standoff works — 0.0 speed for 11 seconds where the deployed build hit 75 km/h. Now let me check the tap failure, which may be real.
+
+### 🤖 Claude — 2026-08-11 06:09 UTC
+
+The tap detector is misreporting. Let me make both checks unambiguous and re-run.
+
+### 🤖 Claude — 2026-08-11 06:20 UTC
+
+Phase now reads `intro` and stays frozen there. Let me wait for the remaining checks.
+
+### 🤖 Claude — 2026-08-11 06:41 UTC
+
+The cold-load section is clean — 11 samples, phase locked at `intro`, zero speed. Waiting on the launch checks.
+
+### 🤖 Claude — 2026-08-11 06:51 UTC
+
+All four checks pass. Committing the tool fix and verifying the production build before merging.
+
+### 🤖 Claude — 2026-08-11 06:51 UTC
+
+Build green. Let me verify the exact committed tree builds (my working tree has live agents' in-flight edits mixed in).
+
+### 🤖 Claude — 2026-08-11 06:52 UTC
+
+Merged. Watching the deploy.
+
+### 🤖 Claude — 2026-08-11 06:53 UTC
+
+Both halves of your iPhone report are fixed and deployed. **https://adam91holt.github.io/mario.cone/**
+
+**I reproduced the car moving.** Built a worktree of exactly what was deployed, loaded it at an iPhone 13 viewport, and sent *no input at all*:
+
+```
+  t     phase     speed   progress  title screen up
+   0s   intro       0.0       -36        yes
+   2s   intro      75.3       -36        yes
+   6s   racing     30.1    122.57        yes
+   9s   racing      0.0    273.20        yes
+```
+
+75 km/h and 273 units of track covered, with the wordmark still on screen. `boot()` starts a race *before* the title goes up — the menus stage themselves against a built world — and nothing stood that race down. So on every cold load the field rolled into formation, the lights ran, the flag dropped and seven AI drivers raced a full race underneath the title. What you saw as "the car moving before the countdown" was the formation approach, watched by someone who hadn't been let in yet.
+
+The director already tracked `frontEndOpen` — it gated the pause key and nothing else. It gates the phase machine now: while a screen is up, the field is held and the race doesn't tick. Same measurement after the fix: `intro / 0.0 / -36` for eleven straight samples.
+
+**The missing controls were my fault, plainly.** The whole touch layer was committed to the branch and never merged. `main` had no `src/ui/touch.ts` at all, so the build you were playing was keyboard-only. That's now merged and live.
+
+What you get on the phone: **steer** by putting your left thumb anywhere on the left half — it takes its zero from wherever you land, so no hunting for a stick. **Drift / Item / Brake** on the right. Throttle is automatic while racing. Portrait shows a rotate prompt.
+
+I wrote `tools/phone.mjs` as the acceptance test, from your report rather than from my fix — it sends no input for ten seconds (the claim is the kart moves on its own, so any input would forfeit it), then checks the menu still answers a tap, the race runs once you're in, and there are controls on the glass:
+
+```
+  TAP ON TITLE   scr-title → scr-racer   ok
+  AFTER LAUNCH   menu down  →  phase racing, field 73.3
+  CONTROLS       touch layer shown  [Brake Item Drift]
+```
+
+PR #17 merged, deploy green. One caveat: the egress proxy here blocks `github.io`, so I verified the deployment through the GitHub API and the build locally — I haven't loaded the live page myself. Worth a re-test on your actual phone.
+
+The courses + perf wave is still running underneath all this and hasn't been disturbed.
+
+### 🧑 Prompt — 2026-08-11 06:53 UTC
+
+Stop hook feedback:
+[~/.claude/stop-hook-git-check.sh]: There are uncommitted changes in the repository. Please commit and push these changes to the remote branch.
+
+### 🤖 Claude — 2026-08-11 06:54 UTC
+
+Typecheck green, no writer alive for 29 minutes. Committing the wave's in-flight work as a checkpoint.
+
+### 🤖 Claude — 2026-08-11 06:54 UTC
+
+Tree clean and pushed. Now let me check whether the wave is still alive.
+
+### 🤖 Claude — 2026-08-11 06:55 UTC
+
+Working tree is clean and pushed. Two things worth noting:
+
+**The wave is alive, not stalled.** The 29-minute gap in file writes had me checking — no `.mjs` processes, load dropped from 11 to 2.8 — but `wgn6y4m4h` reports `running`. That's the critics in long model calls rather than a dead wave, so there's nothing to resume.
+
+**I committed their in-flight work as a checkpoint** (`764219a`) rather than leaving ~1,250 lines exposed to a container reclaim. It typechecks green but no critic has scored it, and the commit message says so. `perf` is on round six and has finally turned its instrument on the thing that was actually broken — its own measurement is that the quality ladder's *rung transitions* were the worst frames of the session (`changeMs` 3101.8 and 1494.3 against a delivered median of 875ms), so the machinery built to smooth the frame was delivering the biggest hitch a player would ever see, precisely when the game was already struggling. `courses` is putting rock-fall geometry behind the hazard noun that landed earlier.
+
+Both stay on the branch until their verdicts come back. `main` has only the phone fix, which is tested and deployed.
+
+### 🧑 Prompt — 2026-08-11 06:55 UTC
+
+MARIO.CONE build loop — hourly. Repo adam91holt/mario.cone (PUBLIC), branch claude/mario-kart-racing-game-z8wdf1. WFDIR=/root/.claude/projects/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/subagents/workflows
+
+EVERY TICK, before anything else: `node tools/session.mjs`. It refreshes docs/session/prompts.md and docs/session/session.jsonl — the conversation that is building this game, which the user asked to be published and kept current. It exits non-zero if a message body was truncated; if that happens fix the tool rather than committing a mangled archive. Commit the refresh with whatever else the tick produces.
+
+Do NOT trust any run id written here — resolve it: RUN=$(ls -t $WFDIR | head -1). Current run: coherence pass = wf_85410807-a0a.
+
+STEP 1 — PROVE the wave is alive. Two checks; the second has never been wrong:
+  date -u
+  ls -lt --time-style=+%H:%M:%S $WFDIR/$RUN/agent-*.jsonl | head -3
+  ps -eo etime,comm | grep -w claude
+(a) Newest agent-*.jsonl mtime older than ~25 minutes = dead. USE `ls -t`; a plain `ls | tail` sorts ALPHABETICALLY and once hid the only live agent behind eleven finished ones.
+(b) ELAPSED of the main `claude` process. DECISIVE. If claude has been alive for LESS time than the gap since the last agent write, the container restarted and every in-flight agent is dead, however recent the mtimes look. Two agents whose last write is the IDENTICAL second is the same signature. Do NOT grep for claude in a `--sort=-pcpu | head -4` list — Chrome outranks it and it will not appear.
+Never judge by files existing or Chrome counts: subagents run IN-PROCESS inside the main claude process, so `ps aux | grep claude` shows nothing for a healthy wave.
+
+Count: node -e "const fs=require('fs');let s=0,r=0;for(const l of fs.readFileSync(process.argv[1],'utf8').trim().split('\n')){try{const e=JSON.parse(l);if(e.type==='started')s++;if(e.type==='result')r++;}catch{}}console.log(s,r)" $WFDIR/$RUN/journal.jsonl
+Concurrency is 2 on this 4-core box.
+
+STEP 2 — If DEAD, RESUME, DO NOT RELAUNCH:
+  Workflow({scriptPath:"<the same script>", resumeFromRunId:"<the dead RUN>", args:<the SAME args object, byte-for-byte>})
+Completed agent() calls return from cache instantly and only the killed agents re-run, carry intact. Args must match exactly or the cache misses. First `npx tsc --noEmit`, then commit and push whatever exists (say in the message if unverified). Read the dead run's journal for results that already have a `score` — those verdicts are earned and must never be re-bought.
+IF TYPECHECK FAILS INSIDE A FILE A DEAD AGENT WAS MID-WRITE ON, that is NOT transient — the agent is not coming back to finish it, and the resumed agent restarts that step from scratch. `git checkout --` those files rather than committing a build that cannot compile.
+AFTER ANY LAUNCH OR RESUME, VERIFY: grep 'YOUR PIECE' AND 'Observed:' out of each new agent transcript.
+
+STEP 3 — If ALIVE: `npx tsc --noEmit`. If clean, commit and push. Do NOT run captures or smoke while agents are active, and never pkill on any pattern matching "capture.mjs".
+
+STEP 4 — If FINISHED:
+  a. `npx tsc --noEmit` then `node tools/capture.mjs --smoke`. Typecheck-clean has passed on a build that did not boot; smoke is the real gate.
+  b. `node tools/capture.mjs` and LOOK at the PNGs with Read. Never trust an agent's summary.
+  c. Update tools/progress.state.json with the real verdicts, `node tools/progress.mjs`, `node tools/readmeshots.mjs`.
+  d. Commit, push, PR (base main, draft false), merge, then `git fetch origin main && git reset --hard origin/main && git push --force-with-lease` (merges are squashed, so ff-only will refuse).
+  e. Remaining work, in order: COURSES re-judge — it scored 5.0 because theme.ground never painted terrain and thirteen theme.props keys had zero reads; that wiring now exists, so its job is to USE it and prove the four courses are distinguishable from the overhead shot without the minimap. Then PERF re-run, which regressed to 475 draw calls and 667k triangles when the item economy fix put 102 boxes on the course. Then closing verdicts on wave 1 (feel, camera, track, look, cast), merged long ago and never judged.
+  f. Standing gaps no single piece owns, for the next coherence pass: the purple tier-3 mini-turbo has still never been seen by anyone; a single carried item is not drawn in the world at all because the orbit rig is only built for count>1; the finish letterbox guillotines the position badge on the one beat it matters.
+
+Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
+MARIO.CONE build loop — hourly. Repo adam91holt/mario.cone (PUBLIC), branch claude/mario-kart-racing-game-z8wdf1. WFDIR=/root/.claude/projects/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/subagents/workflows
+
+EVERY TICK, before anything else: `node tools/session.mjs`. It refreshes docs/session/prompts.md and docs/session/session.jsonl — the conversation that is building this game, which the user asked to be published and kept current. It exits non-zero if a message body was truncated; if that happens fix the tool rather than committing a mangled archive. Commit the refresh with whatever else the tick produces.
+
+Do NOT trust any run id written here — resolve it: RUN=$(ls -t $WFDIR | head -1). Current run: coherence pass = wf_85410807-a0a.
+
+STEP 1 — PROVE the wave is alive. Two checks; the second has never been wrong:
+  date -u
+  ls -lt --time-style=+%H:%M:%S $WFDIR/$RUN/agent-*.jsonl | head -3
+  ps -eo etime,comm | grep -w claude
+(a) Newest agent-*.jsonl mtime older than ~25 minutes = dead. USE `ls -t`; a plain `ls | tail` sorts ALPHABETICALLY and once hid the only live agent behind eleven finished ones.
+(b) ELAPSED of the main `claude` process. DECISIVE. If claude has been alive for LESS time than the gap since the last agent write, the container restarted and every in-flight agent is dead, however recent the mtimes look. Two agents whose last write is the IDENTICAL second is the same signature. Do NOT grep for claude in a `--sort=-pcpu | head -4` list — Chrome outranks it and it will not appear.
+Never judge by files existing or Chrome counts: subagents run IN-PROCESS inside the main claude process, so `ps aux | grep claude` shows nothing for a healthy wave.
+
+Count: node -e "const fs=require('fs');let s=0,r=0;for(const l of fs.readFileSync(process.argv[1],'utf8').trim().split('\n')){try{const e=JSON.parse(l);if(e.type==='started')s++;if(e.type==='result')r++;}catch{}}console.log(s,r)" $WFDIR/$RUN/journal.jsonl
+Concurrency is 2 on this 4-core box.
+
+STEP 2 — If DEAD, RESUME, DO NOT RELAUNCH:
+  Workflow({scriptPath:"<the same script>", resumeFromRunId:"<the dead RUN>", args:<the SAME args object, byte-for-byte>})
+Completed agent() calls return from cache instantly and only the killed agents re-run, carry intact. Args must match exactly or the cache misses. First `npx tsc --noEmit`, then commit and push whatever exists (say in the message if unverified). Read the dead run's journal for results that already have a `score` — those verdicts are earned and must never be re-bought.
+IF TYPECHECK FAILS INSIDE A FILE A DEAD AGENT WAS MID-WRITE ON, that is NOT transient — the agent is not coming back to finish it, and the resumed agent restarts that step from scratch. `git checkout --` those files rather than committing a build that cannot compile.
+AFTER ANY LAUNCH OR RESUME, VERIFY: grep 'YOUR PIECE' AND 'Observed:' out of each new agent transcript.
+
+STEP 3 — If ALIVE: `npx tsc --noEmit`. If clean, commit and push. Do NOT run captures or smoke while agents are active, and never pkill on any pattern matching "capture.mjs".
+
+STEP 4 — If FINISHED:
+  a. `npx tsc --noEmit` then `node tools/capture.mjs --smoke`. Typecheck-clean has passed on a build that did not boot; smoke is the real gate.
+  b. `node tools/capture.mjs` and LOOK at the PNGs with Read. Never trust an agent's summary.
+  c. Update tools/progress.state.json with the real verdicts, `node tools/progress.mjs`, `node tools/readmeshots.mjs`.
+  d. Commit, push, PR (base main, draft false), merge, then `git fetch origin main && git reset --hard origin/main && git push --force-with-lease` (merges are squashed, so ff-only will refuse).
+  e. Remaining work, in order: COURSES re-judge — it scored 5.0 because theme.ground never painted terrain and thirteen theme.props keys had zero reads; that wiring now exists, so its job is to USE it and prove the four courses are distinguishable from the overhead shot without the minimap. Then PERF re-run, which regressed to 475 draw calls and 667k triangles when the item economy fix put 102 boxes on the course. Then closing verdicts on wave 1 (feel, camera, track, look, cast), merged long ago and never judged.
+  f. Standing gaps no single piece owns, for the next coherence pass: the purple tier-3 mini-turbo has still never been seen by anyone; a single carried item is not drawn in the world at all because the orbit rig is only built for count>1; the finish letterbox guillotines the position badge on the one beat it matters.
+
+Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
