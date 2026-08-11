@@ -58,6 +58,101 @@
 // two thirds of the frame means the CPU is the problem and says which half of
 // it, and work far below it means the cost is downstream — the GPU, or vsync.
 //
+// ── The unit rule: a gate is denominated in the thing it gates ─────────────
+//
+// Three rounds have now been lost in this file to three different mechanisms
+// that share one shape. A warm-up counted in 240 rendered frames, which a
+// machine too slow to render cannot reach. A stall filter counted in
+// milliseconds, which discarded the exact frames the governor exists to
+// measure. And a moment gate that read `race.phase` — which ARCHITECTURE §11a
+// says outright cannot see the front-end — with a ceremony grace counted in
+// delivered-play seconds against a beat measured in race seconds.
+//
+// The class is not "counted in frames" or "counted in milliseconds". It is a
+// gate denominated in a **different unit from the thing it gates**, in a file
+// where the available clocks come apart by three orders of magnitude the
+// moment the machine gets slow. At 0.7 delivered frames a second — the state
+// this file exists for — one delivered frame is 1.43 seconds of wall time and
+// 0.067 seconds of *race* time, because `engine.ts` caps the fixed step at
+// eight per frame and the simulation drops into slow motion underneath. A
+// second is not a second is not a second.
+//
+// Four units, and the rule for choosing between them:
+//
+//   a statistic         → delivered frames. Samples are what a median has.
+//   a beat of the game  → race seconds (`ctx.race.time`). The countdown is
+//                         three race-seconds long at every frame rate.
+//   a person waiting    → wall seconds of delivered play (`liveSeconds`).
+//   a machine's speed   → milliseconds between delivered frames.
+//
+// ...and the corollary, which is the other half of the third round: **a gate
+// needs a valve only when the thing it waits for depends on the frame rate.**
+// The intro sweep ends when the simulation reaches the end of it, and the
+// simulation is slowed by the very cost the governor is trying to cut — a
+// genuine circle, and why `CEREMONY_PATIENCE` exists. The front-end ends when
+// the player presses a key, and the flag's grace ends after 1.2 race-seconds
+// that *every* delivered frame buys 0.067 of. Both are bounded without a
+// valve, and fitting them with one would only put the bug back.
+//
+// ── The audit ──────────────────────────────────────────────────────────────
+//
+// Every gate, threshold and accumulator in this file, what it is denominated
+// in, and what it is worth at 0.7fps. This is the list the third round was
+// lost for not having written down:
+//
+//   WARMUP_S 3             wall s of delivered play   2 frames        ok (*)
+//   PANIC_ARM_S 1.4        wall s of delivered play   1 frame         ok (*)
+//   MIN_SAMPLES 6          delivered frames           8.6s            ok
+//   PANIC_SAMPLES 4        delivered frames           5.7s            ok
+//   VERDICT_SAMPLES 14     delivered frames           20s             ok
+//   SKIP_FRAMES 3          delivered frames           4.3s            ok (now measured)
+//   WALL_WINDOW 64         delivered frames           91s of history  ok
+//   DOWN/LATE/PANIC/UP     ms between delivered frames   unchanged    ok
+//   UP_WORK_MS, UP_WORST   ms of CPU work             unchanged       ok
+//   FUTILE_* , RETRY       dimensionless ratios       unchanged       ok
+//   BENCH_HOLD 4, BURST 1  wall s                     3 / 1 frames    ok
+//   UP_DWELL 9             wall s under budget        unreachable     ok
+//   liveSeconds            wall s of delivered play   honest          ok
+//   CEREMONY_PATIENCE 20   wall s inside the sweep    a valve         ok
+//
+// ...and the five that were wrong, every one of them in the same direction —
+// a protection that shrinks to nothing exactly when the machine needs it:
+//
+//   CEREMONY_GRACE 1.2     was delivered-play seconds, so one frame of cover
+//                          for a beat that is 1.2 *race*-seconds long. Now
+//                          race seconds, read straight off `ctx.race.time`.
+//                          Measured before the fix: rung 3→4 fired between
+//                          race time 0.0 and 0.2s, on GO, and rung 4→5 at 1.2s.
+//   pictureLocked()        was `race.phase` and nothing else, so the whole
+//                          front-end was invisible to it: three of five rung
+//                          changes in a live 180-second session were made with
+//                          the title screen and the roster on the display, all
+//                          three logged `phase: intro`. Now the `ui:menu`
+//                          edges and the `race:pause` edges, the way
+//                          `race/director.ts` has always done it, with the
+//                          phase as the third opinion rather than the only one.
+//   VERDICT_ABANDON        was 30 wall seconds, against a window that fills in
+//                          *frames*: SKIP_FRAMES + VERDICT_SAMPLES is 17 of
+//                          them, which is 24s at 0.7fps and 34s at 0.5 — so
+//                          below about 0.55fps every verdict was abandoned and
+//                          the futility check could never run at all. Now
+//                          delivered frames, and it fires only when frames are
+//                          genuinely being discarded.
+//   DOWN_DWELL 1.2         wall seconds over budget, which is one frame at
+//   PANIC_DWELL 0.35       0.7fps: "never act on a single hitch" had become
+//                          "act on a single hitch". Now a wall dwell *and* a
+//                          frame count, and the slow machine is bound by the
+//                          frames.
+//   SETTLE 2.2             wall seconds since a change, which is one frame at
+//   PANIC_SETTLE 0.9       0.7fps — so the settle that exists to let a change's
+//                          own transient pass could be satisfied by the
+//                          transient itself. Now both, same shape.
+//
+//   (*) `WARMUP_S` and `PANIC_ARM_S` stay in wall seconds on purpose. They
+//   gate a statistic, the sample counts beside them are what actually binds on
+//   a slow machine, and the thing they are waiting out — shader compilation,
+//   texture upload, the JIT — is wall-clock work.
+//
 // ── The three things that make a governor either useful or a menace ─────────
 //
 // **0. It must not be a cliff.** Every rung on this ladder keeps the shadow
@@ -109,6 +204,24 @@
 // can wait a few more for the flag. `CEREMONY_GRACE` carries the refusal a
 // little past the flag, because the beat the flag falls on is exactly as
 // precious as the "1" before it.
+//
+// The third half of that — and the reason this round was lost — is that the
+// phase cannot see the front-end. **ARCHITECTURE §11a says so outright**: the
+// race is built at boot and keeps simulating behind an opaque title screen, so
+// `race.phase` walks `intro` → `countdown` → `racing` while the player is still
+// looking at the roster, and anything drawing over the game must stand off on
+// the `ui:menu` edges instead. `race/director.ts` has always done this
+// (`frontEndOpen`) and `ui/coach.ts` was fixed to; this file asked the race
+// director what was on screen and believed the answer. Measured live over 180
+// seconds: three of five rung changes were made with the title screen and the
+// machine roster on the display, all three logged `phase: intro`, and the
+// remaining two landed within two tenths of a second of the flag. Every change
+// the session made was made at a moment this gate exists to refuse.
+//
+// So the gate now asks three questions in the order they can be trusted: is
+// the front-end up (an edge, published by the module that owns the screen), is
+// the game paused (an edge, likewise), and only then what the race thinks it
+// is doing.
 //
 // The intro sweep is composed too and is gated with them, but it is the one
 // that carries a valve, because a phase gate on a starved simulation can
@@ -392,17 +505,45 @@ const UP_WORK_MS = 8.5;
  *  enough to say there is no room, however good the mean looks. */
 const UP_WORST_MS = 13;
 
+/**
+ * ── Dwells and settles, in two units each ──────────────────────────────────
+ *
+ * Every one of these is "wait a bit before believing that", and every one of
+ * them was denominated in wall seconds alone. At 0.7 delivered frames a second
+ * a wall second is less than one frame, so *all four* collapsed to "the very
+ * next frame may do it" on precisely the machine they exist to protect: a
+ * dwell that cannot outlast a single hitch is not a dwell, and a settle that a
+ * change's own transient satisfies is not a settle.
+ *
+ * So each one is now a pair — wall seconds **and** delivered frames — and both
+ * have to be met. On a machine that is fine the seconds bind (1.2s is 72
+ * frames at 60fps, so the frame counts are free); on a machine that is failing
+ * the frames bind and the guarantee is stated in the only unit that means
+ * anything there: *pictures the player was actually shown*.
+ */
 /** Seconds over budget before a rung is given up. Real seconds. */
 const DOWN_DWELL = 1.2;
+/** ...and delivered frames of it, so one hitch can never be the whole case. */
+const DOWN_DWELL_FRAMES = 4;
 /** ...and under it before one is taken back. Deliberately much longer: a hitch
- *  may cost a rung, but nothing wins one back by accident. */
+ *  may cost a rung, but nothing wins one back by accident.
+ *
+ *  No frame companion, and that absence is a measurement rather than an
+ *  oversight: "under budget" means frames are arriving inside 17.5ms, so nine
+ *  seconds of them is over five hundred frames by construction. A slow machine
+ *  cannot reach this condition at all, let alone reach it early. */
 const UP_DWELL = 9;
 /** ...and in an emergency, where the evidence is already overwhelming. */
 const PANIC_DWELL = 0.35;
+/** ...but still more than one picture. Two frames at 0.7fps is 2.9 seconds,
+ *  and it is what stops a single stalled frame walking the whole ladder. */
+const PANIC_DWELL_FRAMES = 2;
 /** Seconds after any change during which nothing is decided. */
 const SETTLE = 2.2;
+const SETTLE_FRAMES = 6;
 /** ...and after an emergency change, where waiting is its own cost. */
 const PANIC_SETTLE = 0.9;
+const PANIC_SETTLE_FRAMES = 2;
 /** Seconds of quiet after a harness-driven frame before measuring resumes. */
 const BENCH_HOLD = 4;
 /**
@@ -470,23 +611,32 @@ const PANIC_SAMPLES = 4;
  */
 const VERDICT_SAMPLES = 14;
 /**
- * ...and if the window has not filled in this long, the verdict is abandoned
- * rather than taken on thin evidence.
+ * ...and if the window has not filled within this many **delivered frames** of
+ * the cut, the verdict is abandoned rather than taken on thin evidence.
  *
  * Not a second escape hatch: it *drops* the verdict instead of deciding it, so
- * the ladder is unblocked and `futile` is left exactly where it was. It is
- * reached when frames are being discarded faster than they arrive — a page that
- * spent the window backgrounded, or a bench stepping the sim inside it — or on
- * a machine slower than anything measured here, where a frame costs two
- * seconds and seventeen of them do not fit inside it.
+ * the ladder is unblocked and `futile` is left exactly where it was.
  *
- * Thirty rather than twenty for exactly that last case: at 1.2s a frame, which
- * is the worst *sustained* rate this course has been measured at, the window
- * fills in 20.4s, and a deadline that lands a fifth of a second before the
- * answer is a deadline that throws away every verdict on the machine that most
- * needs one.
+ * ── Why this is counted in frames now ──────────────────────────────────────
+ *
+ * It was thirty wall seconds, and it is the fourth instance of the bug this
+ * round is about. The thing it is waiting for — `VERDICT_SAMPLES` entries in
+ * the window, behind `SKIP_FRAMES` discarded ones — is measured in *frames*,
+ * seventeen of them; and seventeen frames is a quarter of a second on a
+ * machine that is fine, 20s at 0.7fps and 34s at 0.5. So under about 0.55
+ * frames a second the deadline landed before the evidence could possibly
+ * arrive and **every** verdict was abandoned, on exactly the machines where a
+ * futile cut costs the most. A deadline in wall seconds in front of a window
+ * that fills in frames is a deadline that expires faster the slower the
+ * machine is.
+ *
+ * Counted this way it can only be reached by frames being *discarded* — the
+ * page suspended, or the harness stepping the simulation inside the window —
+ * because seventeen delivered frames fill the window by definition. Eight
+ * frames of slack over the seventeen, so a couple of spoiled frames do not
+ * throw away an answer that was one frame away.
  */
-const VERDICT_ABANDON_S = 30;
+const VERDICT_ABANDON_FRAMES = 25;
 
 /**
  * A drop that buys less than this fraction of the frame back bought nothing.
@@ -554,6 +704,21 @@ const WALL_WINDOW = 64;
  * many frames it takes for those objects to come into view. A 1.9-second frame
  * got past a two-frame skip on the live run and then sat in `wallWorst` for the
  * next sixty samples.
+ *
+ * ── ...but skipped is not the same as unmeasured ───────────────────────────
+ *
+ * These frames are excluded from the *steady-state* window because they are
+ * the change reallocating itself rather than the game — that part was and is
+ * right. What was wrong is that they were **thrown away**, which made the one
+ * hitch the governor is personally responsible for the one hitch its own
+ * instrument could not see. A governor structurally blind to the cost of its
+ * own action cannot be asked whether its action was worth it.
+ *
+ * So the worst of them is now recorded on the change's own log entry as
+ * `changeMs`, next to the `wallMs` the frame cost before it, and the worst of
+ * the session is in the probe. See `changeCost` below and the note on
+ * `precompileLadder`, which is where the number went once somebody could
+ * finally read it.
  */
 const SKIP_FRAMES = 3;
 
@@ -627,12 +792,52 @@ function isComposed(phase: string | undefined): boolean {
 }
 
 /**
- * Seconds after a ceremony ends before the picture may change again.
+ * **Race** seconds after the flag before the picture may change again.
  *
  * The flag falling is the same beat as the "1" before it: the player is timing
- * a rocket start and about to look at a screen full of boost. A gate that opens
- * on the frame the phase turns `racing` would have moved the two changes this
- * constant exists for by a tenth of a second and photographed exactly as badly.
+ * a rocket start and about to look at a screen full of boost. A gate that
+ * opened on the frame the phase turns `racing` would have moved the two
+ * changes this constant exists for by a tenth of a second and photographed
+ * exactly as badly.
+ *
+ * ── Why it is race seconds and not the seconds it used to be ───────────────
+ *
+ * It was 1.2 seconds of *delivered play*, accumulated in this file off the
+ * wall clock, and it was the round-3 failure. The beat it is protecting is a
+ * beat of the **game**: the countdown is three race-seconds long, the rocket
+ * start's boost is a fixed number of race-seconds, and the whole gesture the
+ * player is watching runs on `ctx.race.time`. Wall time and race time are the
+ * same thing at 60fps and come apart by a factor of twenty-one at 0.7fps,
+ * because `engine.ts` caps the fixed step at eight per frame and the
+ * simulation goes into slow motion — so 1.2 wall seconds of protection was a
+ * single frame, and the rung changes it exists to move landed on GO (race time
+ * 0.0-0.2s) and at race time 1.2s, which is to say on the flag and on the
+ * boost. Measured, photographed, and precisely the thing this gate is for.
+ *
+ * ── ...and why it is not `ctx.race.time`, which was the obvious answer ─────
+ *
+ * `race.time` is zero at the flag and advances only with the simulation, so it
+ * is the right *unit*. It is the wrong *signal*, and the bench caught it: the
+ * director's `beginCountdown()` does not reset it, so after a `race:seek` the
+ * flag falls with `race.time` already reading fifteen seconds and the gate is
+ * wide open on the frame the field is released. A reviewer's seek is the one
+ * way a real session reaches a countdown twice, and it is precisely how this
+ * gate is tested — a gate that its own test cannot arm is a gate that passes
+ * its own test.
+ *
+ * So the flag is taken from the flag: `race:racing` is the transition edge the
+ * director emits (and `setPhaseQuiet` deliberately does *not*, so pause and
+ * resume do not counterfeit one), and this is measured from `ctx.time.elapsed`
+ * at that moment, which is the fixed-step clock — literally "fixed steps since
+ * the flag", counted in seconds. An edge published by the module that owns the
+ * fact, exactly like `ui:menu` above it.
+ *
+ * It cannot deadlock and needs no valve — see the corollary in the header. On
+ * a machine that is fine, sim time and wall time are the same thing and this is
+ * 1.2 seconds. On one slow enough for `engine.ts`'s eight-step cap to bind,
+ * every delivered frame buys exactly eight fixed steps, so a frame is worth
+ * 0.067 sim-seconds and the gate opens after eighteen of them however long each
+ * one takes. Bounded in pictures, either way.
  */
 const CEREMONY_GRACE = 1.2;
 /**
@@ -643,8 +848,11 @@ const CEREMONY_GRACE = 1.2;
  * phases above; this is the only door in the gate and the intro is the only
  * room it opens onto.
  *
- * The gate above has a property that is not obvious and is dangerous: **its
- * cost is proportional to the slowness it is gating.** `engine.ts` caps the
+ * A gate keyed on a *phase* has a property that is not obvious and is
+ * dangerous: **its cost is proportional to the slowness it is gating.**
+ * (`CEREMONY_GRACE` above is keyed on the race clock rather than on a phase,
+ * which is why it is bounded in delivered frames and needs no door of its own.)
+ * `engine.ts` caps the
  * fixed step at eight per frame to avoid a spiral, so once a frame costs more
  * than 66ms the simulation stops keeping up with the wall clock and the whole
  * game enters slow motion. A 3.2 second intro is 3.2 seconds at 60fps, 4.8
@@ -694,6 +902,50 @@ export interface QualityChange {
    * hole. Anything else here is a bug in the moment gate.
    */
   phase: string;
+  /**
+   * ...and the race clock, because the phase alone could not say *where in the
+   * beat* a change landed.
+   *
+   * The review that sent this file back reported "rung 3 to 4 fired between
+   * race time 0.0 and 0.2s, on GO" — a fact the log could not express, because
+   * both changes were honestly labelled `racing`. Zero here means the flag
+   * frame itself.
+   */
+  raceTime: number;
+  /**
+   * ...and the number the gate actually used: seconds on the fixed-step clock
+   * since the `race:racing` edge.
+   *
+   * **Anything under `CEREMONY_GRACE` here is a bug in the moment gate.** It is
+   * a separate field from `raceTime` because the two come apart, and the way
+   * they come apart is itself the reading: `beginCountdown()` does not reset
+   * `ctx.race.time`, so after a reviewer's seek the race clock says fifteen
+   * seconds on the frame the flag falls. See `CEREMONY_GRACE`.
+   */
+  sinceFlag: number;
+  /**
+   * The front-end, as the gate saw it at the moment of the change.
+   *
+   * `true` on this line is the round-3 failure, in one field: a change made
+   * with the title screen on the display. It is here rather than inferred so
+   * that a reviewer never has to take the screenshot again.
+   */
+  frontEnd: boolean;
+  /**
+   * **What the change itself cost**, in wall milliseconds: the worst delivered
+   * frame of the `SKIP_FRAMES` the window discards after it.
+   *
+   * The governor spends the player's frame rate to buy the player's frame
+   * rate, and until this field existed it could see only one side of that
+   * trade — the frames it discarded to avoid measuring its own reallocation
+   * were the only frames that contained its own reallocation. Compare it with
+   * `wallMs` on the same line: 687 against 252 is what a rung change cost
+   * before the duplicate canvas resize in `engine.ts` was removed.
+   *
+   * Zero until the skipped frames have gone by, so a log read the instant
+   * after a change shows it as 0 rather than as a lie.
+   */
+  changeMs: number;
 }
 
 /**
@@ -795,6 +1047,26 @@ export interface QualityProbe {
    *  A change logged with `locked: true` would be a bug. */
   phase: string;
   locked: boolean;
+  /**
+   * The two facts `phase` cannot carry, straight off the edges that publish
+   * them: is the front-end up, and is the game paused.
+   *
+   * ARCHITECTURE §11a: the race keeps simulating behind an opaque title screen,
+   * so a probe reporting `phase: 'racing'` may well be describing a game
+   * nobody can see. These two say which.
+   */
+  frontEnd: boolean;
+  paused: boolean;
+  /** What the race director's clock says, and what the flag's grace actually
+   *  measures — seconds on the fixed-step clock since `race:racing`. They come
+   *  apart after a seek; see `QualityChange.sinceFlag`. */
+  raceTime: number;
+  sinceFlag: number;
+  /** The worst frame of the last change's own reallocation, and the worst of
+   *  the session — the cost of the governor's own action, which for three
+   *  rounds it was structurally unable to see. */
+  changeMs: number;
+  changeWorstMs: number;
   /** Every change this session, most recent last. */
   log: QualityChange[];
   /** ...and every judgement of a change, whether or not it moved anything. */
@@ -918,6 +1190,19 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   let underFor = 0;
   let panicFor = 0;
   let settleFor = SETTLE;
+  /**
+   * ...and the same three in **delivered frames**, which is the unit the whole
+   * of this round was about.
+   *
+   * A wall second is 60 frames on a machine that is fine and two thirds of one
+   * on a machine at 0.7fps, so a dwell counted only in seconds guarantees
+   * nothing at all on the machine it exists for. Both have to be satisfied; see
+   * the block on `DOWN_DWELL`.
+   */
+  let overFrames = 0;
+  let underFrames = 0;
+  let panicFrames = 0;
+  let settleFrames = SETTLE_FRAMES;
   /** -1 until the first frame we observe, so boot's own primed frame is free. */
   let benchFrames = -1;
   let benchQuietFor = 0;
@@ -932,6 +1217,9 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    *  of the difference it is about to measure could be the window itself. */
   let seBefore = 0;
   let verdictPending = false;
+  /** Delivered frames since the cut being judged. The abandon deadline counts
+   *  these, not seconds — see `VERDICT_ABANDON_FRAMES`. */
+  let verdictFrames = 0;
   let futile = 0;
   let stalled = false;
   /** The wall cost when the governor gave up, so it can notice things changing.
@@ -940,12 +1228,54 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   let stalledAt = 0;
 
   // ── the moment gate ──────────────────────────────────────────────────────
-  /** Seconds of delivered play since the last frame on which the game was
-   *  showing a composed picture. Zero while it is. */
-  let sinceCeremony = 0;
-  /** ...and seconds spent inside the composed picture currently on screen.
-   *  Zero while the game is being played. Only the intro's valve reads it. */
+  /**
+   * The front-end has a screen up, and the game is paused.
+   *
+   * Both are taken from the **edges** the owning modules publish — `ui:menu`
+   * and `race:pause` — because neither can be read off `ctx.race` at all.
+   * ARCHITECTURE §11a: the race is built at boot and keeps simulating behind an
+   * opaque title screen, so `race.phase` walks `intro` → `countdown` →
+   * `racing` while the player is still choosing a machine, and `phase ===
+   * 'loading'` means the boot *or* the pause screen with no way to tell which.
+   * `race/director.ts` has stood off these edges since it was written; this
+   * file asked the director what was on screen instead and was told about a
+   * race nobody could see.
+   */
+  let frontEndOpen = false;
+  let paused = false;
+  /**
+   * `ctx.time.elapsed` — the fixed-step clock — at the frame the flag fell.
+   *
+   * Latched on the `race:racing` edge rather than derived from `ctx.race.time`,
+   * which a seek leaves running from the previous race. `-Infinity` until a
+   * flag has actually fallen, so the grace is open before the first one and the
+   * intro and countdown gates carry that stretch on their own.
+   */
+  let flagAt = -Infinity;
+  /** Seconds on the fixed-step clock since the flag, or **-1** if no flag has
+   *  fallen this session. -1 rather than an infinity because this is reported
+   *  through `probe()` and a log entry, both of which are read as JSON, and
+   *  `JSON.stringify(Infinity)` is `null` — a reviewer's check for "was this
+   *  change inside the grace" would then compare against a null and answer
+   *  yes. A gate whose evidence serialises to a falsehood is not evidence. */
+  const sinceFlag = (): number =>
+    (flagAt === -Infinity ? -1 : +(ctx.time.elapsed - flagAt).toFixed(2));
+  /** Seconds of delivered play spent inside the composed picture currently on
+   *  screen. Zero while the game is being played, and zero behind the
+   *  front-end — a sweep nobody can see is not a sweep anybody is waiting out.
+   *  Only the intro's valve reads it. */
   let ceremonyFor = 0;
+
+  // ── the cost of the governor's own action ────────────────────────────────
+  /** Worst delivered frame among the `SKIP_FRAMES` discarded after a change. */
+  let changeCost = 0;
+  /** ...that number for the most recent completed change, and the worst of the
+   *  session. Both in wall milliseconds; 0 before the first change. */
+  let lastChangeMs = 0;
+  let changeWorst = 0;
+  /** The log entry still being measured into, or null. Never allocated here —
+   *  it is the entry `applyRung` already pushed. */
+  let changeEntry: QualityChange | null = null;
 
   const log: QualityChange[] = [];
   const verdicts: QualityVerdict[] = [];
@@ -1037,6 +1367,11 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     workMean = 0;
     lateFrac = 0;
     skipFrames = SKIP_FRAMES;
+    // A change measurement that never completed belongs to nothing. Dropping
+    // the entry pointer leaves its `changeMs` at 0, which reads as "not
+    // measured" rather than as "free".
+    changeCost = 0;
+    changeEntry = null;
   }
 
   function applyRung(next: number, why: string): void {
@@ -1050,10 +1385,11 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     ctx.renderer.shadowMap.needsUpdate = true;
     applyScale(r.scale);
 
+    let entry: QualityChange | null = null;
     if (from !== index) {
       const b = ctx.budget;
       if (log.length >= 24) log.shift();
-      log.push({
+      entry = {
         t: +liveSeconds.toFixed(2),
         from,
         to: index,
@@ -1062,15 +1398,28 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         workMs: +workMean.toFixed(2),
         bound: b ? boundBy(b) : '',
         phase: ctx.race?.phase ?? '',
-      });
+        raceTime: +(ctx.race?.time ?? 0).toFixed(2),
+        sinceFlag: sinceFlag(),
+        frontEnd: frontEndOpen,
+        changeMs: 0,
+      };
+      log.push(entry);
     }
 
     overFor = 0;
     underFor = 0;
     panicFor = 0;
+    overFrames = 0;
+    underFrames = 0;
+    panicFrames = 0;
     settleFor = 0;
+    settleFrames = 0;
     // Everything measured before a change was measured about a different game.
     clearWindow();
+    // ...and the frames the window is about to discard are this change's own
+    // reallocation. Measure them into the entry rather than throwing them away
+    // — see `SKIP_FRAMES`. Set after `clearWindow`, which clears the pointer.
+    changeEntry = entry;
     holding = why;
     publish();
     // The same channel main.ts's own `setQuality` uses, so lighting, fx, the
@@ -1096,6 +1445,27 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     wallBefore = wallMedian;
     seBefore = medianSe(wallMad, wallCount);
     verdictPending = true;
+    verdictFrames = 0;
+  }
+
+  /** Give up on a pending verdict without deciding it, and say so. Used by the
+   *  frame-counted deadline and by any edge that makes the two halves of the
+   *  comparison describe different scenes — the front-end coming up over the
+   *  race is the obvious one. */
+  function abandonVerdict(): void {
+    if (!verdictPending) return;
+    verdictPending = false;
+    if (verdicts.length >= 16) verdicts.shift();
+    verdicts.push({
+      t: +liveSeconds.toFixed(2),
+      rung: index,
+      call: 'abandoned',
+      beforeMs: +wallBefore.toFixed(1),
+      afterMs: 0,
+      gain: 0,
+      bar: 0,
+      samples: wallCount,
+    });
   }
 
   /**
@@ -1126,17 +1496,45 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    * the only moment gate in this file sat on the ordinary path, which is the
    * path a machine slow enough to need a governor never takes.
    *
-   * It costs one field read and one comparison, it never allocates, and it is
-   * deliberately not clever: no lookahead, no camera test, nothing that could
-   * fail open. The whole of it is "is anybody driving, and has the flag been
-   * down long enough to look away from".
+   * It costs three field reads and three comparisons, it never allocates, and
+   * it is deliberately not clever: no lookahead, no camera test, nothing that
+   * could fail open. The whole of it is "is anybody driving, and has the flag
+   * been down long enough to look away from".
+   *
+   * ── The order of the three questions is the fix ────────────────────────────
+   *
+   * It used to ask one, `ctx.race?.phase`, and ARCHITECTURE §11a says in as
+   * many words that the phase cannot answer it: the race is built at boot and
+   * simulates behind the front-end, so it reports `intro`/`countdown`/`racing`
+   * over a title screen, and it reports `loading` for both the boot and the
+   * pause screen. Measured live: three of five rung changes in a 180-second
+   * session were made with the roster on the display and logged `phase:
+   * intro`. The two edges come first now because they are *published by the
+   * modules that own those screens* — the same signals `race/director.ts` and
+   * `ui/coach.ts` stand off — and the phase is the third opinion rather than
+   * the only one.
+   *
+   * Neither of the first two carries a valve, and that is on purpose: see the
+   * unit rule in the header. A valve is needed only where the thing being
+   * waited for is itself slowed by the cost the governor is trying to cut. The
+   * front-end ends when a player presses a key and the pause screen ends when
+   * they press another; no amount of governing makes either arrive sooner, and
+   * a valve on them would only put back the bug of changing the picture while
+   * somebody is looking straight at a still frame of it.
    */
   function pictureLocked(): boolean {
+    // Nobody is driving, and the 3D behind the front-end is a different scene
+    // from the one this ladder is tuning.
+    if (frontEndOpen || paused) return true;
     const phase = ctx.race?.phase;
     if (isSealed(phase)) return true;
     // The one door, and it is on the sweep only. See `CEREMONY_PATIENCE`.
     if (phase === 'intro') return ceremonyFor < CEREMONY_PATIENCE;
-    return sinceCeremony < CEREMONY_GRACE;
+    // The flag's own beat, on the fixed-step clock rather than on the wall
+    // clock — see `CEREMONY_GRACE`. `flagAt` is latched on the `race:racing`
+    // edge, so this is the same beat at every frame rate instead of one frame
+    // at 0.7fps, and a seek re-arms it instead of walking straight past it.
+    return ctx.time.elapsed - flagAt < CEREMONY_GRACE;
   }
 
   /**
@@ -1195,6 +1593,71 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    * the first `startRace`, so at that moment the scene is empty and compiling
    * it compiles nothing. It runs from `reset()`, once per course per session,
    * with the world built and immediately before main.ts's own priming frame.
+   *
+   * ── What it deliberately does NOT do, and the measurement that says so ─────
+   *
+   * The review that sent this file back asked for the ladder's *buffers* to be
+   * pre-sized here as well as its programs — the eight post-stack render
+   * targets and the shadow map, at every rung — on the reading that a rung
+   * change costing 3.1x a steady frame with a flat program count (85, checked)
+   * had to be buffer reallocation. The first half of that is exactly right. The
+   * second half names the wrong buffers, and pre-sizing would have bought
+   * nothing at all.
+   *
+   * Measured live at 320x180 under a software rasteriser, on the page's own rAF
+   * loop, one lever at a time, each against the median delivered frame
+   * immediately before it (~200-225ms):
+   *
+   *   the whole rung change, 0 -> 3                 596ms   +371
+   *   render scale 1.00 -> 0.68, nothing else       541ms   +348
+   *   render scale 0.68 -> 1.00, nothing else       530ms   +329
+   *   shadow map 2048 -> 768, nothing else          492ms   +262
+   *   shadow map 768 -> 2048, nothing else          190ms      0
+   *   `quality:changed` emitted, settings unchanged 259ms    +34
+   *   drawDistance 1.00 -> 0.76, nothing else       212ms      0
+   *   the eight post targets resized by hand        229ms      0
+   *   `setSize` to the size the canvas already has  197ms      0
+   *   the same rung change, size already allocated  558ms   +330
+   *
+   * Four things fall out of that, and the third is the one the directive turns
+   * on:
+   *
+   *   - **The post stack's targets are free.** `sceneTarget`, `ldrTarget`, the
+   *     depth texture and the five bloom mips, all eight resized in one go,
+   *     cost less than the noise on a frame. Pre-sizing them would pre-size
+   *     nothing worth having.
+   *   - **The canvas drawing buffer is the whole bill.** Render scale on its
+   *     own is +348ms in *both* directions, and it is the only thing a scale
+   *     change does that the row above it does not. It is a swap-chain rebuild,
+   *     not a texture allocation — resizing the canvas to the size it already
+   *     has is free, because Blink early-outs on an unchanged size.
+   *   - **Pre-sizing cannot help, because nothing is cached.** The last row is
+   *     the same change repeated to a size the driver had already allocated and
+   *     freed once, at full price. Walking the six rung sizes at load would
+   *     cost six of these reallocations — about two seconds of boot — to buy
+   *     the zero that measurement says is there. So it is not done.
+   *   - **The shadow map's *size* carries a hitch of its own.** Shrinking it
+   *     from 2048 to 768 is +262ms on its own, the same shape as the render
+   *     scale and for the same reason — a depth attachment disposed and rebuilt
+   *     — while growing it back measured nothing. Four of the ladder's five
+   *     transitions move it. It stays, because `LADDER`'s lever table prices
+   *     the whole 2048 -> 256 range at 2% of a steady frame and 2% of a
+   *     thousand-millisecond frame pays a 262ms hitch back inside twenty
+   *     frames; but it is the one lever here whose hitch is comparable to what
+   *     it buys, and it is the first thing to take off the ladder if a rung
+   *     change ever has to get cheaper.
+   *
+   * What remains is one drawing-buffer reallocation per rung change, which is
+   * what changing the render resolution *is*. It cannot be removed from this
+   * file. The structural fix is to hold every target at the top rung's size and
+   * render into a viewport sub-rectangle with each post pass sampling through a
+   * uv scale — real dynamic resolution — which is a `render/post.ts` change and
+   * moves the final resolve to full resolution, a lever the same table prices
+   * at 7% of every frame for ever. That is a trade for a coherence pass to make
+   * with the render module, not for a governor to make on its own.
+   *
+   * So the number is published instead of hidden: every change carries its own
+   * `changeMs`, and `probe().changeWorstMs` is the worst of the session.
    */
   let precompiledFor = '';
   function precompileLadder(): void {
@@ -1271,6 +1734,12 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       hijacked,
       phase: ctx.race?.phase ?? '',
       locked: pictureLocked(),
+      frontEnd: frontEndOpen,
+      paused,
+      raceTime: +(ctx.race?.time ?? 0).toFixed(2),
+      sinceFlag: sinceFlag(),
+      changeMs: +lastChangeMs.toFixed(1),
+      changeWorstMs: +changeWorst.toFixed(1),
       log,
       verdicts,
     };
@@ -1379,6 +1848,53 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // Start from a known rung rather than inheriting whatever main.ts built,
       // so `index` and `ctx.quality` cannot disagree from the first frame.
       applyRung(START_RUNG, 'settling');
+
+      // ── the two edges the race phase cannot give us ──────────────────────
+      //
+      // ARCHITECTURE §11a. The front-end sits over a race that is already
+      // simulating, and the pause screen is a still frame of the game with a
+      // plate on it; `race.phase` reports `intro`/`racing` for the first and
+      // `loading` for the second, which is also what it reports at boot. The
+      // modules that own those screens publish both edges, `race/director.ts`
+      // has always stood off them, and this file believing the phase instead
+      // is what put three rung changes on a title screen.
+      //
+      // Both edges also empty the window, and that is not housekeeping: the
+      // menus draw their own 3D set through the same post stack, so a mean
+      // that straddles the curtain is a mean across two different scenes, and
+      // a futility verdict that straddles it is comparing one scene's median
+      // against another's. `liveSeconds` deliberately keeps running — the
+      // machine did not get faster because a menu came up, and the warm-up is
+      // about the machine.
+      ctx.bus.on<{ open: boolean }>('ui:menu', (e) => {
+        const open = e?.open === true;
+        if (open === frontEndOpen) return;
+        frontEndOpen = open;
+        ceremonyFor = 0;
+        abandonVerdict();
+        clearWindow();
+        overFor = 0; underFor = 0; panicFor = 0;
+        overFrames = 0; underFrames = 0; panicFrames = 0;
+        settleFor = 0; settleFrames = 0;
+      });
+      // The flag itself, from the module that drops it. `setPhase` emits this
+      // on the transition into `racing` and `setPhaseQuiet` does not, so a
+      // resume from pause cannot counterfeit a start. See `CEREMONY_GRACE`.
+      ctx.bus.on('race:racing', () => { flagAt = ctx.time.elapsed; });
+      ctx.bus.on<{ on: boolean }>('race:pause', (e) => {
+        const on = e?.on === true;
+        if (on === paused) return;
+        paused = on;
+        // A paused game renders the same still frame over and over for as long
+        // as the player leaves it, which is neither this machine's speed nor
+        // this scene's cost. Measuring it would flatter the ladder into
+        // climbing on evidence made of a frozen picture.
+        abandonVerdict();
+        clearWindow();
+        overFor = 0; underFor = 0; panicFor = 0;
+        overFrames = 0; underFrames = 0; panicFrames = 0;
+        settleFor = 0; settleFrames = 0;
+      });
 
       // ── the only two things that mean "that was not a frame" ─────────────
       //
@@ -1506,9 +2022,18 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       overFor = 0;
       underFor = 0;
       panicFor = 0;
+      overFrames = 0;
+      underFrames = 0;
+      panicFrames = 0;
       settleFor = 0;
+      settleFrames = 0;
       benchQuietFor = 0;
       verdictPending = false;
+      ceremonyFor = 0;
+      // `main.ts` puts `ctx.time.elapsed` back to zero for a new race, so a
+      // flag latched against the old clock would read as a flag in the distant
+      // future and seal the picture until the new race caught up with it.
+      flagAt = -Infinity;
       clearWindow();
       lastFrameAt = 0;
       // `benched` is deliberately *not* cleared: a page that has been driven by
@@ -1573,6 +2098,19 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       if (benchFramesMoved && benchFrames >= 0) harnessSince = true;
 
       let secs = 0;
+      /**
+       * 1 on a delivered frame this file is allowed to count, 0 otherwise.
+       *
+       * **The unit every dwell and settle is really in.** A wall second is
+       * sixty frames on a machine that is fine and two thirds of one on a
+       * machine at 0.7fps, so "wait 1.2s before believing that" and "wait for
+       * more than one picture before believing that" are the same sentence on
+       * one machine and opposite sentences on the other. Both are now counted
+       * and both have to be satisfied. A spoiled frame — the page suspended,
+       * the harness driving — is not a picture the player was shown, so it
+       * counts for neither.
+       */
+      let frameTick = 0;
       if (live) {
         const t = nowMs();
         const gap = lastFrameAt > 0 ? t - lastFrameAt : 0;
@@ -1588,11 +2126,34 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
           harnessSince = false;
         } else if (gap > 0) {
           secs = gap / 1000;
+          frameTick = 1;
           liveSeconds += secs;
           // The frames right after a change are the change reallocating itself,
           // not the game. They still count as time; they are not evidence.
+          //
+          // ...and they are no longer thrown away unread. The worst of them is
+          // what the change *cost*, which for three rounds was the one number
+          // this instrument could not produce about the one hitch it is
+          // personally responsible for. See `SKIP_FRAMES`.
           if (skipFrames > 0) {
             skipFrames--;
+            // **Only when there is a change to charge it to.** The window is
+            // also emptied by things that are not the governor's doing — the
+            // front-end opening over the race, a pause, a reviewer pinning a
+            // tier — and the frame that spans one of those is somebody else's
+            // work. Charged indiscriminately it read `changeWorstMs: 4921.7`
+            // on a session whose worst actual rung change was 704ms, which is
+            // an instrument lying in the governor's favour rather than against
+            // it and is exactly as useless.
+            if (changeEntry) {
+              if (gap > changeCost) changeCost = gap;
+              if (skipFrames === 0) {
+                lastChangeMs = changeCost;
+                if (changeCost > changeWorst) changeWorst = changeCost;
+                changeEntry.changeMs = +changeCost.toFixed(1);
+                changeEntry = null;
+              }
+            }
           } else {
             wall[wallIdx] = gap;
             // The budget's per-frame fields are written at the *end* of
@@ -1625,7 +2186,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         }
       }
 
-      // ── the moment gate's clock ──────────────────────────────────────────
+      // ── the moment gate's one remaining clock ────────────────────────────
       //
       // Accrued here, above every early return, because the gate has to be
       // right on the first frame the governor is allowed to act on rather than
@@ -1633,13 +2194,21 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // walks through a countdown and still deserves an honest `locked` in the
       // probe. `secs` is zero on a frame the rAF loop did not drive, so this
       // counts delivered play like everything else in this file.
-      if (isComposed(ctx.race?.phase)) {
-        ceremonyFor += secs;
-        sinceCeremony = 0;
-      } else {
-        ceremonyFor = 0;
-        sinceCeremony += secs;
-      }
+      //
+      // There used to be two clocks here. The second, `sinceCeremony`, counted
+      // delivered-play seconds since the last composed frame and fed the flag's
+      // grace — a beat measured in *race* seconds — which is the round-3 bug in
+      // one line. That grace reads `ctx.race.time` now and needs no accumulator
+      // of ours at all, so the clock is gone rather than converted: a number
+      // this file does not keep is a number it cannot get the units of wrong.
+      //
+      // What remains is the intro valve's, and it is in wall seconds because
+      // the valve is about a *person waiting* — see `CEREMONY_PATIENCE`. It is
+      // held at zero behind the front-end: a sweep nobody can see is not a
+      // sweep anybody is sitting through.
+      if (frontEndOpen || paused) ceremonyFor = 0;
+      else if (isComposed(ctx.race?.phase)) ceremonyFor += secs;
+      else ceremonyFor = 0;
 
       // `benchFrames` only moves when `renderFrame` was called from outside the
       // rAF loop: the front end primes exactly one such frame per race start,
@@ -1659,10 +2228,14 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       if (benchQuietFor < BENCH_HOLD) {
         overFor = 0;
         underFor = 0;
+        overFrames = 0;
+        underFrames = 0;
         return hold('priming');
       }
 
       settleFor += secs;
+      settleFrames += frameTick;
+      if (verdictPending) verdictFrames += frameTick;
       if (wallCount < PANIC_SAMPLES) return hold('warming');
 
       // ── did the last cut buy anything ────────────────────────────────────
@@ -1684,7 +2257,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // cannot resolve a 14% step, and live it convicted a drop that a
       // controlled interleave measured at 21-31% cheaper. It is one condition
       // now, it is the sample count, and there is no way round it.
-      if (verdictPending && settleFor >= PANIC_SETTLE) {
+      if (verdictPending && settleFor >= PANIC_SETTLE && settleFrames >= PANIC_SETTLE_FRAMES) {
         if (wallCount >= VERDICT_SAMPLES) {
           verdictPending = false;
           measureWindow();
@@ -1738,23 +2311,15 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
             applyRung(index - 1, 'stalled (drops buy nothing)');
             return;
           }
-        } else if (settleFor >= VERDICT_ABANDON_S) {
-          // The window never filled — frames are being discarded faster than
-          // they arrive. Drop the verdict rather than take it on what is left:
-          // an abandoned verdict unblocks the ladder and changes nothing about
-          // what the governor believes.
-          verdictPending = false;
-          if (verdicts.length >= 16) verdicts.shift();
-          verdicts.push({
-            t: +liveSeconds.toFixed(2),
-            rung: index,
-            call: 'abandoned',
-            beforeMs: +wallBefore.toFixed(1),
-            afterMs: 0,
-            gain: 0,
-            bar: 0,
-            samples: wallCount,
-          });
+        } else if (verdictFrames >= VERDICT_ABANDON_FRAMES) {
+          // Twenty-five delivered frames and the window still has not taken
+          // fourteen: frames are being *discarded* faster than they arrive,
+          // because seventeen delivered frames fill it by definition. Drop the
+          // verdict rather than take it on what is left — an abandoned verdict
+          // unblocks the ladder and changes nothing about what the governor
+          // believes. Counted in frames precisely so that a slow machine is not
+          // the thing that trips it; see `VERDICT_ABANDON_FRAMES`.
+          abandonVerdict();
         }
       }
 
@@ -1779,19 +2344,23 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // that is panicking every frame.
       const panic = wallMean > TARGET_MS * PANIC_FACTOR;
       const canDrop = index < LADDER.length - 1 && !stalled && !verdictPending;
-      if (panic && canDrop && liveSeconds >= PANIC_ARM_S && settleFor >= PANIC_SETTLE) {
-        // **The one line this whole round was about.** The emergency path may
+      if (panic && canDrop && liveSeconds >= PANIC_ARM_S
+        && settleFor >= PANIC_SETTLE && settleFrames >= PANIC_SETTLE_FRAMES) {
+        // **The line the last two rounds were about.** The emergency path may
         // skip the curvature lookahead — at two frames a second there is no
         // such thing as between corners — but it does not get to change the
-        // picture while the game is showing one. The dwell restarts rather than
-        // banking, so the drop lands a beat into the racing rather than on the
-        // frame the gate opens.
+        // picture while the game is showing one, and "showing one" now includes
+        // the front-end and the pause screen, which `race.phase` cannot report.
+        // The dwell restarts rather than banking, so the drop lands a beat into
+        // the racing rather than on the frame the gate opens.
         if (pictureLocked()) {
           panicFor = 0;
-          return hold('mid-ceremony');
+          panicFrames = 0;
+          return hold(frontEndOpen ? 'front-end' : paused ? 'paused' : 'mid-ceremony');
         }
         panicFor += secs;
-        if (panicFor >= PANIC_DWELL) {
+        panicFrames += frameTick;
+        if (panicFor >= PANIC_DWELL && panicFrames >= PANIC_DWELL_FRAMES) {
           markDrop();
           applyRung(index + 1, 'dropped (panic)');
           return;
@@ -1799,11 +2368,12 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         return hold('panic');
       }
       panicFor = 0;
+      panicFrames = 0;
       if (panic && verdictPending) return hold('panic (judging last cut)');
 
       if (wallCount < MIN_SAMPLES) return hold('warming');
       if (liveSeconds < WARMUP_S) return hold('warming');
-      if (settleFor < SETTLE) return hold('settling');
+      if (settleFor < SETTLE || settleFrames < SETTLE_FRAMES) return hold('settling');
 
       // ── the ordinary verdict ─────────────────────────────────────────────
       const over = wallMean > TARGET_MS * DOWN_FACTOR || lateFrac > DOWN_LATE_FRAC;
@@ -1814,13 +2384,19 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
 
       if (over) {
         overFor += secs;
+        overFrames += frameTick;
         underFor = 0;
+        underFrames = 0;
       } else if (under) {
         underFor += secs;
+        underFrames += frameTick;
         overFor = 0;
+        overFrames = 0;
       } else {
         overFor = 0;
         underFor = 0;
+        overFrames = 0;
+        underFrames = 0;
         return hold('in band');
       }
 
@@ -1830,8 +2406,8 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // they were both meant to improve. One cut at a time, judged, then the
       // next. Climbing is unaffected — a climb clears the pending verdict
       // because the thing it was judging has been undone.
-      const wantDown = overFor >= DOWN_DWELL && index < LADDER.length - 1
-        && !stalled && !verdictPending;
+      const wantDown = overFor >= DOWN_DWELL && overFrames >= DOWN_DWELL_FRAMES
+        && index < LADDER.length - 1 && !stalled && !verdictPending;
       const wantUp = underFor >= UP_DWELL && index > 0;
       if (!wantDown && !wantUp) {
         return hold(over
@@ -1839,10 +2415,12 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
             : verdictPending ? 'over budget (judging last cut)' : 'over budget')
           : 'under budget');
       }
-      // Two refusals rather than one, because they are two different facts and
-      // a probe that reports `mid-corner` during a countdown is lying about
-      // which gate stopped it. `onAStraight()` asks the ceremony question again
-      // on its own account — see the note on it.
+      // Three refusals rather than one, because they are three different facts
+      // and a probe that reports `mid-corner` over a title screen is lying
+      // about which gate stopped it. `onAStraight()` asks the same questions
+      // again on its own account — see the note on it.
+      if (frontEndOpen) return hold('front-end');
+      if (paused) return hold('paused');
       if (pictureLocked()) return hold('mid-ceremony');
       if (!onAStraight()) return hold('mid-corner');
       if (wantDown) {
