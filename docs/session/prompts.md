@@ -6358,3 +6358,139 @@ Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wa
 ### 🤖 Claude — 2026-08-11 20:54 UTC
 
 Wave alive — write 2 s ago, `claude` up 2h41m. Running the archive refresh.
+
+### 🤖 Claude — 2026-08-11 20:55 UTC
+
+Tick done, nothing that needs you.
+
+Wave alive and on its second round for both pieces (5 started, 3 returned; newest agent write 2 s before the check, `claude` up 2h41m). Archive refreshed append-only — 4,837 records in, 4,949 out. Typecheck clean, committed and pushed as `d2315fd`.
+
+The bank-and-look-behind probe is still running; I'll report it when it lands.
+
+### 🧑 Prompt — 2026-08-11 21:51 UTC
+
+<task-notification>
+<task-id>b5yp1mcv9</task-id>
+<tool-use-id>toolu_01QF16yjvxvAJN3BfzRBYHud</tool-use-id>
+<output-file>/tmp/claude-0/-home-user-mario-cone/796d0d90-4635-56a8-a763-6958ed7d5f0d/tasks/b5yp1mcv9.output</output-file>
+<status>completed</status>
+<summary>Background command "Run bank + look-behind probe on all four courses" completed (exit code 0)</summary>
+</task-notification>
+
+### 🤖 Claude — 2026-08-11 21:52 UTC
+
+**Reproduced — decisively.** Let me look at the frame first.
+
+### 🤖 Claude — 2026-08-11 21:52 UTC
+
+The frame doesn't match the number — that's open sky, not a brown ceiling. Given today's record I won't call this reproduced until the picture and the measurement agree. The screenshot was a *replay* with different stepping, so let me photograph the breach at the exact sample instead.
+
+### 🤖 Claude — 2026-08-11 21:53 UTC
+
+While that runs, the attribution question matters: `switchbackSummit.ts` is being rewritten by the courses agent right now, and your report predates it. Setting up an untouched baseline tree to compare against — a worktree, so the agents' files aren't disturbed.
+
+### 🤖 Claude — 2026-08-11 21:54 UTC
+
+The breach frames exist. Let me look at them.
+
+### 🤖 Claude — 2026-08-11 21:54 UTC
+
+Both frames are clean — but I may be photographing a page that keeps running between my measurement and the screenshot. Let me check whether the game's own animation loop is still driving.
+
+### 🤖 Claude — 2026-08-11 21:55 UTC
+
+The rAF loop keeps stepping the simulation in wall time while my probe sits between calls — so my `t` labels and screenshots don't correspond to the samples. Let me check whether the trusted capture tool guards against that.
+
+### 🤖 Claude — 2026-08-11 21:55 UTC
+
+`capture.mjs` already knows this and documents it — "**the time scale is what actually holds it still**" — and re-applies `setTimeScale(0)` after every reset because reset restores it to 1. My probes never did. That's the same class of error as the first two: building a probe without the guard the trusted tool has.
+
+It also explains the switchback-summit result — with the loop free-running, holding full steer for 30 real seconds drives the kart off the road into a mountain, so the camera is in the hillside because the *kart* is.
+
+### 🤖 Claude — 2026-08-11 21:56 UTC
+
+Now the honest run: four real courses, five inputs, wall-clock stepping frozen.
+
+### 🤖 Claude — 2026-08-11 21:58 UTC
+
+Here's where the hunt actually stands, and it's a correction rather than a result.
+
+**I have not reproduced your bug, and the "reproduction" I was about to report was my third bad measurement.** The probe said the camera was under the landscape on 147 of 151 samples on Switchback Summit, up to 12.5 m deep. I photographed it at the sample instead of replaying it — open sky, kart in plain view, nothing wrong. The number and the picture disagreed, so the number was wrong.
+
+The cause is worth knowing: **the engine's rAF loop never stops.** It steps the simulation by wall time alongside anything the harness drives, so between one `page.evaluate` and the next the kart keeps racing. A sample labelled `t=2s` is nothing of the sort, and holding full steer for thirty *real* seconds drives off the road — which, on the one course made of mountains, puts the camera inside a hill. The camera was fine; the kart was buried.
+
+`capture.mjs` has always known this and says so in a docblock — *"the time scale is what actually holds it still"* — re-applying `setTimeScale(0)` after every reset, because reset restores it to 1. My probe never did. Same shape as the other two errors: I built a probe without a guard the trusted tool already has.
+
+`tools/underground.mjs` now carries three guards, each bought with a real failure: terrain picked **by name** not vertex count, `courseId` checked against what actually loaded, and wall-clock stepping frozen. Committed and pushed as `826d7a6`, typecheck clean.
+
+**The wave, meanwhile, is nearly done** — 7 agents started, 6 returned, three scored verdicts in:
+- perf r1 **6.0** — the governor can't rescue the race it's in with every expensive lever locked pre-flag.
+- perf r2 **7.0** — mid-race its only working lever is render scale, and that scales the 3D but not the DOM HUD, so a struggling player watches the world soften while the HUD stays razor-sharp.
+- courses r1 **6.0** — the four signature hazards (THE ROCKFALL, THE SURGE, THE GATE, THE HAUL TRUCK) aren't doing the work of making each circuit distinct.
+
+All three still lost the blind A/B to Mario Kart.
+
+I've stopped running probes until that last agent lands — the corrected run just died on a page-load timeout, which is what happens when a builder is mid-write across `courses/` and the dev server tries to transform a half-saved module. Re-running it against a quiet tree, plus a baseline worktree at the pre-wave commit so I can tell whether anything I find predates this wave or was introduced by it.
+
+### 🧑 Prompt — 2026-08-11 21:58 UTC
+
+MARIO.CONE build loop — hourly. Repo adam91holt/mario.cone (PUBLIC), branch claude/waves-phases-routine-setup-faggxq. WFDIR=/root/.claude/projects/-home-user-mario-cone/796d0d90-4635-56a8-a763-6958ed7d5f0d/subagents/workflows
+
+FIRST TICK IN A FRESH CONTAINER: `ls node_modules` — if it is missing, `npm install` before anything else. The container is reclaimed on inactivity and comes back with an empty node_modules; every agent that runs typecheck or smoke without it fails on something that has nothing to do with its piece.
+
+EVERY TICK, before anything else: `node tools/session.mjs`. It refreshes docs/session/prompts.md and docs/session/session.jsonl — the conversation that is building this game, which the user asked to be published and kept current. It exits non-zero if a message body was truncated; if that happens fix the tool rather than committing a mangled archive. Commit the refresh with whatever else the tick produces.
+It MERGES every transcript in the project dir with the archive already in the repo, keyed on record uuid, and is append-only and idempotent — safe to run from any session. It used to open one hardcoded transcript and broke the moment the build changed hands. Never "fix" it by pointing it at the current session and writing the result: finished sessions' transcripts are deleted from disk long before the work they describe, and docs/session/session.jsonl is the only surviving copy of the first six days. If a run reports FEWER records than the file already had, stop and find out why rather than committing it.
+
+Do NOT trust any run id written here — resolve it: RUN=$(ls -t $WFDIR | head -1). Current run: courses+perf wave = wf_85f146bd-139, launched 2026-08-11 18:14 UTC, two pieces two rounds, both carrying prior verdicts.
+
+ITS ARGS ARE ON DISK: handoffs/wave.args.json. Resume passes them byte-for-byte — Workflow({scriptPath:"/home/user/mario.cone/tools/wave.workflow.mjs", resumeFromRunId:RUN, args:<the parsed contents of that file>}). Do not retype them from memory; args that differ by one character miss the cache and re-buy the whole wave. When you launch a NEW wave, write its args to that file in the same breath.
+
+STEP 1 — PROVE the wave is alive. Two checks; the second has never been wrong:
+  date -u
+  ls -lt --time-style=+%H:%M:%S $WFDIR/$RUN/agent-*.jsonl | head -3
+  ps -eo etime,comm | grep -w claude
+(a) Newest agent-*.jsonl mtime older than ~25 minutes = dead. USE `ls -t`; a plain `ls | tail` sorts ALPHABETICALLY and once hid the only live agent behind eleven finished ones.
+(b) ELAPSED of the main `claude` process. DECISIVE. If claude has been alive for LESS time than the gap since the last agent write, the container restarted and every in-flight agent is dead, however recent the mtimes look. Two agents whose last write is the IDENTICAL second is the same signature. Do NOT grep for claude in a `--sort=-pcpu | head -4` list — Chrome outranks it and it will not appear.
+Never judge by files existing or Chrome counts: subagents run IN-PROCESS inside the main claude process, so `ps aux | grep claude` shows nothing for a healthy wave.
+
+NEVER pkill on a pattern that your own shell's command line also matches. `pkill -f "node foo.mjs"` matches the shell running that very command and kills the whole tick mid-sentence — it has happened, twice in a row, and it looks exactly like a container suspend. Anchor it (`pkill -f '^node foo'`) or kill by pid resolved with an anchored pgrep. And never pkill anything matching "capture.mjs": agents run the same tools you do.
+
+Count: node -e "const fs=require('fs');let s=0,r=0;for(const l of fs.readFileSync(process.argv[1],'utf8').trim().split('\n')){try{const e=JSON.parse(l);if(e.type==='started')s++;if(e.type==='result')r++;}catch{}}console.log(s,r)" $WFDIR/$RUN/journal.jsonl
+Concurrency is 2 on this 4-core box.
+
+STEP 2 — If DEAD, RESUME, DO NOT RELAUNCH:
+  Workflow({scriptPath:"<the same script>", resumeFromRunId:"<the dead RUN>", args:<the SAME args object, byte-for-byte — read handoffs/wave.args.json>})
+Completed agent() calls return from cache instantly and only the killed agents re-run, carry intact. Args must match exactly or the cache misses. First `npx tsc --noEmit`, then commit and push whatever exists (say in the message if unverified). Read the dead run's journal for results that already have a `score` — those verdicts are earned and must never be re-bought:
+  node -e "const fs=require('fs');for(const l of fs.readFileSync(process.argv[1],'utf8').trim().split('\n')){try{const e=JSON.parse(l);if(e.type==='result'&&e.result?.score!==undefined)console.log(e.agentId,e.result.score,e.result.biggestGap);}catch{}}" $WFDIR/$RUN/journal.jsonl
+IF TYPECHECK FAILS INSIDE A FILE A DEAD AGENT WAS MID-WRITE ON, that is NOT transient — the agent is not coming back to finish it, and the resumed agent restarts that step from scratch. `git checkout --` those files rather than committing a build that cannot compile.
+AFTER ANY LAUNCH OR RESUME, VERIFY: grep 'YOUR PIECE' AND 'Observed:' out of each new agent transcript.
+
+STEP 3 — If ALIVE: `npx tsc --noEmit`. If clean, commit and push. Do NOT run captures or smoke while agents are active.
+
+STEP 4 — If FINISHED:
+  a. `npx tsc --noEmit` then `node tools/capture.mjs --smoke`. Typecheck-clean has passed on a build that did not boot; smoke is the real gate. Then `npm test` — typecheck, smoke, countdown, phone, steer.
+  b. `node tools/capture.mjs` and LOOK at the PNGs with Read. Never trust an agent's summary.
+  c. Update tools/progress.state.json with the real verdicts from the journal, `node tools/progress.mjs`, `node tools/readmeshots.mjs`.
+  d. Commit, push, PR (base main, draft false), merge, then `git fetch origin main && git reset --hard origin/main && git push --force-with-lease` (merges are squashed, so ff-only will refuse).
+  e. Launch the next wave — two pieces, two rounds, carry the verdicts the last wave earned, and write the new args to handoffs/wave.args.json.
+
+OPEN PLAYER REPORT — the camera going underground. Reported 2026-08-11: "sometimes the map is below a layer or something and you kinda go underground and the screen just went brown above the racer and you can't see them." NOT reproduced yet and NOT fixed. tools/underground.mjs drives each course and raycasts down onto the landscape to ask whether the lens is under it; it is deliberately not in npm test, because a gate that has never been red is not a gate. Wire it in the moment it catches something.
+Read its comments before touching it. The first version picked terrain out of the scene BY VERTEX COUNT, which also catches grandstands, crowds and an overhead sign, and it duly "reproduced" the bug at 8.5m underground on cone-canyon — the camera was passing under a gantry with clear sky above it and the kart in plain view. A fix was written on that measurement and reverted. The landscape is exactly two meshes and both are NAMED: 'ground' and 'embankment'. Nothing else is ground.
+Still unexplored, and where the suspicion now sits: the cases autopilot never drives. The chase clamp is vertical only, so a kart held against the outside of a corner puts the boom into the bank behind it; look-behind swings the lens 180 degrees into whatever is back there. diag4-tmp.mjs-style runs with setInput({accel:1,steer:-1}) and look:1 are the next measurement. Also unchecked: other vehicles, being spun out, and the finish camera.
+
+REMAINING WORK, IN ORDER (handoffs/README.md §5 is the long form):
+  1. COURSES — at 6.5. All four circuits are the same shape: longest straight 72-83m across the whole roster, so the four select-screen map cards are interchangeable with the names covered. Give each a layout signature that survives being reduced to its outline, and prove it with the cover-the-names test. ALSO move the start grid off the boost strip — the grid sits at startDistance - 12 reading surface:'boost', so the flag hands the field a free pad boost on the exact frame evaluateStart grades the rocket start. `node tools/countdown.mjs` prints it as a standing WARN on every run; the WARN going away is the proof.
+  2. PERF — at 7.0 going in; round one of this wave came back 6.0, and its gap is the answer to the directive it was given: with every expensive lever locked before the flag, the governor cannot rescue the race it is in. The seam rule and the frame budget have to be satisfied together, not traded off.
+  3. CLOSING VERDICTS ON WAVE 1 — feel, camera, track, look, cast were merged long ago and never judged. The board still shows them as `review`. tools/wave1.workflow.mjs.
+  4. A COHERENCE PASS (tools/coherence.workflow.mjs) for the gaps no single piece owns: the purple tier-3 mini-turbo has still never been seen by anyone; a single carried item is not drawn in the world at all because the orbit rig is only built for count>1; the finish letterbox guillotines the position badge on the one beat it matters. It must NEVER run while a wave is running.
+  5. A PHONE CRITIC. tools/phone.mjs passes, but no critic has ever played this on glass. The touch layer shipped straight to main off a bug report, unjudged.
+
+RENAME TO "GARY'S KART" — PARKED. DO NOT START IT.
+The user raised it on 2026-08-11 and then said on the same day: "Just park the rename until I ask for it." So it is NOT triggered by the board going green, NOT part of the definition of done, and NOT something to raise again. It waits for the user to ask for it in their own words. Do not bring it up, do not start it early, do not fold pieces of it into other work. If the board goes fully green and the rename has not been asked for, the build is finished — say so and stop.
+The research is preserved at the bottom of handoffs/build-loop-prompt.txt so nobody re-derives it. It is reference, not a work item. Do not read it as a to-do.
+
+Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
+
+### 🤖 Claude — 2026-08-11 21:58 UTC
+
+Wave alive — write this second, `claude` up 3h46m, 7 started / 6 returned with one agent still in flight.
