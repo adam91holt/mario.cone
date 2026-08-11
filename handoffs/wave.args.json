@@ -1,0 +1,38 @@
+{
+  "pieces": [
+    "courses",
+    "perf"
+  ],
+  "rounds": 2,
+  "carry": {
+    "courses": {
+      "score": 6.5,
+      "pass": false,
+      "mkReference": "In Mario Kart 8 every circuit reads as a distinct place from its map outline alone — Mario Kart Stadium's long start/finish straight and stadium loop, Sweet Sweet Canyon's tight switchback chicanes, Thwomp Ruins' figure-of-eight with the long descending straight. A player can name the track from the select-screen card without the name on it.",
+      "blindPick": "mario-kart",
+      "biggestGap": "All four courses are the same shape. Measured off the real driven line, every one is an irregular closed blob of 9-12 similar-radius corners whose longest straight is 72-83m — cone-canyon 83, saltpan 80, quarry 73, switchback 72, a spread of 11m or 1.4s at 54 m/s. So the roster reads as one circuit re-dressed in four ground colours rather than as four places, and on the select screen the four map cards are literally interchangeable.",
+      "directive": "Two things, in this order. (1) Give each of the four circuits a layout signature that survives being reduced to its map outline. Not decoration — geometry. Differentiate on the axes MK8 differentiates on: longest straight (one circuit should have a straight at least 2x the shortest roster straight), corner radius distribution (one should be dominated by tight hairpins, another by long sweepers), elevation profile, and overall silhouette (a figure-of-eight or a long dogleg is not an irregular blob). Prove it with the cover-the-names test: render the four map cards from the select screen, hide the labels, and confirm each is identifiable from outline alone. Include the measured longest-straight and corner-radius spread for each circuit in your report. (2) Move the start grid off the boost strip on cone-canyon. The grid sits at startDistance - 12 and reads surface: 'boost', so the flag hands every racer a free 'pad' boost on the exact frame evaluateStart grades the rocket start — the mechanic the countdown exists for is drowned out by a shove nobody earned. Either the strip moves or the grid does. node tools/countdown.mjs prints this as a standing WARN on every run; that WARN must be gone when you are done.",
+      "evidence": [
+        "Driven-line measurement of all four circuits: longest straight cone-canyon 83m, saltpan 80m, quarry 73m, switchback 72m — an 11m spread, 1.4s at 54 m/s",
+        "Every circuit is an irregular closed blob of 9-12 similar-radius corners",
+        "Select-screen map cards for the four courses are interchangeable with the names covered",
+        "Hazards now exist and can touch the player, closing the gap the previous round failed on",
+        "Blind A/B against Mario Kart 8 still picked Mario Kart"
+      ]
+    },
+    "perf": {
+      "score": 7,
+      "pass": false,
+      "mkReference": "Mario Kart 8 holds a locked frame rate and never lets the player see the renderer adjust itself. There is no visible settings change mid-race — no resolution pop, no crowd thinning, no shadow rung stepping down in front of you. Whatever it decides, it decides before the flag.",
+      "blindPick": "mario-kart",
+      "biggestGap": "The ladder's own moves are now the worst thing the player sees: the crowd trim is the ladder's most visible lever and the governor spends it mid-race on the start/finish straight, so the grandstands go from a packed house to bare grey tiers between one frame and the next, in front of the player.",
+      "directive": "Take `crowd` off the mid-race quality ladder entirely and put it under the same seam rule the render scale already obeys: chosen once at reset(), never moved while race.phase === 'racing'. Then audit every remaining rung lever the same way and classify each as either seam-safe (may move mid-race because the player cannot see the transition) or reset-only (visible pop — must be locked before the flag); move every reset-only lever behind the seam and say in your report which levers ended up in which class. The governor must still hit its frame budget with only the seam-safe levers available mid-race — prove it with a trace across a full race on the heaviest course, reporting frame-time median and worst frame, and confirm no worst frame lands on a rung change.",
+      "evidence": [
+        "Round one: a rung change froze a live frame for 3,101ms and 1,494ms against a 512-875ms median, because applyScale() calls setPixelRatio() and reallocates the drawing buffer",
+        "Round two fixed the applyScale hitch and exposed the crowd trim: grandstands empty in front of the player on the start/finish straight",
+        "Draw calls improved 539 to 326; the ladder now has a content half rather than being a resolution slider — bloom pyramid and grounded contact shadow survive to the bottom rung",
+        "Both rounds scored 7.0 and both lost the blind A/B to Mario Kart"
+      ]
+    }
+  }
+}
