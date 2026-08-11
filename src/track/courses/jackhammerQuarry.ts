@@ -336,10 +336,45 @@ export const jackhammerQuarry: CourseDefEx = {
     // `spin` rather than `squish`: 2.2 seconds is most of a place, and being
     // clipped by a machine that big and then *also* having to sit still for a
     // lap is two punishments for one mistake. See `HazardDef`.
-    hazards: [{
-      at: on('THE CUT', 0.5), kind: 'truck', period: 24, phase: 0.62,
-      lateral: 0, hit: 'spin', lead: 2.0, signAt: 76,
-    }],
+    //
+    // ── two machines, and why the first one had to stop ────────────────────
+    //
+    // Censused over a whole race (`node tools/hazardcensus.mjs`) the single
+    // truck hit **four karts in twenty-two passes**, and unlike the cup's other
+    // three hazards it was not in the wrong place: the machine sweeps the whole
+    // carriageway, so its lateral is unarguable. It was in the wrong place *in
+    // time*. A kart crossing the station is an instant, so what decides a hit
+    // is the fraction of the cycle the body spends over the driven band, and a
+    // machine crossing fifty-four metres at ten metres a second is over any
+    // given sixteen of them for a ninth of each traverse.
+    //
+    // So the dumper does what a dumper actually does at a haul crossing: it
+    // **stands on it** for a couple of seconds each way, beacons turning, nine
+    // and a half metres of stationary safety yellow across the Cut (see
+    // `TRUCK` in `hazards.ts`) — which is also the readable version, because a
+    // stopped machine can be seen and lifted for and a machine crossing at ten
+    // metres a second is either there or not by the time you arrive.
+    //
+    // And there are two of them, because a working pit has a fleet and because
+    // one crossing on a three-lap race is twenty-two chances at a hazard that
+    // has to fire eight to twenty times. The second is up on the haul road's
+    // second run — a level crossing on the ramp out, on the one straight up
+    // there with a sight line, four hundred metres from the chequer. The
+    // The periods are fifteen seconds and eleven, and short on purpose. A
+    // cycle much longer than the field's own spread turns seven racers into one
+    // sample of it — they cross together, they all meet the same phase, and a
+    // whole race can go by in which the machine happened to be parked every
+    // time anybody looked. See `HazardDef.period`.
+    hazards: [
+      {
+        at: on('THE CUT', 0.5), kind: 'truck', period: 15, phase: 0.62,
+        lateral: 0, hit: 'spin', lead: 2.0, signAt: 76,
+      },
+      {
+        at: on('HAUL ROAD TWO', 0.75), kind: 'truck', period: 11, phase: 0.18,
+        lateral: 0, hit: 'spin', lead: 2.0, signAt: 70,
+      },
+    ],
     // Four hairpins run 1/28 to 1/32 of curvature and the two fast sweeps run
     // 1/120, so a threshold at 1/111 kerbs everything a player brakes for and
     // leaves the Floor Sweep and the haul-road kinks unmarked.
@@ -369,24 +404,55 @@ export const jackhammerQuarry: CourseDefEx = {
     // height across that gap, and the embankment either side is anchored to
     // its own road. That is exactly how a real bench is formed and it is why
     // the comb reads as terraces rather than as five roads on a plain.
+    //
+    // ── and the round the pit had no walls ────────────────────────────────
+    //
+    // A critic photographed this course and wrote: *"Jackhammer Quarry has no
+    // quarry. A flat pale-grey plain with scattered rubble and one smooth
+    // fluted grey dome on the horizon. No benches, no cut faces, no pit — it is
+    // Cone Canyon's landform silhouette recoloured grey."*
+    //
+    // Half of that is the same construction fault Cone Canyon had: `terrain.ts`
+    // builds the noise rim as `plateau · terrace · erosion · rimHeight`, and
+    // `plateau` is zero over about half the ground, so whatever `rimHeight` is
+    // set to the result is a **field of separate lumps on a 420-metre lattice**
+    // rather than a wall. Turning it up gives taller lumps. The only continuous
+    // landform available is `hero`, so the high wall is now built out of eleven
+    // overlapping heroes on a ring, and the noise rim is dropped to 52 where it
+    // reads as spoil on the flat rather than as the horizon.
+    //
+    // The ring has to stand a long way out and that is not a choice either. The
+    // hero gate opens over `rimStart * 0.7` to `rimStart * 1.5` — 105 to 225
+    // metres from the road — so a landform whose own footprint reaches inside
+    // 225m rises at better than two metres per metre right where `room()` is
+    // placing conveyors and berms on ground it never checks the slope of. Every
+    // footprint below has its near edge past 260 metres of clear ground.
     terrain: {
       rimStart: 150,
-      rimEnd: 470,
-      rimHeight: 145,
+      rimEnd: 430,
+      rimHeight: 52,
       landmarks: [
-        // The high wall closing the weighbridge straight — the thing you drive
-        // at for the first hundred and twenty metres of every lap.
-        { x: 520, z: -3, radius: 190, height: 150, kind: 'mesa' },
-        // At the far end of the haul road, so the climb has a horizon.
-        { x: -560, z: -215, radius: 200, height: 140, kind: 'mesa' },
-        // The stack the benches run at — the near landmark at the west end of
-        // every one of the four teeth.
-        { x: -520, z: 90, radius: 110, height: 95, kind: 'spire' },
-        // The overburden dump, seen across the pit from the whole floor
-        // section and from the Floor Sweep.
-        { x: 60, z: 640, radius: 260, height: 155, kind: 'mesa' },
-        // The screening plant, at the vanishing point of the bench run east.
-        { x: 470, z: 300, radius: 130, height: 100, kind: 'spire' },
+        // ── the high wall: eleven faces on a ring, footprints overlapping ──
+        { x: 980, z: 30, radius: 330, height: 175, kind: 'mesa' },
+        { x: 830, z: -470, radius: 300, height: 150, kind: 'mesa' },
+        { x: 470, z: -830, radius: 320, height: 195, kind: 'mesa' },
+        { x: -30, z: -960, radius: 300, height: 160, kind: 'mesa' },
+        { x: -530, z: -800, radius: 330, height: 185, kind: 'mesa' },
+        { x: -870, z: -430, radius: 300, height: 205, kind: 'mesa' },
+        { x: -980, z: 90, radius: 320, height: 170, kind: 'mesa' },
+        { x: -800, z: 590, radius: 310, height: 190, kind: 'mesa' },
+        { x: -390, z: 900, radius: 300, height: 155, kind: 'mesa' },
+        { x: 200, z: 960, radius: 330, height: 200, kind: 'mesa' },
+        { x: 700, z: 690, radius: 310, height: 165, kind: 'mesa' },
+        // ── and three stacks standing inside the wall ─────────────────────
+        //
+        // A wall with nothing in front of it is a backdrop. These are the
+        // un-blasted stacks left standing on the pit floor — a different
+        // silhouette at a different distance, which is the whole of what makes
+        // a landscape read as deep. All three sit past the hero gate.
+        { x: -640, z: 250, radius: 130, height: 118, kind: 'spire' },
+        { x: 560, z: 430, radius: 140, height: 104, kind: 'spire' },
+        { x: 330, z: -560, radius: 120, height: 96, kind: 'spire' },
       ],
     },
   },

@@ -219,7 +219,7 @@ export const coneCanyon: CourseDefEx = {
   walls: true,
   wallHeight: 1.5,
   groundSize: 4200,
-  groundY: -9,
+  groundY: -20,
   startDistance: START,
   checkpoints: 32,
 
@@ -290,23 +290,69 @@ export const coneCanyon: CourseDefEx = {
     // was built, and a choice whose right answer never changes is a thing you
     // solve once and then stop reading. So the canyon drops its rim on it.
     //
-    // Three boulders come off the cut above the head of the horseshoe, take a
-    // second and a half of air, and land across the **inside** lane — the apex
-    // line, the shorter arc, the one the worn tarmac points at and the one
-    // every CPU driver in the field is on. They sit there for three seconds
-    // while the loader gets to them, and then the lane is open again.
+    // Four boulders come off the cut above the head of the horseshoe, take a
+    // second and a half of air, and land across the **apex** lane — the short
+    // arc inside the island, the one the worn tarmac points at and the one
+    // every CPU driver in the field is on. They sit there while the loader
+    // gets to them, and then the lane is open again. What is left open the
+    // whole time is the wide lane outside the island, which is longer, and
+    // which has the boost strip on its exit.
     //
     // Seventeen seconds against a fifty-second lap, so the corner is never in
     // the same state twice in a race. The rocks are the canyon's own terracotta
     // (`tint`), because a hazard has to look like it came from the place it
     // fell out of.
+    //
+    // ── and why `lateral` is +0.38 and not -0.55 ───────────────────────────
+    //
+    // It was -0.55, on the strength of the sentence in `ShortcutDef` that says
+    // the spline's negative side is the driver's right and therefore the apex
+    // of this right-hander. **That sentence is the wrong way round**, and the
+    // cost of it was a whole round: censused over four full races this hazard
+    // hit nobody at all, because it was landing four boulders in an empty lane
+    // eleven metres from the line every kart in the field takes.
+    //
+    // `node tools/hazardcensus.mjs --profile` measures it instead of arguing
+    // about it. The field crosses this station at **+0.5 to +7.5 metres, median
+    // +5.5** — `sample().lateral` positive, which `racingline.ts` builds as the
+    // inside of a right-hand corner. So the rocks are centred at +4.6 and the
+    // fall covers -3.5 to +13.8, which is the whole apex lane and the island
+    // beside it, and leaves eight and a half metres of the wide lane open.
+    //
+    // ── and why there are two of them, on nine seconds and thirteen ────────
+    //
+    // Moving the fall onto the line took this hazard from zero hits a race to
+    // eleven — and then to six, and then to *two*, on three other seeds. The
+    // census says why in one column: at seed 13 the boulders were on the road
+    // for **three of twenty-two crossings** against a 50% blocked window,
+    // which is four sigma off a binomial and therefore not a binomial at all.
+    //
+    // Seven racers in a pack cross the Carousel inside a few seconds of each
+    // other. On a seventeen-second cycle that is not twenty-one samples of the
+    // hazard's phase, it is **three** — one per lap — and three coin flips can
+    // easily all come up clear. A hazard can be correctly placed, correctly
+    // timed and still be absent from a whole race, purely because the field is
+    // correlated with itself.
+    //
+    // So the canyon drops its rim in two places, on two short cycles: nine
+    // seconds at the Carousel and thirteen at the Notch, which is the corner
+    // that sets the Carousel up. The pack's own spread is now a large fraction
+    // of each cycle, the two stations are on coprime periods, and the number of
+    // independent draws in a race goes from three to something like twenty.
     hazards: [{
-      at: on('T6 THE CAROUSEL', 0.52), kind: 'rockfall', period: 17, phase: 0.1,
+      at: on('T6 THE CAROUSEL', 0.52), kind: 'rockfall', period: 9, phase: 0.1,
       // A shade lighter than the cliff it comes off. Flat-shaded rock in flight
       // has most of its faces turned away from the sun, and at the declared
-      // 0xa05a33 the three boulders photographed as black holes in a bright
-      // desert — a silhouette, which is right, but not a *canyon's* silhouette.
-      lateral: -0.55, hit: 'spin', lead: 2.0, signAt: 120, tint: 0xbe7644,
+      // 0xa05a33 the boulders photographed as black holes in a bright desert —
+      // a silhouette, which is right, but not a *canyon's* silhouette.
+      lateral: 0.38, hit: 'spin', lead: 2.0, signAt: 120, tint: 0xbe7644,
+    }, {
+      // The Notch. `--profile` puts the field through here in a tight band
+      // around +1.3 metres, so the fall is centred at +2.2 and leaves six
+      // metres of road open on the outside — the way through is the long way,
+      // which is the same bargain the Carousel offers a hundred metres later.
+      at: on('T5 THE NOTCH', 0.55), kind: 'rockfall', period: 13, phase: 0.6,
+      lateral: 0.18, hit: 'spin', lead: 2.0, signAt: 96, tint: 0xbe7644,
     }],
 
     // Eight corners run 1/34 to 1/120 of curvature and the Grader Sweep runs
@@ -314,32 +360,78 @@ export const coneCanyon: CourseDefEx = {
     // brakes for and leaves the one flat-out sweeper clean.
     kerbCurvature: 0.0083,
 
-    // The canyon the course is named after. The rim starts 165m off the
-    // shoulder — clear of the circuit, close enough to stand over it — and four
-    // buttes are placed so every corner exit has a different thing at its
-    // vanishing point. All four moved with the layout: a landform is only a
-    // landmark if it is at the end of a straight somebody is actually driving.
+    // ── the canyon, and the round it did not have one ──────────────────────
+    //
+    // A critic photographed this course and wrote: *"Cone Canyon has no canyon.
+    // racing.png, far.png and all five lap frames show a horizon of
+    // near-identical tan truncated-cone mounds in a rough grid — no rim, no
+    // gorge, no drop. It reads as heightmap filler."* That was exactly right,
+    // and the reason is in the two numbers below rather than in the art.
+    //
+    // `terrain.ts` builds the rim as `plateau · terrace · erosion · rimHeight`,
+    // where `plateau` is a `smoothstep` over a noise field on a 420-metre
+    // wavelength. That product is **zero over about half the ground**, so the
+    // rim is by construction a field of separate lumps on a 420m lattice — a
+    // mound field. Turning `rimHeight` up makes the mounds taller; it cannot
+    // make them a wall, because the thing that is missing is *continuity*.
+    //
+    // The only continuous landform `terrain.ts` offers is `hero`, so the rim is
+    // now built out of heroes: **nine buttes on a ring around the circuit, each
+    // one's footprint overlapping its neighbours', so their skirts fuse into a
+    // wall with buttresses in it instead of standing apart as hills.** The
+    // noise rim is kept, at 62 rather than 105, where it belongs — broken talus
+    // on the slope *below* the wall.
+    //
+    // The gorge is `groundY`, and it is **deliberately a shallow one**. The far
+    // field settles to that datum over 70..340 metres from the shoulder, so a
+    // datum below the road is a drop — but `canyon.paint` lerps 34% of
+    // `CANYON_SCRUB`, a saturated olive, over every metre of ground between 1
+    // and 16 metres *below the nearest road*, and a deep drop simply moves that
+    // band from three hundred metres out (where the haze eats it) to a hundred
+    // and fifty (where a chase camera lives). Photographed at a -40 datum the
+    // canyon comes back green. So the fall is twenty metres, which is enough to
+    // put the wall's foot below the circuit and keeps the scrub band out past
+    // the rim. **A landscape you cannot photograph is not a landscape**, and the
+    // deeper gorge needs `render/theme.ts` to key its vegetation on something
+    // other than "lower than the road" first.
+    //
+    // The prop band is the constraint on all of it. `world/index.ts` places
+    // berms, stockpiles and plant with `room()` between 50 and 168 metres, and
+    // `room()` tests whether a spot is free rather than whether it is level, so
+    // nothing steep may begin inside that band. The drop reaches a 24% grade at
+    // 146m and the wall does not start until 175 — a talus slope, which is what
+    // a machine yard on a canyon shelf actually stands on.
     terrain: {
-      rimStart: 165,
-      rimEnd: 520,
-      rimHeight: 105,
+      rimStart: 175,
+      rimEnd: 430,
+      rimHeight: 62,
       landmarks: [
-        // Dead ahead down the pit straight, and the reason that straight is
-        // worth 280 metres: you spend all of it driving at a mesa.
-        { x: 1080, z: 27, radius: 250, height: 140, kind: 'mesa' },
-        // At the far end of the north leg's second run, so the fastest 320
-        // metres of the lap is aimed at something.
-        { x: -900, z: -135, radius: 270, height: 145, kind: 'mesa' },
-        // Beyond the Carousel, so the horseshoe has a wall behind it and the
-        // exit has something to be aimed at.
-        { x: -780, z: 660, radius: 280, height: 155, kind: 'mesa' },
-        // A needle south of the run into Digger's Elbow — the only landform on
-        // this circuit you drive *at* rather than past, and the braking marker
-        // for the tightest corner here. Placed clear of the barriers: the
-        // south leg passes 470 metres north of its footprint, and `terrain.ts`
-        // will not let a landform start rising until it is `rimStart * 0.7`
-        // clear of the road.
-        { x: 467, z: -650, radius: 160, height: 105, kind: 'spire' },
+        // ── the rim: nine buttes, ring-placed, footprints overlapping ──────
+        //
+        // Radii of 300-390 on a ring spaced about 430 metres apart, so the
+        // gap between two neighbours sits at r≈0.7 of both — `shape` is 0.5
+        // there against 1.0 at a centre, and the two sum to a saddle rather
+        // than a notch. Heights are deliberately uneven: a rim of one height
+        // is a fence.
+        { x: 1180, z: 40, radius: 380, height: 205, kind: 'mesa' },
+        { x: 900, z: -560, radius: 330, height: 170, kind: 'mesa' },
+        { x: 250, z: -760, radius: 300, height: 150, kind: 'mesa' },
+        { x: -430, z: -700, radius: 340, height: 185, kind: 'mesa' },
+        { x: -1010, z: -320, radius: 370, height: 210, kind: 'mesa' },
+        { x: -1090, z: 300, radius: 350, height: 165, kind: 'mesa' },
+        { x: -760, z: 800, radius: 360, height: 195, kind: 'mesa' },
+        { x: -60, z: 900, radius: 320, height: 160, kind: 'mesa' },
+        { x: 620, z: 780, radius: 340, height: 180, kind: 'mesa' },
+        // ── and two things standing *in* the canyon, to give it depth ──────
+        //
+        // A rim with nothing in front of it is a backdrop. These two are on
+        // the gorge floor between the circuit and the wall, so there is a
+        // silhouette at a different distance from the one behind it — which is
+        // the whole of what makes a landscape read as deep rather than as
+        // painted. Both are held off the road by the hero gate
+        // (`rimStart * 0.7` = 122m) and placed well past it.
+        { x: 520, z: -370, radius: 150, height: 132, kind: 'spire' },
+        { x: -690, z: 470, radius: 170, height: 118, kind: 'spire' },
       ],
     },
   },

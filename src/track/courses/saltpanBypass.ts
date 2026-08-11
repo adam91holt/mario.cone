@@ -246,6 +246,13 @@ export const saltpanBypass: CourseDefEx = {
       { at: on('s5', 0.45), lateral: -0.30, width: 7, length: 30 },
       { at: on('s7', 0.35), lateral: 0.26, width: 7, length: 32 },
       { at: on('s11', 0.30), lateral: 0.28, width: 7, length: 32 },
+      // **The west leg's second strip.** A critic photographed this circuit at
+      // 2493 metres of lap and got *"a black road running dead straight to a
+      // white horizon with a low fence either side — no brine, no boost strip,
+      // no set piece, nothing for its whole length"*, and they were looking at
+      // exactly this stretch: two three-hundred-metre runs with one strip
+      // between them, six hundred metres apart. There are two now.
+      { at: on('s12', 0.55), lateral: -0.28, width: 7, length: 32 },
     ],
     // The closed carriageway: the crust runs straight on past the chicane's
     // first apex. It is 58% of top speed while you are on it, so from 60 m/s it
@@ -318,23 +325,47 @@ export const saltpanBypass: CourseDefEx = {
     // being swept and the other two are as you left them. *Which* one is the
     // thing that changes.
     //
-    // Nineteen seconds a cycle against a lap of about seventy: 3.7 cycles a
-    // lap, so lap two arrives well out of step with lap one and the pattern you
-    // learned is off by a band. That is the entire point, and it is why the
-    // period is a prime rather than a round number.
+    // Eleven seconds a cycle against a lap of about seventy: six cycles a lap,
+    // so lap two arrives well out of step with lap one and the pattern you
+    // learned is off by a band. The period is short for a second reason as
+    // well — a cycle longer than the field's own spread makes seven racers into
+    // one sample of the phase, and a whole race can pass with the water out on
+    // the pan every time anybody looks. See `HazardDef.period`.
     //
     // `bump` rather than `spin`: water shoves, it does not throw you. 0.55s and
     // most of your speed — which on the fastest road in the cup is still a
-    // place. `lateral` is where each bore **rests**, and each one is the middle
-    // of its own sheet's dry lane; the sign of that number is also the edge of
-    // the road the lake is on, which is where the water comes in from.
+    // place.
+    //
+    // ── where a bore stands, and why it is not the dry lane ────────────────
+    //
+    // It used to rest in the middle of its own sheet's dry lane, which is a
+    // tidy sentence and was measurably wrong. `node tools/hazardcensus.mjs`
+    // over two full laps: three bores, forty-seven crossings, **zero hits**.
+    // The reason is in the same report's driven line — the field comes down the
+    // bypass at a **median of half a metre off the centreline**, with the
+    // ninetieth percentile inside ±6, and it does not weave for the sheets at
+    // all, because nothing in `ai/` reads a surface patch when it picks a line.
+    // Three bores parked eight to thirteen metres out were three bores parked
+    // where nobody was.
+    //
+    // A bore is a wave, so the honest fix is also the simpler one: it rolls in
+    // off the pan on the side its own sheet drains from, **stands over the
+    // middle of the carriageway** for a beat, and drains back. It takes about
+    // nine metres of a thirty-four-metre road, so there is a way past on both
+    // shoulders at every moment — it is a lane closure, not a traffic light —
+    // and the way past is a different one for each of the three.
+    //
+    // `lateral` is where the bore rests, in the frame `sample().lateral`
+    // reports. **Measure it, do not reason about it**: the sign convention in
+    // `types.ts` was the wrong way round for a whole round and it cost this
+    // course, Cone Canyon and Switchback Summit their entire hazard budget.
     hazards: [
-      { at: on('THE BYPASS', 0.427), kind: 'surge', period: 19, phase: 0,
-        lateral: 0.60, hit: 'bump', lead: 1.6, signAt: 96 },
-      { at: on('THE BYPASS', 0.627), kind: 'surge', period: 19, phase: 1 / 3,
-        lateral: -0.60, hit: 'bump', lead: 1.6, signAt: 96 },
-      { at: on('THE BYPASS', 0.827), kind: 'surge', period: 19, phase: 2 / 3,
-        lateral: -0.76, hit: 'bump', lead: 1.6, signAt: 96 },
+      { at: on('THE BYPASS', 0.427), kind: 'surge', period: 11, phase: 0,
+        lateral: -0.15, hit: 'bump', lead: 1.6, signAt: 96 },
+      { at: on('THE BYPASS', 0.627), kind: 'surge', period: 11, phase: 1 / 3,
+        lateral: 0.15, hit: 'bump', lead: 1.6, signAt: 96 },
+      { at: on('THE BYPASS', 0.827), kind: 'surge', period: 11, phase: 2 / 3,
+        lateral: -0.02, hit: 'bump', lead: 1.6, signAt: 96 },
     ],
     // The works corners run 1/30 to 1/60 of curvature and the pan's sweeps and
     // kinks 1/140 to 1/220, so a threshold at 1/85 kerbs exactly the five
@@ -342,10 +373,16 @@ export const saltpanBypass: CourseDefEx = {
     // lap clean.
     kerbCurvature: 0.0118,
 
-    // Almost nothing. The rim is 34m of low swell starting 700 metres out —
-    // enough to stop the horizon being a ruled line, nowhere near enough to
-    // enclose anything — and the only real landforms are three buttes far
-    // enough away to read as scenery rather than as walls.
+    // Almost nothing, and that is the point of a dry lake — but *almost* is
+    // load-bearing. The rim is 34m of low swell starting 700 metres out, enough
+    // to stop the horizon being a ruled line and nowhere near enough to enclose
+    // anything, and the landforms are buttes far enough away to read as scenery
+    // rather than as walls.
+    //
+    // The west leg gets three of its own. Two three-hundred-metre runs with
+    // nothing at the end of them is the one part of this circuit a critic
+    // photographed and called empty, and a straight on a salt flat is navigated
+    // entirely by what is sitting on the horizon at the end of it.
     terrain: {
       rimStart: 700,
       rimEnd: 1600,
@@ -359,6 +396,16 @@ export const saltpanBypass: CourseDefEx = {
         { x: 980, z: -980, radius: 330, height: 175, kind: 'mesa' },
         // A needle out west, past the Pan Sweep and down the whole west leg.
         { x: -1500, z: -260, radius: 220, height: 195, kind: 'spire' },
+        // ── the west leg's own skyline ────────────────────────────────────
+        //
+        // A pair of buttes at the far end of the two long runs, offset from
+        // each other so the kink between them swings the horizon across the
+        // frame instead of holding one shape dead ahead for six hundred
+        // metres, and a low island out on the pan between them and the road so
+        // there is something at a *near* distance to measure speed against.
+        { x: -1820, z: 620, radius: 360, height: 230, kind: 'mesa' },
+        { x: -1240, z: 1280, radius: 300, height: 165, kind: 'mesa' },
+        { x: -980, z: 560, radius: 190, height: 62, kind: 'mesa' },
       ],
     },
   },
@@ -369,7 +416,16 @@ export const saltpanBypass: CourseDefEx = {
     // throws most of the sun back up at whatever is standing on it, which is
     // why the karts here have almost no dark side and why nothing else in the
     // cup can be lit this way.
-    ground: 0xe6e2d2,
+    // **White, and cold-white.** It was 0xE6E2D2, which is a beige, and a
+    // critic photographed the result and asked for *"white evaporite instead of
+    // beige haze"* — correctly: `saltpan.paint` in `render/theme.ts` mixes the
+    // fresh crust *towards* this value over the whole near field, so a warm
+    // anchor turns a lake bed the colour of a beach. Evaporite is a salt, and
+    // salt under a cobalt sky is the one ground in this game that has more blue
+    // in it than red. The number is also, through `sunRig()`, the bounce light
+    // on every kart out here — which is why the machines on this course have
+    // almost no dark side, and why that fill has to be white rather than tan.
+    ground: 0xf1f0ea,
     // Deep cobalt overhead falling to white at the horizon — the sky of a place
     // with nothing in the air and a lot of light coming back off the ground.
     sky: { top: 0x0d49c4, bottom: 0xecf7ff, horizon: 0xffffff },

@@ -162,7 +162,87 @@ interface Hazard {
   /** The cue this hazard plays when it first arms, and when it lands a hit. */
   period: number;
   phase: number;
+  /** Where the field actually drives past this station. See `Census`. */
+  census: Census;
 }
+
+/**
+ * ── the instrument, and why it is built into the hazard rather than bolted on ─
+ *
+ * A round was lost to four hazards that were declared, drawn, signed, cycled,
+ * documented at 20-38% blocked — and which, over thirteen full races of seven
+ * racers, hit somebody **five times**. The gate on the mountain, cycling every
+ * eleven seconds at a claimed 38% blocked window over a 168-second race, is
+ * about thirty-five blocked passes across the field, and it produced zero.
+ *
+ * That is not tuning. A duty cycle is a statement about *time* and it says
+ * nothing at all about *space*: a body can be over the tarmac for 38% of every
+ * cycle and still never be within nine metres of the line anybody drives. Every
+ * `lateral` in this cup was authored as an offset off the road centre, and the
+ * road centre is not where a racing line is — it is the one place on a corner
+ * that nobody is.
+ *
+ * So each hazard now measures the field itself. Every time a racer crosses the
+ * station the hazard is anchored to, its lateral **in the hazard's own frame**
+ * — which is exactly `track.sample().lateral`, the same dot product against the
+ * same `right` vector — is binned. `__HAZARDS.census()` reports that histogram
+ * next to the lateral span the bodies actually sweep, so the question "does this
+ * hazard intersect the racing line" has a numeric answer instead of a paragraph.
+ *
+ * `tools/hazardcensus.mjs` is the reader. Nothing here may be tuned by
+ * assertion again: if the census says the field crosses at -9m and the body
+ * lives at +14m, the hazard does not exist however good the sign looks.
+ */
+interface Census {
+  passes: number;
+  hits: number;
+  /**
+   * ── why a pass was not a hit ────────────────────────────────────────────
+   *
+   * Three numbers, and between them they close the last hole in this
+   * instrument. A hazard that fires six times in one race and twice in the
+   * next has *something* varying, and "hits" alone cannot say which of the
+   * three candidates it is: the body was not on the road when the racer got
+   * there (`armed`), the body was on the road but not on that racer's line
+   * (`armed` minus `covered`), or the racer was standing on the one thing that
+   * makes it un-hittable — a stun, a star, the anti-pin floor, the two-second
+   * grace after the last hit — in which case the hazard did nothing wrong and
+   * the item system was simply busier that race (`guarded`).
+   *
+   * That last one is real and it is a *coupling*, not noise: the seed with 60
+   * item strikes had a third of the hazard hits of the seed with 31, because
+   * `stunned`, `invulnerable` and `HIT_COOLDOWN` all skip the contact test.
+   */
+  /** Passes where at least one body was live at the moment of crossing. */
+  armed: number;
+  /** ...and the crossing lateral was inside that body's lateral span. */
+  covered: number;
+  /** Passes where the racer could not be hit by anything, for any reason. */
+  guarded: number;
+  /** 1-metre bins over ±CENSUS_HALF metres of lateral. */
+  bins: Int32Array;
+  /** Previous along-road offset per racer, for edge-triggering one pass. */
+  lastZ: Float64Array;
+  /** Whether that value is fresh — a racer out of reach has no previous. */
+  seen: Uint8Array;
+}
+
+/** Half the census's lateral range, metres. Wide enough for any shoulder. */
+const CENSUS_HALF = 24;
+const CENSUS_BINS = CENSUS_HALF * 2;
+/** The most racers a census array is sized for. The grid is seven plus one. */
+const CENSUS_RACERS = 16;
+
+const census = (): Census => ({
+  passes: 0,
+  hits: 0,
+  armed: 0,
+  covered: 0,
+  guarded: 0,
+  bins: new Int32Array(CENSUS_BINS),
+  lastZ: new Float64Array(CENSUS_RACERS),
+  seen: new Uint8Array(CENSUS_RACERS),
+});
 
 /** The animated nodes each kind needs. Unused slots stay null. */
 interface Rig {
@@ -196,18 +276,60 @@ interface SignRig {
 // window as a second hand-written pair was the obvious build and it is the one
 // way this feature can lie to a player.
 
-/** The dumper's shuttle: out loaded, tip, back empty, load again. */
+/**
+ * The dumper's shuttle: out loaded, **stopped on the crossing**, on to the tip,
+ * back empty, stopped again, load again.
+ *
+ * ── the hold is why this hazard now exists ─────────────────────────────────
+ *
+ * The first build was a machine that never stopped: 0.22 of the cycle to cover
+ * 54 metres, twice. Censused over a whole race that came out at **four hits in
+ * twenty-two passes**, and the arithmetic says exactly why — a kart crossing the
+ * station is an instant, so what decides whether it is hit is the fraction of
+ * the cycle the machine spends over the *driven* band, and a machine sweeping
+ * 54 metres at 10 m/s is over any given 16 metres of it for a ninth of each
+ * traverse.
+ *
+ * So the truck now does what a haul truck actually does at a crossing: it
+ * **stops on it**. Nose out, body across the road, beacons turning, for a
+ * couple of seconds each way. That is the readable version as well as the
+ * effective one — nine and a half metres of stationary safety yellow parked
+ * across the Cut is a thing a player sees from two hundred metres and has time
+ * to lift for, where a machine crossing at ten metres a second is a thing that
+ * is either there or not by the time you arrive.
+ */
 const TRUCK = {
   /** Metres either side of the centreline the machine parks at. */
-  bay: 27,
-  /** Half the danger band across the road: the capsule plus a kart. */
-  guard: 3.3 + 2.55 + KART_R,
-  // 0.22 of a 24-second cycle to cover 54 metres is 10 m/s, which is what a
-  // loaded articulated dumper actually does. Tuning this is tuning the truck's
-  // *speed*, and a machine that size crossing at forty is a cartoon.
-  out0: 0.05, out1: 0.27,
-  tip0: 0.31, tip1: 0.47,
-  back0: 0.52, back1: 0.74,
+  bay: 24,
+  /**
+   * Half the danger band across the road: the capsule plus a kart.
+   *
+   * Kept in step with the capsule set in `resolve()` — 4.3 of half-length plus
+   * 2.55 of radius — because `crossWindow` decides the *lamps* off this number
+   * and the contact test decides the *hit* off the capsule, and the one way
+   * this feature can lie to a player is those two disagreeing.
+   */
+  guard: 4.3 + 2.55 + KART_R,
+  /**
+   * Run in, stand on the crossing, run out. Then tip at the far end.
+   *
+   * The stand is 0.14 of the cycle — a shade over two seconds on the Cut's
+   * fifteen-second machine and a second and a half on the haul road's eleven —
+   * and both numbers are chosen against **`HIT_COOLDOWN`**, which is 2.4. A
+   * body that stands still for longer than a racer's grace period hits the same
+   * racer twice out of one mistake; see `SURGE`, where a 5.7-second hold turned
+   * three bores into twenty-nine hits in a two-lap race. Under the grace, one
+   * machine is one hit, and the danger comes from the stop being *long enough
+   * to arrive during* rather than from it being long enough to sit inside.
+   *
+   * At 0.05 it was not: censused across five seeds the pair produced 6-17 hits
+   * a race, and the low end failed the bar. Three quarters of a second is not a
+   * machine stopping, it is a machine hesitating.
+   */
+  out0: 0.03, hold0: 0.15, hold1: 0.29, out1: 0.41,
+  tip0: 0.44, tip1: 0.55,
+  /** ...and the same again, empty, the other way. */
+  back0: 0.58, bhold0: 0.70, bhold1: 0.84, back1: 0.96,
 };
 
 /**
@@ -217,21 +339,59 @@ const TRUCK = {
  * needs them too — where a boulder sits and how big its capsule is have to be
  * one statement, or the rock a player can see and the rock that spins them are
  * two different rocks.
+ *
+ * **Four boulders, not three, and the lane they close is 17 metres wide.** The
+ * three-boulder version closed 13 metres of a 24-metre road and the census
+ * found the field crossing it in a band 7 metres wide that the rocks missed
+ * entirely; widening the fall is what makes the escape route a *choice* rather
+ * than an accident. `clear`/`gone` are likewise pushed out until the lane is
+ * shut for about half of every cycle — the Carousel's short lane is meant to
+ * have a wrong answer, and a wrong answer that is wrong one time in six is a
+ * thing nobody ever learns.
  */
 const ROCK = {
-  drop: 0.20, fallSec: 1.4, clear: 0.40, gone: 0.47, top: 20,
-  size: [2.4, 2.0, 1.7],
-  /** Lateral offsets in metres, so three of them close a 12-metre lane. */
-  spread: [-3.4, 0.4, 3.8],
+  drop: 0.10, fallSec: 1.4, clear: 0.54, gone: 0.60, top: 20,
+  size: [2.4, 2.1, 1.8, 2.2],
+  /** Lateral offsets in metres, so four of them close a 17-metre lane. */
+  spread: [-4.6, -1.0, 2.4, 6.0],
   /** ...and a little stagger along the road, so they are not a ruled rank. */
-  along: [-1.7, 1.7, 0.2],
+  along: [-1.7, 1.7, 0.2, -0.9],
 };
 
-/** The bore: in off the pan, over the lane, and drained back. */
-const SURGE = { in0: 0.10, in1: 0.24, hold: 0.29, out1: 0.40, gone: 0.46 };
+/**
+ * The bore: in off the pan, standing over the road, and drained back.
+ *
+ * The hold used to be five hundredths of a cycle — the wave arrived, touched
+ * the road and left again — and censused over two full laps it hit nobody at
+ * all.
+ *
+ * **The correction over-shot, and the way it over-shot is worth keeping.** A
+ * hold of 0.30 stood the bore on the road for 5.7 seconds against a
+ * `HIT_COOLDOWN` of 2.4, so a kart shoved by the wave was still inside it when
+ * its grace ran out and was shoved again: the census came back at an 88-93%
+ * hit rate on two of the three bores and 29 hazard hits in a two-lap race,
+ * which is not a hazard, it is a wall with a timer. **A body may not outstay
+ * the cooldown in one place.** The rest is now 2.1 seconds — under the grace,
+ * so one wave is one hit — and the danger is bought back in the *travel*
+ * instead: the bore crosses at about five metres a second rather than nine, so
+ * it is over any given lane twice as long on the way through without ever
+ * standing on one.
+ */
+const SURGE = { in0: 0.03, in1: 0.26, hold: 0.37, out1: 0.60, gone: 0.66 };
 
-/** The gate: shut, held, opened. */
-const BOOM = { shut0: 0.14, shut1: 0.24, open0: 0.44, open1: 0.52 };
+/**
+ * The gate: shut, held, opened.
+ *
+ * A shade over four tenths of the cycle rather than a third, and no more than
+ * that: the mountain is the course where a hazard costs the most, because a
+ * kart shoved off a 13% climb or off a promontory has nowhere to get its
+ * momentum back. Censused at half the cycle it produced 13-19 hits a race and
+ * one seed in four came home with a racer two laps down, which fails the bar
+ * every hazard is held to before anything else it does counts. **A hazard's
+ * price is a property of the road it is on**, so the mountain's gates are the
+ * one thing in the cup tuned *down* from what the count alone would allow.
+ */
+const BOOM = { shut0: 0.10, shut1: 0.20, open0: 0.53, open1: 0.63 };
 
 /**
  * `[start, end]` windows, in cycle fraction, where the body is over tarmac.
@@ -245,11 +405,17 @@ function crossWindow(h: Hazard, out: [number, number][]): [number, number][] {
   out.length = 0;
   switch (h.kind) {
     case 'truck': {
-      const f = clamp01((TRUCK.bay - (h.half + TRUCK.guard)) / (2 * TRUCK.bay));
-      const a = TRUCK.out1 - TRUCK.out0;
-      const b = TRUCK.back1 - TRUCK.back0;
-      out.push([TRUCK.out0 + a * f, TRUCK.out0 + a * (1 - f)]);
-      out.push([TRUCK.back0 + b * f, TRUCK.back0 + b * (1 - f)]);
+      // The machine reaches the tarmac part-way through its run in and leaves
+      // it part-way through its run out, with the stand on the crossing in
+      // between. `f` is the fraction of a half-traverse spent clear of the
+      // road, which is the only thing `half` changes about the window.
+      const f = clamp01((TRUCK.bay - (h.half + TRUCK.guard)) / TRUCK.bay);
+      const inA = TRUCK.hold0 - TRUCK.out0;
+      const outA = TRUCK.out1 - TRUCK.hold1;
+      out.push([TRUCK.out0 + inA * f, TRUCK.hold1 + outA * (1 - f)]);
+      const inB = TRUCK.bhold0 - TRUCK.back0;
+      const outB = TRUCK.back1 - TRUCK.bhold1;
+      out.push([TRUCK.back0 + inB * f, TRUCK.bhold1 + outB * (1 - f)]);
       break;
     }
     case 'rockfall':
@@ -610,7 +776,7 @@ function buildRockfall(
   const g = new THREE.Group();
   const rockM = mat(def.tint ?? 0x9a5a38, { flatShading: true });
   keep.push(rockM);
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < ROCK.size.length; i++) {
     const r = new THREE.Mesh(new THREE.IcosahedronGeometry(ROCK.size[i]!, 0), rockM);
     // Squashed off round: a sphere reads as a ball, and a ball on a road reads
     // as an item rather than as half the cliff above it.
@@ -655,9 +821,9 @@ function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
     const z = (t - 0.5) * len;
     const h = 1.5 + 0.55 * Math.sin(t * 7.1) + 0.3 * Math.sin(t * 3.3 + 1.4);
     const lean = 0.9 + 0.25 * Math.sin(t * 5.0 + 0.6);
-    pos.push(1.9, -0.15, z);
+    pos.push(2.9, -0.15, z);
     pos.push(-lean, h, z);
-    pos.push(-2.4, -0.15, z);
+    pos.push(-3.4, -0.15, z);
   }
   for (let i = 0; i < N; i++) {
     const a = i * 3;
@@ -850,8 +1016,8 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
           break;
         case 'rockfall':
           group.add(buildRockfall(rig, def, materials));
-          bodies = [body(), body(), body()];
-          reach = 30;
+          bodies = ROCK.size.map(() => body());
+          reach = 32;
           break;
         case 'surge':
           group.add(buildSurge(rig, materials));
@@ -866,10 +1032,11 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
       }
       root.add(group);
 
-      // The sign, on its own station and its own frame, `signAt` metres back on
-      // the driver's right-hand verge — which is the spline's negative side,
-      // and the side of the road a driver's eyes are already on through the
-      // corner every one of these hazards sits in.
+      // The sign, on its own station and its own frame, `signAt` metres back
+      // on the spline's negative verge. That is one side for every hazard on
+      // every course on purpose — a works site says what is about to happen to
+      // you from the same hand every time, and a sign that swaps sides is a
+      // sign a driver has to find before they can read it.
       const backD = ((d - (def.signAt ?? SIGN_BACK)) % L + L) % L;
       track.spline.atDistance(backD, s);
       const sign = buildSign(def.kind, stripe, materials);
@@ -892,6 +1059,7 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
         armed: 0, tick: 0, lastU: -1,
         period: Math.max(1, def.period),
         phase: def.phase ?? 0,
+        census: census(),
       });
     }
 
@@ -919,22 +1087,33 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
         // a half metres that make it unmissable lie across the racing road and
         // the four and a bit that a kart has to get past lie along it.
         const FAR = TRUCK.bay;
-        const speed = 2 * FAR / ((TRUCK.out1 - TRUCK.out0) * h.period);
         let x: number;
-        let facing: number;
         let tip = 0;
         let moving = false;
-        if (u < TRUCK.out0) { x = -FAR; facing = 1; }
-        else if (u < TRUCK.out1) {
-          x = lerp(-FAR, FAR, (u - TRUCK.out0) / (TRUCK.out1 - TRUCK.out0));
-          facing = 1; moving = true;
+        /** Metres travelled on this leg, for the wheels. */
+        let run = 0;
+        if (u < TRUCK.out0) { x = -FAR; }
+        else if (u < TRUCK.hold0) {
+          const k = (u - TRUCK.out0) / (TRUCK.hold0 - TRUCK.out0);
+          x = lerp(-FAR, 0, k); moving = true; run = k * FAR;
+        } else if (u < TRUCK.hold1) {
+          // **Stood on the crossing.** See `TRUCK`.
+          x = 0; run = FAR;
+        } else if (u < TRUCK.out1) {
+          const k = (u - TRUCK.hold1) / (TRUCK.out1 - TRUCK.hold1);
+          x = lerp(0, FAR, k); moving = true; run = FAR * (1 + k);
         } else if (u < TRUCK.tip1) {
-          x = FAR; facing = 1; tip = pulse(TRUCK.tip0, TRUCK.tip1, u);
-        } else if (u < TRUCK.back0) { x = FAR; facing = -1; }
-        else if (u < TRUCK.back1) {
-          x = lerp(FAR, -FAR, (u - TRUCK.back0) / (TRUCK.back1 - TRUCK.back0));
-          facing = -1; moving = true;
-        } else { x = -FAR; facing = -1; }
+          x = FAR; tip = pulse(TRUCK.tip0, TRUCK.tip1, u);
+        } else if (u < TRUCK.back0) { x = FAR; }
+        else if (u < TRUCK.bhold0) {
+          const k = (u - TRUCK.back0) / (TRUCK.bhold0 - TRUCK.back0);
+          x = lerp(FAR, 0, k); moving = true; run = -k * FAR;
+        } else if (u < TRUCK.bhold1) {
+          x = 0; run = -FAR;
+        } else if (u < TRUCK.back1) {
+          const k = (u - TRUCK.bhold1) / (TRUCK.back1 - TRUCK.bhold1);
+          x = lerp(0, -FAR, k); moving = true; run = -FAR * (1 + k);
+        } else { x = -FAR; }
         x += lat;
 
         const rig = h.rig;
@@ -946,29 +1125,30 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
           const turn = u < TRUCK.tip1 ? 0
             : u < TRUCK.back0 ? ramp(0, 1, (u - TRUCK.tip1) / (TRUCK.back0 - TRUCK.tip1))
               : u < TRUCK.back1 ? 1
-                : 1 - ramp(0, 1, (u - TRUCK.back1) / (1 - TRUCK.back1));
+                : 1 - ramp(0, 1, (u - TRUCK.back1) / (1 - TRUCK.back1 || 1));
           rig.chassis.rotation.y = turn * Math.PI;
           // Squat on the springs while the tray is up, and roll the wheels at
           // the speed the machine is actually travelling — a wheel that spins
           // while the machine is parked is the tell that nothing here is real.
           rig.chassis.position.y = -0.10 * tip;
           if (rig.tray) rig.tray.rotation.z = tip * 0.9;
-          if (moving) {
-            const travelled = facing > 0
-              ? (u - TRUCK.out0) * h.period * speed
-              : (u - TRUCK.back0) * h.period * speed;
-            for (const w of rig.wheels) w.rotation.z = -travelled / 1.35;
-          }
+          if (moving) for (const w of rig.wheels) w.rotation.z = -run / 1.35;
           // Loaded out, empty back: the rock leaves at the tip.
           const load = u < TRUCK.tip0 + (TRUCK.tip1 - TRUCK.tip0) * 0.55
             ? 1
             : u < TRUCK.back1 ? 0
-              : ramp(0, 1, (u - TRUCK.back1) / (1 - TRUCK.back1));
+              : ramp(0, 1, (u - TRUCK.back1) / (1 - TRUCK.back1 || 1));
           for (const r of rig.rocks) { r.scale.setScalar(load); r.visible = load > 0.02; }
         }
         // One capsule down the machine's long axis. 2.55m of radius wraps a
         // 4.8m-wide body and its wheels without claiming the air above it.
-        b[0]!.ax = x - 3.3; b[0]!.bx = x + 3.3;
+        //
+        // **4.3, not 3.3.** The machine is 9.4 metres end to end and the
+        // capsule was 6.6, so a metre and a half of hazard yellow at each end
+        // of it — the two striped cap plates, the ends a driver actually sees
+        // coming — was a picture a kart drove through. `TRUCK.guard` carries
+        // the same number, because that is what the lamps are computed off.
+        b[0]!.ax = x - 4.3; b[0]!.bx = x + 4.3;
         b[0]!.ay = b[0]!.by = 1.7;
         b[0]!.az = b[0]!.bz = 0;
         b[0]!.r = 2.55;
@@ -984,7 +1164,7 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
         const CLEAR = ROCK.clear;
         const GONE = ROCK.gone;
         const H0 = ROCK.top;
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < ROCK.size.length; i++) {
           const r = h.rig.rocks[i]!;
           const size = ROCK.size[i]!;
           const x = lat + ROCK.spread[i]!;
@@ -1059,7 +1239,12 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
           h.rig.crest.scale.set(1, s, 1);
           h.rig.wall.visible = h.rig.crest.visible = u > SURGE.in0 - 0.04 && u < SURGE.gone;
         }
-        ball(b[0]!, x, 0.8, 0, 2.7, live && Math.abs(x) < h.half + 4);
+        // 3.2 of radius, which is half the six-and-a-bit metres of water the
+        // face is actually made of. It used to be 2.7 against a 4.3m face —
+        // more grace than the wall had body — and it still hit nobody, because
+        // the bore was resting three metres past the edge of the lane anybody
+        // drove. Radius is not what was wrong with it; `lateral` was.
+        ball(b[0]!, x, 0.8, 0, 3.2, live && Math.abs(x) < h.half + 5);
         b[0]!.az = -12; b[0]!.bz = 12;
         b[0]!.ax = b[0]!.bx = x;
         break;
@@ -1196,6 +1381,75 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
       })),
     })),
     clock: () => clock,
+
+    /**
+     * ── the census: where the field drives, against where the bodies go ──────
+     *
+     * `lane` is the histogram of every racer's lateral, in the hazard's own
+     * frame, at the moment it crossed the station — the same number
+     * `track.sample().lateral` returns, measured at the lap fraction the hazard
+     * is anchored to. `reach` is the lateral interval the bodies actually sweep
+     * while live, **with a kart's radius already added**, swept over the whole
+     * cycle at 1/400 resolution.
+     *
+     * Those two intervals overlapping is the entire question. A hazard whose
+     * `lane` is [-11,-3] and whose `reach` is [+11,+20] is not a hard hazard or
+     * a badly tuned one; it is furniture with a clock in it, and no amount of
+     * period or duty will change that. See `tools/hazardcensus.mjs`.
+     */
+    census: () => list.map((h) => {
+      const c = h.census;
+      // Sweep the cycle for the lateral span the live bodies cover. `resolve`
+      // is pure and the sim re-resolves at the top of every step, so borrowing
+      // the body array here cannot leak into the simulation.
+      const uNow = wrap01(clock / h.period + h.phase);
+      let lo = Infinity, hi = -Infinity, liveU = 0;
+      for (let k = 0; k < 400; k++) {
+        resolve(h, k / 400, false);
+        let any = false;
+        for (const b of h.bodies) {
+          if (!b.live) continue;
+          any = true;
+          lo = Math.min(lo, b.ax - b.r - KART_R, b.bx - b.r - KART_R);
+          hi = Math.max(hi, b.ax + b.r + KART_R, b.bx + b.r + KART_R);
+        }
+        if (any) liveU++;
+      }
+      resolve(h, uNow, false);
+      const bins: [number, number][] = [];
+      for (let i = 0; i < CENSUS_BINS; i++) {
+        if (c.bins[i]! > 0) bins.push([i - CENSUS_HALF, c.bins[i]!]);
+      }
+      // Percentiles off the histogram, which is all a reader of this needs:
+      // the median is the line, and p05..p95 is how wide the field runs.
+      const pct = (q: number): number => {
+        const want = c.passes * q;
+        let acc = 0;
+        for (let i = 0; i < CENSUS_BINS; i++) {
+          acc += c.bins[i]!;
+          if (acc >= want) return i - CENSUS_HALF + 0.5;
+        }
+        return NaN;
+      };
+      return {
+        kind: h.kind,
+        at: Math.round(h.def.at * 1e4) / 1e4,
+        half: Math.round(h.half * 10) / 10,
+        passes: c.passes,
+        hits: c.hits,
+        armed: c.armed,
+        covered: c.covered,
+        guarded: c.guarded,
+        /** Lateral the field crossed at: p05, median, p95, in metres. */
+        lane: c.passes ? [pct(0.05), pct(0.5), pct(0.95)] : [NaN, NaN, NaN],
+        /** Lateral the live bodies sweep, kart radius included. */
+        reach: lo <= hi ? [Math.round(lo * 10) / 10, Math.round(hi * 10) / 10] : null,
+        /** Fraction of the cycle at least one body is live. */
+        liveDuty: Math.round((liveU / 400) * 1000) / 1000,
+        bins,
+      };
+    }),
+
     /** Fraction of one full cycle each hazard's body spends over the tarmac. */
     duty: () => list.map((h) => {
       const w = crossWindow(h, []);
@@ -1225,7 +1479,12 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
       epoch = ctx.time.elapsed;
       clock = prevClock = 0;
       cooldown.clear();
-      for (const h of list) { h.armed = h.tick = 0; h.lastU = -1; }
+      for (const h of list) {
+        h.armed = h.tick = 0; h.lastU = -1;
+        const c = h.census;
+        c.passes = c.hits = c.armed = c.covered = c.guarded = 0;
+        c.bins.fill(0); c.seen.fill(0);
+      }
     },
 
     fixedUpdate(dt: number): void {
@@ -1251,6 +1510,46 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
         if (!racing) continue;
 
         for (const racer of ctx.racers) {
+          // **The census runs before every skip in this loop, and that is the
+          // point.** What is being measured is where the field *drives*, not
+          // where the field is eligible to be hit — a pass made two tenths after
+          // a hit, or by a racer holding a star, is still a pass and still
+          // evidence about the line. Measuring it downstream of the fairness
+          // guards would quietly under-report exactly the passes a badly placed
+          // hazard produces.
+          const near = racer.pos.distanceToSquared(h.origin) <= h.reach * h.reach;
+          if (near) {
+            _p.copy(racer.pos).sub(h.origin);
+            const z = _p.dot(h.fwd);
+            const c = h.census;
+            const i = racer.id;
+            if (i < CENSUS_RACERS) {
+              if (c.seen[i] && c.lastZ[i]! < 0 && z >= 0) {
+                c.passes++;
+                const x = _p.dot(h.right);
+                const bin = Math.floor(x) + CENSUS_HALF;
+                if (bin >= 0 && bin < CENSUS_BINS) c.bins[bin]!++;
+                let live = false;
+                let over = false;
+                for (const b of h.bodies) {
+                  if (!b.live) continue;
+                  live = true;
+                  const lo = Math.min(b.ax, b.bx) - b.r - KART_R;
+                  const hi = Math.max(b.ax, b.bx) + b.r + KART_R;
+                  if (x >= lo && x <= hi) over = true;
+                }
+                if (live) c.armed++;
+                if (live && over) c.covered++;
+                if (racer.stunned > 0 || racer.invulnerable > 0
+                  || cooldown.has(racer.id) || racer.speed < HIT_MIN_SPEED) c.guarded++;
+              }
+              c.lastZ[i] = z;
+              c.seen[i] = 1;
+            }
+          } else if (racer.id < CENSUS_RACERS) {
+            h.census.seen[racer.id] = 0;
+          }
+
           if (racer.finished || racer.stunned > 0 || racer.invulnerable > 0) continue;
           if (cooldown.has(racer.id)) continue;
           // **A hazard may not pin.** The first build of the avalanche gate
@@ -1261,9 +1560,9 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
           // something you drive into; if there is no closing speed there is no
           // collision, and the racer gets the road back.
           if (racer.speed < HIT_MIN_SPEED) continue;
-          // Cheap reject before the capsules: one length compare against the
-          // radius that bounds every body this hazard owns.
-          if (racer.pos.distanceToSquared(h.origin) > h.reach * h.reach) continue;
+          // Cheap reject before the capsules: the census above already measured
+          // it, against the radius that bounds every body this hazard owns.
+          if (!near) continue;
           let struck = false;
           for (const b of h.bodies) {
             if (hits(h, b, racer)) { struck = true; break; }
@@ -1271,6 +1570,7 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
           if (!struck) continue;
 
           stunRacer(ctx, racer, h.def.hit ?? 'spin', null);
+          h.census.hits++;
           cooldown.set(racer.id, HIT_COOLDOWN);
           // `kart:hit` reaches fx, the camera and the HUD on its own. Sound
           // does not: `audio/index.ts` hangs its impacts off `item:strike`,
@@ -1366,7 +1666,7 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
           }
           if (crossed(ROCK.drop)) {
             _p.copy(h.origin)
-              .addScaledVector(h.right, (h.def.lateral ?? 0) * h.half - 6)
+              .addScaledVector(h.right, (h.def.lateral ?? 0) * h.half + 7)
               .addScaledVector(h.up, ROCK.top * 0.9);
             ctx.fx?.spawn('smoke', _p, { scale: 1.5 });
           }

@@ -66,8 +66,10 @@ export interface SurfacePatchDef {
   to: number;
   /**
    * Lateral band, as fractions of the half width, **in the spline's frame** —
-   * the same frame `ShortcutDef.side` uses and therefore the mirror of the
-   * driver's. `-1` is the driver's right edge, `+1` is the driver's left.
+   * the frame `sample().lateral` reports and the same one `ShortcutDef.side`
+   * uses. See `LATERAL FRAME` at the head of `HazardDef`: `+1` is the inside
+   * of a right-hand corner, and the sentence that used to sit here said the
+   * opposite.
    *
    * The band is what is declared; what is *built* is that band with its ends
    * faded in over a third of its length and its edge broken up by noise, so a
@@ -227,23 +229,61 @@ export interface RampDef {
  *      start flashing `lead` seconds before the body reaches the tarmac. The
  *      lamps are the contract: if they are dark, the road is yours.
  *
- * ── and one rule about the road ────────────────────────────────────────────
+ * ── and two rules about the road ───────────────────────────────────────────
  *
- * Only one hazard in the cup closes a whole carriageway (the quarry's dumper,
- * on a road eleven metres wide, for 1.6 seconds in nine). The other three take
- * away *a line* — the inside of the Carousel, the dry lane of a brine band, the
- * spur cut — and leave a way through for a driver who reads them. A hazard that
- * can only be waited out is a traffic light.
+ * Only the quarry's dumpers close a whole carriageway, and they do it by
+ * standing on the crossing for about two seconds in every twenty. Everything
+ * else takes away *a line* — the apex lane of the Carousel, a lane of the
+ * bypass, the inside of the Spur — and leaves a way through for a driver who
+ * reads it. A hazard that can only be waited out is a traffic light.
+ *
+ * And **a body may not outstay `HIT_COOLDOWN` in one place.** A hazard that
+ * stands still for longer than a racer's grace period hits the same racer
+ * twice out of one mistake, which is how the saltpan's three bores went from
+ * zero hits a race to twenty-nine in a single change: at an 88% hit rate the
+ * wave had stopped being something you drive into and become something you sit
+ * inside. Buy danger with travel, not with standing.
  */
 export type HazardKind = 'truck' | 'rockfall' | 'surge' | 'boom';
 
+/**
+ * ── LATERAL FRAME: the sentence that cost a whole round ────────────────────
+ *
+ * Every lateral in this file is a fraction of the road's half width in the
+ * **spline's** frame — which is exactly the number `track.sample().lateral`
+ * returns, because both are the same dot product against the same `right`
+ * vector. That part was always true. What was written next to it, in three
+ * separate interfaces, was that the spline's frame is *the mirror of the
+ * driver's* and that `-1` is the driver's right.
+ *
+ * It is the other way round. `racingline.ts` builds the worn line as
+ * `-sign(curvature) · commit · halfWidth`, and measured on the running game
+ * (`node tools/hazardcensus.mjs --profile`) the field crosses Cone Canyon's
+ * Carousel — a 185° right-hander — at a **median of +5.5 metres**, and
+ * Switchback's Spur — a 155° left — at a **median of −5.8**. So:
+ *
+ *     positive lateral  =  the inside of a right-hand corner
+ *     negative lateral  =  the inside of a left-hand corner
+ *
+ * Three of the cup's four hazards were authored off the inverted sentence and
+ * every one of them was placed in the empty half of the road. Over thirteen
+ * full races they hit a racer five times between them; the mountain's gate,
+ * cycling every eleven seconds at a 38% blocked window, hit nobody at all in
+ * any of them. Nothing about the periods, the widths or the stun profiles was
+ * wrong. They were simply not where anybody drives.
+ *
+ * **So do not reason about this frame — measure it.** `--profile` prints the
+ * driven line, in metres, at a hundred stations round the lap, and a hazard
+ * placed off that report cannot be wrong about which side of the road it is
+ * on. The plain census then proves it fired: the pass mark is 8-20 hazard hits
+ * per race, on every course, at every seed.
+ */
 export interface HazardDef {
   /** Lap fraction of the point on the road the hazard crosses. */
   at: number;
   /**
-   * Where on the road the body is, as a fraction of the half width, **in the
-   * spline's frame** — the same frame `ShortcutDef.side` and `SurfacePatchDef`
-   * use, and therefore the mirror of the driver's. `-1` is the driver's right.
+   * Where on the road the body is, as a fraction of the half width, in the
+   * frame described above — positive is the inside of a right-hander.
    *
    * What exactly it names depends on what is moving, because a machine that
    * crosses the road and a gate that swings onto it do not have the same
@@ -261,7 +301,28 @@ export interface HazardDef {
    */
   lateral?: number;
   kind: HazardKind;
-  /** Seconds of one full cycle. The whole hazard is a function of this. */
+  /**
+   * Seconds of one full cycle. The whole hazard is a function of this.
+   *
+   * ── keep it short, and the reason is not tempo ─────────────────────────────
+   *
+   * A cycle much longer than the field's own spread makes seven racers into
+   * **one sample**. They arrive at the station within a few seconds of each
+   * other, so on a seventeen-second cycle all seven meet the same phase, and a
+   * three-lap race with seven racers stops being twenty-one independent draws
+   * and becomes three. Measured: Cone Canyon's rockfall, at a 50% blocked
+   * window, came back armed on 16 of 27 passes at one seed and **3 of 22** at
+   * another — a four-sigma miss on a binomial that was never binomial, because
+   * the pack crossed together while the lane happened to be clear.
+   *
+   * That is what makes a hazard feel absent even when its duty is right: a
+   * whole race can go by in which nobody meets it, not because it is rare but
+   * because it is *correlated*. Under about twelve seconds the pack's own
+   * spread is a large fraction of the cycle and the racers decorrelate, and
+   * two stations on different periods decorrelate them again. Both are cheaper
+   * than turning the duty up, which is the move that turns a hazard into a
+   * wall.
+   */
   period: number;
   /** 0..1 offset into the cycle at the flag. Three surges 1/3 apart is a wave. */
   phase?: number;
@@ -306,16 +367,23 @@ export interface ShortcutDef {
   from: number;
   to: number;
   /**
-   * Which shoulder the cut runs down, in the *spline's* lateral frame — and
-   * that frame is the opposite of the driver's, because `TrackSpline` builds
-   * `right` as `tangent × up`, which points to the driver's **left**. So `-1`
-   * is the driver's right and `+1` is the driver's left, and the value you
-   * want is whichever side the corner's apex is on: `-1` for a right-hander,
-   * `+1` for a left.
+   * Which shoulder the cut runs down, in the *spline's* lateral frame — see
+   * `LATERAL FRAME` above `HazardDef`. The value you want is whichever side
+   * the corner's apex is on, and measured on the running game that is **`+1`
+   * for a right-hander and `-1` for a left**.
    *
    * Getting it backwards is silent rather than loud: the ribbon is painted on
    * the outside of the corner, `ai/knowledge.ts` measures a chord *longer*
    * than the arc, `save` clamps to zero, and no driver ever takes it.
+   *
+   * **All four of the cup's cuts are currently declared the other way round**,
+   * which is the same inverted sentence that put three hazards in the empty
+   * half of the road, and `--profile` shows the consequence: at Cone Canyon's
+   * Digger's Elbow, the Crusher, the Sump and the Spur the field runs wide
+   * onto the shoulder the cut is *not* painted on. They are left as they are
+   * for now because flipping four shortcuts changes the AI's line on the four
+   * tightest corners in the game, which is a change that has to be measured on
+   * its own rather than folded into a hazard round.
    */
   side: -1 | 1;
 }

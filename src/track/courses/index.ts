@@ -124,6 +124,35 @@
 // off it, which is the bar a hazard has to clear before anything else it does
 // counts: *a course the AI cannot get round is not a course.*
 //
+// ── the round that found out none of them had ever fired ───────────────────
+//
+// The table above is a table of **duty cycles**, and a critic played thirteen
+// full races and reported the number it does not contain: the four signature
+// hazards hit a racer **five times in thirteen races**, and three of them had
+// never touched anybody at all. The mountain's gate, cycling every eleven
+// seconds at that 38% blocked window over a 168-second race — about thirty-five
+// blocked passes across the field — produced zero.
+//
+// A duty cycle is a statement about *time*. It says nothing about *space*, and
+// space was where the whole cup was wrong: `ShortcutDef`, `SurfacePatchDef` and
+// `HazardDef` all carried a sentence saying the spline's lateral frame is the
+// mirror of the driver's, and **it is the other way round**. Measured on the
+// running game the field crosses Cone Canyon's Carousel at a median of +5.5
+// metres and Switchback's Spur at −5.8; three of the four hazards were
+// authored off the inverted sentence and were sweeping the empty half of the
+// road. See `LATERAL FRAME` in `types.ts`.
+//
+// `tools/hazardcensus.mjs` is the instrument, and it exists so that this
+// cannot be claimed again. It counts `kart:hit` minus `item:strike` over whole
+// races — both `hazards.ts` and `items/index.ts` route through `stunRacer`, and
+// only items also emit `item:strike` — and next to that it prints, per hazard,
+// the histogram of every racer's `sample().lateral` at the crossing against the
+// lateral span the bodies actually sweep. `--profile` prints the driven line at
+// a hundred stations round the lap, which is what a hazard should be *placed*
+// from. The pass mark is **8-20 hazard hits per race, every course, every
+// seed**, and at seed 1 the roster now reports 11 / 10 / 13 / 13 against the
+// 0 / 4 / 0 / 0 the critic measured.
+//
 // ── what is honestly still short ───────────────────────────────────────────
 //
 //   * *`kart:launch` still fires four times a race, not once per ramp pass.*

@@ -75,6 +75,17 @@ for (const course of COURSES) {
     continue;
   }
 
+  // Freeze wall-clock stepping, AFTER the reset, because reset puts the scale
+  // back to 1. The engine's own rAF loop keeps simulating in real time
+  // alongside anything the harness drives, so without this the kart travels
+  // between one page.evaluate and the next and a sample labelled t=2s is
+  // nothing of the sort. capture.mjs has always done this and says why; the
+  // first version of this test did not, held full steer for thirty *real*
+  // seconds, drove off the road into a mountain, and reported the camera 12m
+  // underground on the one course with mountains. The camera was fine. The
+  // kart was inside a hill.
+  await page.evaluate(() => window.__GAME.setTimeScale(0));
+
   const worst = await page.evaluate(async ({ secs, step }) => {
     const THREE = window.__THREE, ctx = window.__CTX, g = window.__GAME;
     g.seek('racing');

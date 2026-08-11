@@ -327,25 +327,68 @@ export const switchbackSummit: CourseDefEx = {
     // static thing standing on a hillside doing nothing. This is the one that
     // works.
     //
-    // A counterweighted lattice boom stands on the outside of the Spur's cut
-    // and swings shut across it — the gate a real alpine road closes when the
-    // slope above it is loaded. The main road never closes: the arm is 8.6
-    // metres long on a pivot nineteen metres out, so shut it reaches the tarmac
-    // edge and stops. What it takes away is the **shortcut**, which is the only
-    // discount on this circuit and which has never cost anybody anything.
+    // A counterweighted lattice boom stands on the inside of the corner and
+    // swings shut across the apex — the gate a real alpine road closes when the
+    // slope above it is loaded.
     //
-    // Eleven seconds a cycle, shut for four of them. So the cut is open about
-    // two thirds of the time and a driver who sets up for it 150 metres back
-    // and finds the lamps lit has to decide, at speed, whether to take the long
-    // way round the promontory after all. A shortcut you always take is a
-    // shorter track; a shortcut you have to look at is a decision.
+    // ── the round this gate did not exist for ──────────────────────────────
     //
-    // `bump`: a boom arm sweeps a kart sideways off the gravel. It does not
-    // deserve a spin — you were on a shortcut you chose to be on.
-    hazards: [{
-      at: on('T8 THE SPUR', 0.5), kind: 'boom', period: 11, phase: 0.45,
-      lateral: 1.35, width: 8.6, hit: 'bump', lead: 1.5, signAt: 88,
-    }],
+    // It was quoted at `lateral: 1.35` with an 8.6-metre arm, which put the
+    // pivot nineteen metres out on the spline's **positive** side and the swept
+    // arm between +9.1 and +22.2 metres. `node tools/hazardcensus.mjs` over a
+    // whole race: twenty-one crossings, **zero hits**, and the reason printed
+    // on the same line — the field crosses the Spur between −16.3 and +7.8,
+    // **median −5.8**. An eleven-second cycle at a 38% blocked window over a
+    // 168-second race is about thirty-five blocked passes across the field and
+    // it produced none, because the arm was sweeping the empty side of the
+    // road. That is not tuning. A duty cycle is a statement about *time* and it
+    // says nothing whatever about *space*.
+    //
+    // So the gate is on the side the corner is actually driven, and it is
+    // fifteen metres of arm rather than eight and a half: shut, it sweeps from
+    // the gravel on the inside shoulder to just short of the centreline. The
+    // outside half of the road is never closed — you can always get round the
+    // promontory, you just cannot do it on the apex.
+    //
+    // ── and there are two, and the second one is in the valley ─────────────
+    //
+    // One gate on a three-lap race is twenty-one chances at a hazard that has
+    // to fire eight to twenty times, which needs a hit on nearly every blocked
+    // pass to clear the bar. So there are two — and *where* the second one is
+    // was decided by measurement as well.
+    //
+    // The obvious place was the first traverse, high on the open face with
+    // nothing above it but loaded snow. Censused, that is where the mountain
+    // stopped being a race: the field came home 3/2/3/2/3/1/3 — three racers
+    // off the lead lap and one two laps down — because a gate on a 13% climb
+    // takes away every metre of momentum a kart has and there is nowhere on a
+    // traverse to get it back. **A hazard's cost is a property of the road it
+    // is on, not of its stun**, and 0.55 seconds of `bump` is a corner on the
+    // valley floor and most of a lap on a climb.
+    //
+    // So the second gate stands over the Batter — the valley's one real corner,
+    // twenty-five metres wide, nine metres above sea level, at the foot of the
+    // cut slope it is named after. Same arm, same rhythm, a tenth of the price.
+    // Eleven seconds and thirteen, so the two never settle into a rhythm with
+    // each other or with the lap.
+    //
+    // `bump`: a boom arm sweeps a kart sideways. It does not deserve a spin.
+    hazards: [
+      {
+        at: on('T8 THE SPUR', 0.5), kind: 'boom', period: 11, phase: 0.45,
+        // -0.60 rather than -0.90: the pivot stands on the tarmac edge rather
+        // than four metres out on the gravel, so the arm sweeps the *road*
+        // instead of the shoulder. The first version of this reached from -17.4
+        // to +2.1 and its hits were mostly landing on karts that were already
+        // running wide on the inside of a promontory a hundred metres up — it
+        // pushed them further off rather than taking a line away from them.
+        lateral: -0.60, width: 15, hit: 'bump', lead: 1.5, signAt: 88,
+      },
+      {
+        at: on('T2 BATTER LEFT', 0.55), kind: 'boom', period: 13, phase: 0.15,
+        lateral: -0.55, width: 15, hit: 'bump', lead: 1.5, signAt: 84,
+      },
+    ],
     // Four corners here run 1/36 to 1/60 of curvature and the traverses and
     // sweeps 1/110 to 1/190, so a threshold at 1/85 kerbs the Spur, the Batter,
     // the Notch and the Cutting Sweep and leaves the fast road along the face
@@ -382,17 +425,31 @@ export const switchbackSummit: CourseDefEx = {
       rimStart: 180,
       rimEnd: 620,
       rimHeight: 95,
+      // **A summit is a ridge, not a dome.** A critic photographed the head of
+      // the gorge and got *"a smooth white-grey dome with a vertical
+      // drip/stretch artifact down its face"* — both of which are one landmark
+      // doing too much work. `hero` for a `mesa` is `1 - smoothstep(0.52, 1.05,
+      // r)`, a single radially symmetric shape, so one 300-metre landform at
+      // 200 metres of height *is* a dome, and the near-vertical band where that
+      // shape falls off is where the field mesh's 30-metre cells stretch into
+      // the streak. Three overlapping heroes of different heights and radii
+      // sum to a ridge with cols and shoulders in it, and none of the three
+      // individually has a face steep enough to smear.
       landmarks: [
         // East of the valley lobe, at the vanishing point of the Spillway and
         // the run onto the start straight.
         { x: 900, z: -60, radius: 240, height: 150, kind: 'spire' },
-        // The head of the gorge: what the whole climb is driven at.
-        { x: -880, z: 90, radius: 300, height: 200, kind: 'mesa' },
+        // ── the head of the gorge: what the whole climb is driven at ───────
+        { x: -940, z: -60, radius: 330, height: 165, kind: 'mesa' },
+        { x: -820, z: 250, radius: 280, height: 205, kind: 'spire' },
+        { x: -1140, z: 430, radius: 300, height: 140, kind: 'mesa' },
         // Behind the Spur, so the promontory has something to be a promontory
         // in front of.
         { x: -820, z: -700, radius: 340, height: 185, kind: 'mesa' },
+        { x: -1180, z: -980, radius: 290, height: 225, kind: 'spire' },
         // The far side of the valley, on the skyline of the whole valley lobe.
         { x: 300, z: 780, radius: 260, height: 215, kind: 'spire' },
+        { x: 760, z: 1060, radius: 320, height: 160, kind: 'mesa' },
         // A rock tooth south of the start straight — the near landmark, and
         // the only place on this course you see exposed schist at eye level
         // instead of on a skyline.
