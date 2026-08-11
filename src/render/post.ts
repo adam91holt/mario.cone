@@ -226,6 +226,20 @@ void main() {
 }`;
 
 /**
+ * The upscale. One texture read, no maths.
+ *
+ * Only ever bound when the scene has been drawn smaller than the canvas and
+ * antialiasing is off — with `aa` on, FXAA is already a full-resolution pass
+ * over the same texture and does this for nothing. Bilinear filtering on
+ * `ldrTarget` is what actually resizes the picture; this is the blit that puts
+ * it on the screen.
+ */
+const COPY_FRAG = /* glsl */ `
+uniform sampler2D tFrame;
+varying vec2 vUv;
+void main() { gl_FragColor = vec4(texture2D(tFrame, vUv).rgb, 1.0); }`;
+
+/**
  * FXAA 3.11's console preset, near enough.
  *
  * The engine asks for an antialiased canvas, and then the post stack renders
@@ -281,7 +295,36 @@ export interface PostStack {
   setBoost(v: number): void;
   setExposure(v: number): void;
   setCloudShadow(v: number): void;
+  /**
+   * Draw the 3D at `scale` of the canvas without touching the swap chain.
+   *
+   * **This is the handshake `core/quality.ts` probes for**, and the reason it
+   * is a method rather than a flag: a capability announced through a flag is a
+   * capability two modules can disagree about, so the governor asks
+   * `typeof composer.setRenderScale === 'function'` and nothing else.
+   *
+   * The alternative — `renderer.setPixelRatio` — rebuilds the drawing buffer
+   * (measured at +348ms on a 320x180 bench and **3101ms live at 1280x720**)
+   * *and* shrinks the canvas underneath a DOM HUD that stays at native size, so
+   * the quality governor was forced to hold the single largest lever it owns
+   * until the next race build. Nothing about that is inherent: this stack
+   * already renders the world into its own targets and only the last blit
+   * touches the canvas. So the scene target, the bloom pyramid and the LDR
+   * target are resized to `scale` and the final resolve stays full size, which
+   * is one reallocation of targets this file owns, the canvas never moves, and
+   * the HUD never comes apart from the road.
+   *
+   * Returns true if the size actually changed, so the caller can tell a landed
+   * step from a no-op.
+   */
+  setRenderScale(scale: number): boolean;
+  /** What the scene is currently drawn at, 0..1. */
+  renderScale(): number;
 }
+
+/** The smallest fraction of the canvas the scene may be drawn at. Below about
+ *  this the upscale stops reading as "soft" and starts reading as "broken". */
+const MIN_RENDER_SCALE = 0.4;
 
 const MIPS = 5;
 /** How much of the pyramid reaches the composite when bloom is on. */
@@ -305,8 +348,15 @@ export function createPostStack(
 
   const size = new THREE.Vector2();
   renderer.getDrawingBufferSize(size);
-  let width = Math.max(2, Math.floor(size.x));
-  let height = Math.max(2, Math.floor(size.y));
+  /** The canvas. Never moved by this file. */
+  let baseW = Math.max(2, Math.floor(size.x));
+  let baseH = Math.max(2, Math.floor(size.y));
+  /** What fraction of it the world is drawn at — see `setRenderScale`. */
+  let scale = 1;
+  /** ...and the resulting target size, which is what everything upstream of the
+   *  final blit works in. */
+  let width = baseW;
+  let height = baseH;
 
   const depthTexture = new THREE.DepthTexture(width, height);
   depthTexture.format = THREE.DepthFormat;
@@ -434,6 +484,14 @@ export function createPostStack(
     depthWrite: false,
   });
 
+  const copyMat = new THREE.ShaderMaterial({
+    uniforms: { tFrame: { value: ldrTarget.texture } },
+    vertexShader: QUAD_VERT,
+    fragmentShader: COPY_FRAG,
+    depthTest: false,
+    depthWrite: false,
+  });
+
   const quadGeo = new THREE.PlaneGeometry(2, 2);
   const quadScene = new THREE.Scene();
   const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -455,8 +513,10 @@ export function createPostStack(
 
   function setSize(): void {
     renderer.getDrawingBufferSize(size);
-    const w = Math.max(2, Math.floor(size.x));
-    const h = Math.max(2, Math.floor(size.y));
+    baseW = Math.max(2, Math.floor(size.x));
+    baseH = Math.max(2, Math.floor(size.y));
+    const w = Math.max(2, Math.round(baseW * scale));
+    const h = Math.max(2, Math.round(baseH * scale));
     if (w === width && h === height) return;
     width = w; height = h;
     // A resized target is an uninitialised one, so a bloom-off run has to black
@@ -503,6 +563,10 @@ export function createPostStack(
       // Both, and this pair is the whole reason this function exists.
       [compositeMat, [ldrTarget, null]],
       [fxaaMat, [null]],
+      // ...and the upscale blit, which only a reduced render scale with `aa`
+      // off ever asks for — which is to say, every rung below the top one.
+      // Compiling it here is the same argument one program along.
+      [copyMat, [null]],
     ];
     for (const [mat, targets] of passes) {
       quad.material = mat;
@@ -591,10 +655,20 @@ export function createPostStack(
     compositeUniforms.uNear!.value = cam.near;
     compositeUniforms.uFar!.value = cam.far;
 
-    // 6. resolve edges, if this tier is paying for them.
+    // 6. resolve edges, if this tier is paying for them — and resolve the
+    //    *size* if the world was drawn smaller than the canvas.
+    //
+    //    Those are the same pass whenever `aa` is on: FXAA already reads the
+    //    LDR target and writes the back buffer, so an upscale is free inside
+    //    it. With `aa` off and a reduced scale there is nothing to resolve
+    //    through, so `copyMat` does the blit — one texture read, and both
+    //    programs are built at boot by `warmPrograms`.
     if (ctx.quality.aa) {
       blit(ldrTarget, compositeMat);
       blit(null, fxaaMat);
+    } else if (scale < 1) {
+      blit(ldrTarget, compositeMat);
+      blit(null, copyMat);
     } else {
       blit(null, compositeMat);
     }
@@ -606,6 +680,19 @@ export function createPostStack(
   return {
     render,
     setSize,
+    setRenderScale(next: number): boolean {
+      const s = next > 1 ? 1 : next < MIN_RENDER_SCALE ? MIN_RENDER_SCALE : next;
+      // Quantised to whole percents so that a governor nudging by thousandths
+      // cannot reallocate targets for a size change of nought pixels.
+      const q = Math.round(s * 100) / 100;
+      if (q === scale) return false;
+      const wasW = width;
+      const wasH = height;
+      scale = q;
+      setSize();
+      return width !== wasW || height !== wasH;
+    },
+    renderScale(): number { return scale; },
     setBoost(v: number): void { compositeUniforms.uBoost!.value = v; },
     setExposure(v: number): void { compositeUniforms.uExposure!.value = v; },
     setCloudShadow(v: number): void { compositeUniforms.uCloudShadow!.value = v; },
@@ -620,6 +707,7 @@ export function createPostStack(
       upMat.dispose();
       compositeMat.dispose();
       fxaaMat.dispose();
+      copyMat.dispose();
     },
   };
 }
