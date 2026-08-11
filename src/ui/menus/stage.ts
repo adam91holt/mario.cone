@@ -448,9 +448,19 @@ export function createStage(ctx: GameContext): Stage | null {
   // Shadows follow the game's own quality switch, and take the same filter the
   // engine uses — the front-end was the one surface in the product with hard
   // shadow edges on it.
+  //
+  // That filter is `PCFShadowMap`, not `PCFSoftShadowMap`. `PCFSoftShadowMap`
+  // is deprecated in the vendored three: `WebGLShadowMap.render` rewrites it to
+  // `PCFShadowMap` on the first shadow pass and warns on the console while it
+  // does — which is the boot-time warning ARCHITECTURE §13 forbids, and it was
+  // coming from *this* renderer, `render/lighting.ts` and `core/engine.ts`
+  // having both already been corrected. Asking for what the build actually
+  // gives keeps "the same filter the engine uses" true instead of aspirational;
+  // the penumbra is shaped with `shadow.radius` on the key light below, the way
+  // the race's sun rig does it.
   const SHADOWS = ctx.quality.shadows !== false;
   renderer.shadowMap.enabled = SHADOWS;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
 
   const scene = new THREE.Scene();
   scene.background = gradientSky();

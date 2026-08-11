@@ -152,6 +152,20 @@
 //   THIN_KNEE_PX 6         screen pixels of radius    scale-relative  ok (r7)
 //   thinFar                a share, at zero size      dimensionless   ok (r7)
 //   SEAM_HELD              a class, not a number      events (**)     ok (r7)
+//   COLLAPSE_FACTOR 5      ms between delivered frames unchanged      ok (r8)
+//   COLLAPSE_FRAMES 2      delivered frames           2.9s            ok (r8)
+//   COLLAPSE_SAMPLES 2     delivered frames           2.9s            ok (r8)
+//   COLLAPSE_DWELL 1.2     wall s of delivered play   1 frame         ok (r8)
+//   SCALE_HOLD_S 2         wall s of delivered play   1 frame         ok (r8)
+//   PANIC_MAX_STEP         rungs per change           the ladder      ok (r8)
+//   skipDraw frames        not a unit — discarded     see `undrawn`   ok (r8)
+//
+// The round-eight rows are all on one path and they are one number between
+// them: **the whole descent, from the first over-budget frame to the floor with
+// its resolution installed, is two delivered frames and 1.2 seconds.** It was
+// fifty to seventy seconds of delivered play, walked as two three-rung pops
+// with a fourteen-sample verdict between them, and a minute of the worst
+// picture the game can draw is not a rescue. See `COLLAPSE_DWELL`.
 //
 //   (**) The seam rule is the one entry on this list that is not a number, and
 //   it is deliberately not one. "Wait N seconds before rebuilding the swap
@@ -409,7 +423,11 @@
 // something, on the same rule the `ui:menu` edges already obey: a verdict
 // belongs to the scene it was measured on.
 //
-// ── What all of that measured, live ────────────────────────────────────────
+// ── What all of that measured, live (round seven — kept for the shape) ─────
+//
+// Read the `render scale held at 1.00 throughout` line below as the defect
+// round eight was sent back for rather than as a result: it is the ladder
+// walking its whole length without touching the largest lever it owns.
 //
 // Two sessions on the page's own rAF loop at 1280x720 under SwiftShader, the
 // harness never stepping or rendering, autopilot driving. The second is a plain
@@ -560,6 +578,16 @@
 // is the other half — the grace now covers the launch it was named for instead
 // of expiring a tenth of a second into it.
 //
+// ...and the one exception, which round eight had to carve out: **a machine
+// five times over the budget has no composed picture to protect.** The gate's
+// doors are 20 to 35 wall seconds long, which is right when the thing behind
+// them is a countdown the player can watch; at twelve frames a second and worse
+// it is a slideshow, and every second spent waiting for a better moment is a
+// second of exactly what the gate exists to prevent. The collapse path is the
+// only branch in this file that does not consult `pictureLocked()`. It still
+// refuses to act while the game is *paused*, because a still frame with a plate
+// on it is not costing anybody anything. See `COLLAPSE_FACTOR`.
+//
 // The second is the ceremony, and it was found the expensive way. `onAStraight`
 // was the only "not now" this file had, and it was consulted on the *ordinary*
 // path only — while the emergency path, which is the sole path a machine slow
@@ -692,12 +720,24 @@
 //                        at liveSeconds
 //                        69.96)
 //
-// What is left of that frame is almost entirely the front-end's **own** second
-// renderer drawing its own set, and it is the reason the numbers above are a
-// third rather than a tenth: `src/ui/menus/stage.ts` sizes its backing store
-// from a hardcoded `Math.min(1, 1200 / w)` and cannot hear this ladder. The
-// scale now rides on `quality:changed` for it to read; until it does, see
-// `FRONT_END_FLOOR` for what this file does about only half-owning that frame.
+// ── ...and the right-hand column of that table was the round-eight defect ──
+//
+// Read it again. `skipDraw` is on, the race is drawing **0 calls and 0
+// triangles**, and the governor walks three rungs and settles into
+// `panic (judging last cut)` — then writes the answer to localStorage. Every
+// one of those frames was made by `ui/menus/stage.ts`'s own second renderer,
+// which this file does not size and whose own comment admits it "cannot hear
+// this ladder". The governor was cutting the race's content to pay somebody
+// else's bill, on a screen where the race was not being drawn at all, and then
+// remembering the wrong answer for the next session.
+//
+// A frame whose draw this file switched off is now **discarded**, exactly like
+// a frame the harness drove: it feeds neither `liveWallMs` nor `liveSeconds`
+// nor any dwell, it cannot arm a drop, and it is counted as `undrawn` in the
+// probe so the discard is visible rather than silent. Behind an opaque
+// front-end the governor now reports `undrawn (race not in this frame)` and
+// does nothing at all, which is the only honest thing it can do about a frame
+// it does not own. See `undrawnFrame` and `FRONT_END_FLOOR`.
 //
 // ── What it will not do ────────────────────────────────────────────────────
 //
@@ -2393,52 +2433,28 @@ const FRONT_END_PATIENCE = 12;
 /**
  * ...and how far down the ladder that door opens onto.
  *
- * Behind the front-end the governor is measuring a frame it only partly owns.
- * The race's draw is switched off entirely (`FrameBudget.skipDraw`), so what is
- * left is the race's `update` — CPU, and small — plus the menus' own second
- * renderer drawing their own set. Measured with the race draw removed: 903-1175
- * ms a frame at 1600x900 under a software rasteriser, essentially all of it the
- * front-end's set, and **none of it responsive to the render scale**, because
- * `src/ui/menus/stage.ts` sizes its backing store from a hardcoded
- * `Math.min(1, 1200 / w)`. Until that reads the scale this file publishes on
- * `quality:changed`, a drop taken here cannot make this frame cheaper and every
- * verdict on one will read `futile`.
+ * **Mostly historical since round eight, and kept because it is still right for
+ * the case it now covers.** A frame the front-end is covering is a frame whose
+ * draw this file switched off, and those frames are discarded outright — see
+ * `undrawnFrame`. The governor no longer moves at all behind an opaque menu,
+ * so this cap is not what stops it there; what stops it is having no evidence.
  *
- * That does not make the evidence worthless — a machine that cannot draw a
- * title screen at thirty frames a second is not going to race at rung 0, and
- * starting the race three rungs down saves the player the three minutes the
- * ladder measurably used to take to find that out (boot to the floor: 186
- * seconds of delivered play). It makes it *partial*. So the front-end may spend
- * the top of the ladder, where the losses are resolution and a shadow map
- * nobody can measure, and the bottom — the particle density, the draw distance
- * and the glow — has to be earned on the road, on evidence about the road.
- *
- * **This cap is a symptom and should be removed with its cause.** The day
- * `ui/menus/stage.ts` derives its backing store from the `scale` now carried on
- * `quality:changed` — one line, `Math.min(1, 1200 / w) * scale` — the frame
- * behind the front-end becomes a frame this ladder owns, every rung taken here
- * becomes a rung that measurably paid for itself, and the honest bottom is the
- * ladder's own bottom again.
- *
- * ── ...and what it means now that every rung carries content ───────────────
- *
- * It used to read off the ladder's own shape — rungs 0-3 were the resolution
- * half and 4-6 the content half — and that shape is gone: every rung takes a
- * bite of both. The constant survives on the argument it started with, which
- * is the stronger one anyway. Behind an opaque front-end the race is not drawn
- * at all, so a cut to the *race's* geometry cannot possibly show up in a
- * measurement taken there; the evidence is about the menu's own set, which this
- * file does not size. Half the ladder is as much as a half-owned frame is
+ * It still binds in the one case that is left: a front-end that is **up but not
+ * covering** — the hand-off, where `stage.ts` has faded its backdrop and the
+ * race behind it is being drawn again while the launch board is still in front
+ * of it. There, the frame is genuinely half this file's and half somebody
+ * else's, and the argument the constant was written for stands: the menus' own
+ * second renderer sizes its backing store from a hardcoded
+ * `Math.min(1, 1200 / w)` and cannot hear this ladder, so a cut to the *race's*
+ * content cannot make that half of the frame cheaper and every verdict on one
+ * will read `futile`. Half the ladder is as much as a half-owned frame is
  * allowed to spend.
  *
- * ── ...and it is a much better deal than it was ────────────────────────────
- *
- * Since the render scale became a seam lever, a rung taken behind the front-end
- * costs the player *nothing at all*: the race is not being drawn, so no content
- * cut is visible, and the resolution the rung earned lands at the race build
- * behind the closed launch board. A machine that walks to rung 3 while its
- * owner reads the roster starts its first race at 0.68 scale, applied before
- * the board opens, having shown the player not one frame of the walk.
+ * The cross-module request stands with it: the day `ui/menus/stage.ts` derives
+ * its backing store from the `scale` this file already publishes on
+ * `quality:changed` — one line, `Math.min(1, 1200 / w) * scale` — the hand-off
+ * frame becomes a frame this ladder owns and the honest bottom is the ladder's
+ * own bottom again.
  */
 const FRONT_END_FLOOR = 3;
 
@@ -6039,6 +6055,11 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
 
       if (!auto) return hold('pinned');
       if (benched) return hold('bench');
+      // Nothing of the race was in this frame, so there is nothing in it to
+      // judge. Reported under its own name rather than left to read as
+      // `priming` or `warming`, both of which describe a governor that is about
+      // to have evidence; this one is not. See `undrawnFrame`.
+      if (undrawnFrame) return hold('undrawn (race not in this frame)');
       if (benchQuietFor < BENCH_HOLD) {
         overFor = 0;
         underFor = 0;

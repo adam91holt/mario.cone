@@ -60,11 +60,20 @@ await page.evaluate(async () => { window.__THREE = await import('/node_modules/t
 const fails = [];
 
 for (const course of COURSES) {
+  // `reset` takes courseId/vehicleId and silently ignores anything else, so
+  // asking for `course` loads the default and says nothing. This test spent its
+  // first run measuring cone-canyon four times and reporting four courses; the
+  // giveaway was three of them agreeing to the centimetre. Whatever it loaded
+  // is checked against what was asked for, every time.
   const reset = await page.evaluate(async (c) => {
-    try { await window.__GAME.reset({ course: c, vehicle: 'cone', seed: 1 }); return true; }
+    try { await window.__GAME.reset({ courseId: c, vehicleId: 'cone', seed: 1 }); }
     catch (e) { return String(e); }
+    return window.__GAME.snapshot().track?.id ?? '(no track)';
   }, course);
-  if (reset !== true) { fails.push(`${course}: reset failed — ${reset}`); continue; }
+  if (reset !== course) {
+    fails.push(`${course}: asked for it and got "${reset}" — the harness did not load the course under test`);
+    continue;
+  }
 
   const worst = await page.evaluate(async ({ secs, step }) => {
     const THREE = window.__THREE, ctx = window.__CTX, g = window.__GAME;
