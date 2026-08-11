@@ -272,7 +272,7 @@ export const saltpanBypass: CourseDefEx = {
     sun: { color: 0xfffdf4, intensity: 3.3, azimuth: 4.05, elevation: 0.58 },
     // Fresh black bitumen on white salt: the highest road-to-ground contrast in
     // the game, which is what keeps a 36m-wide ribbon readable at 60 m/s.
-    road: { base: '#2B2D34', line: '#FFF8F0', edge: '#FFC300' },
+    road: { base: '#1E222C', line: '#FFF8F0', edge: '#FFC300' },
     props: {
       saltpan: true, cones: true, crowds: true,
       windsocks: true, heatShimmer: true, surveyPegs: true,

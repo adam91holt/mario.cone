@@ -188,12 +188,12 @@ export const jackhammerQuarry: CourseDefEx = {
     bankSmooth: 55,
   }),
   width: 21,
-  // **Four.** The shortest circuit in the cup at 2.1km, and the slowest per
-  // metre — nine corners under 40m of radius do not get driven quickly — so
-  // three laps here is a shorter race than three laps anywhere else. It is also
-  // the round where the item game matters most, because a 16m road is where a
-  // wheel chock actually catches somebody.
-  laps: 4,
+  // **Three.** It was four, on the reasoning that the shortest circuit in the
+  // cup should run the most laps of it — and four laps of the slowest circuit
+  // in the cup is 8.7 kilometres and better than three minutes of racing, which
+  // is twice what Mario Kart 8 asks of anybody. The pit is the round that costs
+  // the most per lap; it does not also get to be the longest.
+  laps: 3,
   // Five metres narrower on the shoulder than Cone Canyon, so the barrier is
   // genuinely close. On a circuit this tight the run-off is the punishment.
   vergeWidth: 6,
@@ -213,21 +213,24 @@ export const jackhammerQuarry: CourseDefEx = {
   checkpoints: 32,
 
   features: {
-    // **Six strips, and they are shorter than anybody else's.** A pit is
-    // stop-start: the circuit takes your speed away every eleven seconds and
-    // hands a little of it back, which is the opposite of Saltpan Bypass's
-    // three long ramps and the reason these are 18m rather than 24. Every one
-    // sits somewhere the layout has just cost you everything — the run off the
-    // Screed Kink, the plunge into the pit, the exit of the Crusher, the way
-    // out of the sump, and the haul road, where you are climbing at 5% with
-    // nothing left.
+    // **Five strips, and they are the shortest in the cup.** There were six at
+    // eighteen metres, and a trace of the running game found this circuit was
+    // *on boost for more than half its own lap*. A reward that is the default
+    // state is not a reward, it is the engine note.
+    //
+    // Four turned out to be too far the other way — the pads were not decorating
+    // this layout, they were carrying it, and dropping two put fourteen seconds
+    // on the lap and made round two a slog rather than a test. Five at sixteen
+    // metres is where it sits: each one somewhere the circuit has just taken
+    // everything off you — the run off the Screed Kink, the plunge into the pit,
+    // the exit of the Crusher, the way out of the sump, and the haul road, where
+    // you are climbing at 5% with nothing left.
     pads: [
-      { at: 0.120, lateral: -0.30, width: 5.5, length: 18 },
-      { at: 0.270, lateral: 0.30, width: 5.5, length: 18 },
+      { at: 0.120, lateral: -0.30, width: 5.5, length: 16 },
+      { at: 0.270, lateral: 0.30, width: 5.5, length: 16 },
       { at: 0.545, lateral: 0.26, width: 5.5, length: 16 },
-      { at: 0.735, lateral: 0.32, width: 5.5, length: 18 },
-      { at: 0.830, lateral: -0.28, width: 5.5, length: 18 },
-      { at: 0.945, lateral: -0.30, width: 5.5, length: 18 },
+      { at: 0.735, lateral: 0.32, width: 5.5, length: 16 },
+      { at: 0.945, lateral: -0.30, width: 5.5, length: 16 },
     ],
     // **Two cuts, and they are opposites.** The first runs across the inside of
     // the Crusher's first apex, where the road is 16m — the narrowest tarmac in
@@ -255,7 +258,7 @@ export const jackhammerQuarry: CourseDefEx = {
     // is wet, and wet rock flour goes dark. See `SurfacePatchDef`.
     patches: [
       { from: 0.437, to: 0.462, latFrom: -1, latTo: -0.05, surface: 'dirt', tint: '#B8B2A3' },
-      { from: 0.758, to: 0.790, latFrom: -0.25, latTo: 1, surface: 'dirt', tint: '#6C6659' },
+      { from: 0.758, to: 0.790, latFrom: 0.0, latTo: 1, surface: 'dirt', tint: '#6C6659' },
     ],
     // A shade higher than Cone Canyon's, because half this circuit is under
     // 40m of radius and kerbing all of it would leave nothing to aim at.
@@ -328,7 +331,7 @@ export const jackhammerQuarry: CourseDefEx = {
     // The darkest road in the cup after the saltpan's. The floor is pale now,
     // so the tarmac has to carry the contrast — a haul road cut through light
     // rock, with an orange edge where the canyon has yellow.
-    road: { base: '#33353B', line: '#FFF8F0', edge: '#FF6B1A' },
+    road: { base: '#2A2F39', line: '#FFF8F0', edge: '#FF6B1A' },
     props: {
       quarry: true, cones: true, crowds: true,
       machinery: 'heavy', conveyors: true,

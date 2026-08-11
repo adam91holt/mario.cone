@@ -42,7 +42,12 @@ export interface BoostPadDef {
  * edge — there is no second copy of the geometry to drift out of agreement.
  *
  * A patch overrides a boost strip where the two overlap, on the grounds that
- * material on the road beats paint under it. Do not overlap them on purpose.
+ * material on the road beats paint under it. **Do not overlap them**, and the
+ * reason is not tidiness: `findPads` in `ai/knowledge.ts` confirms each
+ * declared strip by probing `sample()` for `'boost'` and silently drops any
+ * that does not answer, so a pad buried under a spill would stop existing for
+ * every CPU driver in the field while still being declared here. No pad in the
+ * cup is within four hundredths of a lap of a patch; keep it that way.
  */
 export interface SurfacePatchDef {
   /** Lap fraction of the leading edge, measured from the start line. */

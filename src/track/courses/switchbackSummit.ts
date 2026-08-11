@@ -275,7 +275,7 @@ export const switchbackSummit: CourseDefEx = {
     // Cold grey schist, the same rock the cutting above it is made of, so it
     // reads as something that fell rather than as something that was painted.
     patches: [
-      { from: 0.862, to: 0.898, latFrom: 0.05, latTo: 1, surface: 'dirt', tint: '#7C8291' },
+      { from: 0.868, to: 0.892, latFrom: 0.22, latTo: 1, surface: 'dirt', tint: '#9AA2B4' },
     ],
     kerbCurvature: 0.0048,
 
@@ -368,9 +368,15 @@ export const switchbackSummit: CourseDefEx = {
     // which is a quarter turn away from the quarry's and a half from the
     // canyon's — four courses, four shadow directions.
     sun: { color: 0xfff4e6, intensity: 2.85, azimuth: 5.25, elevation: 0.55 },
-    // Dark cold tarmac with white edge marking — a mountain road is kerbed in
-    // white paint and snow poles, not in hazard yellow.
-    road: { base: '#373D48', line: '#FFF8F0', edge: '#FFF8F0' },
+    // **The pale one, and it is the only pale road in the game.** All four
+    // courses ran a base between #2B2D34 and #3A3D46 — four dark neutrals five
+    // per cent of luminance apart, which a critic photographed together and
+    // read as one road surface. A mountain pass is not fresh bitumen: it is
+    // weathered chipseal that has had thirty winters of grit and salt on it,
+    // and going *up* in value is the one direction none of the other three can
+    // go. White edge marking, because a mountain road is kerbed in paint and
+    // snow poles, not in hazard yellow.
+    road: { base: '#6B7383', line: '#FFF8F0', edge: '#FFF8F0' },
     props: {
       alpine: true, cones: true, crowds: true,
       snowPoles: true, pines: true, avalancheFence: true,

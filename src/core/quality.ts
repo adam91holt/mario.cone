@@ -82,15 +82,44 @@
 // on time *and* have measured headroom underneath it, because a vsync-locked
 // 16.7ms says nothing about how close to the edge the machine is.
 //
-// **2. It must not change mid-corner.** This is the one a purely numerical
-// governor gets wrong. The frames that blow the budget are exactly the frames
-// where a lot is happening — a hairpin with the pack alongside, a mini-turbo
-// firing, dust in the air — so a naive ladder does all its switching at the
-// precise moments the player is concentrating hardest, and the draw distance
-// pops at the apex. Changes wait for a straight. The exception is a genuine
-// emergency, and the emergency path is real now: it sits *above* the warm-up
-// gate rather than below it, because a machine delivering twenty frames a
-// second does not need another three seconds of evidence to prove it.
+// **2. It must not change at a moment the player is looking at.** This is the
+// one a purely numerical governor gets wrong, and it has two halves.
+//
+// The first is the corner. The frames that blow the budget are exactly the
+// frames where a lot is happening — a hairpin with the pack alongside, a
+// mini-turbo firing, dust in the air — so a naive ladder does all its switching
+// at the precise moments the player is concentrating hardest, and the draw
+// distance pops at the apex. Changes wait for a straight.
+//
+// The second is the ceremony, and it was found the expensive way. `onAStraight`
+// was the only "not now" this file had, and it was consulted on the *ordinary*
+// path only — while the emergency path, which is the sole path a machine slow
+// enough to need this file ever takes, called `applyRung` directly. Measured
+// live over two hundred seconds: all seven rung changes logged
+// `dropped (panic)` or `stalled`, so the moment gate was never consulted once
+// in a real session, and two of the seven landed inside the countdown — one on
+// the numeral "1" and one on "GO!". The picture went 1088x612 -> 927x522 ->
+// 768x432 and lost its bloom across the two seconds the player is timing a
+// rocket start, in front of a near-static grid camera with nothing to mask it.
+//
+// So the gate is now a *phase* gate as well as a curvature one, it is consulted
+// by both paths, and it is the first thing either of them asks. The countdown,
+// the finish and the results sheet are sealed — the game is being watched
+// rather than played, and a machine that has been at 1.5fps for forty seconds
+// can wait a few more for the flag. `CEREMONY_GRACE` carries the refusal a
+// little past the flag, because the beat the flag falls on is exactly as
+// precious as the "1" before it.
+//
+// The intro sweep is composed too and is gated with them, but it is the one
+// that carries a valve, because a phase gate on a starved simulation can
+// deadlock — see `CEREMONY_PATIENCE`, which is the second thing this round
+// measured and the reason the sweep is not sealed with the rest.
+//
+// The emergency path keeps everything else it was given: it sits *above* the
+// warm-up gate rather than below it, because a machine delivering twenty frames
+// a second does not need another three seconds of evidence to prove it, and it
+// skips the curvature lookahead, because at 2fps there is no such thing as
+// between corners. It does not get to skip the ceremony.
 //
 // **3. It must never touch the simulation.** There is no `fixedUpdate` in this
 // file and there never may be. Everything the governor writes — `ctx.quality`,
@@ -120,6 +149,39 @@
 // governor puts the last one back and stands down: the machine is being held up
 // by something this ladder does not own, and carrying on down it would spend
 // the game's looks on nothing at all.
+//
+// **That check has to be able to count.** It is the one place in this file that
+// compares two measurements rather than a measurement against a constant, and
+// the first version of it did so with a four-sample *mean* against a 4% bar. On
+// the machine it exists for, delivered frames run 17ms to 1233ms around a 483ms
+// median — the instrument's own spread is wider than anything it is being asked
+// to resolve — and it mis-fired live: a drop that an interleaved three-pass
+// measurement puts at 21-31% cheaper was scored at 3.5%, called "drops buy
+// nothing", rolled back, and the player was held forty seconds at a rung a
+// fifth slower than the one the governor had just taken away from them.
+//
+// Three things fix that, and they are worth stating separately because each one
+// alone would still have been a coin toss:
+//
+//   - **A median, not a mean.** Two thirds of that spread is one tail; the mean
+//     read 642ms where the median read 483.
+//   - **Enough samples, unconditionally.** The four-sample escape hatch is
+//     gone. `VERDICT_SAMPLES` or no verdict.
+//   - **A bar the window itself has to clear.** The gain has to beat
+//     `FUTILE_GAIN` *or* the standard error of the difference of the two
+//     medians, whichever is larger. When the window is too noisy to resolve a
+//     real rung — `FUTILE_RESOLVE`, above which even a working cut would read
+//     as nothing — the verdict is `unresolved` and no verdict is taken at all.
+//
+// The asymmetry in that last one is deliberate and is the whole design. A false
+// "it worked" costs the player one rung of resolution on a ladder whose every
+// rung keeps the shadows, the post stack, the grade and the fog. A false "it
+// bought nothing" costs them a third of their frame rate for as long as they
+// keep playing. So when the instrument cannot tell, it says so, the ladder
+// carries on, and the futility check stays sharp for the case it was built for
+// — a vsync-locked panel, where the frame is 33ms with almost no spread, the
+// standard error is a rounding error, and two cuts that move it by nothing are
+// unambiguous.
 //
 // That last mechanism is also the answer to the one thing wall time genuinely
 // cannot tell you. A display running at 30Hz delivers a 33ms frame no matter
@@ -388,19 +450,43 @@ const MIN_SAMPLES = 6;
 /** ...and for the emergency path, which is counting frames that are each a
  *  quarter of a second long and cannot afford to wait for six of them. */
 const PANIC_SAMPLES = 4;
-/** ...and before a *drop* is judged to have bought anything. */
+/**
+ * ...and before a *drop* is judged to have bought anything. **Unconditional.**
+ *
+ * There was a disjunction here — this many frames *or* `VERDICT_WAIT_S` seconds
+ * with `PANIC_SAMPLES` (four) behind it — on the reasoning that fourteen frames
+ * is half a minute on a machine delivering 1.7 a second and waiting half a
+ * minute to notice a cut did nothing is three more cuts on the way down.
+ *
+ * The arithmetic in that reasoning was wrong (fourteen frames at 1.7fps is
+ * eight seconds, not thirty) and the escape hatch it justified was the whole
+ * bug: every verdict a slow machine ever reached was taken through it, on four
+ * samples, against a window whose worst frame was 2x its mean. A four-sample
+ * mean cannot resolve a 14% step in that distribution, and it did not.
+ *
+ * Fourteen delivered frames is a quarter of a second on a machine that is fine
+ * and eight seconds on one that is failing — and eight seconds is what it costs
+ * to be sure, once, before spending the rest of the session on the answer.
+ */
 const VERDICT_SAMPLES = 14;
 /**
- * ...or this many seconds, whichever comes first, with `PANIC_SAMPLES` frames
- * behind it.
+ * ...and if the window has not filled in this long, the verdict is abandoned
+ * rather than taken on thin evidence.
  *
- * Fourteen frames is a quarter of a second on a machine that is fine and half a
- * minute on one delivering 1.7 a second — and the second machine is the one the
- * futility check is *for*. Half a minute of not noticing that a cut bought
- * nothing is three more cuts on the way down, which is the whole of the game's
- * looks spent on a bottleneck this ladder does not own.
+ * Not a second escape hatch: it *drops* the verdict instead of deciding it, so
+ * the ladder is unblocked and `futile` is left exactly where it was. It is
+ * reached when frames are being discarded faster than they arrive — a page that
+ * spent the window backgrounded, or a bench stepping the sim inside it — or on
+ * a machine slower than anything measured here, where a frame costs two
+ * seconds and seventeen of them do not fit inside it.
+ *
+ * Thirty rather than twenty for exactly that last case: at 1.2s a frame, which
+ * is the worst *sustained* rate this course has been measured at, the window
+ * fills in 20.4s, and a deadline that lands a fifth of a second before the
+ * answer is a deadline that throws away every verdict on the machine that most
+ * needs one.
  */
-const VERDICT_WAIT_S = 2.5;
+const VERDICT_ABANDON_S = 30;
 
 /**
  * A drop that buys less than this fraction of the frame back bought nothing.
@@ -409,8 +495,38 @@ const VERDICT_WAIT_S = 2.5;
  * measured 7% — and well over the step the previous ladder's cheapest rungs
  * measured, which was zero. It is a detector for "this lever does not apply to
  * this machine", not a quality bar on the ladder.
+ *
+ * It is a **floor** under the real bar rather than the bar itself: see
+ * `FUTILE_Z`. A fixed 4% against a window with a 20% standard error is not a
+ * measurement, it is a coin toss with a decimal point on it.
  */
 const FUTILE_GAIN = 0.04;
+/**
+ * ...and the bar is at least this many standard errors of the difference
+ * between the two medians.
+ *
+ * One sigma, not two. This is not a hypothesis test that has to survive
+ * publication; it is a choice about which way to be wrong, and the two ways
+ * are not symmetric — see the header. One sigma keeps the check sharp on a
+ * quiet window (where the error is a rounding error and the bar collapses to
+ * `FUTILE_GAIN`) and mute on a noisy one, which is exactly the right shape.
+ */
+const FUTILE_Z = 1;
+/**
+ * ...and if the bar the noise demands is wider than this, no verdict is taken.
+ *
+ * The rungs on this ladder measure 14-26% apart. A window whose own error bar
+ * is wider than 12% cannot tell a working cut from a useless one, so a "futile"
+ * read off it means nothing — and acting on it costs the player a fifth of
+ * their frame rate for the rest of the session. Above this, the answer is
+ * `unresolved`, which is a real answer and is reported as one.
+ */
+const FUTILE_RESOLVE = 0.12;
+/** MAD -> sigma for a normal sample. */
+const MAD_SIGMA = 1.4826;
+/** ...and sigma -> the standard error of a *median*, which is sqrt(pi/2) wider
+ *  than the standard error of a mean over the same samples. */
+const MEDIAN_SE = 1.2533;
 /** Consecutive futile drops before the governor puts one back and stands down. */
 const FUTILE_LIMIT = 2;
 /** ...and how much worse the frame has to get before it tries again. */
@@ -486,6 +602,74 @@ const STRAIGHT = 0.004;
 /** Seconds of road ahead that also has to be straight. */
 const LOOKAHEAD = 1.3;
 
+/**
+ * The phases the picture is **sealed** in: composed, watched, and not to be
+ * touched at any frame rate, for any reason, by either path.
+ *
+ * `countdown` is three beats and a flag in front of a near-static rig with the
+ * player timing a rocket start; `finished` is the letterbox and the victory
+ * lens; `results` is the standings sheet. `loading` is both the boot and — see
+ * ARCHITECTURE §11a — the pause screen, which is a still frame of the game with
+ * a plate over it and therefore the single worst surface in the product to
+ * change the resolution on: nothing is moving to hide it and the player is
+ * looking straight at it.
+ *
+ * Nothing here is about how fast the machine is. It is about whether anyone is
+ * driving.
+ */
+function isSealed(phase: string | undefined): boolean {
+  return phase === 'countdown' || phase === 'finished'
+    || phase === 'results' || phase === 'loading';
+}
+/** ...and the intro sweep, which is composed too but carries the valve below. */
+function isComposed(phase: string | undefined): boolean {
+  return phase === 'intro' || isSealed(phase);
+}
+
+/**
+ * Seconds after a ceremony ends before the picture may change again.
+ *
+ * The flag falling is the same beat as the "1" before it: the player is timing
+ * a rocket start and about to look at a screen full of boost. A gate that opens
+ * on the frame the phase turns `racing` would have moved the two changes this
+ * constant exists for by a tenth of a second and photographed exactly as badly.
+ */
+const CEREMONY_GRACE = 1.2;
+/**
+ * ── The valve, and why one is needed at all ────────────────────────────────
+ *
+ * Seconds of delivered play inside the **intro sweep** before the emergency
+ * path may act inside it after all. There is no equivalent for the sealed
+ * phases above; this is the only door in the gate and the intro is the only
+ * room it opens onto.
+ *
+ * The gate above has a property that is not obvious and is dangerous: **its
+ * cost is proportional to the slowness it is gating.** `engine.ts` caps the
+ * fixed step at eight per frame to avoid a spiral, so once a frame costs more
+ * than 66ms the simulation stops keeping up with the wall clock and the whole
+ * game enters slow motion. A 3.2 second intro is 3.2 seconds at 60fps, 4.8
+ * seconds at 10fps, 24 seconds at 2fps — and, measured on this box under a
+ * software rasteriser at 0.65fps, **72 seconds**, with the countdown behind it
+ * taking another 68. A gate keyed on the phase therefore locks the governor out
+ * for longer the more the machine needs it, which is the exact shape of the two
+ * bugs in the header (a warm-up counted in frames, a stall counted in
+ * milliseconds) pointed at a third target. Left absolute, it deadlocks: the
+ * governor cannot make the frame cheaper until the ceremony ends, and the
+ * ceremony cannot end until the frame is cheaper. Measured, before this valve
+ * existed: a 110-second live session that never reached the flag and never
+ * moved off rung 0, reporting `mid-ceremony` for all of it.
+ *
+ * So the sweep — and only the sweep, which is a camera move over a field
+ * driving into its slots, not a beat the player is timing — gives up after
+ * this long. Twenty seconds is chosen so that it can only ever open below
+ * about two and a half frames a second: at 5fps the sweep takes 9.6s and the
+ * valve is unreachable, at 2fps it takes 24s and the valve opens for the last
+ * four. And what comes through it pays for itself immediately — a rung off the
+ * intro is a cheaper frame, a cheaper frame is a faster simulation, and the
+ * countdown that follows is shorter *and* sealed.
+ */
+const CEREMONY_PATIENCE = 20;
+
 /** One entry in the change log. Built only when the ladder actually moves. */
 export interface QualityChange {
   /** Seconds of delivered play since boot. */
@@ -498,6 +682,45 @@ export interface QualityChange {
   /** ...and what share of that was CPU work, so the reason is legible later. */
   workMs: number;
   bound: string;
+  /**
+   * The race phase the change landed in.
+   *
+   * Recorded because the last review of this file had to *photograph* the
+   * moment of each change to discover that two of them fired inside the
+   * countdown. That should be readable off the log rather than off a
+   * screenshot. `racing` is the ordinary answer and `intro` is the only other
+   * legal one — it means a machine so slow that the sweep had run for twenty
+   * seconds, and see `CEREMONY_PATIENCE` for why that is a door rather than a
+   * hole. Anything else here is a bug in the moment gate.
+   */
+  phase: string;
+}
+
+/**
+ * One judgement of "did that cut buy anything", kept whatever the answer.
+ *
+ * The change log can only ever show the verdicts that *moved* the ladder, which
+ * is the minority of them and the least interesting: a review reading it saw
+ * `stalled (drops buy nothing)` with no way to see the numbers behind the call
+ * or the four samples it was taken on. Every verdict is recorded here, with the
+ * bar it had to clear and the spread that set the bar.
+ */
+export interface QualityVerdict {
+  t: number;
+  /** The rung the cut arrived at. */
+  rung: number;
+  /** 'worked' | 'futile' | 'unresolved' | 'abandoned'. */
+  call: string;
+  /** Median delivered frame before the cut, and after it. */
+  beforeMs: number;
+  afterMs: number;
+  /** Fraction of the frame the cut bought back. Negative means it cost. */
+  gain: number;
+  /** ...and the fraction it had to beat to count, which is `FUTILE_GAIN` or
+   *  the window's own standard error, whichever is larger. */
+  bar: number;
+  /** Delivered frames the verdict was taken over. */
+  samples: number;
 }
 
 export interface QualityProbe {
@@ -515,6 +738,13 @@ export interface QualityProbe {
   // ── the instrument: wall time between delivered frames ───────────────────
   /** Mean delivered frame time. **This is the number the ladder decides on.** */
   wallMs: number;
+  /** ...and the median of the same window, which is what the *futility* verdict
+   *  decides on. A big gap between the two is a long tail, and a long tail is
+   *  the reading that makes a four-sample mean worthless. */
+  wallMedianMs: number;
+  /** Median absolute deviation of the window — the spread the verdict's bar is
+   *  built from. Reported so a review can see why a verdict was unresolved. */
+  wallMadMs: number;
   /** Worst frame in the window. A mean cannot report a stutter; this can. */
   wallWorstMs: number;
   /** Fastest frame in the window — the machine's own floor, near enough the
@@ -561,8 +791,14 @@ export interface QualityProbe {
    */
   suspended: number;
   hijacked: number;
+  /** The race phase, as the moment gate sees it, and whether the gate is shut.
+   *  A change logged with `locked: true` would be a bug. */
+  phase: string;
+  locked: boolean;
   /** Every change this session, most recent last. */
   log: QualityChange[];
+  /** ...and every judgement of a change, whether or not it moved anything. */
+  verdicts: QualityVerdict[];
 }
 
 export function createQualitySystem(ctx: GameContext): GameSystem {
@@ -629,6 +865,54 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   let workMean = 0;
   let lateFrac = 0;
 
+  // ── the robust statistic, for the one comparison that needs one ───────────
+  //
+  // Only the futility verdict reads these, and only at the two moments it takes
+  // a measurement, so they are computed on demand rather than per frame — an
+  // insertion sort of sixty-four floats twice over is nothing once a rung, and
+  // would be real work every frame on the machine least able to afford it.
+  /** Sorting scratch. Owned, so a verdict allocates nothing either. */
+  const sorted = new Float32Array(WALL_WINDOW);
+  /** Written by `measureWindow()`. Two returns without an object to hold them. */
+  let wallMedian = 0;
+  let wallMad = 0;
+
+  /** In-place insertion sort of the first `n` of `sorted`. */
+  function sortRun(n: number): void {
+    for (let i = 1; i < n; i++) {
+      const v = sorted[i]!;
+      let j = i - 1;
+      while (j >= 0 && sorted[j]! > v) { sorted[j + 1] = sorted[j]!; j--; }
+      sorted[j + 1] = v;
+    }
+  }
+
+  /** Median of the sorted run. */
+  function middle(n: number): number {
+    if (n <= 0) return 0;
+    const h = n >> 1;
+    return (n & 1) === 1 ? sorted[h]! : (sorted[h - 1]! + sorted[h]!) / 2;
+  }
+
+  /** Median and median-absolute-deviation of the wall window, into the two
+   *  fields above. */
+  function measureWindow(): void {
+    const n = wallCount;
+    if (n <= 0) { wallMedian = 0; wallMad = 0; return; }
+    for (let i = 0; i < n; i++) sorted[i] = wall[i]!;
+    sortRun(n);
+    wallMedian = middle(n);
+    for (let i = 0; i < n; i++) sorted[i] = Math.abs(wall[i]! - wallMedian);
+    sortRun(n);
+    wallMad = middle(n);
+  }
+
+  /** Standard error of a median drawn from a window with this spread. */
+  function medianSe(mad: number, n: number): number {
+    if (n <= 0) return Infinity;
+    return (MEDIAN_SE * MAD_SIGMA * mad) / Math.sqrt(n);
+  }
+
   /** Seconds over budget / under it. One of the two is always zero. */
   let overFor = 0;
   let underFor = 0;
@@ -642,15 +926,29 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   let holding = 'settling';
 
   // ── did the last cut buy anything ────────────────────────────────────────
-  /** The frame's wall cost immediately before the last drop. */
+  /** The frame's *median* wall cost immediately before the last drop. */
   let wallBefore = 0;
+  /** ...and the standard error of that median, so the verdict knows how much
+   *  of the difference it is about to measure could be the window itself. */
+  let seBefore = 0;
   let verdictPending = false;
   let futile = 0;
   let stalled = false;
-  /** The wall cost when the governor gave up, so it can notice things changing. */
+  /** The wall cost when the governor gave up, so it can notice things changing.
+   *  In *mean* units, because the retry test below reads the mean every frame
+   *  and comparing a median against a mean is not a comparison. */
   let stalledAt = 0;
 
+  // ── the moment gate ──────────────────────────────────────────────────────
+  /** Seconds of delivered play since the last frame on which the game was
+   *  showing a composed picture. Zero while it is. */
+  let sinceCeremony = 0;
+  /** ...and seconds spent inside the composed picture currently on screen.
+   *  Zero while the game is being played. Only the intro's valve reads it. */
+  let ceremonyFor = 0;
+
   const log: QualityChange[] = [];
+  const verdicts: QualityVerdict[] = [];
 
   // Our own sample buffers. `track.sample()` and `spline.atDistance()` both
   // hand back a shared scratch when none is supplied, and the camera and the
@@ -763,6 +1061,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         wallMs: +wallMean.toFixed(1),
         workMs: +workMean.toFixed(2),
         bound: b ? boundBy(b) : '',
+        phase: ctx.race?.phase ?? '',
       });
     }
 
@@ -778,6 +1077,25 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     // contact pass and the menus' 3D set all re-read on one event as they
     // already do. Nothing new has to subscribe for this file to work.
     ctx.bus.emit('quality:changed', { quality: q });
+  }
+
+  /**
+   * Record what the frame cost before a cut, so the cut can be judged.
+   *
+   * Both drop sites go through here, and it takes the **median** and its
+   * standard error rather than the mean — the two numbers the verdict compares
+   * have to be the same statistic measured the same way, or the comparison is
+   * an artefact. The panic path calls this with as few as `PANIC_SAMPLES`
+   * frames in the window, which is fine and is the point: a noisy `before`
+   * produces a large `seBefore`, which widens the bar, which is exactly how a
+   * verdict taken on thin evidence is supposed to fail — as `unresolved`,
+   * rather than as a confident wrong answer.
+   */
+  function markDrop(): void {
+    measureWindow();
+    wallBefore = wallMedian;
+    seBefore = medianSe(wallMad, wallCount);
+    verdictPending = true;
   }
 
   /**
@@ -800,14 +1118,43 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   }
 
   /**
+   * Is the game showing a picture the player is being *shown* rather than one
+   * they are driving through?
+   *
+   * **Both paths consult this, the ordinary one and the emergency one**, and it
+   * is the first question either of them asks. See the header: for two rounds
+   * the only moment gate in this file sat on the ordinary path, which is the
+   * path a machine slow enough to need a governor never takes.
+   *
+   * It costs one field read and one comparison, it never allocates, and it is
+   * deliberately not clever: no lookahead, no camera test, nothing that could
+   * fail open. The whole of it is "is anybody driving, and has the flag been
+   * down long enough to look away from".
+   */
+  function pictureLocked(): boolean {
+    const phase = ctx.race?.phase;
+    if (isSealed(phase)) return true;
+    // The one door, and it is on the sweep only. See `CEREMONY_PATIENCE`.
+    if (phase === 'intro') return ceremonyFor < CEREMONY_PATIENCE;
+    return sinceCeremony < CEREMONY_GRACE;
+  }
+
+  /**
    * Is this a moment the player would forgive a visible change?
    *
    * Straight road under them, straight road ahead of them, planted, and nothing
    * in flight. A corner is where every frame this governor is trying to save
    * gets spent, so it is also exactly where a naive one would do all of its
    * switching.
+   *
+   * The ceremony gate is inside here as well as in front of the call, so that
+   * this function cannot answer "yes, go ahead" during a countdown to a caller
+   * who forgot to ask — the start/finish straight is the straightest road on
+   * the course and the grid sits on it, so every frame of every countdown is a
+   * straight by the curvature test alone.
    */
   function onAStraight(): boolean {
+    if (pictureLocked()) return false;
     const p = ctx.player;
     if (!p) return true;
     if (p.drift.active || p.boost.time > 0 || !p.grounded || p.stunned > 0) return false;
@@ -885,6 +1232,9 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   const probe = (): QualityProbe => {
     const b = ctx.budget;
     const q = ctx.quality;
+    // Called by hand, so the sort is free here. Everything else in this file
+    // reads the two fields it writes without recomputing them.
+    measureWindow();
     return {
       auto,
       benched,
@@ -897,6 +1247,8 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       shadowSize: q.shadows ? q.shadowSize : 0,
 
       wallMs: +wallMean.toFixed(2),
+      wallMedianMs: +wallMedian.toFixed(2),
+      wallMadMs: +wallMad.toFixed(2),
       wallWorstMs: +wallWorst.toFixed(2),
       wallBestMs: +wallBest.toFixed(2),
       lateFrac: +lateFrac.toFixed(3),
@@ -917,7 +1269,10 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       stalled,
       suspended,
       hijacked,
+      phase: ctx.race?.phase ?? '',
+      locked: pictureLocked(),
       log,
+      verdicts,
     };
   };
 
@@ -1270,6 +1625,22 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         }
       }
 
+      // ── the moment gate's clock ──────────────────────────────────────────
+      //
+      // Accrued here, above every early return, because the gate has to be
+      // right on the first frame the governor is allowed to act on rather than
+      // catching up afterwards — and because a pinned or benched page still
+      // walks through a countdown and still deserves an honest `locked` in the
+      // probe. `secs` is zero on a frame the rAF loop did not drive, so this
+      // counts delivered play like everything else in this file.
+      if (isComposed(ctx.race?.phase)) {
+        ceremonyFor += secs;
+        sinceCeremony = 0;
+      } else {
+        ceremonyFor = 0;
+        sinceCeremony += secs;
+      }
+
       // `benchFrames` only moves when `renderFrame` was called from outside the
       // rAF loop: the front end primes exactly one such frame per race start,
       // and the test harness renders them in bursts. Two inside a second and
@@ -1306,20 +1677,58 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // because the next frame panicked and returned before this could look at
       // it. A check that only runs when the machine is fine is not a check.
       //
-      // Its evidence gate is a disjunction for the same reason the warm-up gate
-      // is counted in seconds: `VERDICT_SAMPLES` frames is a third of a second
-      // at sixty and half a minute at 1.7, and waiting half a minute to notice
-      // that a cut did nothing is the same failure in a different unit. Either
-      // enough frames, or enough seconds with enough frames to mean anything.
-      if (verdictPending
-        && settleFor >= PANIC_SETTLE
-        && (wallCount >= VERDICT_SAMPLES
-          || (wallCount >= PANIC_SAMPLES && settleFor >= VERDICT_WAIT_S))) {
-        verdictPending = false;
-        const gain = wallBefore > 0 ? (wallBefore - wallMean) / wallBefore : 1;
-        if (gain < FUTILE_GAIN) {
-          futile++;
-          if (futile >= FUTILE_LIMIT && index > 0) {
+      // Its evidence gate used to be a disjunction — `VERDICT_SAMPLES` frames
+      // *or* `VERDICT_WAIT_S` seconds with four frames behind it — and the
+      // second half of that was the only half a slow machine ever reached. Four
+      // samples of a distribution running 17ms to 1233ms around a 483ms median
+      // cannot resolve a 14% step, and live it convicted a drop that a
+      // controlled interleave measured at 21-31% cheaper. It is one condition
+      // now, it is the sample count, and there is no way round it.
+      if (verdictPending && settleFor >= PANIC_SETTLE) {
+        if (wallCount >= VERDICT_SAMPLES) {
+          verdictPending = false;
+          measureWindow();
+          const after = wallMedian;
+          const se = Math.hypot(seBefore, medianSe(wallMad, wallCount));
+          const gain = wallBefore > 0 ? (wallBefore - after) / wallBefore : 1;
+          // The bar is the larger of "a rung is worth having" and "this window
+          // can tell". On a quiet machine the second term is a rounding error
+          // and the bar is `FUTILE_GAIN`; on the machine this check keeps
+          // getting wrong on, the second term is a fifth of the frame and says
+          // so out loud instead of pretending to a decimal point.
+          const bar = wallBefore > 0
+            ? Math.max(FUTILE_GAIN, (FUTILE_Z * se) / wallBefore)
+            : FUTILE_GAIN;
+          let call: string;
+          if (gain >= bar) {
+            call = 'worked';
+            futile = 0;
+          } else if (bar <= FUTILE_RESOLVE || gain <= -bar) {
+            // Either the window is tight enough that a gain this small is
+            // genuinely a gain this small, or the frame got *worse* by more
+            // than the noise — which is evidence in the same direction and the
+            // one reading no amount of spread can explain away.
+            call = 'futile';
+            futile++;
+          } else {
+            // The honest answer, and the one this check never used to have.
+            // Nothing is decided: `futile` is neither raised nor cleared, the
+            // ladder is free to carry on, and the reading is in the probe with
+            // the bar it could not clear next to it.
+            call = 'unresolved';
+          }
+          if (verdicts.length >= 16) verdicts.shift();
+          verdicts.push({
+            t: +liveSeconds.toFixed(2),
+            rung: index,
+            call,
+            beforeMs: +wallBefore.toFixed(1),
+            afterMs: +after.toFixed(1),
+            gain: +gain.toFixed(3),
+            bar: +bar.toFixed(3),
+            samples: wallCount,
+          });
+          if (call === 'futile' && futile >= FUTILE_LIMIT && index > 0) {
             // Two cuts in a row that changed nothing. Whatever is holding this
             // machine up is not on this ladder, so put the last one back and
             // stop spending the game's looks on it.
@@ -1329,8 +1738,23 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
             applyRung(index - 1, 'stalled (drops buy nothing)');
             return;
           }
-        } else {
-          futile = 0;
+        } else if (settleFor >= VERDICT_ABANDON_S) {
+          // The window never filled — frames are being discarded faster than
+          // they arrive. Drop the verdict rather than take it on what is left:
+          // an abandoned verdict unblocks the ladder and changes nothing about
+          // what the governor believes.
+          verdictPending = false;
+          if (verdicts.length >= 16) verdicts.shift();
+          verdicts.push({
+            t: +liveSeconds.toFixed(2),
+            rung: index,
+            call: 'abandoned',
+            beforeMs: +wallBefore.toFixed(1),
+            afterMs: 0,
+            gain: 0,
+            bar: 0,
+            samples: wallCount,
+          });
         }
       }
 
@@ -1356,10 +1780,19 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       const panic = wallMean > TARGET_MS * PANIC_FACTOR;
       const canDrop = index < LADDER.length - 1 && !stalled && !verdictPending;
       if (panic && canDrop && liveSeconds >= PANIC_ARM_S && settleFor >= PANIC_SETTLE) {
+        // **The one line this whole round was about.** The emergency path may
+        // skip the curvature lookahead — at two frames a second there is no
+        // such thing as between corners — but it does not get to change the
+        // picture while the game is showing one. The dwell restarts rather than
+        // banking, so the drop lands a beat into the racing rather than on the
+        // frame the gate opens.
+        if (pictureLocked()) {
+          panicFor = 0;
+          return hold('mid-ceremony');
+        }
         panicFor += secs;
         if (panicFor >= PANIC_DWELL) {
-          wallBefore = wallMean;
-          verdictPending = true;
+          markDrop();
           applyRung(index + 1, 'dropped (panic)');
           return;
         }
@@ -1406,10 +1839,14 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
             : verdictPending ? 'over budget (judging last cut)' : 'over budget')
           : 'under budget');
       }
+      // Two refusals rather than one, because they are two different facts and
+      // a probe that reports `mid-corner` during a countdown is lying about
+      // which gate stopped it. `onAStraight()` asks the ceremony question again
+      // on its own account — see the note on it.
+      if (pictureLocked()) return hold('mid-ceremony');
       if (!onAStraight()) return hold('mid-corner');
       if (wantDown) {
-        wallBefore = wallMean;
-        verdictPending = true;
+        markDrop();
         applyRung(index + 1, 'dropped');
       } else {
         verdictPending = false;
