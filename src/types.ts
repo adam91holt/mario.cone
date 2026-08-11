@@ -520,6 +520,27 @@ export interface FrameBudget {
   liveSeconds: number;
   /** What the governor is doing or waiting for, in one word. */
   governor: string;
+  /**
+   * Skip this frame's **draw** — the update still runs.
+   *
+   * Written by `core/quality.ts` off the `ui:menu` edges and read by
+   * `engine.ts` immediately before the draw. It exists for exactly one
+   * situation and should never be set for any other: the front-end is up and
+   * the module that owns it is covering the entire frame with its own opaque
+   * set, so every pixel of the race behind it is thrown away by the compositor.
+   *
+   * ARCHITECTURE §11a says the race keeps *simulating* behind the front-end.
+   * It says nothing about it having to keep *drawing* there, and it was —
+   * measured on the untouched title screen at 1600x900, 356-538 draw calls and
+   * 794k-827k triangles through the full HDR post stack every frame, which made
+   * PRESS START (0.5-0.9fps) the most expensive frame in the game, slower than
+   * actually racing (1.5fps).
+   *
+   * The engine honours it only for frames the rAF loop drove. A harness
+   * `render()` always draws, so a reviewer's screenshot and the shader-priming
+   * frame in `startRace` are unaffected.
+   */
+  skipDraw: boolean;
 }
 
 export interface RenderStats {
@@ -530,6 +551,15 @@ export interface RenderStats {
   worstMs: number;
   drawCalls: number;
   triangles: number;
+  /**
+   * The engine skipped this frame's draw — see `FrameBudget.skipDraw`.
+   *
+   * Reported next to `drawCalls` because otherwise a zero there is ambiguous:
+   * a frame deliberately not drawn behind an opaque front-end and a frame whose
+   * scene has gone missing report the same numbers. Only ever true for a frame
+   * the rAF loop drove.
+   */
+  drawSkipped?: boolean;
   programs: number;
   geometries: number;
   textures: number;
