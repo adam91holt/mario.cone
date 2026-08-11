@@ -153,6 +153,65 @@
 // seed**, and at seed 1 the roster now reports 11 / 10 / 13 / 13 against the
 // 0 / 4 / 0 / 0 the critic measured.
 //
+// ── the round that gave the four circuits four *places* ────────────────────
+//
+// The shapes worked and the critic said so — *"the four map diagrams on the
+// course-select card — dogleg, comb, wedge, hourglass — genuinely pass the
+// cover-the-names test"* — and then rejected the cup anyway, at 7/10, on the
+// half of the problem geometry cannot reach:
+//
+//   *"They are still the same place. `cone-canyon-grid.png`,
+//   `jackhammer-quarry-grid.png`, `saltpan-bypass-grid.png` and
+//   `switchback-summit-grid.png` share an identical yellow truss gantry,
+//   identical hazard-striped navy banner with gold type, identical five-bulb
+//   light rig, identical chequered strip, and the same orange-and-white striped
+//   panel barrier on grey drums. Nothing on the road tells you which circuit
+//   you are on."*
+//
+// Every one of those objects had exactly one implementation and no course could
+// ask for another. `TrackFeatures.kit` is the noun that was missing and
+// `courses/kit.ts` is the system that reads it — see `KitDef`. What stands over
+// the line and what runs down the edge of the road are now course decisions:
+//
+//     round          arrival                     barrier              kerb
+//     Cone Canyon    yellow truss gantry         striped panel        red/white
+//     Jackhammer     inclined conveyor bridge    concrete jersey      black/yellow
+//     Saltpan        timber loading jetty        salt-crusted wall    blue/white
+//     Switchback     cable-car pylon pair        timber snow fence    slate/snow
+//
+// ...plus the banner livery, the markings, the chequer and the five-lamp board,
+// which each structure now carries its own of off `config.race.startLights`.
+// **Round one keeps the stock kit deliberately**: a cup needs one circuit that
+// looks like the box art, and it is the reference the other three are read
+// against.
+//
+// The same round answered the other two findings on the sheet. Saltpan's three
+// hazards all sat in the first 419 metres of a 3519-metre lap and its
+// 621-metre straight had nothing to *win* on it, only things to avoid — there
+// are two more brine crossings now, one per remaining side of the wedge, and a
+// boost ramp on the far shoulder past the last sheet, so the flood is a choice
+// rather than a corridor.
+//
+// ── and the camera that was driving underground ────────────────────────────
+//
+// A player reported *"the screen just went brown above the racer"*, and
+// `tools/underground.mjs` found it on two of these four circuits: the lens
+// inside the landscape on 51 of 171 samples at the quarry and 24 of 171 on the
+// mountain — the mountain's worst **9.5 metres under at t=0, on the grid**.
+//
+// It is not a camera bug and it was not fixable in a layout. `terrain.ts`
+// sweeps the embankment skirt 150 metres either side of the road anchored to
+// *that station's* elevation and never asks what else is nearby, so on a
+// circuit that folds back on itself the higher road's skirt is a shelf hanging
+// over the lower road. Measured, the budget is about nine metres of stack and
+// the four circuits carry 11.2 / 40.4 / 11.2 / 62.4 — so Cone Canyon and
+// Saltpan pass and the pit and the mountain cannot, by a factor of four and
+// seven. Getting inside it in the layout would mean deleting the quarry's pit
+// and the mountain's 115-metre climb, which is the one measurement the same
+// review round praised. `unfoldSkirt` in `kit.ts` gives the skirt the answer
+// the field mesh already has instead. See the comment there; it belongs in
+// `terrain.ts` and says so.
+//
 // ── what is honestly still short ───────────────────────────────────────────
 //
 //   * *`kart:launch` still fires four times a race, not once per ramp pass.*

@@ -575,7 +575,12 @@ interface BuildArgs {
  *  signage rig is interchangeable and only the thing carrying it changes. */
 const BANNER_Y = 9.2;
 
-function addBanner(a: BuildArgs, width: number): THREE.Object3D {
+/**
+ * Hang the name banner at `BANNER_Y`, on drop rods reaching up to whatever is
+ * carrying it. The height is the same on all four structures on purpose: the
+ * signage rig is interchangeable and only the thing over it changes.
+ */
+function addBanner(a: BuildArgs, width: number, carriedAt: number): THREE.Object3D {
   const style = a.kit.banner ?? { field: '#1B2A4A', ink: '#FFC300', strip: '#FF6B1A' };
   const mat = new THREE.MeshStandardMaterial({
     map: bannerTexture(a.name, style),
@@ -583,6 +588,21 @@ function addBanner(a: BuildArgs, width: number): THREE.Object3D {
     side: THREE.DoubleSide,
   });
   a.materials.push(mat);
+
+  if (carriedAt > BANNER_Y + 0.2) {
+    const rodMat = new THREE.MeshStandardMaterial({ color: 0x333a44, roughness: 0.55, metalness: 0.4 });
+    a.materials.push(rodMat);
+    const h = carriedAt - BANNER_Y;
+    const geo = new THREE.BoxGeometry(0.13, h, 0.13);
+    geo.translate(0, h * 0.5, 0);
+    for (const x of [-width * 0.42, width * 0.42]) {
+      const rod = new THREE.Mesh(geo, rodMat);
+      rod.position.set(x, BANNER_Y, 0);
+      rod.castShadow = true;
+      a.group.add(rod);
+    }
+  }
+
   const pivot = new THREE.Group();
   pivot.position.set(0, BANNER_Y, 0);
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, 2.5), mat);
@@ -692,6 +712,22 @@ function buildConveyor(a: BuildArgs): ArrivalParts {
   }
   stan.instanceMatrix.needsUpdate = true;
   belt.add(stan);
+
+  // The stringer truss under the belt. Forty metres of unsupported housing
+  // reads as a floating box; a Warren web under it reads as a bridge.
+  const web = new Struts();
+  const bays = Math.max(8, Math.round(run / 4.2));
+  for (let i = 0; i < bays; i++) {
+    const x0 = -run * 0.5 + i * (run / bays);
+    const x1 = x0 + run / bays;
+    for (const dz of [-1.3, 1.3]) {
+      web.add(x0, -2.3, dz, x1, -2.3, dz, 0.16);
+      web.add(x0, -0.75, dz, x0, -2.3, dz, 0.12);
+      web.add(x0, -0.75, dz, x1, -2.3, dz, 0.10);
+    }
+    if (i % 2 === 0) web.add(x0, -2.3, -1.3, x0, -2.3, 1.3, 0.10);
+  }
+  belt.add(web.mesh(steel, 'kitConveyorWeb', a.materials));
   a.group.add(belt);
 
   // The head chute, dropping fines off the high end onto a cone of stockpile
@@ -723,7 +759,12 @@ function buildConveyor(a: BuildArgs): ArrivalParts {
   glass.position.set(-span - 2.1, 6.2, 0);
   a.group.add(glass);
 
-  return { banner: addBanner(a, Math.min(span * 2 - 2, 26)), lamps: addLampBoard(a, BANNER_Y - 3.4) };
+  // The belt's underside over the centreline, which is what the banner hangs
+  // from. `run/2` of housing at `angle`, half its depth, is where it is.
+  return {
+    banner: addBanner(a, Math.min(span * 2 - 2, 26), 11.6),
+    lamps: addLampBoard(a, BANNER_Y - 3.4),
+  };
 }
 
 /**
@@ -766,6 +807,28 @@ function buildJetty(a: BuildArgs): ArrivalParts {
     brace.add(side * span, 1.2, 3.2, side * span, 9.6, -3.2, 0.16);
     brace.add(side * span - 1.4, 9.8, 0, side * span + 1.4, 9.8, 0, 0.2);
   }
+  // The span itself, and it is a **through** truss — the web stands on top of
+  // the deck rather than under it. Nothing may stand between the pile lines,
+  // because that is the road, so sixty metres has to be carried rather than
+  // propped; and putting the steel above the deck leaves the underside clean
+  // for the banner and the loading chutes instead of fighting them for the one
+  // band of air the driver looks through.
+  {
+    const bays = Math.max(10, Math.round((span * 2) / 5.5));
+    for (let i = 0; i <= bays; i++) {
+      const x0 = -span + i * ((span * 2) / bays);
+      const x1 = x0 + (span * 2) / bays;
+      for (const dz of [-3.2, 3.2]) {
+        if (i < bays) {
+          brace.add(x0, 10.7, dz, x1, 10.7, dz, 0.20);
+          brace.add(x0, 13.5, dz, x1, 13.5, dz, 0.20);
+          brace.add(x0, 10.7, dz, x1, 13.5, dz, 0.12);
+        }
+        brace.add(x0, 10.7, dz, x0, 13.5, dz, 0.14);
+      }
+      if (i % 2 === 0) brace.add(x0, 13.5, -3.2, x0, 13.5, 3.2, 0.12);
+    }
+  }
   a.group.add(brace.mesh(steel, 'kitJettyBrace', a.materials));
 
   // The deck.
@@ -776,39 +839,16 @@ function buildJetty(a: BuildArgs): ArrivalParts {
   deck.receiveShadow = true;
   a.group.add(deck);
 
-  // A windrow of raw salt heaped down the middle of the deck, and a low rail
-  // either side of it — the deck has cargo on it, so it is a working jetty.
+  // A windrow of raw salt heaped down the middle of the deck, between the two
+  // truss walls: the jetty has cargo on it, so it is a working jetty and not a
+  // footbridge with a name on it.
   const saltMat = new THREE.MeshLambertMaterial({ color: 0xf6f4ec });
   a.materials.push(saltMat);
-  const heap = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 1.5, deckW * 0.62, 10), saltMat);
+  const heap = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 1.6, deckW * 0.66, 10), saltMat);
   heap.rotation.z = Math.PI * 0.5;
-  heap.position.set(0, 11.2, 0);
+  heap.position.set(0, 11.4, 0);
   heap.castShadow = true;
   a.group.add(heap);
-
-  const railMat = new THREE.MeshStandardMaterial({ color: steel, roughness: 0.45, metalness: 0.35 });
-  a.materials.push(railMat);
-  for (const dz of [-3.4, 3.4]) {
-    for (const y of [11.1, 11.75]) {
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(deckW, 0.11, 0.11), railMat);
-      rail.position.set(0, y, dz);
-      rail.castShadow = true;
-      a.group.add(rail);
-    }
-  }
-  const postGeo = new THREE.BoxGeometry(0.12, 1.5, 0.12);
-  const rposts = new THREE.InstancedMesh(postGeo, railMat, 26);
-  rposts.castShadow = true;
-  n = 0;
-  for (const dz of [-3.4, 3.4]) {
-    for (let i = 0; i < 13; i++) {
-      m.makeTranslation(-deckW * 0.5 + (i + 0.5) * (deckW / 13), 11.35, dz);
-      rposts.setMatrixAt(n++, m);
-    }
-  }
-  rposts.count = n;
-  rposts.instanceMatrix.needsUpdate = true;
-  a.group.add(rposts);
 
   // Two loading chutes hanging over the carriageway, with a dribble of salt
   // caught in mid-fall under each — the one thing on this circuit that reads as
@@ -834,10 +874,13 @@ function buildJetty(a: BuildArgs): ArrivalParts {
   const fasciaMat = new THREE.MeshStandardMaterial({ color: accent, roughness: 0.7 });
   a.materials.push(fasciaMat);
   const fascia = new THREE.Mesh(new THREE.BoxGeometry(deckW, 0.85, 0.2), fasciaMat);
-  fascia.position.set(0, 9.9, -3.7);
+  fascia.position.set(0, 9.9, 3.7);
   a.group.add(fascia);
 
-  return { banner: addBanner(a, Math.min(span * 2 - 2, 30)), lamps: addLampBoard(a, BANNER_Y - 3.4) };
+  return {
+    banner: addBanner(a, Math.min(span * 2 - 2, 30), 10.05),
+    lamps: addLampBoard(a, BANNER_Y - 3.4),
+  };
 }
 
 /**
@@ -933,7 +976,10 @@ function buildPylon(a: BuildArgs): ArrivalParts {
   roof.castShadow = true;
   a.group.add(roof);
 
-  return { banner: addBanner(a, Math.min(span * 2 - 2, 26)), lamps: addLampBoard(a, BANNER_Y - 3.4) };
+  return {
+    banner: addBanner(a, Math.min(span * 2 - 2, 26), BANNER_Y + 1.35),
+    lamps: addLampBoard(a, BANNER_Y - 3.4),
+  };
 }
 
 // ── the skirt that folds over itself ───────────────────────────────────────
@@ -1079,9 +1125,17 @@ function unfoldSkirt(track: Track, spline: TrackSpline, verge: number): number {
     const ceiling = terrainHeight(d, s.pos.y, x, z, o);
     // Inside the twenty-metre ring the sweep is still partly in the road's
     // banked frame, which legitimately stands above the level height by a few
-    // metres on a cambered corner. Past it the two are the same query.
-    const margin = layout && i % SKIRT_COLS >= SKIRT_FREE_COL ? 0.35 : 5.0;
-    if (y > ceiling + margin) { attr.setY(i, ceiling); moved++; }
+    // metres on a cambered corner. Past it the two are the same query — but not
+    // to the centimetre, because the hill and dune terms are scaled by `d` and
+    // `nearest()` answers with the closest *sample* rather than the exact foot
+    // of the perpendicular. A metre and a half of slack covers that and is
+    // nothing next to the tens of metres a real shelf stands proud by.
+    const margin = layout && i % SKIRT_COLS >= SKIRT_FREE_COL ? 1.5 : 5.0;
+    // Dropped a little *under* the ceiling rather than onto it. A foreign
+    // shelf lowered to exactly the local terrain height is coplanar with the
+    // local skirt that is already there, and two coplanar surfaces are a
+    // shimmer. Under it, it is simply gone.
+    if (y > ceiling + margin) { attr.setY(i, ceiling - 0.8); moved++; }
   }
   if (!moved) return 0;
   attr.needsUpdate = true;

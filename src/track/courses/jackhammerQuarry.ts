@@ -429,10 +429,27 @@ export const jackhammerQuarry: CourseDefEx = {
     //
     // **The benches themselves are not shaped by this.** They are 60-72 metres
     // apart, which is inside `rimStart`, so nothing rises between them: what
-    // makes a bench face is the four-to-seven metre difference in *road*
-    // height across that gap, and the embankment either side is anchored to
-    // its own road. That is exactly how a real bench is formed and it is why
-    // the comb reads as terraces rather than as five roads on a plain.
+    // makes a bench face is the difference in *road* height across that gap,
+    // and the embankment either side is anchored to its own road. That is
+    // exactly how a real bench is formed and it is why the comb reads as
+    // terraces rather than as five roads on a plain.
+    //
+    // ── and it is also what buried the camera ─────────────────────────────
+    //
+    // "The embankment either side is anchored to its own road" is the whole
+    // bug. `terrain.ts` sweeps that skirt **150 metres** either side without
+    // ever asking what else is nearby, so on a pit forty-two metres deep and
+    // two hundred wide the weighbridge's skirt is a shelf hanging in open air
+    // over the pit floor. `tools/underground.mjs` put the chase lens inside the
+    // landscape on 51 of 171 samples here, and a player reported it in their
+    // own words: *"the screen just went brown above the racer."*
+    //
+    // It was tempting to answer it in this ledger — flatten the pit until the
+    // stack is inside the roughly nine metres a skirt clears — and that is
+    // measurably the wrong trade: it costs the quarry its staircase to work
+    // around a construction fault in the landscape builder. `unfoldSkirt` in
+    // `kit.ts` gives the skirt the answer the field mesh already has instead.
+    // The benches stay. See the comment there.
     //
     // ── and the round the pit had no walls ────────────────────────────────
     //
