@@ -5049,3 +5049,73 @@ Wave finished — courses 6.5, perf 6.5. Running the gates.
 ### 🤖 Claude — 2026-08-11 01:00 UTC
 
 Shadows are visibly on the road now, the pack races three abreast, and the FOREMAN nameplate carries the driver identity into the race. Landing the wave.
+
+### 🤖 Claude — 2026-08-11 01:02 UTC
+
+Wave merged (`19b6f58`) and live. **The best finding of the entire build came out of this one**, and it closes a loop that three separate critics had opened and none could finish.
+
+`fx` reported that the player never reached mini-turbo tier 3 in 90 seconds of driving. The coherence judge said two of the three tiers are effectively not in the game. Both were right; neither could say why — because the cause isn't in fx, and isn't in the drift model. **It's in the tracks.**
+
+One fixed-seed lap, identical AI, physics, vehicle and seed, changing only the course:
+
+| | Cone Canyon | Jackhammer Quarry | Saltpan Bypass | Switchback Summit |
+|---|---|---|---|---|
+| drifts/lap (8 racers) | 25 | 75 | **13** | 14 |
+| tier-3 purple fires | 6 | 23 | **1** | 3 |
+| longest drift held | 1.26 s | 2.56 s | 1.27 s | **1.07 s** |
+
+Saltpan Bypass produces **one purple mini-turbo per lap across eight racers**. A tier-3 charge needs about 2.5 seconds, and three of four circuits never hold one that long.
+
+**What makes it genuinely good is that it names the right variable.** The intuitive read is "the corners are too short" — and that would have been an expensive wrong fix. Cone Canyon *already has* a 245 m corner; it sits at R=56 and gets taken flat. Saltpan's fourteen corners are all between R=190 and R=420. **Radius is the missing variable**, not arc length: the drift line only beats the steer line around R=35–50, and three circuits have nothing in that band. The next round has specific corners, specific target radii, and the same census as its acceptance test.
+
+On `perf` I did something different rather than let it patch a fourth instance. It has now failed three rounds on three different mechanisms sharing one shape — a warm-up counted in frames, a stall filter counted in milliseconds, a moment gate on a clock that stops when the machine does. So the directive opens by refusing the specific fix: **list every gate, threshold and accumulator in the file, write down what each is denominated in, and what happens to it at 0.7 fps.** Anything measured in frames, delivered-play time, or a clock the simulation drives is wrong by construction. Fix the class, then the instances.
+
+### 🧑 Prompt — 2026-08-11 01:09 UTC
+
+<system-reminder>
+The container was restarted. The following background tasks were running and are now stopped:
+- timeout 900 node /tmp/claude-0/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/scratchpad/rungcost.mjs 2>&1 | tail -30 (task brfqctd4i)
+- Run baseline drift census (task bim064ec8)
+Re-create them if still needed.
+</system-reminder>
+
+### 🧑 Prompt — 2026-08-11 01:13 UTC
+
+MARIO.CONE build loop — hourly. Repo adam91holt/mario.cone (PUBLIC), branch claude/mario-kart-racing-game-z8wdf1. WFDIR=/root/.claude/projects/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/subagents/workflows
+
+EVERY TICK, before anything else: `node tools/session.mjs`. It refreshes docs/session/prompts.md and docs/session/session.jsonl — the conversation that is building this game, which the user asked to be published and kept current. It exits non-zero if a message body was truncated; if that happens fix the tool rather than committing a mangled archive. Commit the refresh with whatever else the tick produces.
+
+Do NOT trust any run id written here — resolve it: RUN=$(ls -t $WFDIR | head -1). Current run: coherence pass = wf_85410807-a0a.
+
+STEP 1 — PROVE the wave is alive. Two checks; the second has never been wrong:
+  date -u
+  ls -lt --time-style=+%H:%M:%S $WFDIR/$RUN/agent-*.jsonl | head -3
+  ps -eo etime,comm | grep -w claude
+(a) Newest agent-*.jsonl mtime older than ~25 minutes = dead. USE `ls -t`; a plain `ls | tail` sorts ALPHABETICALLY and once hid the only live agent behind eleven finished ones.
+(b) ELAPSED of the main `claude` process. DECISIVE. If claude has been alive for LESS time than the gap since the last agent write, the container restarted and every in-flight agent is dead, however recent the mtimes look. Two agents whose last write is the IDENTICAL second is the same signature. Do NOT grep for claude in a `--sort=-pcpu | head -4` list — Chrome outranks it and it will not appear.
+Never judge by files existing or Chrome counts: subagents run IN-PROCESS inside the main claude process, so `ps aux | grep claude` shows nothing for a healthy wave.
+
+Count: node -e "const fs=require('fs');let s=0,r=0;for(const l of fs.readFileSync(process.argv[1],'utf8').trim().split('\n')){try{const e=JSON.parse(l);if(e.type==='started')s++;if(e.type==='result')r++;}catch{}}console.log(s,r)" $WFDIR/$RUN/journal.jsonl
+Concurrency is 2 on this 4-core box.
+
+STEP 2 — If DEAD, RESUME, DO NOT RELAUNCH:
+  Workflow({scriptPath:"<the same script>", resumeFromRunId:"<the dead RUN>", args:<the SAME args object, byte-for-byte>})
+Completed agent() calls return from cache instantly and only the killed agents re-run, carry intact. Args must match exactly or the cache misses. First `npx tsc --noEmit`, then commit and push whatever exists (say in the message if unverified). Read the dead run's journal for results that already have a `score` — those verdicts are earned and must never be re-bought.
+IF TYPECHECK FAILS INSIDE A FILE A DEAD AGENT WAS MID-WRITE ON, that is NOT transient — the agent is not coming back to finish it, and the resumed agent restarts that step from scratch. `git checkout --` those files rather than committing a build that cannot compile.
+AFTER ANY LAUNCH OR RESUME, VERIFY: grep 'YOUR PIECE' AND 'Observed:' out of each new agent transcript.
+
+STEP 3 — If ALIVE: `npx tsc --noEmit`. If clean, commit and push. Do NOT run captures or smoke while agents are active, and never pkill on any pattern matching "capture.mjs".
+
+STEP 4 — If FINISHED:
+  a. `npx tsc --noEmit` then `node tools/capture.mjs --smoke`. Typecheck-clean has passed on a build that did not boot; smoke is the real gate.
+  b. `node tools/capture.mjs` and LOOK at the PNGs with Read. Never trust an agent's summary.
+  c. Update tools/progress.state.json with the real verdicts, `node tools/progress.mjs`, `node tools/readmeshots.mjs`.
+  d. Commit, push, PR (base main, draft false), merge, then `git fetch origin main && git reset --hard origin/main && git push --force-with-lease` (merges are squashed, so ff-only will refuse).
+  e. Remaining work, in order: COURSES re-judge — it scored 5.0 because theme.ground never painted terrain and thirteen theme.props keys had zero reads; that wiring now exists, so its job is to USE it and prove the four courses are distinguishable from the overhead shot without the minimap. Then PERF re-run, which regressed to 475 draw calls and 667k triangles when the item economy fix put 102 boxes on the course. Then closing verdicts on wave 1 (feel, camera, track, look, cast), merged long ago and never judged.
+  f. Standing gaps no single piece owns, for the next coherence pass: the purple tier-3 mini-turbo has still never been seen by anyone; a single carried item is not drawn in the world at all because the orbit rig is only built for count>1; the finish letterbox guillotines the position badge on the one beat it matters.
+
+Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
+
+### 🤖 Claude — 2026-08-11 01:13 UTC
+
+Container restarted — that kills the wave. Confirming and resuming.
