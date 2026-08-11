@@ -62,10 +62,14 @@ const look = () => page.evaluate(() => {
   const g = window.__GAME;
   const s = g.snapshot();
   const p = s.racers.find((x) => x.isPlayer);
+  // `snapshot()` does not carry the phase; the race owns it and `stats()` and
+  // the context both publish it. Take whichever is there rather than printing
+  // `undefined` in the column the whole test is about.
+  const phase = s.phase ?? g.stats?.().phase ?? window.__CTX?.race?.phase ?? '?';
   const menu = document.getElementById('menu');
   const up = !!menu && menu.classList.contains('on');
   return {
-    phase: s.phase, up,
+    phase, up,
     speed: p ? Math.abs(p.speed) : -1,
     progress: p ? p.progress : -1,
     // The field, not just the player: seven AI drivers racing behind a
@@ -104,27 +108,29 @@ for (let t = 1; t <= HOLD; t++) {
 
 // ── 2. the front-end still answers a tap ───────────────────────────────────
 // A race frozen behind a screen nobody can get past is not a fix.
-// The front-end marks the screen it is taking input on with `live`; failing
-// that, the one it has faded up. Either way it is "the screen the player is
-// looking at", which is the only thing this check needs to name.
-const AT = `(() => {
+// The front-end marks the screen it is taking input on with `live`. That flag
+// is the whole question here — "is the player able to act on this screen" —
+// so it is read directly rather than inferred from opacity.
+const at = () => page.evaluate(() => {
   const all = [...document.querySelectorAll('#menu .scr')];
-  const live = all.find((s) => s.classList.contains('live'));
-  const lit = all.map((s) => [s, parseFloat(getComputedStyle(s).opacity) || 0])
-    .sort((a, b) => b[1] - a[1])[0];
-  const el = live ?? (lit && lit[1] > 0.5 ? lit[0] : null);
-  return el ? [...el.classList].find((c) => c.startsWith('scr-')) ?? '?' : 'none';
-})()`;
+  const live = all.filter((s) => s.classList.contains('live'))
+    .map((s) => [...s.classList].find((c) => c.startsWith('scr-')) ?? 'scr');
+  return live.length ? live.join('+') : `none (of ${all.length})`;
+});
 
-const before = await page.evaluate(AT);
+const before = await at();
+// Tap where a thumb lands: the middle of the title screen, through the real
+// event the front-end listens for.
 await page.evaluate(() => {
   document.querySelector('#menu .scr-title')?.dispatchEvent(
     new PointerEvent('pointerdown', { bubbles: true }),
   );
 });
-await page.evaluate(() => window.__GAME.advance(0.8));
-const afterTap = await page.evaluate(AT);
-const advanced = afterTap !== before;
+// A screen push is animated, and `update` drives it off frame time, so this
+// needs frames rather than a single step.
+await page.evaluate(() => window.__GAME.advance(1.5));
+const afterTap = await at();
+const advanced = afterTap !== before && !afterTap.startsWith('none');
 console.log(`\n  TAP ON TITLE   ${before} → ${afterTap}   ${advanced ? 'ok' : 'NO RESPONSE'}`);
 if (!advanced) fail.push('a tap on the title screen did not advance the front-end');
 
