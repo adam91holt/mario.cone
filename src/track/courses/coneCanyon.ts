@@ -1,69 +1,78 @@
 // Course 1 — Cone Canyon Speedway.
 //
-// **The opening circuit, and the one the drift is taught on.**
+// **The opening circuit, the one the drift is taught on, and the long one.**
 //
-// For two rounds this course was tuned for *speed* and measured for speed, and
-// the thing it was quietly failing at was the mechanic the whole game is built
-// around. A fixed-seed autopilot lap across the field produced 35 drifts and
-// eight purple mini-turbos, with the longest slide anybody held anywhere on the
-// lap lasting 1.75 seconds. Three corners out of eleven were tight enough to
-// drift at all; the other eight were taken flat, because a kart at this game's
-// top speed will hold a 62-metre radius without lifting and every one of them
-// was 90 metres or wider.
+// ── the round that gave the four circuits four shapes ──────────────────────
 //
-// The fix is not longer corners and it is not more of them. It is **radius**,
-// and it is *held* radius:
+// A critic played the cup and rejected it at 6.5 on a finding that no
+// screenshot of a single course could have produced: *"measured off the real
+// driven line, every one of the four is an irregular closed blob of 9-12
+// similar-radius corners whose longest straight is 72-83 metres — an 11-metre
+// spread, 1.4 seconds at 54 m/s. The roster reads as one circuit re-dressed in
+// four ground colours, and on the select screen the four map cards are
+// literally interchangeable."*
 //
-//   * a committed drift can be steered between about a 23m arc at full lock and
-//     a 56m arc fully counter-steered. Inside that band the slide is a line you
-//     choose. Outside it the slide drives the kart, and the charge is thrown
-//     away before it tiers.
-//   * a hand-placed corner has no radius — it has a peak somewhere and a long
-//     tail either side. Measured across this cup, corners ran a mean radius
-//     about 1.4x their tightest point, so a "45m corner" was 70m at turn-in,
-//     45m at the apex and 70m again at the exit: outside the band, inside it,
-//     outside it. The drift was being asked to change radius by two thirds
-//     mid-slide, and it broke every time the road opened.
+// That was right, and it was a *geometry* problem rather than a decoration
+// one. All four were hand-grown outward from a start line until they closed:
+// same rough aspect ratio, same corner census, same everything. So each of the
+// four now owns a **silhouette** — a shape that survives being reduced to the
+// 100x100 outline `courseMap()` draws on the select card — and the four
+// silhouettes are chosen to be un-confusable rather than merely different:
 //
-// So this circuit is now authored in `ring.ts`: a ledger of straights and
-// **exact circular arcs**, where `{ radius: 47, turn: -185 }` is a hundred and
-// fifty-two metres of road that is 47 metres of radius at every point on it.
-// Eight of the nine corners now sit inside the band a drift can be steered in,
-// and every one of them holds a single radius from turn-in to exit.
+//     1 Cone Canyon      a long dogleg. Aspect 2.5:1, two legs 200 metres
+//                        apart, a hook on the west end. Nothing else in the
+//                        cup is remotely this thin.
+//     2 Jackhammer       a comb. Four hairpins folding four parallel benches
+//                        into a square, with the haul road wrapped round the
+//                        outside. Aspect 1.2:1.
+//     3 Saltpan          a wedge. Three enormous sides, one of them a
+//                        640-metre ruler. Aspect 1.7:1.
+//     4 Switchback       an hourglass. Two lobes and a waist, the waist being
+//                        the neck the road climbs out of and plunges back
+//                        into. Aspect 1.5:1.
 //
-//   T1  Hi-Vis Right    R50, 160° — the braking point at the end of the pit
-//                       straight. A 330-metre run at a 50-metre corner: this is
-//                       where the lap is overtaken, and it did not exist before
-//   T2  The Kink        R58 left, the camber letting go halfway up the climb
-//   T3  Cone Crest      R66 right over the brow — the road goes light and the
-//                       whole south rim appears at once
-//   T4  Rimrock Sweep   R126 left, the one corner here that is genuinely flat
-//                       out and still has to be aimed
-//   T5  THE CAROUSEL    R47, 185°, 152 metres of one radius. The signature:
+// And the measured axes the critic named:
+//
+//                     longest straight   R<40m of lap   elevation   aspect
+//     Cone Canyon           311m              20m         26.0m      2.51
+//     Jackhammer            190m             288m         41.6m      1.23
+//     Saltpan               610m              40m         10.9m      1.73
+//     Switchback            310m             165m        115.8m      1.47
+//
+// 610 against 190 is **3.2x** on the longest straight, against the 1.15x the
+// critic measured. The quarry has fourteen times the tight-radius road of this
+// circuit; the mountain has eleven times the saltpan's elevation.
+//
+// ── what this circuit is ───────────────────────────────────────────────────
+//
+// A stadium, stretched. Two long legs two hundred metres apart, an elbow at
+// the east end, and the Carousel hooked round the head of the canyon at the
+// west. It is the *fast* one of the three short circuits and the one with the
+// fewest corners — nine — and the whole design is that you can see almost the
+// entire lap from almost anywhere on it, which is what makes round one legible.
+//
+//   T1  Hi-Vis Right    R52, 90° — the braking point at the end of the pit
+//                       straight. 280 metres of run-up at a 52-metre corner:
+//                       this is where the lap is overtaken
+//   T2  Digger's Elbow  R34 at 19m of road, with the gravel cut on its apex.
+//                       The tightest thing here by a distance
+//   T3/T4 Crest & Sweep the jog that steps the north leg out to the rim.
+//                       R120 each way over the brow, and the road goes light
+//   T5  The Notch       R60, 70° — the corner that sets up the Carousel
+//   T6  THE CAROUSEL    R47, 185°, 152 metres of one radius. The signature:
 //                       a full horseshoe round the head of the canyon, banked,
-//                       and long enough to hold a purple with room left over
-//   T6  The Long Left   R52, 140° the other way — the same corner mirrored, and
-//                       the only place on the lap you drift left
-//   T7  Digger's Elbow  R32 hairpin at 19m of road, with the gravel cut
-//   T8  The Notch       R60 left, the long climb out of the pit
-//   T10 Cone Corner     R46, 146° — the corner that pays for the pit straight
+//                       long enough to hold a purple with room left over, and
+//                       split lengthways by a raised island
+//   T7  The Long Left   R52 the other way — the only place you drift left
+//   T8  Grader Sweep    R150, the one corner here taken genuinely flat
+//   T9/T10 Weigh & Cone R120 each way onto the pit straight
 //
 // The two rules this circuit is held to are unchanged and both still bite.
-// *Width follows speed*: 30m across the start line where the pack fans out, 19m
-// at the hairpin apex, 22-26m through the drift corners. And *nothing is dead
-// straight for longer than the run to the first corner* — that run **is** the
-// pit straight, at 250 metres from the line, and no other straight on the lap
-// reaches 180.
-//
-// **This is the warm one, and it is no longer the plain one.**
-//
-// It was, and that was the problem. Round one of a cup teaches the vocabulary —
-// three laps, four strips, one gravel cut, no surface hazard on the racing line
-// — and a critic who played all four rounds found that the *other three* had
-// nothing on top of that vocabulary either. Four courses, one grammar, four
-// colour grades.
-//
-// So round one keeps the job of being legible and gains one thing of its own:
+// *Width follows speed*: 30m across the start line where the pack fans out,
+// 19m at Digger's Elbow, 22-26m through the drift corners. And *nothing is
+// dead straight for longer than the run to the first corner* — that run **is**
+// the pit straight, at 280 metres from the line, and no other straight on the
+// lap reaches 330.
 //
 // ── THE SPLIT ──────────────────────────────────────────────────────────────
 //
@@ -82,80 +91,104 @@
 // punishes being alongside, the mountain's washout punishes landing badly, and
 // this punishes still being in the middle at turn-in. See `features.patches`,
 // and `SurfacePatchDef.style` for why an island is built rather than spilled.
+//
+// ── and why the last boost strip moved ─────────────────────────────────────
+//
+// It used to sit 44 metres before the start line on the inside lateral, which
+// is exactly where `track/index.ts` parks the back row of the grid — so
+// `sample()` returned `'boost'` for a stationary kart under the lights, and
+// the flag handed the whole field a free `pad` shove on the *same frame*
+// `evaluateStart` graded the rocket start. `node tools/countdown.mjs` printed
+// it as a standing WARN on every run. The strip is now on the exit of the Long
+// Left, four hundred and seventy metres upstream of the line, and the last
+// eighty metres of road before the chequer are plain tarmac.
 
 import { loopFromWaypoints } from './path.ts';
 import { ring } from './ring.ts';
 import type { CourseDefEx } from './types.ts';
 
 /**
- * The ring, driven east from the start/finish line at (-206, 254).
+ * The ring, driven east from the exit of the Grader Sweep.
  *
  * `run` is a straight in metres; `radius`/`turn` is a constant-radius arc, and
  * a negative turn goes right. `width` and `y` are what the road *becomes* by
  * the end of the segment, so a corner and its run-in declare the same width and
- * the pinch arrives with the corner. Turns sum to -360 and the closure is
- * adjusted across the straights — see `ring.ts`.
+ * the pinch arrives with the corner. Turns sum to -360 and the ring closes to
+ * within a tenth of a metre before `ring.ts`'s adjuster is asked for anything —
+ * the two legs and the two chutes were solved against the closure rather than
+ * nudged at, which is why `legs()` reports an adjustment of 0.0 on every
+ * straight on this circuit.
  */
 const RING = ring(
-  { x: -206, z: 254, heading: 0, y: 0, width: 30 },
+  { x: -173, z: -8, heading: 0, y: 0, width: 26 },
   [
-    // The pit straight. 250m from the line to the braking board — 330m of
-    // uninterrupted road once the run out of Cone Corner is counted — and the
+    // Out of the Grader Sweep and onto the line. The chequer is 60 metres into
+    // the pit straight, so this and the two kinks below are the *approach* —
+    // the last thing a player sees before the lap resets.
+    { run: 130, width: 26, y: 0.6, name: 'r9' },
+    { radius: 120, turn: 20, width: 27, y: 0.9, name: 'T9 WEIGH KINK' },
+    { run: 60, width: 28, y: 1.2, name: 'r9b' },
+    { radius: 120, turn: -20, width: 30, y: 1.6, name: 'T10 CONE CORNER' },
+    // The pit straight. 280 metres from the line to the braking board and the
     // widest tarmac on the circuit, with a mesa parked on its vanishing point.
-    { run: 190, width: 30, y: 0.5, name: 'PIT STRAIGHT' },
-    { run: 60, width: 25, y: 1, name: 'BRAKING BOARD' },
-    // T1. **The braking point that was missing.** A 330-metre straight whose
-    // first corner is taken flat has nothing at the end of it — no braking, no
-    // overtaking, nowhere to lay a drift. This is 50 metres of radius held
-    // through 160 degrees, arrived at flat out.
-    { radius: 50, turn: -160, width: 24, y: 4, name: 'T1 HI-VIS RIGHT' },
-    { run: 130, width: 26, y: 8, name: 'r1' },
-    { radius: 58, turn: 80, width: 25, y: 13, name: 'T2 THE KINK' },
-    { run: 175, width: 25, y: 16, name: 'r2' },
-    // T3. The vertical here is deliberate and deliberately *just* short of a
-    // jump: +7% into the crest, -9% out of it. At the speed this arrives at
+    { run: 340, width: 25, y: 2.4, name: 'PIT STRAIGHT' },
+    // T1. **The braking point.** A 340-metre straight whose first corner is
+    // taken flat has nothing at the end of it — no braking, no overtaking,
+    // nowhere to lay a drift. This is 52 metres of radius held through 90
+    // degrees, arrived at flat out.
+    { radius: 52, turn: -90, width: 22, y: 5, name: 'T1 HI-VIS RIGHT' },
+    { run: 118, width: 20, y: 8, name: 'r1' },
+    // T2. The tightest corner on the circuit and the only one under 40 metres.
+    // 19m of road, and the gravel cut is on its apex.
+    { radius: 34, turn: -90, width: 19, y: 10, name: 'T2 DIGGERS ELBOW' },
+    // The north leg. Two 322-metre runs with a jog between them, which is what
+    // stops this side of the circuit being one 700-metre straight.
+    { run: 322, width: 26, y: 17, name: 'r2' },
+    // T3/T4. The vertical here is deliberate and deliberately *just* short of a
+    // jump: +5% into the crest, -4% out of it. At the speed this arrives at
     // that unloads most of the kart's weight for the length of a car — the road
-    // goes light, the camera lifts — and puts none of it in the air. Sharper
-    // reads as a ramp, and a ramp mid-corner is a wreck; the brow was flattened
-    // from 22m to 19m when the corner under it came down from 100m of radius to
-    // 66, because a tight corner and a big unload in the same hundred metres is
-    // two set pieces fighting.
-    { radius: 66, turn: -110, width: 24, y: 19, name: 'T3 CONE CREST' },
-    { run: 71, width: 26, y: 15, name: 'r3' },
-    // The one corner on the lap that is genuinely flat out and still has to be
-    // aimed. Every circuit needs one; this is it.
-    { radius: 126, turn: 52, width: 26, y: 11, name: 'T4 RIMROCK SWEEP' },
-    { run: 146, width: 24, y: 7, name: 'r4' },
-    // T5. The signature. 152 metres of 47-metre radius, which is a shade under
+    // goes light, the camera lifts — and puts none of it in the air. The jog
+    // steps the leg out to the canyon rim, which is why the crest is on it.
+    { radius: 120, turn: -22, width: 24, y: 26, name: 'T3 CONE CREST' },
+    { run: 65, width: 24, y: 24, name: 'r3' },
+    { radius: 120, turn: 22, width: 26, y: 20, name: 'T4 RIMROCK SWEEP' },
+    { run: 322, width: 24, y: 12, name: 'r4' },
+    { radius: 60, turn: -70, width: 24, y: 8, name: 'T5 THE NOTCH' },
+    { run: 261, width: 24, y: 4, name: 'r5' },
+    // T6. The signature. 152 metres of 47-metre radius, which is a shade under
     // three seconds at the speed it is taken — a purple needs about one — and
     // it never changes radius, so the drift laid at turn-in is the drift that
     // comes out the far side.
     //
-    // **And it is now a divided carriageway** — see `features.patches` below.
-    // 24 metres rather than 21, which looks like a violation of *width follows
+    // **And it is a divided carriageway** — see `features.patches` below. 24
+    // metres rather than 21, which looks like a violation of *width follows
     // speed* and is the opposite of one: the corner is split lengthways by a
     // raised island, so what a kart actually drives is a 12.7-metre inside lane
-    // or a 8.2-metre outside lane, and **both of those are narrower than the
-    // 21 metres this corner used to be**. The extra three metres buy the second
-    // lane; nobody gets a wider road out of it. It was briefly 26 and the drift
-    // census caught it: a wider corner is a shallower line through the same
-    // radius, and tier-3 mini-turbos across the field fell from 68 to 56.
-    { radius: 47, turn: -185, width: 24, y: 4, name: 'T5 THE CAROUSEL' },
-    { run: 147, width: 24, y: 1, name: 'r5' },
-    { radius: 52, turn: 140, width: 24, y: -2, name: 'T6 THE LONG LEFT' },
-    { run: 52, width: 20, y: -5, name: 'r6' },
-    { radius: 32, turn: -170, width: 19, y: -7, name: 'T7 DIGGERS ELBOW' },
-    { run: 169, width: 24, y: -6, name: 'r7' },
-    { radius: 60, turn: 139, width: 25, y: -2, name: 'T8 THE NOTCH' },
-    { run: 63, width: 26, y: 0, name: 'r8' },
-    { radius: 46, turn: -146, width: 26, y: 0, name: 'T10 CONE CORNER' },
-    { run: 80, width: 30, y: 0, name: 'r10' },
+    // or an 8.2-metre outside lane, and **both of those are narrower than the
+    // 21 metres this corner would otherwise be**.
+    { radius: 47, turn: -185, width: 24, y: 1, name: 'T6 THE CAROUSEL' },
+    { run: 90, width: 24, y: 0.4, name: 'r6' },
+    { radius: 52, turn: 50, width: 26, y: 0.4, name: 'T7 THE LONG LEFT' },
+    { run: 120, width: 26, y: 0.5, name: 'r7' },
+    // The one corner on the lap that is genuinely flat out and still has to be
+    // aimed. Every circuit needs one; this is it.
+    { radius: 150, turn: 25, width: 26, y: 0.6, name: 'T8 GRADER SWEEP' },
   ],
   { step: 14 },
 );
 
-/** Metres from the ring's origin to the start/finish line. */
-const START = 0;
+/**
+ * Metres from the ring's origin to the start/finish line — sixty metres into
+ * the pit straight.
+ *
+ * **The grid is what this number is for.** `track/index.ts` puts the eight
+ * slots at `startDistance - (12 + row * 8)`, so the back row stands 47 metres
+ * behind the chequer and the intro formation rolls in from eleven metres
+ * further back again. All of that has to land on plain, level, straight tarmac
+ * — and it does: the pit straight begins 60 metres before the line, so the
+ * whole grid sits on it with 213 metres to spare.
+ */
+const START = 334;
 /** Lap fraction of a fraction of the way along a named segment. */
 const on = (name: string, along = 0.5): number =>
   ((RING.distanceAlong(name, along) - START) / RING.length + 1) % 1;
@@ -188,28 +221,35 @@ export const coneCanyon: CourseDefEx = {
   checkpoints: 32,
 
   features: {
-    // Four strips, and none of them on the pit straight — a boost pad where the
+    // Five strips, and none of them on the pit straight — a boost pad where the
     // kart is already at terminal velocity is decoration. Each one is laid on
     // the way *out* of a corner you had to work for, so the pad is the payment
     // for the drift rather than a thing you drive over.
+    //
+    // **And none of them within eighty metres of the start line.** See `START`:
+    // the last strip on the lap now sits on the exit of the Long Left, 470
+    // metres upstream of the chequer, because the one that used to sit 44
+    // metres before it was standing under the back row of the grid.
     pads: [
-      { at: on('r1', 0.45), lateral: -0.32, width: 5.5, length: 20 },
+      // Out of Digger's Elbow — the tightest corner on the circuit, and the
+      // one you have just given up a third of your speed for.
+      { at: on('r2', 0.14), lateral: -0.32, width: 5.5, length: 20 },
       // **The outside lane's payment.** Laid past the end of the island, on the
       // Carousel's exit, at the lateral the *outer* line comes off at — so it
       // is collected by a kart that committed to the long way round and missed
       // by one that took the apex. Without it the split is not a split: the
       // inside lane is shorter, and a choice between short and long with
       // nothing else on the table is not a choice.
-      { at: on('T5 THE CAROUSEL', 0.93), lateral: 0.66, width: 5.5, length: 20 },
-      { at: on('r5', 0.35), lateral: 0.30, width: 5.5, length: 22 },
-      { at: on('r7', 0.30), lateral: 0.30, width: 5.5, length: 18 },
-      { at: on('r10', 0.45), lateral: -0.32, width: 5.5, length: 22 },
+      { at: on('T6 THE CAROUSEL', 0.93), lateral: 0.66, width: 5.5, length: 20 },
+      { at: on('r6', 0.55), lateral: -0.30, width: 5.5, length: 22 },
+      { at: on('r4', 0.18), lateral: 0.30, width: 5.5, length: 22 },
+      { at: on('r7', 0.35), lateral: -0.32, width: 5.5, length: 22 },
     ],
     // Digger's Elbow. Cutting the inside gravel saves about 25 metres and costs
     // you a third of your top speed while you are on it — worth it out of a
     // mini-turbo, a disaster from a standing start. `side: -1` is the driver's
     // right, which is the apex of this right-hander; see `ShortcutDef`.
-    shortcuts: [{ from: on('T7 DIGGERS ELBOW', 0.12), to: on('T7 DIGGERS ELBOW', 0.88), side: -1 }],
+    shortcuts: [{ from: on('T2 DIGGERS ELBOW', 0.12), to: on('T2 DIGGERS ELBOW', 0.88), side: -1 }],
 
     // ── THE SPLIT: round one's signature, and the only fork in the cup ──────
     //
@@ -231,16 +271,13 @@ export const coneCanyon: CourseDefEx = {
     // flanks. See `SurfacePatchDef`. The band sits on the driver's **left**
     // (the spline's `+`), which is the outside of this right-hander: the worn
     // line runs at about -0.76 of the half width through here, so the island is
-    // clear of it by four metres and nothing has to swerve for it. That is the
-    // point — an island a CPU driver ploughs into every lap is not a choice,
-    // it is a bug with a kerb on it.
+    // clear of it by four metres and nothing has to swerve for it.
     //
     // Clipping it is `dirt`: 70% of top speed, recoverable, and quite enough to
-    // decide a place. It is the one hazard in the cup that punishes *indecision*
-    // rather than braking late or being overtaken.
+    // decide a place.
     patches: [
       {
-        from: on('T5 THE CAROUSEL', 0.18), to: on('T5 THE CAROUSEL', 0.86),
+        from: on('T6 THE CAROUSEL', 0.18), to: on('T6 THE CAROUSEL', 0.86),
         latFrom: 0.06, latTo: 0.32, surface: 'dirt', style: 'island',
       },
     ],
@@ -256,19 +293,12 @@ export const coneCanyon: CourseDefEx = {
     // every CPU driver in the field is on. They sit there for three seconds
     // while the loader gets to them, and then the lane is open again.
     //
-    // That is the whole design of round one's signature finally closing: the
-    // outside lane is longer, emptier and has the boost strip on its exit, and
-    // now it is also *the one that is always there*. You commit at turn-in, a
-    // hundred and fifty metres before the apex — which is exactly where the
-    // sign's lamps are, and exactly why they are lit two seconds before a rock
-    // is released rather than as it lands.
-    //
     // Seventeen seconds against a fifty-second lap, so the corner is never in
     // the same state twice in a race. The rocks are the canyon's own terracotta
     // (`tint`), because a hazard has to look like it came from the place it
     // fell out of.
     hazards: [{
-      at: on('T5 THE CAROUSEL', 0.52), kind: 'rockfall', period: 17, phase: 0.1,
+      at: on('T6 THE CAROUSEL', 0.52), kind: 'rockfall', period: 17, phase: 0.1,
       // A shade lighter than the cliff it comes off. Flat-shaded rock in flight
       // has most of its faces turned away from the sun, and at the declared
       // 0xa05a33 the three boulders photographed as black holes in a bright
@@ -276,10 +306,10 @@ export const coneCanyon: CourseDefEx = {
       lateral: -0.55, hit: 'spin', lead: 2.0, signAt: 120, tint: 0xbe7644,
     }],
 
-    // Raised from 0.005. Eight corners run 1/32 to 1/66 of curvature and the
-    // Rimrock Sweep runs 1/126, so a threshold at 1/125 puts a rumble strip on
-    // everything a player brakes for and leaves the one flat-out sweeper clean.
-    kerbCurvature: 0.008,
+    // Eight corners run 1/34 to 1/120 of curvature and the Grader Sweep runs
+    // 1/150, so a threshold at 1/120 puts a rumble strip on everything a player
+    // brakes for and leaves the one flat-out sweeper clean.
+    kerbCurvature: 0.0083,
 
     // The canyon the course is named after. The rim starts 165m off the
     // shoulder — clear of the circuit, close enough to stand over it — and four
@@ -292,21 +322,21 @@ export const coneCanyon: CourseDefEx = {
       rimHeight: 105,
       landmarks: [
         // Dead ahead down the pit straight, and the reason that straight is
-        // worth 250 metres: you spend all of it driving at a mesa.
-        { x: 760, z: 252, radius: 260, height: 140, kind: 'mesa' },
+        // worth 280 metres: you spend all of it driving at a mesa.
+        { x: 1080, z: 27, radius: 250, height: 140, kind: 'mesa' },
+        // At the far end of the north leg's second run, so the fastest 320
+        // metres of the lap is aimed at something.
+        { x: -900, z: -135, radius: 270, height: 145, kind: 'mesa' },
         // Beyond the Carousel, so the horseshoe has a wall behind it and the
         // exit has something to be aimed at.
-        { x: -240, z: -880, radius: 300, height: 150, kind: 'mesa' },
-        // Over Digger's Elbow, at the far west end of the lap.
-        { x: -1010, z: -260, radius: 280, height: 145, kind: 'mesa' },
-        // A needle east of the climb, which is what the Kink and the Crest are
-        // driven at. It used to stand in the middle of the ring — the old
-        // layout had four hundred metres of empty desert in there — and this
-        // one wraps tighter: the widest gap anywhere inside it is 118 metres,
-        // and `terrain.ts` will not let a landform *start* rising until it is
-        // `rimStart * 0.7` clear of the road. A hero placed in there would have
-        // had its foot inside the barriers and its shape multiplied by zero.
-        { x: 470, z: -110, radius: 130, height: 96, kind: 'spire' },
+        { x: -720, z: 500, radius: 300, height: 155, kind: 'mesa' },
+        // A needle south of the run into Digger's Elbow — the only landform on
+        // this circuit you drive *at* rather than past, and the braking marker
+        // for the tightest corner here. Placed clear of the barriers: the
+        // south leg passes 470 metres north of its footprint, and `terrain.ts`
+        // will not let a landform start rising until it is `rimStart * 0.7`
+        // clear of the road.
+        { x: 467, z: -650, radius: 160, height: 105, kind: 'spire' },
       ],
     },
   },

@@ -9,3 +9,4 @@ clips2/
 # Agent scratch probes — builders write these to measure one thing and move on.
 # They are debris, not tooling; anything worth keeping goes in tools/.
 *.local.mjs
+*-tmp.mjs

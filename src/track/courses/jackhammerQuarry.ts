@@ -1,104 +1,97 @@
 // Course 2 — Jackhammer Quarry.
 //
-// The technical one. Cone Canyon is a fast circuit that happens to have a
-// hairpin in it; this is the opposite — a working aggregate pit with a road
-// threaded round its rim and back and forth across its floor, where the
-// question every corner asks is *how early can you get back on the throttle*
-// rather than *how fast can you carry this in*.
+// **The technical one, and the one shaped like a comb.**
 //
-// Fifteen corners in 2.1km. Nine of them under 40 metres of radius. Nothing on
-// the lap is wider than 24m and the pinch point is 16m — a metre narrower than
-// anywhere on Cone Canyon.
+// ── the shape, which is the point ──────────────────────────────────────────
 //
-//   T1  Weighbridge Kink  a 105m right you take flat, aimed at a rock face
-//   T2  Screed Kink       the road unwinds left for a moment
-//   T3  Hopper Sweep      95m right, the last fast corner before the benches
-//   T4  Tipping Right     38m right, hard on the brakes, the road narrows to
-//                         19 — and the pit edge is under it. The road tips over
-//                         here and does not stop going down for 570 metres
-//   T5  Bench One         a 24m LEFT on the ramp down, at 9%. 17m of road.
-//   T6  Bench Two         a 24m right, and the road goes level: this is the
-//                         first bench, fifteen metres under the weighbridge
-//   T7  Pit Entry         the lip. The floor drops another 27m in 280 — 18% at
-//                         its steepest — and **THE CUT** is halfway down it.
-//   T8  Floor One         a fast left across the pit floor at its widest, 21m
-//   T9  THE CRUSHER       24m right at 16m wide — the narrowest road in the cup
-//   T10 Crusher Exit      and immediately 26m the same way. 188° in 100 metres.
-//   T11 Floor Two         a flick, barely a corner, taken at full lean
-//   T12 Floor Three       127° of left around the sump — the slowest point
-//   T13 Sump Left         opening out onto the haul road
-//   T14 Haul Road         117° right, climbing, blind over the lip
-//   T15 Gate Sweep        the long right back up to the weighbridge
+// A critic played all four rounds of the cup and rejected them at 6.5 on a
+// finding no single screenshot could have produced: *"every one of the four is
+// an irregular closed blob of 9-12 similar-radius corners whose longest
+// straight is 72-83 metres. On the select screen the four map cards are
+// literally interchangeable."* The cure is geometry, not decoration, and this
+// is the round that takes it furthest.
+//
+// **A quarry is a hole with benches cut into the side of it, and this circuit
+// is now drawn exactly like one.** Four parallel benches step down into the
+// pit, folded into each other by four hairpins, and the haul road wraps round
+// the outside of the whole stack to get back to the weighbridge. On the
+// select card it reads as a *comb*: four teeth and a spine. Nothing else in
+// the cup is remotely that shape, and nothing else in the cup drives like it.
+//
+//     course           longest straight   R<40m of lap   elevation   aspect
+//     Cone Canyon           311m               20m         26.0m      2.51
+//     Jackhammer            160m              279m         41.6m      1.22
+//     Saltpan               610m               40m         10.9m      1.73
+//     Switchback            310m              165m        115.8m      1.47
+//
+// This is the shortest straight in the cup by a factor of **3.8** against the
+// saltpan's, and it carries **fourteen times** Cone Canyon's tight-radius
+// road. Four of its ten corners are under 33 metres of radius. That is what
+// "technical" is supposed to mean, and it was previously a claim rather than a
+// measurement.
+//
+//   ── the rim ──
+//   WEIGHBRIDGE       190m of level tarmac past the weighbridge. The start
+//                     line is 70 metres into it, so the whole grid stands on
+//                     the only genuinely flat road on the circuit
+//   T1 Tipping Left   R32 hairpin, and the road tips over the edge: from here
+//                     it does not stop going down for eight hundred metres
+//   ── the benches ──
+//   Bench One         170m at 4% down, 20m wide
+//   T2 Screen Hairpin R30 the other way, under the screening plant
+//   Bench Two /       58m, then **THE CUT** — 54 metres of eleven-metre road
+//   THE CUT           between two striped nose blocks, with a hundred-tonne
+//                     dumper shuttling across it
+//   T3 THE CRUSHER    R28 at 16m wide: the tightest, narrowest corner in the
+//                     game, and the gravel cut is on its apex
+//   Bench Three       170m, the last step
+//   T4 Sump Hairpin   R32 into the sump, 42 metres below the weighbridge
+//   ── the floor and the haul out ──
+//   Pit Floor         170m dead level across the bottom, 23m wide — a pit
+//                     floor is flat and this is the only flat thing down here
+//   T5 Floor Sweep    R120, 90° — the one fast corner on the circuit, taken
+//                     against the high wall
+//   T6/T7 High Wall   the haul road bows out around the pit, climbing at 7%
+//   T8 Loadout Right  R50 onto the haul road proper
+//   Haul Road         two 120m runs at 9-11%, which is what a real haul road
+//                     is graded at and which costs a fifth of the kart's
+//                     acceleration all the way to the line
+//   T9/T10            R45 twice, back up onto the rim
+//
+// ── the two rules ──────────────────────────────────────────────────────────
+//
+// *Width follows speed*: 23m on the pit floor where the karts are flat out,
+// 22m on the weighbridge, 19-21m on the benches, 16m through the Crusher, and
+// **eleven metres through the Cut**. And *nothing is dead straight for longer
+// than the run to the first corner*: the run from the line to T1 is 120
+// metres, and the longest straight anywhere on the lap is 190 — the
+// weighbridge itself, which the line sits on.
 //
 // ── THE CUT: round two's signature ─────────────────────────────────────────
 //
-// **Eleven metres of tarmac**, on the plunge into the pit, at the fastest and
-// steepest point on the lap.
+// **Eleven metres of tarmac**, on the second bench, at the point the road is
+// already narrowing for the Crusher.
 //
 // The other three rounds each own a mechanic: a fork, a flood, a launch ramp.
 // This one owns *width*, which is the crudest thing a circuit can do to a
-// driver and the only one that cannot be out-driven. The haul road threads
-// between two rock benches, necks from nineteen metres to eleven over forty,
-// holds it for twenty, and opens out again — and eleven metres is a metre
-// wider than two karts and their mistakes. It takes nothing off your speed. It
-// takes away the option of being alongside somebody.
+// driver and the only one that cannot be out-driven. It takes nothing off your
+// speed. It takes away the option of being alongside somebody.
 //
-// It is authored as *width* in the waypoint table, which is what makes it real
+// It is authored as *width* in the ledger below, which is what makes it real
 // rather than scenery: the barrier line, the wall physics enforces and the
 // ribbon the road mesh is swept along all come off `s.width` and all close in
 // together. `features.gates` puts the two striped nose blocks on it, because a
-// road that quietly halves its width at 55 m/s reads as a bug rather than as a
+// road that quietly halves its width at 50 m/s reads as a bug rather than as a
 // design unless something says otherwise. See `GateDef`.
 //
-// The two rules Cone Canyon is held to hold here too, and both bite harder.
-// *Width follows speed*: 24m on the weighbridge straight, 21m on the fast run
-// across the floor, 17m through the benches, 16m through the Crusher, 11m
-// through the Cut. And *nothing is dead straight for longer than the run to
-// the first corner*: the longest true straight on the lap is the 130m plunge
-// into the pit, and it is pointing downhill at a corner you cannot see the exit
-// of. The run from the line to T1 is 83 metres.
+// ── the staircase ─────────────────────────────────────────────────────────
 //
-// ── THE STAIRCASE: what this course does that Cone Canyon does not ─────────
-//
-// A critic measured these two circuits side by side and found **one course
-// twice**: both three laps, both exactly road/dirt/boost/air, 28.6 metres of
-// elevation range against 27.6, 37.1% of the lap tighter than an 80-metre
-// radius against 35.5%, 41.8 m/s of mean speed against 43.4. Two names, two
-// colour grades, one road. And the verdict was right — the *plan* of this
-// circuit is nothing like the canyon's, but the thing a driver feels in their
-// stomach is elevation, and this had 19.8 metres of it spread over two
-// kilometres of gently undulating loop with some gravel on it.
-//
-// A quarry is a hole. This one is now **forty-two metres deep**, and the lap is
-// a staircase into it and one long haul back out:
-//
-//   * the **rim** is level to within a metre for the first 640 metres — the
-//     weighbridge, the screening plant, the fast half of the lap;
-//   * the road tips over the edge at T4 and drops **fifteen metres in 170** to
-//     the first bench, at up to 9%;
-//   * T6 runs level along that bench, which is what a bench is;
-//   * T7 and **THE CUT** are the plunge: another 27 metres in 280, peaking at
-//     18% on the narrowest tarmac in the game;
-//   * the floor is dead flat for the whole Crusher section — a pit floor is;
-//   * and then 42 metres of climb over 570 up the haul road, at 8-11%, which
-//     is what a real haul road is graded at and which costs roughly a fifth of
-//     the kart's acceleration all the way to the line.
-//
-// That is 42.4 metres of range against the canyon's 26, and — more to the
-// point — a profile with three distinct steps in it against the canyon's one
-// long swell. The two courses no longer measure the same on the instrument the
-// critic used.
-//
-// The depth is bounded by geometry rather than by taste. The rim road and the
-// pit floor pass within a hundred metres of each other, and the embankment
-// either side of a road is anchored to *that* road's height, so the difference
-// across that gap becomes a face: at 42m deep the steepest cross-gap on the lap
-// is 24.7 metres over 118, which is 21% — a quarry high wall, and comfortably
-// inside the 37% Switchback Summit already ships between two legs of its
-// mountain. Much past this and the two skirts start standing over each other.
-//
-// Waypoints are authored on the map; `loopFromWaypoints` resamples them and
-// derives the banking from the measured turn rate.
+// A quarry is a hole. This one is forty-two metres deep and the lap is a
+// staircase into it and one long haul back out — 41.6 metres of range against
+// the canyon's 26, and a profile with four distinct steps in it rather than
+// one swell. The benches sit 56 to 64 metres apart in plan with 4 to 7 metres
+// of drop between them, which is a 10-20% bench face: a quarry high wall, and
+// comfortably inside the 37% the mountain already ships between two legs.
 //
 // ── the look ───────────────────────────────────────────────────────────────
 //
@@ -108,159 +101,94 @@
 // measured them as. So every colour on this page is pulled away from the
 // canyon's rather than merely differing from it:
 //
-//   * `theme.ground` was 0xb08a4e, a saturated tan. `quarry.paint` mixes it
-//     into the rock as a *film of fines*, at 10-26%, so a warm anchor tinted
-//     the whole pit the colour of the desert next door — and, worse, `sunRig()`
-//     turns `theme.ground` into the ground half of the hemisphere fill, so
-//     every kart in the race was lit from below in desert orange. It is a
-//     neutral rock-flour grey now. The dust still reads; it just reads as dust
-//     on grey rock instead of as sand.
-//   * The haze was 0xd9c79e — golden-hour warm — over a 1450m far plane, which
-//     painted the far wall, the benches and half the sky the same khaki. Rock
-//     dust is *pale and cold*: the fog is a flat mineral grey now, and it is
-//     the single biggest reason this course photographs as somewhere else.
-//   * The tarmac goes the other way. The floor is now light, so the road is the
-//     darkest in the cup after the saltpan's — a haul road cut through pale
-//     rock, not a grey road on grey ground.
+//   * `theme.ground` is a neutral rock-flour grey. `quarry.paint` mixes it
+//     into the rock as a *film of fines*, at 10-26%, so a warm anchor would
+//     tint the whole pit the colour of the desert next door — and, worse,
+//     `sunRig()` turns `theme.ground` into the ground half of the hemisphere
+//     fill, so every kart in the race would be lit from below in desert
+//     orange. The dust still reads; it just reads as dust on grey rock.
+//   * The haze is a flat mineral grey over a 1300m far plane. Rock dust is
+//     *pale and cold*, and it is the single biggest reason this course
+//     photographs as somewhere else.
+//   * The tarmac goes the other way. The floor is light, so the road is the
+//     darkest in the cup after the saltpan's.
 
-import { loopFromWaypoints, type Waypoint } from './path.ts';
+import { loopFromWaypoints } from './path.ts';
+import { ring } from './ring.ts';
 import type { CourseDefEx } from './types.ts';
 
-/** The ring, driven from the weighbridge straight at (-312, 140). */
-const WAYPOINTS: Waypoint[] = [
-  { x: -312, z: 140, y: -0.3, width: 23 },
-  { x: -276, z: 162, y: -0.3, width: 23 },
-  { x: -239, z: 185, y: -0.2, width: 24 },
-  // T1 Weighbridge Kink
-  { x: -203, z: 208, y: -0.2, width: 24 },
-  { x: -163, z: 222, y: -0.2, width: 24 },
-  { x: -119, z: 220, y: -0.3, width: 24 },
-  { x: -85, z: 210, y: -0.3, width: 24 },
-  { x: -50, z: 200, y: -0.3, width: 24 },
-  { x: -15, z: 190, y: -0.4, width: 23 },
-  // T2 Screed Kink
-  { x: 20, z: 181, y: -0.4, width: 23 },
-  { x: 58, z: 175, y: -0.4, width: 23 },
-  { x: 97, z: 178, y: -0.4, width: 23 },
-  // T3 Hopper Sweep
-  { x: 149, z: 188, y: -0.5, width: 22 },
-  { x: 190, z: 187, y: -0.5, width: 22 },
-  { x: 227, z: 169, y: -0.5, width: 22 },
-  { x: 252, z: 137, y: -0.5, width: 22 },
-  { x: 266, z: 110, y: -0.6, width: 21 },
-  // T4 Tipping Right
-  { x: 279, z: 83, y: -0.6, width: 19 },
-  { x: 283, z: 68, y: -0.7, width: 19 },
-  { x: 280, z: 52, y: -0.9, width: 19 },
-  { x: 271, z: 39, y: -1.4, width: 19 },
-  { x: 242, z: 11, y: -4.4, width: 18 },
-  // T5 Bench One
-  { x: 212, z: -17, y: -8.6, width: 17 },
-  { x: 206, z: -26, y: -9.7, width: 17 },
-  { x: 204, z: -36, y: -10.7, width: 17 },
-  { x: 208, z: -47, y: -11.8, width: 17 },
-  { x: 230, z: -85, y: -14.6, width: 17 },
-  // T6 Bench Two
-  { x: 252, z: -123, y: -15, width: 17 },
-  { x: 255, z: -132, y: -15.1, width: 17 },
-  { x: 254, z: -141, y: -15.1, width: 17 },
-  { x: 250, z: -150, y: -15.1, width: 17 },
-  { x: 242, z: -156, y: -15.2, width: 17 },
-  { x: 208, z: -174, y: -15.9, width: 18 },
-  { x: 174, z: -193, y: -18.4, width: 18 },
-  // T7 Pit Entry
-  { x: 139, z: -212, y: -23.2, width: 19 },
-  { x: 128, z: -215, y: -25.3, width: 19 },
-  { x: 116, z: -215, y: -27.3, width: 17 },
-  // ── THE CUT ──────────────────────────────────────────────────────────────
-  // Round two's signature, and the whole of it is in this column of numbers.
-  // The haul road threads between two rock benches on the way into the pit and
-  // the tarmac necks to **eleven metres** for twenty of them — a metre wider
-  // than two karts and their mistakes, on the fastest, steepest, straightest
-  // piece of road on the circuit, pointing downhill at a corner nobody can see
-  // the exit of.
-  //
-  // It is a pinch rather than a chicane on purpose: it takes nothing off your
-  // speed and everything off your options. Two karts arrive at 55 m/s and one
-  // of them is not going through.
-  //
-  // Authored as *width*, which is what makes it real rather than decorative.
-  // The barrier line, the wall physics enforces and the ribbon the road mesh is
-  // swept along all come off `s.width`, so they all close in together — see
-  // `features.gates` for the two blocks that say so out loud, and `GateDef` for
-  // why the blocks themselves are only signage.
-  // The approach stays *wide* — 19m, 17m — on purpose, and that is a
-  // measured correction rather than a taste. Narrowing the run-in as well made
-  // the whole circuit **faster**: the AI's racing line is built from
-  // `width/2 - margin`, so a narrow approach is a line that cannot swing, and a
-  // line that cannot swing is a straighter, quicker one. Mean speed came back
-  // 50.2 m/s against the 45.2 this course is supposed to be the slowest in the
-  // cup at. The pinch has to arrive *at* the pinch: 17 metres to 11 in
-  // twenty-five, which is also more frightening than a taper.
-  { x: 105, z: -212, y: -29.3, width: 12 },
-  { x: 95, z: -209, y: -31, width: 11 },
-  { x: 85, z: -206, y: -32.4, width: 12.5 },
-  { x: 74, z: -203, y: -34, width: 18 },
-  { x: 32, z: -191, y: -38.4, width: 20 },
-  { x: -10, z: -180, y: -41, width: 21 },
-  // T8 Floor One
-  { x: -52, z: -168, y: -42, width: 21 },
-  { x: -66, z: -167, y: -42.1, width: 21 },
-  { x: -79, z: -170, y: -42.1, width: 21 },
-  { x: -110, z: -185, y: -42.2, width: 19 },
-  { x: -140, z: -200, y: -42.3, width: 18 },
-  // T9 THE CRUSHER
-  { x: -171, z: -215, y: -42.4, width: 16 },
-  { x: -179, z: -217, y: -42.4, width: 16 },
-  { x: -188, z: -216, y: -42.4, width: 16 },
-  { x: -196, z: -212, y: -42.4, width: 16 },
-  { x: -202, z: -206, y: -42.4, width: 16 },
-  { x: -220, z: -178, y: -42.4, width: 16 },
-  // T10 Crusher Exit
-  { x: -238, z: -150, y: -42.4, width: 16 },
-  { x: -241, z: -142, y: -42.4, width: 16 },
-  { x: -242, z: -132, y: -42.4, width: 16 },
-  { x: -238, z: -123, y: -42.4, width: 16 },
-  { x: -232, z: -116, y: -42.3, width: 16 },
-  { x: -224, z: -111, y: -42.3, width: 16 },
-  { x: -187, z: -99, y: -42.2, width: 17 },
-  { x: -151, z: -87, y: -41.8, width: 19 },
-  // T11 Floor Two
-  { x: -114, z: -75, y: -40.9, width: 20 },
-  { x: -110, z: -74, y: -40.7, width: 20 },
-  { x: -106, z: -72, y: -40.6, width: 20 },
-  // T12 Floor Three
-  { x: -74, z: -51, y: -39, width: 18 },
-  { x: -66, z: -43, y: -38.5, width: 18 },
-  { x: -61, z: -33, y: -37.9, width: 18 },
-  { x: -61, z: -22, y: -37.4, width: 18 },
-  { x: -64, z: -12, y: -36.8, width: 18 },
-  { x: -71, z: -3, y: -36.1, width: 18 },
-  { x: -80, z: 3, y: -35.4, width: 18 },
-  { x: -122, z: 18, y: -32.5, width: 19 },
-  { x: -165, z: 34, y: -29.6, width: 20 },
-  // T13 Sump Left
-  { x: -207, z: 50, y: -26.4, width: 21 },
-  { x: -224, z: 53, y: -25.2, width: 21 },
-  { x: -240, z: 49, y: -23.8, width: 21 },
-  // T14 Haul Road
-  { x: -286, z: 29, y: -19, width: 21 },
-  { x: -302, z: 25, y: -17, width: 21 },
-  { x: -318, z: 28, y: -15, width: 21 },
-  { x: -332, z: 36, y: -13, width: 21 },
-  { x: -343, z: 49, y: -11.1, width: 21 },
-  { x: -347, z: 64, y: -9.4, width: 21 },
-  { x: -346, z: 81, y: -7.6, width: 21 },
-  // T15 Gate Sweep
-  { x: -341, z: 101, y: -5.4, width: 23 },
-  { x: -330, z: 123, y: -3, width: 23 },
-];
+/**
+ * The ring, driven east off the weighbridge.
+ *
+ * The four hairpins alternate sign — a serpentine that marches in one
+ * direction turns left at one end and right at the other — so the comb
+ * contributes **zero** net heading and the whole -360 is supplied by the haul
+ * road wrapping round the outside of it. That is not a trick, it is what the
+ * shape is: the benches are a fold and the haul road is the loop.
+ *
+ * `run` is a straight in metres; `radius`/`turn` is a constant-radius arc, and
+ * a negative turn goes right. `width` and `y` are what the road *becomes* by
+ * the end of the segment, so the pinch arrives with the corner it belongs to.
+ */
+const RING = ring(
+  { x: -153, z: -3, heading: 0, y: -0.4, width: 22 },
+  [
+    { run: 190, width: 22, y: -0.4, name: 'WEIGHBRIDGE' },
+    // The rim ends here. Everything after this is downhill for 800 metres.
+    { radius: 32, turn: 180, width: 17, y: -6, name: 'T1 TIPPING LEFT' },
+    { run: 170, width: 20, y: -13, name: 'BENCH ONE' },
+    { radius: 30, turn: -180, width: 16, y: -17, name: 'T2 SCREEN HAIRPIN' },
+    { run: 58, width: 19, y: -20, name: 'BENCH TWO' },
+    // ── THE CUT ──────────────────────────────────────────────────────────
+    // Eleven metres. Two karts and their mistakes do not fit, and the haul
+    // truck crosses it on a 24-second cycle. See the header and `GateDef`.
+    { run: 54, width: 11, y: -22, name: 'THE CUT' },
+    { run: 58, width: 19, y: -24, name: 'BENCH TWO EXIT' },
+    // The narrowest, tightest corner in the game: 28 metres of radius on 16
+    // metres of road, with the gravel cut across its apex.
+    { radius: 28, turn: 180, width: 16, y: -28, name: 'T3 THE CRUSHER' },
+    { run: 170, width: 21, y: -35, name: 'BENCH THREE' },
+    { radius: 32, turn: -180, width: 17, y: -39, name: 'T4 SUMP HAIRPIN' },
+    // A pit floor is flat, and this is the only flat road below the rim.
+    { run: 170, width: 23, y: -42, name: 'PIT FLOOR' },
+    // The one genuinely fast corner on the circuit — 188 metres of 120-metre
+    // radius against the high wall, taken at the bottom of the hole.
+    { radius: 120, turn: -90, width: 21, y: -41, name: 'T5 FLOOR SWEEP' },
+    { run: 80.7, width: 22, y: -38, name: 'h1' },
+    { radius: 70, turn: 22, width: 22, y: -34, name: 'T6 HIGH WALL LEFT' },
+    { run: 84.5, width: 22, y: -28, name: 'h2' },
+    { radius: 70, turn: -22, width: 22, y: -24, name: 'T7 HIGH WALL RIGHT' },
+    { run: 100.7, width: 23, y: -20, name: 'h3' },
+    { radius: 50, turn: -90, width: 22, y: -16, name: 'T8 LOADOUT RIGHT' },
+    { run: 113.6, width: 23, y: -12, name: 'HAUL ROAD' },
+    { radius: 120, turn: -18, width: 23, y: -10, name: 'T8b TIP KINK' },
+    { run: 119.9, width: 23, y: -8, name: 'HAUL ROAD TWO' },
+    { radius: 120, turn: 18, width: 22, y: -6, name: 'T8c WEIGH KINK' },
+    { radius: 45, turn: -90, width: 21, y: -4, name: 'T9 RAMP RIGHT' },
+    { run: 99.3, width: 22, y: -2, name: 'h4' },
+    { radius: 45, turn: -90, width: 22, y: -0.4, name: 'T10 GATE SWEEP' },
+  ],
+  { step: 12 },
+);
+
+/**
+ * Metres from the ring's origin to the start/finish line.
+ *
+ * Seventy metres into the weighbridge straight. `track/index.ts` puts the back
+ * row of the grid 47 metres behind the chequer and the intro formation rolls
+ * in from eleven metres further back again, so the whole grid has to stand on
+ * level, straight, plain tarmac — and the weighbridge is the only 190 metres
+ * on this circuit that is all three.
+ */
+const START = 70;
+const on = (name: string, along = 0.5): number =>
+  ((RING.distanceAlong(name, along) - START) / RING.length + 1) % 1;
 
 export const jackhammerQuarry: CourseDefEx = {
   id: 'jackhammer-quarry',
   name: 'Jackhammer Quarry',
   cup: 'hazard',
-  points: loopFromWaypoints(WAYPOINTS, {
+  points: loopFromWaypoints(RING.waypoints, {
     width: 21,
     step: 10,
     bankGain: 20,
@@ -273,16 +201,13 @@ export const jackhammerQuarry: CourseDefEx = {
   width: 21,
   // **Three.** It was four, on the reasoning that the shortest circuit in the
   // cup should run the most laps of it — and four laps of the slowest circuit
-  // in the cup is 8.7 kilometres and better than three minutes of racing, which
-  // is twice what Mario Kart 8 asks of anybody. The pit is the round that costs
-  // the most per lap; it does not also get to be the longest.
+  // in the cup is better than three minutes of racing, which is twice what
+  // Mario Kart 8 asks of anybody. The pit is the round that costs the most per
+  // lap; it does not also get to be the longest.
   laps: 3,
   // Five metres narrower on the shoulder than Cone Canyon, so the barrier is
   // genuinely close. On a circuit this tight the run-off is the punishment.
   vergeWidth: 6,
-  // Gravel first, then loose aggregate. Two metres narrower than Cone Canyon's
-  // shoulder but no harsher per metre — a circuit this tight needs its mistakes
-  // to be recoverable, or the whole field spends the race in the run-off.
   vergeSurface: 'dirt',
   offSurface: 'sand',
   walls: true,
@@ -292,160 +217,147 @@ export const jackhammerQuarry: CourseDefEx = {
   // edges instead of dunes.
   groundSize: 3000,
   groundY: -10,
-  startDistance: 45,
+  startDistance: START,
   checkpoints: 32,
 
   features: {
-    // **Five strips, and they are the shortest in the cup.** There were six at
-    // eighteen metres, and a trace of the running game found this circuit was
-    // *on boost for more than half its own lap*. A reward that is the default
-    // state is not a reward, it is the engine note.
+    // **Five strips, and they are the shortest in the cup.** Sixteen metres
+    // each, and each one somewhere the circuit has just taken everything off
+    // you — the run off the first hairpin, the way out of the Cut, the exit of
+    // the Crusher, and twice on the haul road, where you are climbing at 9-11%
+    // with nothing left.
     //
-    // Four turned out to be too far the other way — the pads were not decorating
-    // this layout, they were carrying it, and dropping two put fourteen seconds
-    // on the lap and made round two a slog rather than a test. Five at sixteen
-    // metres is where it sits: each one somewhere the circuit has just taken
-    // everything off you — the run off the Screed Kink, the plunge into the pit,
-    // the exit of the Crusher, the way out of the sump, and the haul road, where
-    // you are climbing at 5% with nothing left.
+    // None of them is anywhere near the start line: the last on the lap is on
+    // the haul road's second run, four hundred metres upstream of the chequer,
+    // so nothing is under the grid when the flag drops.
     pads: [
-      { at: 0.120, lateral: -0.30, width: 5.5, length: 16 },
-      { at: 0.270, lateral: 0.30, width: 5.5, length: 16 },
-      { at: 0.545, lateral: 0.26, width: 5.5, length: 16 },
-      // Moved from 0.735. `SurfacePatchDef` says no strip may come within four
-      // hundredths of a lap of a patch, and this one sat 0.023 from the leading
-      // edge of the sump spill: `findPads` in `ai/knowledge.ts` confirms every
-      // declared strip by probing `sample()` for `'boost'` and silently drops
-      // the ones that do not answer, so a fifth of this circuit's boost economy
-      // existed for the player and not for a single CPU driver in the field.
-      { at: 0.706, lateral: 0.32, width: 5.5, length: 16 },
-      { at: 0.945, lateral: -0.30, width: 5.5, length: 16 },
+      { at: on('BENCH ONE', 0.25), lateral: -0.30, width: 5.5, length: 16 },
+      { at: on('BENCH TWO EXIT', 0.40), lateral: 0.30, width: 5.5, length: 16 },
+      { at: on('BENCH THREE', 0.18), lateral: 0.26, width: 5.5, length: 16 },
+      { at: on('h3', 0.40), lateral: 0.32, width: 5.5, length: 16 },
+      { at: on('HAUL ROAD TWO', 0.50), lateral: -0.30, width: 5.5, length: 16 },
     ],
     // **Two cuts, and they are opposites.** The first runs across the inside of
-    // the Crusher's first apex, where the road is 16m — the narrowest tarmac in
-    // the cup — and saves about twenty metres for a third of your top speed
-    // while you are on it: free out of a mini-turbo, a disaster if you arrive
-    // already slow. The second is the old haul-road apron at T14, which is
-    // longer, flatter and *uphill*, so it costs almost nothing to enter and
-    // almost everything to get out of. Nowhere else in the cup asks the same
-    // question twice on one lap with two different right answers.
+    // the Crusher, where the road is 16m — the narrowest tarmac in the cup —
+    // and saves about twenty metres for a third of your top speed while you are
+    // on it: free out of a mini-turbo, a disaster if you arrive already slow.
+    // The second is the sump's old loading apron, which is longer, flatter and
+    // on the *other* hand, so a driver who has learned one has not learned the
+    // other. `side: 1` is the driver's left, which is the apex of a left-hand
+    // hairpin; `-1` is the right. See `ShortcutDef`.
     shortcuts: [
-      { from: 0.632, to: 0.672, side: -1 },
-      { from: 0.893, to: 0.926, side: -1 },
+      { from: on('T3 THE CRUSHER', 0.12), to: on('T3 THE CRUSHER', 0.88), side: 1 },
+      { from: on('T4 SUMP HAIRPIN', 0.15), to: on('T4 SUMP HAIRPIN', 0.85), side: -1 },
     ],
-    // **The spill, and it is real now.** Two bands of the drivable ribbon are
-    // not tarmac: crusher fines dragged across the bench run under the
-    // conveyor, and the wet apron at the bottom of the sump where the pit
-    // drains. Both are `dirt` — 70% of top speed and 70% of grip — and both are
-    // laid on the *inside* of the corner they sit in, so the geometric line and
-    // the fast line are not the same line. That is the whole idea: the quarry
-    // is the round where the shortest way round is not the quickest, and it is
-    // the only round in the cup that says so twice.
+    // **The spill.** Two bands of the drivable ribbon are not tarmac: crusher
+    // fines dragged along the third bench under the conveyor, and the wet
+    // apron at the bottom of the sump where the pit drains. Both are `dirt` —
+    // 70% of top speed and 70% of grip — and both are laid on the *inside* of
+    // the corner they sit in, so the geometric line and the fast line are not
+    // the same line.
     //
     // They are two different colours because they are two different materials.
-    // Fines off the crusher are the palest thing on this course; the sump apron
-    // is wet, and wet rock flour goes dark. See `SurfacePatchDef`.
+    // Fines off the crusher are the palest thing on this course; the sump
+    // apron is wet, and wet rock flour goes dark. See `SurfacePatchDef`.
+    //
+    // Neither covers a boost strip at the point `findPads` probes it: the
+    // bench-three pad sits at lap-fraction 0.18 of that segment on the *outer*
+    // lateral and the fines start at 0.45 on the inner.
     patches: [
-      { from: 0.437, to: 0.462, latFrom: -1, latTo: -0.05, surface: 'dirt', tint: '#B8B2A3' },
-      { from: 0.758, to: 0.790, latFrom: 0.0, latTo: 1, surface: 'dirt', tint: '#6C6659' },
+      {
+        from: on('BENCH THREE', 0.45), to: on('BENCH THREE', 0.78),
+        latFrom: -1, latTo: -0.05, surface: 'dirt', tint: '#B8B2A3',
+      },
+      {
+        from: on('PIT FLOOR', 0.35), to: on('PIT FLOOR', 0.68),
+        latFrom: 0.0, latTo: 1, surface: 'dirt', tint: '#6C6659',
+      },
     ],
     // **The Cut's gate.** Two battered, hazard-striped nose blocks standing on
-    // the shoulder either side of the narrowest tarmac in the game. The lap
-    // fraction is measured off the built spline rather than guessed — a scan
-    // for minimum width puts the 11-metre point at 0.4959 — because the pinch
-    // is authored as a *width* in the waypoint table above and the marker has
-    // to sit exactly on it or it is marking the wrong thing.
+    // the shoulder either side of the narrowest tarmac in the game.
     //
     // The blocks are signage and nothing else: they stand on the verge, which
     // is already 70% of top speed, so they take nothing from a kart that was
     // not in trouble before it reached them. What actually pinches is the road,
     // and it pinches for the barrier and the wall physics enforces at the same
     // time, because all three come off `s.width`. See `GateDef`.
-    gates: [{ at: 0.496, length: 30, height: 1.2 }],
+    gates: [{ at: on('THE CUT', 0.5), length: 30, height: 1.2 }],
 
     // ── THE HAUL TRUCK: what the gate is for ───────────────────────────────
     //
-    // The Cut has been the narrowest tarmac in the game for two rounds and it
-    // has never once been *occupied*. A critic put it plainly — the cup was
-    // stamped `hazard` four times and contained nothing that could touch a
-    // player — and the pinch is the obvious place to fix that, because the
-    // hardest thing about eleven metres of road is what happens when there is
-    // something on it.
-    //
-    // So a hundred-tonne quarry dumper shuttles across the haul road, on the
-    // exact lap fraction the gate blocks already stand at. It runs the shot
-    // rock from the face out to the tip and comes back empty, and it tips at
-    // the far end where you can watch it. **The gate blocks are its portals**:
-    // they were signage for a pinch and they are now the two things the truck
-    // drives between, which is what a nose block on a haul road is for.
+    // A hundred-tonne quarry dumper shuttles across the Cut, on the exact lap
+    // fraction the gate blocks stand at. It runs the shot rock from the face
+    // out to the tip and comes back empty, and it tips at the far end where you
+    // can watch it. **The gate blocks are its portals**: they were signage for
+    // a pinch and they are now the two things the truck drives between, which
+    // is what a nose block on a haul road is for.
     //
     // Twenty-four seconds a cycle, two crossings in it, and the road is gone
-    // for about two and a half of them each time — a fifth of the cycle, on a
-    // straight you arrive at downhill at 55 m/s. This is the one hazard in the
-    // cup that closes a whole carriageway, and it is allowed to because it is
-    // on the widest sight line on the circuit: the machine is nine and a half
-    // metres of hazard yellow with two beacons on it, in the open the whole
-    // time, and the sign's lamps come on two full seconds before its nose
-    // reaches the tarmac.
+    // for about two and a half of them each time — a fifth of the cycle, on
+    // eleven metres of road. This is the one hazard in the cup that closes a
+    // whole carriageway, and it is allowed to because it is on the widest
+    // sight line on the circuit: the machine is nine and a half metres of
+    // hazard yellow with two beacons on it, in the open the whole time, and the
+    // sign's lamps come on two full seconds before its nose reaches the tarmac.
     //
-    // The period is deliberately *not* a factor of the lap. A lap here is
-    // about 46 seconds against a 24-second cycle, so the truck is nearly two
-    // crossings further on every time you come back and no lap is the lap
-    // before it.
+    // The period is deliberately *not* a factor of the lap. A lap here is about
+    // 48 seconds against a 24-second cycle plus the phase offset, so the truck
+    // is never quite where it was and no lap is the lap before it.
     //
     // `spin` rather than `squish`: 2.2 seconds is most of a place, and being
     // clipped by a machine that big and then *also* having to sit still for a
     // lap is two punishments for one mistake. See `HazardDef`.
     hazards: [{
-      at: 0.496, kind: 'truck', period: 24, phase: 0.62,
+      at: on('THE CUT', 0.5), kind: 'truck', period: 24, phase: 0.62,
       lateral: 0, hit: 'spin', lead: 2.0, signAt: 104,
     }],
-    // A shade higher than Cone Canyon's, because half this circuit is under
-    // 40m of radius and kerbing all of it would leave nothing to aim at.
-    kerbCurvature: 0.005,
+    // Four hairpins run 1/28 to 1/32 of curvature and the two fast sweeps run
+    // 1/120, so a threshold at 1/111 kerbs everything a player brakes for and
+    // leaves the Floor Sweep and the haul-road kinks unmarked.
+    kerbCurvature: 0.009,
 
     // ── the pit ───────────────────────────────────────────────────────────
     //
     // **The first fifty to a hundred and sixty metres beyond the shoulder has
-    // to be ground somebody can stand a machine on**, and on this course it was
-    // a wall. `rimStart` was 85 and `rimEnd` 310, so 138 metres of rock came up
-    // over a 225-metre ramp that peaks near ninety per cent of gradient — a
-    // forty-degree face beginning eighty-five metres behind the barrier.
+    // to be ground somebody can stand a machine on.** That band is exactly
+    // where `world/index.ts` puts everything it places with `room()` —
+    // conveyors at 64-144m, berms at 76-146, haul trucks at 50-118, drill rigs
+    // at 56-132. `room()` tests whether a spot is *free*, not whether it is
+    // *level*, so on a steep face the ground rolls out from under a
+    // twenty-metre footprint and the prop is left hanging in the air.
     //
-    // That band is exactly where `world/index.ts` puts everything it places
-    // with `room()`: conveyors at 64-144m, berms at 76-146, haul trucks at
-    // 50-118, drill rigs at 56-132. `room()` tests whether a spot is *free*,
-    // not whether it is *level* — only the bench, mass and ridge tiers call
-    // `standable()` — so on a face that steep the ground rolls out from under
-    // a twenty-metre footprint and the prop is left in the air. The first
-    // frame of this course was photographed with a spoil cone, a ground
-    // conveyor and its hopper, and three berms hanging in open sky against the
-    // high wall.
-    //
-    // So the wall now starts at 150m and takes 320 to get there: everything
-    // `room()` can reach is on ground that is flat to within a couple of
-    // metres, and the rock begins where the props stop. It is a metre taller
-    // to buy the enclosure back — 145m of relief standing over a pit floor
-    // that is itself 19m down is still a lid rather than a backdrop.
+    // So the wall starts at 150m and takes 320 to get there: everything
+    // `room()` can reach is on ground flat to within a couple of metres, and
+    // the rock begins where the props stop.
     //
     // The landmarks follow the same rule, and `hero` is gated on
-    // `smoothstep(rimStart * 0.7, rimStart * 1.5, d)` — 105 to 225 metres out
-    // now — so each footprint is placed with its *near edge* past 120m and its
-    // steep flank past 190m. Beyond that the world module's own `standable()`
-    // check owns the problem, and it is a real check.
+    // `smoothstep(rimStart * 0.7, rimStart * 1.5, d)` — 105 to 225 metres out —
+    // so each footprint below is placed with its near edge past 140m.
+    //
+    // **The benches themselves are not shaped by this.** They are 56-64 metres
+    // apart, which is inside `rimStart`, so nothing rises between them: what
+    // makes a bench face is the four-to-seven metre difference in *road*
+    // height across that gap, and the embankment either side is anchored to
+    // its own road. That is exactly how a real bench is formed and it is why
+    // the comb reads as terraces rather than as five roads on a plain.
     terrain: {
       rimStart: 150,
       rimEnd: 470,
       rimHeight: 145,
       landmarks: [
-        // The stack the Crusher runs round — the thing you brake at.
-        { x: -410, z: -375, radius: 110, height: 92, kind: 'spire' },
-        // The screening plant's face, at the vanishing point of the bench run.
-        { x: 560, z: 205, radius: 150, height: 96, kind: 'spire' },
-        // The high wall behind the weighbridge, closing the start straight.
-        { x: -190, z: 640, radius: 280, height: 158, kind: 'mesa' },
-        // The overburden dump, seen across the pit from the whole floor section.
-        { x: -600, z: -470, radius: 300, height: 152, kind: 'mesa' },
+        // The high wall closing the weighbridge straight — the thing you drive
+        // at for the first hundred and twenty metres of every lap.
+        { x: 520, z: -3, radius: 190, height: 150, kind: 'mesa' },
+        // At the far end of the haul road, so the climb has a horizon.
+        { x: -560, z: -215, radius: 200, height: 140, kind: 'mesa' },
+        // The stack the benches run at — the near landmark at the west end of
+        // every one of the four teeth.
+        { x: -520, z: 90, radius: 110, height: 95, kind: 'spire' },
+        // The overburden dump, seen across the pit from the whole floor
+        // section and from the Floor Sweep.
+        { x: 60, z: 640, radius: 260, height: 155, kind: 'mesa' },
+        // The screening plant, at the vanishing point of the bench run east.
+        { x: 470, z: 300, radius: 130, height: 100, kind: 'spire' },
       ],
     },
   },
@@ -453,23 +365,20 @@ export const jackhammerQuarry: CourseDefEx = {
   theme: {
     // Rock flour, not sand. See the header: this is both the dust film on the
     // pit floor and the colour of the bounce light on every machine in the
-    // race, and at 0xb08a4e it was making a grey pit photograph as a desert.
+    // race, and at a saturated tan it made a grey pit photograph as a desert.
     ground: 0x9d9a90,
     // A harder, colder sky than the canyon's: deeper at the zenith, and the
     // haze band is mineral dust rather than warm air.
     sky: { top: 0x14549e, bottom: 0xa9c8dc, horizon: 0xd4d1c7 },
     // Half the visibility of Cone Canyon, on purpose — a working pit has its
-    // own weather, and it is the reason the far wall reads as far. The colour
-    // is what changed: pale rock dust rather than golden haze, so the distance
-    // greys out instead of going khaki.
-    // Pale rock dust: neutral, a touch on the warm side of it, and nowhere near
-    // either of the two hazes it has to be told apart from — the canyon's gold
-    // and the mountain's blue. Grey ground under grey air is what makes this a
-    // pit; grey ground under *blue* air would make it the mountain.
+    // own weather, and it is the reason the far wall reads as far. Pale rock
+    // dust: neutral, a touch on the warm side of it, and nowhere near either of
+    // the two hazes it has to be told apart from — the canyon's gold and the
+    // mountain's blue.
     fog: { color: 0xc7c2b6, near: 230, far: 1300 },
     sun: { color: 0xfff3e0, intensity: 2.85, azimuth: 2.15, elevation: 0.52 },
-    // The darkest road in the cup after the saltpan's. The floor is pale now,
-    // so the tarmac has to carry the contrast — a haul road cut through light
+    // The darkest road in the cup after the saltpan's. The floor is pale, so
+    // the tarmac has to carry the contrast — a haul road cut through light
     // rock, with an orange edge where the canyon has yellow.
     road: { base: '#2A2F39', line: '#FFF8F0', edge: '#FF6B1A' },
     props: {
