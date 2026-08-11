@@ -269,7 +269,11 @@ export const coneCanyon: CourseDefEx = {
     // fell out of.
     hazards: [{
       at: on('T5 THE CAROUSEL', 0.52), kind: 'rockfall', period: 17, phase: 0.1,
-      lateral: -0.55, hit: 'spin', lead: 2.0, signAt: 120, tint: 0xa05a33,
+      // A shade lighter than the cliff it comes off. Flat-shaded rock in flight
+      // has most of its faces turned away from the sun, and at the declared
+      // 0xa05a33 the three boulders photographed as black holes in a bright
+      // desert — a silhouette, which is right, but not a *canyon's* silhouette.
+      lateral: -0.55, hit: 'spin', lead: 2.0, signAt: 120, tint: 0xbe7644,
     }],
 
     // Raised from 0.005. Eight corners run 1/32 to 1/66 of curvature and the

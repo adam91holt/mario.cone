@@ -78,6 +78,9 @@ const RED = 0xe03a2a;
 /** Metres of kart, for the contact test. Half a kart plus a little grace. */
 const KART_R = 1.15;
 
+/** Metres from a kart's contact patch to the middle of the thing standing on it. */
+const KART_LIFT = 0.55;
+
 /**
  * Metres a second below which a racer cannot be hit by anything in this file.
  *
@@ -207,8 +210,22 @@ const TRUCK = {
   back0: 0.52, back1: 0.74,
 };
 
-/** The rockfall: released, 1.4s of air, sat in the lane, pushed off. */
-const ROCK = { drop: 0.20, fallSec: 1.4, clear: 0.40, gone: 0.47, top: 20 };
+/**
+ * The rockfall: released, 1.4s of air, sat in the lane, pushed off.
+ *
+ * `size` and `spread` are here rather than in the builder because `resolve()`
+ * needs them too — where a boulder sits and how big its capsule is have to be
+ * one statement, or the rock a player can see and the rock that spins them are
+ * two different rocks.
+ */
+const ROCK = {
+  drop: 0.20, fallSec: 1.4, clear: 0.40, gone: 0.47, top: 20,
+  size: [2.4, 2.0, 1.7],
+  /** Lateral offsets in metres, so three of them close a 12-metre lane. */
+  spread: [-3.4, 0.4, 3.8],
+  /** ...and a little stagger along the road, so they are not a ruled rank. */
+  along: [-1.7, 1.7, 0.2],
+};
 
 /** The bore: in off the pan, over the lane, and drained back. */
 const SURGE = { in0: 0.10, in1: 0.24, hold: 0.29, out1: 0.40, gone: 0.46 };
@@ -387,52 +404,63 @@ function signTexture(kind: HazardKind): THREE.Texture {
 function buildSign(kind: HazardKind, stripe: THREE.Texture, keep: THREE.Material[]): SignRig {
   const group = new THREE.Group();
 
+  // **Sized for a hundred metres, not for a metre.** The first cut of this was
+  // a 2.15m plate at 3.5m, which is roughly what a real works sign is and which
+  // subtends about nineteen pixels from the braking point — a smudge. A kart
+  // racer's signage is deliberately oversized for the same reason its karts
+  // are: the frame is read at fifty metres a second.
   const postMat = mat(STEEL);
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 3.1, 8), postMat);
-  post.position.y = 1.55;
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.20, 4.0, 8), postMat);
+  post.position.y = 2.0;
   post.castShadow = true;
   group.add(post);
 
   // A striped skirt at the foot, so the post reads as works kit rather than as
   // a lamp standard.
   const skirtMat = new THREE.MeshLambertMaterial({ map: stripe });
-  const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.46, 0.85, 8), skirtMat);
-  skirt.position.y = 0.42;
+  const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.40, 0.55, 1.0, 8), skirtMat);
+  skirt.position.y = 0.5;
   skirt.castShadow = true;
   skirt.receiveShadow = true;
   group.add(skirt);
 
+  // **It faces the traffic, and the traffic comes from -z.** The group's basis
+  // is `(right, up, tangent)`, so local +z is the way the road *goes* — which
+  // means a plate left at its default orientation shows a driver the grey back
+  // of a sign for the whole approach and reads its face only in the mirror.
+  // Photographed, that is exactly what it did.
   const faceTex = signTexture(kind);
   const plateMat = new THREE.MeshLambertMaterial({ map: faceTex, side: THREE.DoubleSide });
-  const plate = new THREE.Mesh(new THREE.PlaneGeometry(2.15, 2.15), plateMat);
-  plate.position.set(0, 3.5, 0.06);
-  plate.rotation.z = Math.PI * 0.25;
+  const plate = new THREE.Mesh(new THREE.PlaneGeometry(2.7, 2.7), plateMat);
+  plate.position.set(0, 4.1, -0.07);
+  plate.rotation.set(0, Math.PI, Math.PI * 0.25);
   plate.castShadow = true;
   group.add(plate);
 
   // The back of the plate, so it is not a hole in the world from behind.
   const backMat = mat(0x4a4e58);
-  const back = new THREE.Mesh(new THREE.PlaneGeometry(2.15, 2.15), backMat);
-  back.position.set(0, 3.5, -0.02);
-  back.rotation.set(0, Math.PI, Math.PI * 0.25);
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(2.7, 2.7), backMat);
+  back.position.set(0, 4.1, 0.03);
+  back.rotation.z = Math.PI * 0.25;
   group.add(back);
 
-  // Two lamps above the plate. `MeshBasicMaterial` deliberately: a lamp that
-  // is shaded by the sun is a lens, not a light.
+  // Two lamps above the plate, on the side a driver is coming from. Basic
+  // material, deliberately: a lamp that is shaded by the sun is a lens, not a
+  // light.
   const lamps: THREE.Mesh[] = [];
-  for (const x of [-0.9, 0.9]) {
+  for (const x of [-1.15, 1.15]) {
     const m = new THREE.MeshBasicMaterial({ color: RED });
     keep.push(m);
-    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 8), m);
-    lamp.position.set(x, 5.0, 0.1);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.34, 10, 8), m);
+    lamp.position.set(x, 6.15, -0.12);
     group.add(lamp);
-    const hood = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.16, 8), postMat);
-    hood.position.set(x, 5.28, 0.1);
+    const hood = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.18, 8), postMat);
+    hood.position.set(x, 6.52, -0.12);
     group.add(hood);
     lamps.push(lamp);
   }
-  const bar = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.12, 0.12), postMat);
-  bar.position.set(0, 4.86, 0.1);
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.16, 0.16), postMat);
+  bar.position.set(0, 5.9, -0.12);
   group.add(bar);
 
   keep.push(postMat, skirtMat, plateMat, backMat);
@@ -458,57 +486,73 @@ function beacon(x: number, y: number, z: number, keep: THREE.Material[]): THREE.
  */
 function buildTruck(rig: Rig, stripe: THREE.Texture, keep: THREE.Material[]): THREE.Group {
   const g = new THREE.Group();
+  // **Gold, and almost all of it.** The first build gave this machine a grey
+  // tray, on the grounds that a real dumper's body is bare steel — and
+  // photographed from a kart at a hundred metres, against a grey pit, under
+  // grey haze, what came back was a grey box. A hazard's first job is to be
+  // seen; the second is to look like a machine. So the tray, the frame and the
+  // cab are all safety yellow, and everything that is *not* yellow (the wheels,
+  // the underframe, the glass) is nearly black, which is what makes the
+  // silhouette read before the colour does.
   const yellowM = mat(GOLD);
   const darkM = mat(NIGHT);
-  const trayM = mat(0x585c66);
   const rockM = mat(0x7d7568, { flatShading: true });
   const glassM = mat(0x1b3550, { emissive: 0x0a1626 });
   const stripeM = new THREE.MeshLambertMaterial({ map: stripe });
-  keep.push(yellowM, darkM, trayM, rockM, glassM, stripeM);
+  keep.push(yellowM, darkM, rockM, glassM, stripeM);
 
   const chassis = new THREE.Group();
 
   // Frame and the deck it carries.
-  chassis.add(box(9.0, 0.85, 4.0, yellowM, 0, 1.55, 0));
-  chassis.add(box(9.4, 0.5, 3.2, darkM, 0, 1.05, 0));
+  chassis.add(box(9.0, 0.9, 4.2, yellowM, 0, 1.6, 0));
+  chassis.add(box(9.4, 0.55, 3.3, darkM, 0, 1.05, 0));
 
   // The tray, hinged at the back so it can tip. Its own group, pivoting about
   // local -x, which is the rear of the machine.
   const tray = new THREE.Group();
-  tray.position.set(-4.1, 2.0, 0);
-  const shell = box(8.2, 0.35, 4.4, trayM, 4.1, 0.1, 0);
-  tray.add(shell);
-  tray.add(box(8.2, 1.5, 0.32, trayM, 4.1, 0.85, 2.05));
-  tray.add(box(8.2, 1.5, 0.32, trayM, 4.1, 0.85, -2.05));
-  tray.add(box(0.32, 2.6, 4.4, trayM, 0.16, 1.4, 0));
+  tray.position.set(-4.1, 2.05, 0);
+  tray.add(box(8.2, 0.4, 4.8, darkM, 4.1, 0.12, 0));
+  for (const z of [2.24, -2.24]) {
+    tray.add(box(8.2, 1.9, 0.34, yellowM, 4.1, 1.02, z));
+    // A striped band along the top rail of each tray wall: the loudest two
+    // metres on the machine, at the height a chase camera actually sees.
+    const band = new THREE.Mesh(new THREE.BoxGeometry(8.2, 0.62, 0.42), stripeM);
+    band.position.set(4.1, 1.66, z);
+    band.castShadow = true;
+    tray.add(band);
+  }
+  tray.add(box(0.36, 3.0, 4.8, yellowM, 0.18, 1.6, 0));
   // The canopy over the cab, which is what makes it a quarry dumper and not a
   // tipper: the tray's front wall rises over the driver.
-  tray.add(box(2.6, 0.3, 4.4, trayM, 1.4, 2.65, 0));
-  // A load of shot rock, so the machine has a reason to be crossing.
+  tray.add(box(2.8, 0.34, 4.8, yellowM, 1.5, 3.05, 0));
+  // A load of shot rock, so the machine has a reason to be crossing — and so
+  // that it is visibly *loaded* on the way out and *empty* on the way back.
+  // A shuttle that carries the same rock both ways is a prop on a rail.
   for (let i = 0; i < 7; i++) {
-    const s = 0.75 + (i % 3) * 0.28;
+    const s = 0.8 + (i % 3) * 0.3;
     const r = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 0), rockM);
-    r.position.set(1.6 + i * 0.95, 0.55 + (i % 2) * 0.25, ((i * 7) % 5 - 2) * 0.62);
+    r.position.set(1.8 + i * 0.92, 0.75 + (i % 2) * 0.28, ((i * 7) % 5 - 2) * 0.68);
     r.rotation.set(i * 1.1, i * 0.7, i * 0.4);
     r.castShadow = true;
     tray.add(r);
+    rig.rocks.push(r);
   }
   chassis.add(tray);
   rig.tray = tray;
 
   // Cab, tucked under the canopy on the leading side.
-  chassis.add(box(2.0, 1.5, 2.3, yellowM, 3.3, 2.75, -0.7));
-  const glass = box(2.05, 0.85, 2.35, glassM, 3.3, 3.05, -0.7);
+  chassis.add(box(2.1, 1.7, 2.4, yellowM, 3.3, 2.95, -0.85));
+  const glass = box(2.15, 0.95, 2.45, glassM, 3.3, 3.35, -0.85);
   glass.castShadow = false;
   chassis.add(glass);
-  // Hazard flashes down both flanks, which is what reads from a kart.
-  const flank = new THREE.Mesh(new THREE.BoxGeometry(9.0, 0.72, 0.14), stripeM);
-  (flank.material as THREE.MeshLambertMaterial).map!.repeat.set(10, 1);
-  flank.position.set(0, 1.5, 2.09);
-  chassis.add(flank);
-  const flank2 = flank.clone();
-  flank2.position.z = -2.09;
-  chassis.add(flank2);
+  // Hazard flashes across both ends of the machine — the faces a driver on the
+  // road actually sees as it comes at them.
+  for (const x of [4.62, -4.62]) {
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.8, 4.0), stripeM);
+    cap.position.set(x, 1.6, 0);
+    cap.castShadow = true;
+    chassis.add(cap);
+  }
 
   // Wheels: two front, four rear in pairs. Cylinders lying along z, because
   // the machine travels along x.
@@ -521,7 +565,7 @@ function buildTruck(rig: Rig, stripe: THREE.Texture, keep: THREE.Material[]): TH
     [3.2, 0], [-2.3, -0.62], [-2.3, 0.62], [-3.7, -0.62], [-3.7, 0.62],
   ] as const;
   for (const [x, zo] of at) {
-    for (const s of x > 0 ? [-1.55, 1.55] : [zo < 0 ? -1.75 : 1.75]) {
+    for (const s of x > 0 ? [-1.7, 1.7] : [zo < 0 ? -1.9 : 1.9]) {
       const w = new THREE.Group();
       const t = new THREE.Mesh(tyreGeo, tyreM);
       t.rotation.x = Math.PI * 0.5;
@@ -536,18 +580,22 @@ function buildTruck(rig: Rig, stripe: THREE.Texture, keep: THREE.Material[]): TH
     }
   }
 
-  rig.beacons.push(beacon(3.3, 3.72, -0.7, keep));
-  rig.beacons.push(beacon(2.2, 3.4, 1.0, keep));
+  // Beacons on the canopy — the highest point on the machine, which is what a
+  // driver sees over a rock bench before they see the machine.
+  rig.beacons.push(beacon(2.5, 4.05, -1.5, keep));
+  rig.beacons.push(beacon(2.5, 4.05, 1.5, keep));
   for (const b of rig.beacons) chassis.add(b);
 
-  // Headlights on the leading face, so the machine is read head-on as well as
-  // in silhouette.
+  // Headlights on both ends, since it works in both directions and neither end
+  // is ever the back for long.
   const lightM = new THREE.MeshBasicMaterial({ color: 0xfff0c0 });
   keep.push(lightM);
-  for (const z of [-1.2, 1.2]) {
-    const l = new THREE.Mesh(new THREE.SphereGeometry(0.24, 8, 6), lightM);
-    l.position.set(4.55, 1.7, z);
-    chassis.add(l);
+  for (const x of [4.7, -4.7]) {
+    for (const z of [-1.35, 1.35]) {
+      const l = new THREE.Mesh(new THREE.SphereGeometry(0.26, 8, 6), lightM);
+      l.position.set(x, 1.75, z);
+      chassis.add(l);
+    }
   }
 
   g.add(chassis);
@@ -562,13 +610,13 @@ function buildRockfall(
   const g = new THREE.Group();
   const rockM = mat(def.tint ?? 0x9a5a38, { flatShading: true });
   keep.push(rockM);
-  const size = [2.05, 1.65, 1.35];
-  const spread = [-0.95, 0.15, 1.05];
   for (let i = 0; i < 3; i++) {
-    const r = new THREE.Mesh(new THREE.IcosahedronGeometry(size[i]!, 0), rockM);
+    const r = new THREE.Mesh(new THREE.IcosahedronGeometry(ROCK.size[i]!, 0), rockM);
+    // Squashed off round: a sphere reads as a ball, and a ball on a road reads
+    // as an item rather than as half the cliff above it.
+    r.scale.set(1, 0.78, 1.12);
     r.castShadow = true;
     r.receiveShadow = true;
-    r.userData.spread = spread[i]!;
     g.add(r);
     rig.rocks.push(r);
   }
@@ -662,13 +710,22 @@ function buildBoom(
   const whiteM = mat(WHITE);
   keep.push(steelM, stripeM, whiteM);
 
+  // **The whole gate stands at the pivot, post and all.** The first build left
+  // the post and its base at the hazard's origin — the road centreline — and
+  // moved only the arm out to the shoulder, so what shipped was a boom
+  // levitating nineteen metres from a plinth planted in the middle of the
+  // racing line. `mount` is the thing the pivot moves; everything mechanical
+  // hangs off it.
+  const mount = new THREE.Group();
+  g.add(mount);
+  rig.chassis = mount;
+
   // Pivot post and its base.
   const post = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 3.0, 10), steelM);
   post.position.y = 1.5;
   post.castShadow = true;
-  g.add(post);
-  const base = box(1.9, 0.5, 1.9, whiteM, 0, 0.25, 0);
-  g.add(base);
+  mount.add(post);
+  mount.add(box(1.9, 0.5, 1.9, whiteM, 0, 0.25, 0));
 
   // The arm, in its own group so the whole thing swings about local y.
   const arm = new THREE.Group();
@@ -700,11 +757,12 @@ function buildBoom(
   tip.position.set(LEN, 0.16, 0);
   arm.add(tip);
   rig.beacons.push(tip);
-  g.add(arm);
+  mount.add(arm);
   rig.arm = arm;
 
-  rig.beacons.push(beacon(0, 3.25, 0, keep));
-  g.add(rig.beacons[rig.beacons.length - 1]!);
+  const top = beacon(0, 3.25, 0, keep);
+  rig.beacons.push(top);
+  mount.add(top);
   return g;
 }
 
@@ -882,7 +940,14 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
         const rig = h.rig;
         if (visual && rig.chassis) {
           rig.chassis.position.x = x;
-          rig.chassis.rotation.y = facing > 0 ? 0 : Math.PI;
+          // It *turns round*, in the bay, where there is room — an instant
+          // 180° flip at the far end is the one frame that would give the
+          // whole thing away as a sprite on a rail.
+          const turn = u < TRUCK.tip1 ? 0
+            : u < TRUCK.back0 ? ramp(0, 1, (u - TRUCK.tip1) / (TRUCK.back0 - TRUCK.tip1))
+              : u < TRUCK.back1 ? 1
+                : 1 - ramp(0, 1, (u - TRUCK.back1) / (1 - TRUCK.back1));
+          rig.chassis.rotation.y = turn * Math.PI;
           // Squat on the springs while the tray is up, and roll the wheels at
           // the speed the machine is actually travelling — a wheel that spins
           // while the machine is parked is the tell that nothing here is real.
@@ -892,8 +957,14 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
             const travelled = facing > 0
               ? (u - TRUCK.out0) * h.period * speed
               : (u - TRUCK.back0) * h.period * speed;
-            for (const w of rig.wheels) w.rotation.z = -facing * travelled / 1.35;
+            for (const w of rig.wheels) w.rotation.z = -travelled / 1.35;
           }
+          // Loaded out, empty back: the rock leaves at the tip.
+          const load = u < TRUCK.tip0 + (TRUCK.tip1 - TRUCK.tip0) * 0.55
+            ? 1
+            : u < TRUCK.back1 ? 0
+              : ramp(0, 1, (u - TRUCK.back1) / (1 - TRUCK.back1));
+          for (const r of rig.rocks) { r.scale.setScalar(load); r.visible = load > 0.02; }
         }
         // One capsule down the machine's long axis. 2.55m of radius wraps a
         // 4.8m-wide body and its wheels without claiming the air above it.
@@ -915,9 +986,9 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
         const H0 = ROCK.top;
         for (let i = 0; i < 3; i++) {
           const r = h.rig.rocks[i]!;
-          const size = [2.05, 1.65, 1.35][i]!;
-          const spread = (r.userData.spread as number) * 3.4;
-          const x = lat + spread;
+          const size = ROCK.size[i]!;
+          const x = lat + ROCK.spread[i]!;
+          const z = ROCK.along[i]!;
           // A small stagger so they do not land as a rank.
           const t0 = T0 + i * 0.012;
           let y: number;
@@ -941,14 +1012,14 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
           } else { y = H0; live = false; scale = 0; }
 
           if (visual) {
-            r.position.set(x, y, ((i * 5) % 3 - 1) * 2.1);
-            r.scale.setScalar(scale);
+            r.position.set(x, y, z);
+            r.scale.set(scale, scale * 0.78, scale * 1.12);
             r.visible = scale > 0.01;
             // Tumbling, and it stops when the rock does.
-            const spin = u < t0 + FALL ? (u - t0) * h.period * 4.4 : (FALL * h.period) * 4.4;
+            const spin = u < t0 + FALL ? (u - t0) * h.period * 4.4 : FALL * h.period * 4.4;
             r.rotation.set(spin * 0.8 + i, spin * 0.5, spin * 0.9 + i * 2);
           }
-          ball(b[i]!, x, y, ((i * 5) % 3 - 1) * 2.1, size * 0.92, live);
+          ball(b[i]!, x, y, z, size * 0.94, live);
         }
         break;
       }
@@ -1015,8 +1086,8 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
         const uz = Math.cos(theta);
         const LEN = def.width ?? 10.4;
 
-        if (visual && h.rig.arm) {
-          h.rig.arm.position.x = pivot;
+        if (visual && h.rig.arm && h.rig.chassis) {
+          h.rig.chassis.position.x = pivot;
           h.rig.arm.rotation.y = -Math.PI * 0.5 - dir * theta;
           // A little bounce as it seats, which is the whole of the animation
           // principle this game is held to on something that ends abruptly.
@@ -1024,10 +1095,13 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
           h.rig.arm.rotation.z = s > 0 && s < 0.08
             ? Math.sin(s * 90) * 0.035 * (1 - s / 0.08) : 0;
         }
-        ball(b[0]!, pivot, 1.55, 0, 0.95, k > 0.06);
+        // 1.15 of radius, not 0.95: the gate is a beam at 2.15 with a lower
+        // chord at 1.4 and diagonals between them, so the *thing* a kart runs
+        // into is a metre-deep lattice rather than a bar.
+        ball(b[0]!, pivot, 1.75, 0, 1.15, k > 0.06);
         b[0]!.ax = pivot + ux * 1.2; b[0]!.az = uz * 1.2;
         b[0]!.bx = pivot + ux * LEN; b[0]!.bz = uz * LEN;
-        b[0]!.ay = b[0]!.by = 1.55;
+        b[0]!.ay = b[0]!.by = 1.75;
         break;
       }
     }
@@ -1078,7 +1152,13 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
       t = t < 0 ? 0 : t > 1 ? 1 : t;
     }
     const dx = px - (b.ax + ex * t);
-    const dy = py - (b.ay + ey * t) - 0.55;
+    // `racer.pos` sits on the kart's contact patch, so the body a hazard has to
+    // meet is half a metre above it. Getting this the wrong way round put every
+    // kart in the game a metre lower than it is, which nothing noticed on a
+    // 2.55-metre dumper capsule and which let a whole field drive *under* the
+    // avalanche gate: at 0.95 of radius the arithmetic left 1.36 metres of
+    // horizontal reach on an arm that is supposed to sweep the road.
+    const dy = py + KART_LIFT - (b.ay + ey * t);
     const dz = pz - (b.az + ez * t);
     const r = b.r + KART_R;
     return dx * dx + dy * dy + dz * dz < r * r;
@@ -1102,6 +1182,12 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
       armed: h.armed > 0,
       half: Math.round(h.half * 10) / 10,
       origin: [h.origin.x, h.origin.y, h.origin.z].map((v) => Math.round(v)),
+      sign: h.sign
+        ? [h.sign.group.position.x, h.sign.group.position.y, h.sign.group.position.z]
+          .map((v) => Math.round(v))
+        : null,
+      /** Metres from the sign to the crossing, which is what `signAt` buys. */
+      signBack: h.sign ? Math.round(h.sign.group.position.distanceTo(h.origin)) : 0,
       bodies: h.bodies.map((b) => ({
         live: b.live,
         a: [b.ax, b.ay, b.az].map((v) => Math.round(v * 10) / 10),
@@ -1139,7 +1225,7 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
       epoch = ctx.time.elapsed;
       clock = prevClock = 0;
       cooldown.clear();
-      for (const h of list) h.armed = h.tick = 0;
+      for (const h of list) { h.armed = h.tick = 0; h.lastU = -1; }
     },
 
     fixedUpdate(dt: number): void {
@@ -1147,9 +1233,13 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
       prevClock = clock;
       clock = ctx.time.elapsed - epoch;
 
-      for (const [id, t] of cooldown) {
-        const n = t - dt;
-        if (n <= 0) cooldown.delete(id); else cooldown.set(id, n);
+      // Guarded, because iterating a Map allocates an iterator and this map is
+      // empty for most of most races — 120 of those a second is not free.
+      if (cooldown.size > 0) {
+        for (const [id, t] of cooldown) {
+          const n = t - dt;
+          if (n <= 0) cooldown.delete(id); else cooldown.set(id, n);
+        }
       }
 
       const racing = ctx.race.phase === 'racing' || ctx.race.phase === 'finished';
