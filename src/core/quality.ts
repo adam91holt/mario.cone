@@ -296,32 +296,39 @@
 // by that contrast, including the gentlest one. A ladder that announces itself
 // is a ladder the player is watching instead of the race.
 //
-// ── So the resolution lever is a *seam* lever now ──────────────────────────
+// ── So the resolution lever was a *seam* lever — and now it is not ─────────
 //
-// It is still on the ladder — it is still worth more than everything else put
-// together — and it is applied only where a drawing-buffer rebuild is either
-// already being paid for or is happening with nothing on the display:
+// Round six made it one, on two arguments that were both about
+// `renderer.setPixelRatio`: it rebuilds the drawing buffer, and it shrinks the
+// canvas underneath a DOM HUD that stays at native resolution. Both were true.
+// Neither was about *resolution*; both were about that one call.
 //
-//   **boot** (`init`), before the first frame exists;
-//   **a race build** (`reset`), behind the closed launch board, which is the
-//     one moment in the product where a multi-second stall is already expected
-//     and already hidden — this file's own `reset()` note measures the first
-//     drawn frame after a stretch of skipped ones at about two seconds and
-//     deliberately lands it there;
-//   **a window resize** (`engine:resize`), where the browser is reallocating
-//     the swap chain anyway.
+// The measurement table on `precompileLadder` had the answer in it the whole
+// time and it was read as a negative result: **"the eight post targets resized
+// by hand — 229ms against a 225ms median — zero."** The world is drawn into
+// targets `render/post.ts` owns; only the final blit touches the canvas. So the
+// scene target, the depth texture and the five bloom mips now follow the scale
+// (`PostStack.setRenderScale`) and the canvas never moves at all. No rebuild,
+// no HUD mismatch, `scaleFlushes` 0 for the session.
 //
-// Between those, `applyRung` moves the ladder and the resolution simply does
-// not follow until the next seam. `probe().scale` is what the buffer has,
-// `scaleWanted` is what the ladder wants, and `scalePending` is the gap.
+// What is left of the objection is that the picture goes softer, which is a
+// *degree* of the thing every rung on this ladder does and the least visible
+// thing on the lever table per millisecond bought. So the lever is live, rate-
+// limited to one landing per `SCALE_HOLD_S`, and it inherits the moment gate
+// from the rung change that asked for it.
 //
-// **...and the moment `render/post.ts` grows a `setRenderScale`, none of that
-// applies.** `applyScale` looks for it on `ctx.composer` every time it is
-// called: a composer that can move the scale with a `setViewport` and a uniform
-// write gets the lever back live, immediately, with no change here — see
-// `freeScalePath`. The handshake is a method that either exists or does not,
-// because a capability that has to be announced through a flag is a capability
-// two modules can disagree about.
+// **Why that mattered enough to reopen a settled design.** Measured live at
+// 1280x720, autopilot, 150 seconds: the ladder walked to its own floor and the
+// frame it delivered there still read `renderScale 1.00`, `aa true`, `tier
+// 'high'`, `drawDistance 1`, and a 1280x720 backing store. The only setting
+// that had moved was `particles`. The whole in-race authority of a seven-rung
+// ladder was 22% of the geometry, 13% of the draw calls and none of the pixels
+// — the player's *current* race was the one race it could not rescue, and the
+// fix it earned was installed for the next one.
+//
+// The fallback is still in the code and still correct: `freeScalePath` probes
+// for the method on every call, and a composer that cannot do it puts every
+// word above about seams back in force with nothing else changing.
 //
 // ── ...and the rungs had to be rebuilt around that ─────────────────────────
 //
@@ -361,13 +368,28 @@
 // it costs a swap-chain rebuild *and* it visibly resizes the picture — and
 // having two reasons is why only it was deferred.
 //
-// So every lever is classified by one question now, and the classification is
-// in the code rather than in a comment: `SEAM_HELD` names the reset-only ones,
+// So every lever is classified by one question, and the classification is in
+// the code rather than in a comment: `SEAM_HELD` names the reset-only ones,
 // `composeSettings` reads them off a different rung index from everything else,
-// and `flushSeam` is the only door. Six levers are behind it — `scale`,
-// `crowd`, `scatter`, `aa`, `tier` and `drawDistance` — and four in front of it,
-// every one denominated in projected pixels or in what happens next:
-// `particles`, `minPx`, `thinFar`, `shellPx`.
+// and `flushSeam` is the only door.
+//
+// Round seven put six levers behind it and round eight took two back out, for
+// two different reasons that are both worth naming:
+//
+//   `scale`  — deferred for a cost that no longer exists. See the section
+//              above: the canvas never moves any more, so the only thing left
+//              to argue about is a softer picture.
+//   `tier`   — deferred on a visibility argument that was never checked against
+//              what the field actually does. Exactly one module reads it
+//              (`render/lighting.ts`, `SHADOW_EXTENT`, 62/52/46m), so holding it
+//              bought a ten-metre band of far shadow and cost `ctx.quality.tier`
+//              its truthfulness: at the floor, mid-race, it read `high`.
+//
+// Four are behind the seam now — `crowd`, `scatter`, `aa`, `drawDistance` —
+// and six in front of it, every one either denominated in projected pixels, in
+// what happens next, or (the resolution) uniform across a picture that is
+// already being redrawn: `scale`, `tier`, `particles`, `minPx`, `thinFar`,
+// `shellPx`.
 //
 // The frame-half had to be rebuilt around that, exactly as round six rebuilt
 // the rungs around the deferred resolution, and for exactly the same reason: a
@@ -1325,8 +1347,25 @@ const LADDER: readonly Rung[] = [
   rung('thin', 'med', 0.62, {
     aa: false, particles: 0.5, drawDistance: 0.72,
   }, { crowd: 0.46, scatter: 0.50, thinFar: 0.40, minPx: 3.6, shellPx: 22 }),
-  rung('sparse', 'med', 0.56, {
-    aa: false, particles: 0.42, drawDistance: 0.64,
+  // ── where the low tier starts, and what "low" is allowed to mean here ────
+  //
+  // `QualitySettings.tier` has three values and this ladder used to select two
+  // of them, so every module entitled to branch on `low` was branching on dead
+  // code. It is reachable from here down.
+  //
+  // What it does **not** mean is `config.quality.low`, which is the cliff this
+  // ladder was rebuilt to remove: that preset drops shadows, the whole post
+  // stack and antialiasing in one step, which recompiles every material in the
+  // game (75 -> 110 programs, a 762ms frame) and leaves the cone standing on
+  // the dirt casting nothing while `world/`, `track/` and `render/` all still
+  // believe in the one shadow policy ARCHITECTURE §12 describes. So `shadows`
+  // and `postfx` are restated on top of it, exactly as every other rung states
+  // them, and the tier keeps only the part of `low` that is a number: the sun's
+  // shadow extent, 52m -> 46m in `render/lighting.ts`. That is the outer six
+  // metres of the shadow frustum on a frame already drawn at 0.56 of the
+  // canvas, and it is the smallest thing on this row.
+  rung('sparse', 'low', 0.56, {
+    shadows: true, postfx: true, aa: false, particles: 0.42, drawDistance: 0.64,
   }, { crowd: 0.30, scatter: 0.40, thinFar: 0.32, minPx: 4.4, shellPx: 27 }),
   // The floor. Still shadowed — at the *same* 2048 map as rung 0 — still
   // composited, still graded, still glowing, still fogged by the same
@@ -1334,8 +1373,8 @@ const LADDER: readonly Rung[] = [
   // features: a thinner crowd, a thinner verge, and the far half of the field
   // drawn as shells. It is the emptiest frame this game can draw that is still
   // recognisably this game.
-  rung('floor', 'med', 0.50, {
-    aa: false, particles: 0.34, drawDistance: 0.55,
+  rung('floor', 'low', 0.50, {
+    shadows: true, postfx: true, aa: false, particles: 0.34, drawDistance: 0.55,
   }, { crowd: 0.16, scatter: 0.3, thinFar: 0.25, minPx: 5.5, shellPx: 32 }),
 ];
 
@@ -1518,12 +1557,53 @@ const LADDER: readonly Rung[] = [
  * Two things follow that are in the code rather than in this comment. A
  * futility verdict cannot survive a seam (`flushSeam`), because every verdict
  * taken between two seams was taken on a cut that was only half made. And the
- * cross-module request in the header is worth more than it was: a
- * `setRenderScale` on `ctx.composer` would not make the resolution safe to move
- * mid-race — that is a visibility question and the answer is still no — but it
- * would make the *seam* free, which is the last cost the ladder still owns.
+ * cross-module request in the header has been answered — see below.
+ *
+ * ── Round eight: what all of that got wrong, in the reviewer's words ───────
+ *
+ * *"The governor cannot rescue the race it is in."* Every argument above is
+ * about **which frame** a lever may land on, and none of them ever asked what
+ * the ladder is worth once they are all applied. Measured live at 1280x720,
+ * 150 seconds, autopilot: the ladder walked rung 0 to the floor and the frame
+ * it delivered at the bottom still had `renderScale 1.00`, `aa true`,
+ * `tier 'high'`, `drawDistance 1` and a 1280x720 backing store. The only
+ * setting that had moved at all was `particles`. **The entire in-race authority
+ * of a seven-rung ladder was 22% of the geometry, 13% of the draw calls and
+ * none of the pixels** — and a machine that was failing rode the whole race at
+ * full cost while the ladder walked to its own floor and installed the fix for
+ * the *next* race.
+ *
+ * That is not a seam rule, it is a ladder with the working half unplugged. Two
+ * things change, and the first is not a compromise on visibility at all:
+ *
+ *   **`scale` comes off the seam because the seam's reason is gone.** The
+ *   round-six entry was justified by a *swap-chain rebuild* — 3101ms live — and
+ *   by the canvas resizing under a native-resolution DOM HUD. `render/post.ts`
+ *   now implements `setRenderScale` (see `freeScalePath`): the world is drawn
+ *   into targets this stack owns at a fraction of their size and resolved back
+ *   to a canvas that never moves. No rebuild, no HUD mismatch, one reallocation
+ *   of three render targets. What is left is a picture that goes slightly soft,
+ *   which is a *degree* of the same thing every other rung does and the least
+ *   visible thing on the lever table per millisecond bought. It is rate-limited
+ *   to one landing per `SCALE_HOLD_S` so a wobbling ladder cannot thrash the
+ *   allocator, and it inherits the moment gate from the rung change that asked
+ *   for it.
+ *
+ *   **`tier` comes off it because holding it made `ctx.quality.tier` a lie.**
+ *   Every module in the game is entitled to branch on the tier; at the floor,
+ *   mid-race, it read `high`. In practice exactly one module reads it —
+ *   `render/lighting.ts`, for `SHADOW_EXTENT`, 62m / 52m / 46m — so the whole
+ *   measurable content of a live tier change is the outer edge of the shadow
+ *   frustum moving ten metres on a frame that is already at half resolution.
+ *   That is a smaller change than the rung it arrives with.
+ *
+ * What stays behind the seam is the half the round-seven review found by
+ * *looking*: `crowd` and `scatter` are shares of a population and a share has
+ * no distance, so they empty a grandstand forty metres in front of the player;
+ * and `aa` is the one lever a bench convicts on its own, at 10.5% of static
+ * pixels against a 2% floor.
  */
-const SEAM_HELD = ['scale', 'crowd', 'scatter', 'aa', 'tier', 'drawDistance'] as const;
+const SEAM_HELD = ['scale', 'crowd', 'scatter', 'aa', 'drawDistance'] as const;
 /** ...and its own union, so `seamDiffers` can be exhaustive over it. */
 type SeamLever = typeof SEAM_HELD[number];
 
@@ -1539,7 +1619,7 @@ type SeamLever = typeof SEAM_HELD[number];
 const LADDER_SIG = ((): string => {
   let h = 0x811c9dc5;
   const s = LADDER.map((r) => `${r.label}${r.scale}${r.settings.particles}`
-    + `${r.settings.drawDistance}${r.settings.aa}`
+    + `${r.settings.tier}${r.settings.drawDistance}${r.settings.aa}`
     + `${r.content.crowd}${r.content.scatter}${r.content.thinFar}`
     + `${r.content.minPx}${r.content.shellPx}`).join('|');
   for (let i = 0; i < s.length; i++) {
@@ -1717,6 +1797,23 @@ const SETTLE_FRAMES = 6;
 /** ...and after an emergency change, where waiting is its own cost. */
 const PANIC_SETTLE = 0.9;
 const PANIC_SETTLE_FRAMES = 2;
+/**
+ * Delivered-play seconds between two landings of the render scale.
+ *
+ * The only number the live resolution lever adds, and it is a floor on how
+ * often the picture may change size rather than a moment gate — the rung change
+ * that asked for the move has already passed `pictureLocked()` and
+ * `onAStraight()`. What this stops is a ladder that is oscillating, or one
+ * taking a panic pop of six rungs, turning into six separate resizes: a
+ * multi-rung change lands exactly one.
+ *
+ * Two seconds, which is one delivered frame on the machine this file exists for
+ * and a hundred and twenty on one that is fine. That asymmetry is the right way
+ * round: the failing machine gets its rescue on the next frame it draws, and
+ * the healthy one — which by definition is not asking for a rung — cannot
+ * flicker.
+ */
+const SCALE_HOLD_S = 2;
 /** Seconds of quiet after a harness-driven frame before measuring resumes. */
 const BENCH_HOLD = 4;
 /**
@@ -1906,7 +2003,62 @@ const MEDIAN_SE = 1.2533;
  * player sees, and neither of those was obvious from the other.
  */
 const RUNG_GAIN = 1.2;
-const PANIC_MAX_STEP = 3;
+/**
+ * The most rungs one change may move. **The whole ladder, since round eight.**
+ *
+ * It was three, and three was a number rather than an argument: it capped the
+ * step at "most of the way down" and then made the machine earn the rest
+ * through a second panic drop, a second `PANIC_SETTLE`, a second window refill
+ * and — the expensive one — a `VERDICT_SAMPLES` verdict between them. Measured
+ * live at 1280x720 that walk cost **fifty to seventy seconds of delivered play
+ * to reach the floor**, which is a minute of the worst picture the game can
+ * draw handed to the player who least deserves it.
+ *
+ * There was never anything to buy with the cap. `RUNG_GAIN` already sizes the
+ * step from how far over budget the machine measurably is, and the ladder's
+ * whole descent is worth about 2.35x — so a machine reading five times the
+ * budget cannot be rescued by *part* of it, and the arithmetic says so without
+ * needing a second experiment on the player. What stops an over-reaction is the
+ * futility check on the way back up, which is unchanged: if the floor turns out
+ * to buy nothing, `worse`/`futile` puts a rung back and stands the ladder down.
+ */
+const PANIC_MAX_STEP = LADDER.length - 1;
+/**
+ * A frame this many times the budget is not a hitch, it is the machine.
+ *
+ * Five — 83ms, twelve frames a second — and the gap between this and
+ * `PANIC_FACTOR` (2.2) is the whole design. Between the two, the machine is
+ * over budget and the ladder walks down it one rung at a time under the full
+ * evidence apparatus, because a rung might be all it needs. Above it, no amount
+ * of the ladder is going to be enough on its own and the only useful thing the
+ * governor can do is stop taking the scenic route.
+ */
+const COLLAPSE_FACTOR = 5;
+/** Delivered frames of that before acting. Two: one is a stall, two is a rate. */
+const COLLAPSE_FRAMES = 2;
+/** ...and the samples the window needs to say so at all. */
+const COLLAPSE_SAMPLES = 2;
+/**
+ * ...and the wall dwell beside it, which is also **the whole descent budget**.
+ *
+ * The unit rule (see the audit in the header) says a wait is denominated in
+ * what a person sits through, and this is the only wait on the collapse path:
+ * two delivered frames *and* 1.2 seconds, then one change that lands the floor
+ * — resolution included, since round eight made `scale` live. On the machine
+ * this file exists for that is one dwell of about four seconds and then the
+ * rescue, against the fifty to seventy seconds the three-rung cap measured.
+ *
+ * The collapse path is the one place in this file that does **not** consult
+ * `pictureLocked()`, and it is worth stating why rather than leaving it to be
+ * discovered. The moment gate protects a composed picture — a countdown, a
+ * finish, a results sheet — and its doors are 20 to 35 wall seconds long. At
+ * twelve frames a second and worse there is no composed picture to protect:
+ * the countdown is a slideshow, and every second spent waiting for a better
+ * moment is a second of the thing the gate exists to prevent. `paused` is still
+ * refused, because a paused game is a still frame with a plate on it and it is
+ * not costing anybody anything.
+ */
+const COLLAPSE_DWELL = 1.2;
 /** Consecutive futile drops before the governor puts one back and stands down. */
 const FUTILE_LIMIT = 2;
 /** ...and how much worse the frame has to get before it tries again. */
@@ -2578,13 +2730,15 @@ export interface QualityProbe {
    *  not caught up, and will not until the next boot, race build or resize. */
   scalePending: boolean;
   /** Whether `ctx.composer` can move the resolution without rebuilding the swap
-   *  chain (`setRenderScale`). False today; see `freeScalePath` and the
-   *  cross-module request in the header. */
+   *  chain (`setRenderScale`). True since `render/post.ts` grew one, which is
+   *  what took `scale` off the seam — see `freeScalePath`. */
   scaleFree: boolean;
-  /** Drawing-buffer rebuilds this session, and what the last one was for. On a
-   *  live session this should read 1-2 ("boot", "race build") however many
-   *  rungs the ladder moved. */
+  /** Drawing-buffer rebuilds this session, and what the last one was for.
+   *  **Zero** whenever `scaleFree` is true: through that path the canvas never
+   *  moves and only the post stack's own targets are resized. */
   scaleFlushes: number;
+  /** ...and how many times the lever has landed at all, by either path. */
+  scaleSteps: number;
   scaleFlushWhy: string;
   /**
    * The rung the seam-held half of the picture is standing at, and which of its
@@ -2719,6 +2873,16 @@ export interface QualityProbe {
    */
   suspended: number;
   hijacked: number;
+  /**
+   * ...and frames thrown away because this file switched their draw off.
+   *
+   * The round-eight entry. A frame behind an opaque front-end draws nothing of
+   * the race — 0 calls, 0 triangles — so its duration is a measurement of
+   * `ui/menus/stage.ts`'s own renderer and of nothing this ladder can spend.
+   * Judging them walked the governor three rungs down a title screen and then
+   * persisted the answer. See `undrawnFrame`.
+   */
+  undrawn: number;
   /** The race phase, as the moment gate sees it, and whether the gate is shut.
    *  A change logged with `locked: true` would be a bug. */
   phase: string;
@@ -2848,6 +3012,8 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   let suspended = 0;
   /** ...and frames discarded because the harness stepped the sim inside them. */
   let hijacked = 0;
+  /** ...and frames discarded because this file had switched their draw off. */
+  let undrawn = 0;
   let offVisibility: (() => void) | null = null;
   /** Real seconds of delivered play. The warm-up and every dwell count this,
    *  and none of them are clamped: at 1.7fps a clamped accumulator counted 0.25
@@ -2947,6 +3113,9 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   let overFor = 0;
   let underFor = 0;
   let panicFor = 0;
+  /** ...and the collapse path's own pair. See `COLLAPSE_DWELL`. */
+  let collapseFor = 0;
+  let collapseFrames = 0;
   let settleFor = SETTLE;
   /**
    * ...and the same three in **delivered frames**, which is the unit the whole
@@ -3311,18 +3480,27 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    * A composer that can move the render resolution without rebuilding the swap
    * chain.
    *
-   * The contract, in one optional method: `setRenderScale(s)` renders the scene
-   * into the bottom-left `s` fraction of targets that stay permanently at rung
-   * 0's size, has every post pass sample through a uv scale, and resolves at
-   * full resolution. That costs a `setViewport` and a uniform write; the call
-   * this file makes today costs a canvas reallocation, measured at +348ms on a
-   * 320x180 bench and at 3101ms live at 1280x720.
+   * The contract, in one optional method: `setRenderScale(s)` draws the world
+   * into targets the post stack owns at `s` of their size and resolves back to a
+   * canvas that never moves. `render/post.ts` implements it — three
+   * `WebGLRenderTarget.setSize` calls and one extra blit when antialiasing is
+   * off — against `renderer.setPixelRatio`, which rebuilds the drawing buffer
+   * and was measured at +348ms on a 320x180 bench and **3101ms live at
+   * 1280x720**, and which also resizes the canvas underneath a DOM HUD that
+   * stays at native resolution.
+   *
+   * **This is what took `scale` off the seam.** The lever was deferred because
+   * moving it cost the worst frame of the session and announced itself against
+   * a pixel-sharp HUD; neither is true through this path, and what is left — a
+   * slightly softer picture — is a smaller change than the rung it arrives with.
    *
    * Probed on every call rather than latched at boot, because `ctx.composer` is
    * installed by `render/` after this system is constructed and may be replaced
    * when the post stack is rebuilt. A capability that has to be announced
    * through a flag is a capability two modules can disagree about; a method
-   * either exists or it does not.
+   * either exists or it does not — and if it ever does not, `applyScale` falls
+   * straight back to the round-six behaviour and the lever goes back behind the
+   * seam with nothing else in this file changing.
    */
   interface ScalableComposer { setRenderScale?(scale: number): unknown }
   function freeScalePath(): ScalableComposer | null {
@@ -3337,64 +3515,87 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   let liveScale = 1;
   /** How many times the drawing buffer has been rebuilt for a scale change,
    *  and where. Reported, because "the ladder moved eleven rungs and rebuilt
-   *  the swap chain twice" is the sentence this round is about. */
+   *  the swap chain twice" is the sentence round six was about. Through the
+   *  free path this stays at zero for the life of the session. */
   let scaleFlushes = 0;
+  /** ...and how many times the lever has landed at all, free path included. */
+  let scaleSteps = 0;
   let lastFlushWhy = '';
+  /** `liveSeconds` at the last landing, for the rate limit. */
+  let lastScaleAt = -Infinity;
 
   /**
    * Ask for a render resolution. **Never rebuilds the swap chain.**
    *
-   * With a composer that can do it for free, this is the whole story and the
-   * scale moves on the frame the rung does. Without one, the request is
-   * *recorded* and the drawing buffer catches up at the next seam — see
-   * `flushScale`. That is the round-six fix in four lines: `setPixelRatio` is a
+   * With a composer that can move it for free (`freeScalePath`), the request is
+   * serviced on the spot, subject only to `SCALE_HOLD_S` — see `serviceScale`.
+   * Without one, the request is *recorded* and the drawing buffer catches up at
+   * the next seam, which is the round-six behaviour: `setPixelRatio` is a
    * swap-chain rebuild, a swap-chain rebuild is a three-second frame under a
    * software rasteriser, and a three-second frame is the worst thing the player
    * will see all session. It is also why the DOM HUD and the 3D used to come
    * apart: shrinking the canvas under a fixed-size overlay leaves a pixel-sharp
-   * place badge against a half-resolution road in the same frame.
+   * place badge against a half-resolution road in the same frame. Neither
+   * applies to the free path, where the canvas never moves at all.
    */
   function applyScale(scale: number): void {
     wantScale = scale;
+    serviceScale();
   }
 
   /**
-   * Bring the drawing buffer to whatever the ladder last asked for, at a moment
-   * where rebuilding it is free.
+   * Land the render scale if the ladder has asked for one it has not got.
    *
-   * There are exactly three of those and they are named at the call sites: boot,
-   * a race build behind the closed launch board, and a window resize the browser
-   * is already reallocating for. Nothing else may call this — a "free moment"
-   * that is really a judgement call about whether the player is looking is the
-   * bug this whole round is about.
+   * Called on the frame a rung changes and again on every delivered frame, so a
+   * request the rate limit refused is never simply forgotten. Does nothing at
+   * all without a free path — there the seam is still the only door.
    *
-   * Returns true if it actually moved the buffer, so the caller can decide
+   * The rate limit is the whole of the mid-race safety argument, and it is one
+   * line rather than a moment gate because the *caller* is already gated: a
+   * rung change went through `pictureLocked()` and `onAStraight()` before it got
+   * here. What `SCALE_HOLD_S` adds is a floor on how often the picture may
+   * change size regardless of how fast the ladder is moving — a panic pop that
+   * reaches the floor in one step lands one resize, not six.
+   */
+  function serviceScale(): void {
+    if (!freeScalePath()) return;
+    if (Math.abs(liveScale - wantScale) < 1e-3) return;
+    if (liveSeconds - lastScaleAt < SCALE_HOLD_S) return;
+    flushScale('live');
+  }
+
+  /**
+   * Move the render resolution to whatever the ladder last asked for.
+   *
+   * Two paths, and which one the game is on is a property of the composer
+   * rather than a setting:
+   *
+   *   **the free path** — `render/post.ts` resizes the targets it owns and the
+   *   canvas never moves. Called from `serviceScale` on any frame, subject to
+   *   the rate limit; the seams below call it too and it is simply already
+   *   current by the time they do.
+   *
+   *   **the fallback** — `renderer.setPixelRatio`, which rebuilds the drawing
+   *   buffer. Only ever reached at a seam, and there are exactly three of those,
+   *   named at their call sites: boot, a race build behind the closed launch
+   *   board, and a window resize the browser is already reallocating for.
+   *
+   * Returns true if it actually moved something, so the caller can decide
    * whether the window it is about to take is worth anything.
    */
   function flushScale(why: string): boolean {
+    if (liveScale > wantScale - 1e-3 && liveScale < wantScale + 1e-3) return false;
     const free = freeScalePath();
     if (free) {
-      // ── the free path lands here too, and round seven is why ────────────
-      //
-      // Round six ended this branch with "the free path keeps itself current;
-      // nothing to catch up", because the seam existed to avoid a *cost* — a
-      // composer that can move the scale with a `setViewport` has no cost to
-      // avoid, so the lever went back to being live.
-      //
-      // That escape hatch is closed. The seam rule is about what the player can
-      // *see* (see `SEAM_HELD`), and an internal resolution that drops from 0.78
-      // to 0.68 halfway down a straight is a picture going soft in front of
-      // them whether it cost a reallocation or a uniform write. Free is a
-      // statement about the frame budget, not about the player.
-      //
-      // What the capability still buys, and it is most of what it was worth: the
-      // *seam* becomes free. A race build that used to reallocate the swap chain
-      // becomes a viewport call, so the one hitch the ladder still owns goes to
-      // zero. See `freeScalePath`.
-      if (liveScale > wantScale - 1e-3 && liveScale < wantScale + 1e-3) return false;
       free.setRenderScale!(wantScale);
       liveScale = wantScale;
+      scaleSteps++;
+      lastScaleAt = liveSeconds;
       lastFlushWhy = why;
+      // The frames before this one were drawn at a different resolution, so the
+      // window is about to compare two different games. Everything the fallback
+      // path says below applies here too — the only difference is the cost of
+      // the frame that does it.
       clearWindow();
       ctx.bus.emit('quality:changed', {
         quality: ctx.quality, scale: liveScale, rung: index, label: LADDER[index]?.label ?? '',
@@ -3411,6 +3612,8 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     ctx.renderer.setPixelRatio(want);
     liveScale = wantScale;
     scaleFlushes++;
+    scaleSteps++;
+    lastScaleAt = liveSeconds;
     lastFlushWhy = why;
     // Everything in the window was measured at a different resolution, and the
     // frames immediately after this one are the reallocation rather than the
@@ -4160,8 +4363,10 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     const s = LADDER[seamIndex]!.settings;
     return {
       ...f,
-      // ── seam-held. See `SEAM_HELD`. ──
-      tier: s.tier,
+      // ── seam-held. See `SEAM_HELD`. `tier` is *not* on this list any more:
+      // its whole measurable effect is `SHADOW_EXTENT` in `render/lighting.ts`,
+      // and holding it meant `ctx.quality.tier` reported the rung the ladder
+      // had left rather than the one it was on. ──
       aa: s.aa,
       drawDistance: s.drawDistance,
     };
@@ -4191,11 +4396,14 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    */
   function seamDiffers(lever: SeamLever, f: Rung, s: Rung): boolean {
     switch (lever) {
-      case 'scale': return f.scale !== s.scale;
+      // Against what the buffer **has**, not against the other rung: with a
+      // composer that can move the scale for free this lever is live and is
+      // usually already correct, and reporting it as "deferred" because the two
+      // rung rows differ would be the log lying about the picture.
+      case 'scale': return Math.abs(liveScale - f.scale) > 1e-3;
       case 'crowd': return f.content.crowd !== s.content.crowd;
       case 'scatter': return f.content.scatter !== s.content.scatter;
       case 'aa': return f.settings.aa !== s.settings.aa;
-      case 'tier': return f.settings.tier !== s.settings.tier;
       case 'drawDistance': return f.settings.drawDistance !== s.settings.drawDistance;
       default: { const unhandled: never = lever; return unhandled; }
     }
@@ -4319,6 +4527,30 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    * verdict taken on thin evidence is supposed to fail — as `unresolved`,
    * rather than as a confident wrong answer.
    */
+  /**
+   * How many rungs one emergency change is worth, from how far over budget the
+   * machine measurably is.
+   *
+   * **One change, not three.** Every version of the moment gate up to round four
+   * asked "may I change the picture now" and never "how many times am I about
+   * to ask that": measured, six changes in two hundred seconds with three of
+   * them inside three and a half race-seconds of the flag, so a player who had
+   * just timed a good launch watched the picture step down four times while
+   * their rocket start was still burning. A machine forty times too slow is not
+   * one rung away from the target and the number that says so is right there.
+   *
+   * `RUNG_GAIN` is what one rung is worth as a ratio; the log is therefore "how
+   * many rungs is this gap". Clamped at both ends — never less than one, never
+   * more than the whole ladder (`PANIC_MAX_STEP`).
+   */
+  function sizedStep(): number {
+    if (wallMean <= 0) return 1;
+    const over = wallMean / (TARGET_MS * DOWN_FACTOR);
+    if (over <= 1) return 1;
+    const n = Math.round(Math.log(over) / Math.log(RUNG_GAIN));
+    return n < 1 ? 1 : n > PANIC_MAX_STEP ? PANIC_MAX_STEP : n;
+  }
+
   function markDrop(): void {
     measureWindow();
     wallBefore = wallMedian;
@@ -4590,18 +4822,27 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    * worst frame of the session is the thing this file was sent back for twice.
    *
    * The conclusion was wrong in one word: it cannot be removed *from a frame*.
-   * It can be moved off the frames the player is being shown, which is what
-   * `flushScale` does — boot, race build, window resize, and nowhere else. The
-   * structural fix is still the right one and is still somebody else's: hold
-   * `sceneTarget`, `ldrTarget`, the depth texture and the five bloom mips
-   * permanently at rung 0's size, render the scene into a viewport
-   * sub-rectangle of them, sample every post pass through a uv scale, and
-   * resolve at full resolution. Then a scale change is a `setViewport` and a
-   * uniform write, the resolved composite matches the DOM HUD sitting inside it
-   * at every rung, and the ladder can move the resolution live again. This file
-   * is already waiting for it: `freeScalePath` looks for
-   * `ctx.composer.setRenderScale` on every call and hands the lever straight
-   * back the day it appears.
+   * Round six moved it off the frames the player is being shown — boot, race
+   * build, window resize — and the review that followed found the price of
+   * that: the player's *current* race is the one race the ladder cannot rescue.
+   *
+   * ── ...and what the table above had already said about the fix ────────────
+   *
+   * Row three: **the eight post targets resized by hand, 229ms against a 225ms
+   * median — zero.** That row was measured to rule out pre-sizing and it is
+   * also the whole answer. The expensive thing was never "changing the
+   * resolution", it was `setPixelRatio` rebuilding the *canvas*; the targets
+   * the world is actually drawn into belong to `render/post.ts` and cost
+   * nothing to move. So `render/post.ts` now implements `setRenderScale`: the
+   * scene target, the depth texture and the five bloom mips follow the scale,
+   * the composite resolves into a canvas that never moves, and the DOM HUD
+   * cannot come apart from the road because nothing under it has changed size.
+   *
+   * `freeScalePath` finds it, `applyScale` services it on the frame it is asked
+   * for, and `scaleFlushes` stays at 0 for the whole session — the drawing
+   * buffer is never rebuilt at all. If the composer is ever replaced with one
+   * that cannot do it, every word above about seams applies again and nothing
+   * else in this file changes.
    *
    * Either way the number is published instead of hidden: every change carries
    * its own `changeMs`, `probe().changeWorstMs` is the worst of the session,
@@ -4675,6 +4916,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       scalePending: Math.abs(liveScale - (LADDER[index]?.scale ?? 1)) > 1e-3,
       scaleFree: freeScalePath() !== null,
       scaleFlushes,
+      scaleSteps,
       scaleFlushWhy: lastFlushWhy,
       seamRung: seamIndex,
       pending: deferredLevers(),
@@ -4719,6 +4961,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       stalled,
       suspended,
       hijacked,
+      undrawn,
       phase: ctx.race?.phase ?? '',
       locked: pictureLocked(),
       frontEnd: frontEndOpen,
@@ -5532,6 +5775,33 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       const live = b.liveFrames !== seenLive;
       seenLive = b.liveFrames;
 
+      // ── ...and was there a picture in it ─────────────────────────────────
+      //
+      // `budget.skipDraw` is written at the bottom of *this* function and read
+      // by the engine immediately afterwards, so on entry it still holds the
+      // verdict that governed the **previous** frame's draw — which is exactly
+      // the frame the gap below is about to measure. If that draw was skipped,
+      // the race contributed nothing to it: measured on the untouched title
+      // screen, 0 draw calls and 0 triangles.
+      //
+      // ── why this had to change (round eight) ──────────────────────────────
+      //
+      // Because the governor was judging those frames anyway, and the frames
+      // were made of somebody else's work. Sitting on PRESS START for ten
+      // seconds with nothing touching `__GAME`, it walked rung 0 -> rung 3 and
+      // then reported `panic (judging last cut)` — cutting the *race's* content
+      // to pay a bill run up entirely by `ui/menus/stage.ts`'s own second
+      // renderer, which this file does not size and which its own notes admit
+      // "cannot hear this ladder". Then it wrote the verdict to localStorage,
+      // so the wrong answer survived the reload.
+      //
+      // A frame whose draw this file switched off is not evidence about this
+      // file's ladder. It is spoiled for the same reason a harness-driven frame
+      // is — something other than the game produced it — and it is counted and
+      // reported as `undrawn` in the probe, because an instrument that silently
+      // throws things away is how three of the last four rounds were lost.
+      const undrawnFrame = live && b.skipDraw;
+
       // ── did the harness touch anything since the last delivered frame ────
       //
       // Both kinds of harness work block the rAF loop for as long as they run:
@@ -5571,9 +5841,11 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         // be: a frame is discarded because the page was not running through it,
         // never because it was long. A 2.4 second frame on a visible page is a
         // 2.4 second frame, and it is the whole reason this file exists.
-        const spoiled = resumed || pageHidden || harnessSince;
+        const spoiled = resumed || pageHidden || harnessSince || undrawnFrame;
         if (spoiled) {
-          if (resumed || pageHidden) suspended++; else hijacked++;
+          if (resumed || pageHidden) suspended++;
+          else if (harnessSince) hijacked++;
+          else undrawn++;
           resumed = false;
           harnessSince = false;
           // A change whose own reallocation window contains somebody else's
@@ -5743,6 +6015,15 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // and no cover to compute against.
       if (cullables.length || scatter.length || shells.size) contentFrame();
 
+      // ── land any resolution the ladder has earned and not yet been given ──
+      //
+      // Above the early returns for the same reason the two blocks above it
+      // are: a rung the reviewer pinned, or one this session earned before the
+      // rate limit would let it land, is a rung whose *picture* has to arrive
+      // eventually. `serviceScale` is a no-op on every frame where the buffer
+      // already matches, which is almost all of them.
+      serviceScale();
+
       // `benchFrames` only moves when `renderFrame` was called from outside the
       // rAF loop: the front end primes exactly one such frame per race start,
       // and the test harness renders them in bursts. Two inside a second and
@@ -5789,6 +6070,42 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         && settleFor >= MEMORY_SETTLE_S && settleFrames >= MEMORY_SETTLE_FRAMES) {
         memoryRung = index;
         writeMemory(memoryKey, index);
+      }
+
+      // ── the collapse path ────────────────────────────────────────────────
+      //
+      // **Above everything, including the warm-up sample gate**, because a
+      // machine five times over the budget is not a machine that needs more
+      // evidence gathered about it — see `COLLAPSE_FACTOR`. It is the only
+      // branch in this file that does not consult `pictureLocked()`, and
+      // `COLLAPSE_DWELL` is where that is argued.
+      //
+      // What it fixes, in the reviewer's numbers: fifty to seventy seconds of
+      // delivered play to reach the floor, walked as `dropped (panic) x3` twice
+      // with a fourteen-sample verdict in between — which at half a frame a
+      // second is half a minute on its own. The budget is four seconds.
+      const collapsing = wallMean > TARGET_MS * COLLAPSE_FACTOR;
+      if (collapsing) {
+        collapseFor += secs;
+        collapseFrames += frameTick;
+      } else {
+        collapseFor = 0;
+        collapseFrames = 0;
+      }
+      // The front-end's own cap still binds: behind an opaque menu the race is
+      // not drawn at all, so a frame measured there is somebody else's — and
+      // since round eight those frames are discarded outright, so this is
+      // belt and braces for a front-end that is up but not covering.
+      const collapseBottom = frontEndOpen ? FRONT_END_FLOOR : LADDER.length - 1;
+      if (collapsing && index < collapseBottom && !stalled && !paused
+        && wallCount >= COLLAPSE_SAMPLES
+        && collapseFor >= COLLAPSE_DWELL && collapseFrames >= COLLAPSE_FRAMES) {
+        markDrop();
+        let want = index + sizedStep();
+        if (want > collapseBottom) want = collapseBottom;
+        const many = want - index > 1 ? ` x${want - index}` : '';
+        applyRung(want, `collapsed (${(wallMean / TARGET_MS).toFixed(0)}x budget)${many}`);
+        return;
       }
 
       if (wallCount < PANIC_SAMPLES) return hold('warming');
@@ -5968,21 +6285,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         panicFrames += frameTick;
         if (panicFor >= PANIC_DWELL && panicFrames >= PANIC_DWELL_FRAMES) {
           markDrop();
-          // ── one change, not three ──────────────────────────────────────
-          //
-          // Sized from how far over budget the machine actually is and clamped
-          // to whatever floor this scene is allowed to reach, so a machine
-          // forty times too slow spends one pop getting most of the way down
-          // instead of three getting a third of the way. See `RUNG_GAIN`.
-          let step = 1;
-          if (wallMean > 0) {
-            const over = wallMean / (TARGET_MS * DOWN_FACTOR);
-            if (over > 1) {
-              const n = Math.round(Math.log(over) / Math.log(RUNG_GAIN));
-              step = n < 1 ? 1 : n > PANIC_MAX_STEP ? PANIC_MAX_STEP : n;
-            }
-          }
-          let want = index + step;
+          let want = index + sizedStep();
           if (want > bottom) want = bottom;
           // Which gate gave way, on the log line, rather than leaving a
           // reviewer to work out why `frontEnd: true` or `phase: 'countdown'`
