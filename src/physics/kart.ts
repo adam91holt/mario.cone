@@ -545,7 +545,24 @@ export function createKartPhysics(ctx: GameContext): GameSystem {
       // later once drag has done its work.
       // Boost strips: fire once on contact, then hold while the wheels stay on
       // them, so a long strip is one continuous shove rather than a stutter.
-      if (racer.surface === 'boost') {
+      //
+      // **`frozen` first, and it is the whole bug behind two reports.**
+      //
+      // This block had no phase gate, so it ran on the grid. The formation
+      // approach walks each machine 11m up the spline into its slot, that
+      // approach crosses the strip by the start line, and the strip fired —
+      // handing every racer a pad boost while the field was supposed to be
+      // standing still. Measured on the shipped build with no input at all:
+      // 0 to 75 during `intro`, then a 129m coast under the lights, arriving
+      // at the flag 271m down the circuit already doing 33. Both reports of
+      // "the car starts moving before the countdown" are this.
+      //
+      // The same `frozen` the throttle, brake and steering already read, for
+      // the same reason: a strip is a racing mechanic, and before the flag
+      // there is no racing for it to reward. `st.onPad` is left false while
+      // frozen, so a machine still standing on a strip when the flag drops
+      // gets the shove then, on the frame it is allowed to move.
+      if (!frozen && racer.surface === 'boost') {
         if (!st.onPad) {
           applyBoost(racer, 'pad', K.boost.pad.time, K.boost.pad.power);
         } else {
