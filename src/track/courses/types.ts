@@ -241,9 +241,23 @@ export interface HazardDef {
   /** Lap fraction of the point on the road the hazard crosses. */
   at: number;
   /**
-   * Lateral centre of the swept path, as a fraction of the half width, **in the
+   * Where on the road the body is, as a fraction of the half width, **in the
    * spline's frame** — the same frame `ShortcutDef.side` and `SurfacePatchDef`
    * use, and therefore the mirror of the driver's. `-1` is the driver's right.
+   *
+   * What exactly it names depends on what is moving, because a machine that
+   * crosses the road and a gate that swings onto it do not have the same
+   * geometry:
+   *
+   *   * `truck`    — the centre of the traverse. Almost always 0.
+   *   * `rockfall` — the middle of the band the boulders land in.
+   *   * `surge`    — where the bore **rests**: the middle of the dry lane it
+   *                  is there to close. Its *sign* is also the edge of the
+   *                  road the water arrives from.
+   *   * `boom`     — the foot of the gate's swing. The pivot stands 5.6m
+   *                  further out again, and the arm is `width` long, so a gate
+   *                  quoted at 1.35 on a 20-metre road shuts to the tarmac edge
+   *                  and no further.
    */
   lateral?: number;
   kind: HazardKind;

@@ -88,8 +88,9 @@
 // keeps a 36m ribbon readable at 60 m/s.
 
 import { loopFromWaypoints } from './path.ts';
+import { applyRamps } from './ramp.ts';
 import { ring } from './ring.ts';
-import type { CourseDefEx } from './types.ts';
+import type { CourseDefEx, RampDef } from './types.ts';
 
 /**
  * The ring, driven from the start/finish line at (-461, 232).
@@ -125,7 +126,25 @@ const RING = ring(
     { radius: 30, turn: 80, width: 21, y: 1.8, name: 'T9 THE CONTRAFLOW' },
     { run: 45, width: 21, y: 2.0, name: 's9' },
     { radius: 30, turn: -85, width: 21, y: 2.3, name: 'T10 CONTRAFLOW EXIT' },
-    { run: 210, width: 28, y: 3.0, name: 's10' },
+    // ── THE CAUSEWAY ──────────────────────────────────────────────────────
+    // The one vertical idea a dry lake is allowed to have, and it is *built*
+    // rather than geological: the bypass has to get over the salt works' old
+    // tramway embankment, so it climbs the levee at 18%, runs 26 metres along
+    // the crest twelve and a half metres above the pan, and falls off the far
+    // side at 22%.
+    //
+    // A critic measured this circuit at 15.2 metres of climb a lap over 3.3
+    // kilometres — the steepest sustained sixty-metre window on the whole road
+    // was 3.8% — and said, correctly, that at a common scale its elevation
+    // profile is a flat line. A salt pan *is* flat; that is what it is for. So
+    // the answer is not to corrugate it, it is to put one thing on it that
+    // stands up, and to put the thing at the fastest point on the lap: you come
+    // out of the Contraflow, over the boost strip on `s10`, and straight at an
+    // embankment with a kicker on top of it. See `RAMPS`.
+    { run: 96, width: 28, y: 3.0, name: 's10' },
+    { run: 54, width: 25, y: 11.6, name: 'CAUSEWAY CLIMB' },
+    { run: 26, width: 23, y: 12.5, name: 'CAUSEWAY TOP' },
+    { run: 46, width: 29, y: 2.6, name: 'CAUSEWAY DROP' },
     { radius: 52, turn: -130, width: 28, y: 3.5, name: 'T11 WINDSOCK RIGHT' },
     { run: 210, width: 31, y: 4.1, name: 's11' },
     { radius: 54, turn: 120, width: 30, y: 4.3, name: 'T12 SURVEY LEFT' },
@@ -143,11 +162,30 @@ const START = 45;
 const on = (name: string, along = 0.5): number =>
   ((RING.distanceAlong(name, along) - START) / RING.length + 1) % 1;
 
+/**
+ * The kicker on the causeway crest.
+ *
+ * The lip sits on the last metre of the level crest, so a kart leaves it
+ * climbing with 12.5 metres of embankment and a 22% face underneath it and
+ * nothing to land on for seventy. It is a shorter lip than the mountain's — 2.4
+ * metres against 3.6 — because it is taken twenty metres a second faster and a
+ * jump's length is a function of both.
+ *
+ * Read twice, like every ramp: `applyRamps` puts the deck into the centreline,
+ * which is the only place kart physics can feel it, and `buildRoad` reads the
+ * same array to paint the chevrons and the lip bar on top. See `ramp.ts`.
+ */
+const RAMPS: RampDef[] = [
+  { at: on('CAUSEWAY TOP', 1), length: 20, lip: 2.4, fall: 0.30, width: 14 },
+];
+
 export const saltpanBypass: CourseDefEx = {
   id: 'saltpan-bypass',
   name: 'Saltpan Bypass',
   cup: 'hazard',
-  points: loopFromWaypoints(RING.waypoints, {
+  points: loopFromWaypoints(applyRamps(RING.waypoints, RAMPS, {
+    length: RING.length, startDistance: START,
+  }), {
     width: 32,
     step: 10,
     bankGain: 20,
@@ -199,6 +237,9 @@ export const saltpanBypass: CourseDefEx = {
     // is a trap — and with a mushroom it is the fastest thing on the circuit.
     // `side: 1` is the driver's left, which is the apex of this left-hander.
     shortcuts: [{ from: on('s8', 0.86), to: on('s9', 0.6), side: 1 }],
+    // **The kicker on the causeway.** See `RAMPS` above; the deck is in the
+    // centreline and this is what paints it.
+    ramps: RAMPS,
     // **The drift.** A dry lake is a wind machine, and what it moves is salt.
     // A metre-deep windrow has blown across the *outside* half of the Brine
     // Sweep — the longest single corner on the circuit, taken flat — and it is
@@ -256,6 +297,45 @@ export const saltpanBypass: CourseDefEx = {
         from: on('s13', 0.34), to: on('s13', 0.50),
         latFrom: -0.52, latTo: 0.52, surface: 'water', tint: '#5D909C', style: 'brine',
       },
+    ],
+    // ── THE SURGE: what stops the slalom being memorised ───────────────────
+    //
+    // Three sheets of standing brine, each leaving a different dry lane, is a
+    // rhythm — and a rhythm is a thing a player learns on lap one and then owns
+    // for the rest of the race. On a two-lap circuit that means the signature
+    // of round three is solved halfway through it.
+    //
+    // So the lake moves. A **bore** — a metre and a half of brine with a foam
+    // crest on it, twenty-six metres of it along the road — rolls in off the
+    // pan, crosses the road, and drains back. One per band, and the three are a
+    // third of a cycle apart, so at any moment one of the three crossings is
+    // being swept and the other two are as you left them. *Which* one is the
+    // thing that changes.
+    //
+    // The cycle is nineteen seconds against a sixty-second lap: 3.2 cycles a
+    // lap, so lap two arrives a fifth of a cycle out of step with lap one and
+    // the pattern you learned is off by a band. That is the entire point, and
+    // it is why the period is a prime-ish number rather than a round one.
+    //
+    // `bump` rather than `spin`: water shoves, it does not throw you. 0.55s and
+    // most of your speed — which on the fastest road in the cup is still a
+    // place. `lateral` names the side the lake is on; `width` is how far across
+    // the road the bore gets before the pan takes it back. See `HazardDef`.
+    //
+    // `lateral` is where each bore **rests**, and each one is the middle of its
+    // own band's dry lane — the band above it says which: the first leaves the
+    // driver's left dry (`latTo: 0.18`, so the lane is +0.18..+1 and its middle
+    // is +0.60), the second the driver's right, and the third leaves both
+    // shoulders, of which the bore takes the right-hand one. The sign of that
+    // number is also the edge of the road the lake is on, which is where the
+    // water comes in from.
+    hazards: [
+      { at: on('s11', 0.32), kind: 'surge', period: 19, phase: 0,
+        lateral: 0.60, hit: 'bump', lead: 1.6, signAt: 96 },
+      { at: on('s12', 0.38), kind: 'surge', period: 19, phase: 1 / 3,
+        lateral: -0.60, hit: 'bump', lead: 1.6, signAt: 96 },
+      { at: on('s13', 0.42), kind: 'surge', period: 19, phase: 2 / 3,
+        lateral: -0.76, hit: 'bump', lead: 1.6, signAt: 96 },
     ],
     // The works corners run 1/48 to 1/54 of curvature and the pan's sweepers
     // 1/320 to 1/360, so a threshold at 1/85 kerbs exactly the six corners a

@@ -8,30 +8,56 @@
 // the one before it did not — and asks it with a different *lap structure*, not
 // only a different set of corners.
 //
-//   1  Cone Canyon Speedway   3 laps · 5 strips · 1 cut · THE SPLIT
-//                             2.38km, and the open one: a 330-metre pit
-//                             straight, 30m of road at the line, and one
-//                             genuinely flat-out sweeper. Its signature is the
-//                             Carousel, which is now a *divided carriageway* —
-//                             a hundred metres of raised island turning one
-//                             185° corner into two roads.
+//   1  Cone Canyon Speedway   3 laps · 5 strips · 1 cut · THE SPLIT ·
+//                             THE ROCKFALL. 2.38km, and the open one: a
+//                             330-metre pit straight, 30m of road at the line,
+//                             and one genuinely flat-out sweeper. Its signature
+//                             is the Carousel, a *divided carriageway* — and
+//                             the canyon now drops boulders on the inside lane
+//                             of it, so the fork has a wrong answer that moves.
 //   2  Jackhammer Quarry      3 laps · 5 short strips · 2 cuts · 2 spills ·
-//                             THE CUT. 2.18km with fifteen corners in it and a
-//                             13m minimum radius. Its signature is width: the
-//                             haul road necks to **eleven metres** on the
-//                             plunge into the pit, the narrowest tarmac in the
-//                             game and the only place two karts do not fit.
+//                             THE CUT · THE HAUL TRUCK. 2.18km, fifteen
+//                             corners, a 13m minimum radius and **42 metres of
+//                             pit**. Its signature is width — eleven metres on
+//                             the plunge — and there is now a hundred-tonne
+//                             dumper shuttling across those eleven metres.
 //   3  Saltpan Bypass         2 laps · 3 long strips · 1 cut · 1 drift ·
-//                             THE FLOOD. 3.3km and 36m wide. Its signature is
-//                             water — three sheets of standing brine across
-//                             the fastest road in the game, each leaving a
-//                             different dry lane, so the quick way down the
-//                             west side of the lake is a slalom.
+//                             THE FLOOD · THE SURGE · THE CAUSEWAY. 3.3km and
+//                             36m wide. Three sheets of standing brine, three
+//                             bores that move which lane is dry, and one levee
+//                             with a kicker on top of it.
 //   4  Switchback Summit      3 laps · 5 strips, all uphill · 1 cut · 1 washout
-//                             · THE KICKER. 116 metres of climb and a plunge
-//                             back down it, and now a **launch ramp** on the
-//                             plunge: the only place in the cup a kart leaves
-//                             the ground because somebody built it a ramp.
+//                             · THE KICKER · THE GATE. 116 metres of climb, a
+//                             plunge back down it with a launch ramp on it, and
+//                             an avalanche boom that swings shut across the
+//                             spur cut.
+//
+// ── the round that gave the cup its name back ──────────────────────────────
+//
+// A critic played all four and rejected them at 6.5 on one sentence: *"nothing
+// on any of the four courses can ever touch the player — the roster contains
+// zero hazards, every course is stamped cup 'hazard', and TrackFeatures has no
+// noun that could express one."* The proof was one grep: `stunRacer` had
+// **exactly one caller in the whole game** and it was the item box. Neither
+// `track/` nor `world/` imported physics at all.
+//
+// `TrackFeatures.hazards` is that noun and `courses/hazards.ts` is the second
+// caller. Four hazards, one per round, no two alike, every one of them a pure
+// function of `ctx.time` — a dumper, a rockfall, three bores of brine and an
+// avalanche gate. Each is announced by the same warning diamond on the verge
+// seventy-odd metres upstream, with lamps that light a full second and a half
+// before the body reaches the tarmac: *dark lamps mean the road is yours* is
+// the contract, and it is the difference between hard and cheap.
+//
+// The same round also fixed the other half of that verdict — that Cone Canyon
+// and Jackhammer Quarry *measured as one course twice* (both 3 laps, both
+// road/dirt/boost/air, 28.6m against 27.6m of elevation, 37.1% against 35.5%
+// of the lap under an 80m radius, 41.8 against 43.4 m/s) and that three of the
+// four elevation profiles were flat lines at a common scale. The quarry is
+// now a **staircase into a 42-metre pit** rather than a flat loop with gravel
+// on it, and the saltpan — which is a dry lake and has to stay flat — has one
+// thing on it that stands up: a 12.5-metre levee with a launch ramp on the
+// crest, at the fastest point of the fastest lap in the cup.
 //
 // ── the round that made those four words different ─────────────────────────
 //

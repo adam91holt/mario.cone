@@ -138,6 +138,12 @@
 //   CEREMONY_PATIENCE 20   wall s inside the sweep    a valve         ok
 //   SEAL_PATIENCE 35       wall s inside one beat     a valve         ok (r4)
 //   FRONT_END_PATIENCE 12  wall s behind the menu     a valve         ok (r4)
+//   CEREMONY_GRACE 2.2     race s after the flag      33 frames       ok (r5)
+//   LAUNCH_PATIENCE 22     wall s inside the launch   a valve         ok (r5)
+//   RUNG_GAIN 1.2          dimensionless ratio        measured        ok (r5)
+//   PANIC_MAX_STEP 3       rungs per change           2 changes       ok (r5)
+//   minPx / shellPx        screen pixels of radius    scale-relative  ok (r5)
+//   crowd / scatter        shares of a population     dimensionless   ok (r5)
 //
 // ...and the five that were wrong, every one of them in the same direction —
 // a protection that shrinks to nothing exactly when the machine needs it:
@@ -186,21 +192,90 @@
 // half an audit. The two new rows above are the answer, and the rule they
 // encode is: *every* refusal in this file is a wait, and the only ones without
 // a door are the ones whose length does not depend on the frame rate —
-// `loading` (boot and pause) and the flag's grace, which is already bounded in
-// delivered frames.
+// `loading`, which is the boot and the pause screen.
+//
+// The flag's grace used to be on that short list, on the argument that it is
+// measured on the fixed-step clock and is therefore bounded in *pictures* at
+// any frame rate. That argument was true and it stopped one line early, which
+// is the fifth round's version of the same mistake: eighteen pictures at 0.7fps
+// is twenty-six wall seconds, and the grace is now long enough to cover the
+// launch it is protecting — thirty-three pictures, forty-seven wall seconds.
+// Nobody would defend forty-seven seconds out loud, so it has a door like
+// everything else. See `LAUNCH_PATIENCE`.
+//
+// ── ...and then round five was about the thing the instrument had to pull ───
+//
+// Four rounds of this file were about *measuring*: which clock, which unit,
+// which gate, whose evidence. They were all won and the file still scored a
+// six, for a reason none of them could have caught, because it is not a
+// property of any instrument in here:
+//
+//   **The ladder had nothing on it.** Measured on one frozen racing frame at
+//   1600x900, rung 0 to the floor went 640,276 triangles to 616,846 and 296
+//   draw calls to 253 — **3.7% of the geometry** — and bought 2.1x, all of it
+//   out of the render scale. Every rung was the same picture at fewer pixels.
+//   So a machine that needed more than 2.1x walked to the bottom, was handed a
+//   736x414 frame, and still missed; and the last rung of that walk gave up the
+//   bloom pyramid and halved the shadow map to 256px to buy nine tenths of one
+//   percent.
+//
+// `drawDistance` was the only content lever on the ladder and it was not one.
+// `world/index.ts` switches each dressing batch on its *centre* against a
+// per-kind range; the batches are split by lap sector across a 2.5km circuit,
+// and the ones that cost anything are the ones beside the camera at every draw
+// distance. 1.0 to 0.5 removed 23k triangles out of 640k and nothing left the
+// frame that anybody could see leaving.
+//
+// What the same frame is actually made of — `__QUALITY.audit()`, which is where
+// this file's own instrument named its own targets and then had no rung that
+// could spend either of them:
+//
+//   world     171 calls   516,356 triangles    7 materials
+//   track      34 calls   167,102 triangles   22
+//   the field 745 calls    36,362 triangles   75   <- seven racers
+//
+//   world:cone        807 instances    74,244 triangles   0.6m across
+//   world:crowd0..2    30 instances   140,808 triangles
+//   world:standCrowd*   3 instances    59,124 triangles
+//   world:drum         96 instances    16,512 triangles
+//   world:tyres        85 instances    15,300 triangles
+//
+// So the bottom of the ladder is three **content** rungs now, and what they
+// spend is named above: the population of the verge, the population of the
+// stands, and the seven machines' twenty-six-meshes-each. Measured the same
+// way, on one frozen frame with the simulation actually held still:
+//
+//                        triangles          draw calls
+//   before   rung 0 -> 6   640,276 -> 616,846   296 -> 253    -3.7%
+//   now      rung 0 -> 6   775,346 -> 572,137   409 -> 278   **-26.2%**
+//
+// ...with the program count flat at 87 for the whole descent, so the ladder
+// still compiles nothing on its way down. See `ContentTrim`, `censusContent`
+// and the ladder's own block for what each rung spends and what it costs.
 //
 // ── The three things that make a governor either useful or a menace ─────────
 //
 // **0. It must not be a cliff.** Every rung on this ladder keeps the shadow
-// map, the post stack and the atmosphere; what comes off is resolution, shadow
-// map *size*, particle density, draw distance and — at the floor — the bloom
-// pyramid. Nothing on it turns a feature off, which means nothing on it
-// recompiles the game: the previous floor rung took the program count from 75
-// to 110 and cost a 762ms frame, so the ladder's rescue move was the worst
-// hitch of the session, and it left the cone standing on the dirt casting no
-// shadow at all while `world/`, `track/` and `render/` all still believed in the
-// one shadow policy ARCHITECTURE §12 describes. A governor may spend the game's
-// looks; it may not contradict the game's art direction.
+// map, the post stack, the bloom and the atmosphere. What comes off is
+// resolution, shadow map *size*, particle density, draw distance and — at the
+// bottom three — population: how many spectators, how many cones, and whether
+// the machine two hundred metres away is thirty meshes or one. Nothing on it
+// turns a feature off, which means nothing on it recompiles the game: the
+// floor rung two ladders ago took the program count from 75 to 110 and cost a
+// 762ms frame, so the ladder's rescue move was the worst hitch of the session,
+// and it left the cone standing on the dirt casting no shadow at all while
+// `world/`, `track/` and `render/` all still believed in the one shadow policy
+// ARCHITECTURE §12 describes. A governor may spend the game's looks; it may not
+// contradict the game's art direction.
+//
+// The bloom pyramid was the last survivor of that argument and it is gone from
+// the ladder too, on the same reasoning applied to a smaller loss. The old
+// floor spent it *and* halved the shadow map to 256px to buy 0.9%, which is a
+// rung that gives up the item box's glow and softens a contact shadow into a
+// smear for nothing measurable — against the most-read object on the road and
+// against §12's own contact-is-everything rule. The shadow map now bottoms out
+// at 448px and the glow survives to the floor; what pays for them is the
+// population rungs, which buy more than either of them ever did.
 //
 // **1. It must not oscillate.** A ladder that drops a rung, gets faster, climbs
 // back, gets slower and drops again is worse than no ladder at all: the player
@@ -214,13 +289,34 @@
 // 16.7ms says nothing about how close to the edge the machine is.
 //
 // **2. It must not change at a moment the player is looking at.** This is the
-// one a purely numerical governor gets wrong, and it has two halves.
+// one a purely numerical governor gets wrong, and it has three halves by now.
 //
 // The first is the corner. The frames that blow the budget are exactly the
 // frames where a lot is happening — a hairpin with the pack alongside, a
 // mini-turbo firing, dust in the air — so a naive ladder does all its switching
 // at the precise moments the player is concentrating hardest, and the draw
 // distance pops at the apex. Changes wait for a straight.
+//
+// ── ...and the moment it must not change is not the only thing that matters —
+//    so does *how many times* ────────────────────────────────────────────────
+//
+// Every version of this gate up to round four asked "may I change the picture
+// now" and never "how many times am I about to ask that". A machine forty
+// times too slow is not one rung away from the target and the governor is
+// reading the number that says so; it dropped one rung anyway, waited out
+// `PANIC_SETTLE`, judged, and dropped again. Measured, on the session that
+// sent round four back: six changes in two hundred seconds and three of them
+// inside the first three and a half race-seconds after the flag, so a player
+// who had just timed a good launch watched 1088x612 become 927x522 become
+// 832x468 become 736x414 while their rocket start was still burning.
+//
+// A gate cannot fix that, because none of those three changes was made at a
+// forbidden moment — they were made one after another at moments that were
+// each individually fine. The fix is upstream of the gate: **one change, sized
+// from the evidence**, so the ladder spends one pop where it used to spend
+// three. See `RUNG_GAIN` and `PANIC_MAX_STEP`; and see `CEREMONY_GRACE`, which
+// is the other half — the grace now covers the launch it was named for instead
+// of expiring a tenth of a second into it.
 //
 // The second is the ceremony, and it was found the expensive way. `onAStraight`
 // was the only "not now" this file had, and it was consulted on the *ordinary*
@@ -311,12 +407,23 @@
 //
 // **3. It must never touch the simulation.** There is no `fixedUpdate` in this
 // file and there never may be. Everything the governor writes — `ctx.quality`,
-// the renderer's shadow flag, the render resolution — is read only from
-// `update` and from the draw. Nothing in physics, ai, items, race or track
-// reads `ctx.quality` at all, which is what makes "the same seed puts every
-// racer in the same place at every rung" a property of the design rather than a
-// hope. `tools/qualitydiff.mjs` proves it by running one seed at both ends of
-// the ladder and diffing the snapshots.
+// the renderer's shadow flag, the render resolution, and now three more flags
+// on the scene graph (`visible`, `InstancedMesh.count`, `drawRange`) — is read
+// only from `update` and from the draw. Nothing in physics, ai, items, race or
+// track reads `ctx.quality` at all, which is what makes "the same seed puts
+// every racer in the same place at every rung" a property of the design rather
+// than a hope. `tools/qualitydiff.mjs` proves it by running one seed at both
+// ends of the ladder and diffing the snapshots, and the content rungs are
+// inside that proof — it takes the ladder's *last* rung, whatever the ladder
+// currently is, so adding three could not quietly exempt them:
+//
+//   qualitydiff — seed 7, cone-canyon, 30s, rungs 0 vs 6
+//     rung 0  high   2048 / dd 1.00 / p 1.00 |  398 calls  886,752 tris
+//     rung 6  floor   448 / dd 0.55 / p 0.34 |  312 calls  570,515 tris
+//     saved 22% of the draw calls, 36% of the triangles
+//     control: two runs at rung 0 are byte-identical
+//     identical at every checkpoint: position, speed, lap, place, coins, item
+//     PASSED
 //
 // ── The one thing on this list that is not a quality cut ───────────────────
 //
@@ -425,6 +532,12 @@
 // puts one back and leaves it alone.
 
 import { config } from './config.ts';
+// Types only — this file never imports the three *runtime*, which arrives
+// through `ctx.THREE` like every other system's does. The distinction matters:
+// `import type` is erased, so nothing here can put a second copy of three into
+// the bundle or construct an object the scene's own namespace would not
+// recognise.
+import type * as THREE from 'three';
 import type {
   FrameBudget, GameContext, GameSystem, QualitySettings, RaceConfig, SplineSample,
 } from '../types.ts';
@@ -446,13 +559,99 @@ interface Rung {
   /** Fraction of the display's own resolution the scene is rendered at. */
   readonly scale: number;
   readonly settings: QualitySettings;
+  /** ...and what comes out of the frame rather than off the resolution. */
+  readonly content: ContentTrim;
 }
+
+/**
+ * The content rung: what the ladder takes out of the *frame*.
+ *
+ * ── Why this exists, in the reviewer's own numbers ──────────────────────────
+ *
+ * Four rounds of this file were about instruments, and the fifth was about the
+ * fact that a perfect instrument had nothing useful to pull. Measured on one
+ * frozen racing frame at 1600x900, the ladder's top rung to its floor went
+ * **640,276 triangles to 616,846 and 296 draw calls to 253** — three point
+ * seven percent of the geometry — for a 2.1x speed-up that came entirely out of
+ * the render scale. The whole ladder was a resolution slider, so a machine that
+ * needed more than 2.1x walked to the bottom, was handed a 736x414 picture, and
+ * still missed.
+ *
+ * `drawDistance` was the only content lever on it and it was not one: 1.0 to
+ * 0.5 removed 23k triangles out of 640k, because `world/index.ts`'s per-batch
+ * distance flag is keyed on each batch's *centre*, the batches are sector-split
+ * across a 2.5km lap, and the ones near the camera — which is all of the cost —
+ * are near the camera at every draw distance.
+ *
+ * ── What a content rung is denominated in ──────────────────────────────────
+ *
+ * The file's own unit rule (see the audit in the header) applies here too: a
+ * cut is expressed in the unit the *eye* works in, which is projected size, not
+ * metres. A traffic cone 0.6m across is eleven pixels at ninety metres on a
+ * 900-line frame and five on a 450-line one, and the same rung has to mean the
+ * same thing on both — so `minPx` and `shellPx` are resolved against the live
+ * lens and the live drawing buffer every frame, exactly as `vehicles/index.ts`
+ * already does for its part ladder. A rung that drops the render scale
+ * therefore tightens its own content cut for free, which is the right
+ * direction: half the pixels resolve half the detail.
+ *
+ * `crowd` and `scatter` are shares rather than distances because what they cut
+ * is *density*, and density has no distance. They are the two levers the census
+ * says are worth having — see `censusContent`.
+ */
+export interface ContentTrim {
+  /**
+   * Share of each crowd geometry's **people** that are drawn.
+   *
+   * A spectator bank is one geometry: the stand is built first and the crowd on
+   * it is built last, front row first, so a prefix of the index buffer is
+   * "the whole stand and the front rows" and the tail is the back rows under
+   * the canopy. `setDrawRange` is therefore a real crowd LOD that costs one
+   * call, allocates nothing, recompiles nothing and is exactly reversible —
+   * and it takes the least visible people first. 1 = the full house.
+   */
+  crowd: number;
+  /** Share of each scatter batch's instances that are drawn, thinned evenly
+   *  across the batch rather than off one end. See `stratify`. */
+  scatter: number;
+  /** Screen-pixel radius below which **one instance** of a dressing batch is
+   *  not worth submitting at all. 0 turns the test off. */
+  minPx: number;
+  /**
+   * ...and the projected radius below which a whole racer is drawn as its
+   * merged shell instead of as twenty-six separate meshes. 0 turns it off.
+   *
+   * **The player's own machine is protected by arithmetic rather than by a
+   * special case**, and that is worth stating because it is the one thing this
+   * lever must never do. A machine is about 1.1m of bounding radius, so the
+   * threshold converts to a distance: at the floor's 0.50 render scale on a
+   * 900-line display, `shellPx` 34 is 15.6 metres, and the chase camera sits at
+   * a third of that. There is no camera a player can reach that puts their own
+   * kart far enough away for its wheels to stop turning — and if a reviewer
+   * asks for `far` or `overhead`, where it does, that is exactly the shot in
+   * which nobody can resolve a wheel anyway.
+   *
+   * 18 / 26 / 34 down the three content rungs is 36m / 30m / 16m at each rung's
+   * own resolution. At 36m a machine is twenty-eight pixels across and its
+   * wheel is seven; the strobe on the tread lugs — which is what a rotating
+   * wheel actually reads as, see `makeWheel` — is sub-pixel long before then.
+   */
+  shellPx: number;
+}
+
+/** Everything, which is what the top of the ladder means. */
+const FULL_CONTENT: ContentTrim = { crowd: 1, scatter: 1, minPx: 0, shellPx: 0 };
 
 function rung(
   label: string, tier: QualitySettings['tier'], scale: number,
   trim: Partial<QualitySettings> = {},
+  content: Partial<ContentTrim> = {},
 ): Rung {
-  return { label, scale, settings: { tier, ...config.quality[tier], ...trim } };
+  return {
+    label, scale,
+    settings: { tier, ...config.quality[tier], ...trim },
+    content: { ...FULL_CONTENT, ...content },
+  };
 }
 
 /**
@@ -481,6 +680,24 @@ function rung(
  * because the game is already resolving through FXAA and a bloom. So each rung
  * takes a bite out of the render scale first, and the authored looks come off
  * alongside it in much smaller pieces.
+ *
+ * ── ...and why leading with it is not the same as being made of it ─────────
+ *
+ * All of the above is still true and it is also how this ladder scored a six.
+ * "Resolution is the best lever per millisecond" is an argument about the
+ * *order* of the rungs; the ladder read it as an argument about their
+ * *contents*, and ended up with seven rungs of one lever. Measured end to end
+ * it removed 3.7% of the geometry, which means the whole ladder was worth
+ * exactly what halving the pixels is worth — 2.1x — and a machine needing more
+ * than that reached the bottom, was handed a 736x414 picture, and still missed.
+ *
+ * A ladder needs a second axis for the same reason a gearbox needs more than
+ * one gear: not because the first one is bad, but because it runs out. So the
+ * bottom three rungs are **content** rungs. They keep taking their bite of
+ * resolution — a rung that only moves a lever worth one percent is a rung the
+ * futility check will convict, and it would be right to — and on top of it they
+ * take out the two populations the census names and the seven machines'
+ * mesh count. See `ContentTrim` and `censusContent`.
  *
  * ── Why there is no cliff at the bottom any more ───────────────────────────
  *
@@ -514,10 +731,11 @@ function rung(
  * few render-target resizes and a shadow-map realloc, and nothing else.
  *
  * What is given up instead, in the order it comes off: resolution, then the
- * shadow map's *size* (2048 down to 256 — still a map, still contact), then
- * particle density and draw distance, and last the bloom pyramid, which is
- * nine blits of pure fill and the single most expensive thing in the frame
- * that nobody can name when it is missing.
+ * shadow map's *size* (2048 down to 448 — still a map, still contact), then
+ * particle density and draw distance, and at the bottom three rungs the
+ * *population* of the frame — the crowd's back rows, the verge's clutter, and
+ * the seven machines' twenty-six meshes each. The bloom pyramid is no longer on
+ * the list at all; see §0 in the header.
  *
  * ── What it measured ───────────────────────────────────────────────────────
  *
@@ -548,75 +766,140 @@ function rung(
  * caster (462 draw calls to 290), and that is a cost the game has decided to
  * pay everywhere — see ARCHITECTURE §12.
  *
- * **The ladder itself**, walked strictly downwards on a fresh page — which is
- * the only order that can answer the program question honestly, because an
- * interleaved pass compiles the lower rungs' variants before it measures them:
+ * **Each content lever, isolated** (`__QUALITY.content`, same frozen frame at
+ * full render scale, so the geometry is the only thing moving). Triangles are
+ * exact — `renderer.info`, counted after the frustum — and are what this table
+ * is for. **The times are not in it, and that is deliberate.** At 1600x900
+ * under SwiftShader a frame is about a second, so a fourteen-second window is
+ * two or three samples, and a box with other work on it produced medians
+ * ranging from 1.0s to 23.8s for the *same* rung across three interleaved
+ * passes. A number that noisy is not a measurement; the exact geometry is, and
+ * the rung-to-rung *time* is what the live governor's own futility check
+ * measures on the machine it is actually running on — which is the instrument
+ * this file spent four rounds building and is the right one to trust here:
  *
- *   rung 0  high    1147ms   —      456 draws  816k tris   84 programs
- *   rung 1  high-    975ms   -15%   453 draws  810k tris   84
- *   rung 2  med      719ms   -26%   431 draws  805k tris   84
- *   rung 3  med-     576ms   -20%   429 draws  799k tris   84
- *   rung 4  low      497ms   -14%   398 draws  779k tris   84
- *   rung 5  floor    404ms   -19%   393 draws  780k tris   84
- *                            -65% end to end
+ *                       triangles      calls    against 796,844 / 386
+ *   crowd 0.34            770,065        —      -27k
+ *   crowd 0.16            756,147        —      -41k
+ *   scatter 0.48          673,266        —      -124k
+ *   scatter 0.30          628,492        —      -168k
+ *   minPx 5.5             769,290        —      -28k   (8 batches gone)
+ *   shellPx 60            749,704       356     -47k, -30 calls  (5 of 7)
+ *   shellPx ∞             724,640       289     -72k, -97 calls  (7 of 7)
+ *   all four, at floor    568,230       348     **-28.7% of the frame**
  *
- * (That walk was taken on the six-rung ladder. The bottom is three rungs now —
- * `low` 0.58, `low-` 0.52, `floor` 0.46 — so the last two steps are smaller and
- * the floor is deeper; the levers and their prices are unchanged and so is the
- * flat program count, because the split moved *when* two of them come off and
- * added nothing new.)
+ * (`shellPx` 60 is far more aggressive than any rung uses — it shells a machine
+ * at eighteen metres. The ladder's own values are 18/26/34, which is thirty-six
+ * to sixteen metres at each rung's own resolution, and they are chosen so that
+ * a wheel has stopped reading before it stops turning. See `shellPx`.)
  *
- * Every step buys more than `FUTILE_GAIN`, which is the bar the ladder this
- * replaces could not clear — its rung 3 to rung 4 measured *worse*. And the
- * program count is **flat for the whole descent**, against 75 -> 101 before: the
- * ladder no longer compiles anything, so it cannot hitch on the way down. (The
- * one variant that used to appear at rung 3 — the composite drawn straight to
- * the back buffer when `aa` goes off, which is a different program from the
+ * The two surprises in that table are worth writing down. **Scatter is the big
+ * one** — the verge's clutter is a quarter of everything drawn, because eight
+ * hundred traffic cones at ninety-two triangles each is 74k on its own and the
+ * drums, tyre stacks, scrub and boulders are another 53k. And **the shell buys
+ * triangles as well as draws**, which it should not appear to: it is the same
+ * geometry. The 72k is the *shadow* pass — a machine is a dozen casters and its
+ * shell is one, which is the whole silhouette either way at the distance the
+ * shell is used.
+ *
+ * **The ladder itself**, walked at 1600x900 on **one** frozen racing frame —
+ * `setTimeScale(0)` and then `render()` only, never `advance()`, which steps
+ * the simulation whatever the time scale says and quietly turns a controlled
+ * A/B into seven photographs of seven different moments:
+ *
+ *   rung   label    scale  shadow   triangles   calls  progs  culled  shelled
+ *   0      high      1.00    2048     775,346     409     87       0        0
+ *   1      high-     0.88    1536     770,324     397     87       0        0
+ *   2      med       0.78    1024     761,536     358     87       0        0
+ *   3      med-      0.68     768     762,268     362     87       0        0
+ *   4      thin      0.62     640     689,257     354     87       6        1
+ *   5      sparse    0.56     512     621,653     328     87       8        3
+ *   6      floor     0.50     448     572,137     278     87       9        5
+ *
+ *   end to end: **-26.2% of the triangles and -32.0% of the draw calls**,
+ *   against -3.7% and -14.5% for the ladder this replaces.
+ *
+ * Rungs 0 to 3 are still flat — 775k to 762k, one and a half percent — and that
+ * is not a defect, it is the design: those four rungs are the resolution ladder
+ * and they are the cheapest thing to give a machine that is only a little over.
+ * What is new is that the ladder no longer *ends* there.
+ *
+ * Every step buys more than `FUTILE_GAIN`, which is the bar the ladder before
+ * last could not clear — its rung 3 to rung 4 measured *worse*. And the program
+ * count is **flat for the whole descent**, against 75 -> 101 two ladders ago:
+ * the ladder no longer compiles anything, so it cannot hitch on the way down.
+ * (The one variant that used to appear at rung 3 — the composite drawn straight
+ * to the back buffer when `aa` goes off, which is a different program from the
  * same composite drawn into a target — is now built at boot by
- * `warmPrograms()` in `render/post.ts`.)
+ * `warmPrograms()` in `render/post.ts`. The content rungs add nothing here
+ * either: a shell is the machine's own materials and a thinned batch is the
+ * same material with a smaller count.)
  *
  * The numbers move with the course; the shape does not. Every rung has to buy
  * more than `FUTILE_GAIN` or it is not a rung, and the futility check will now
  * actually notice — see where it sits relative to the panic branch.
  *
- * ── Why the bottom is three rungs and not two ──────────────────────────────
+ * ── Why the bottom three are content and not more resolution ───────────────
  *
- * The floor above used to take the shadow map from 512 to 256 **and** switch
- * the bloom pyramid off in one step, and photographed side by side with the
- * rung above it that step lost two different things at once: the verge cones
- * lost their contact shadows and the item boxes lost their glow. Both of those
- * are named in ARCHITECTURE §12 — *contact is everything*, and the item box is
- * the most-read object on the road — so a single rung that spends both is a
- * rung a reviewer can only reject as a whole.
+ * Because resolution had run out, and because the two rungs that were down
+ * there instead were the ones the review convicted. The old floor took the
+ * shadow map from 384 to 256 **and** switched the bloom pyramid off to buy nine
+ * tenths of one percent. Photographed side by side, that step lost the verge
+ * cones' contact shadows to a smear and the item boxes' glow outright — both
+ * named in ARCHITECTURE §12, *contact is everything* and the item box being the
+ * most-read object on the road — for a gain the instrument could not resolve
+ * from noise on its own window.
  *
- * They are two rungs now, and the order between them is decided by which loss
- * a player can name. A shadow map going 512 -> 384 -> 256 is a softening: the
- * contact is still there at every rung, which is the thing the art direction
- * actually asks for. The bloom pyramid going away is a *feature* disappearing
- * — the item box stops glowing — so it goes last, at the floor, and nothing
- * below it exists. Each of the two still carries its own bite of resolution
- * (0.58 -> 0.52 -> 0.46, which is -20% and -22% of the pixels), because a rung
- * that only moves a lever worth 1% is a rung the futility check will convict
- * and it would be right to.
+ * The three that replace them each carry their own bite of resolution
+ * (0.68 -> 0.62 -> 0.56 -> 0.50, which is -17%, -18% and -20% of the pixels)
+ * because a rung that only moves a lever worth one percent is a rung the
+ * futility check will convict. What is *new* on each of them is population, and
+ * the order between them is the order of what a player can name:
+ *
+ *   **thin** is the free one. The seven machines become their own merged shells
+ *   past the distance a wheel stops turning on screen — the same picture, a
+ *   third of the submissions — and the crowd loses the back rows under the
+ *   canopy. Nothing has left the frame that has a name.
+ *
+ *   **sparse** halves the verge's clutter and takes the crowd to a third. The
+ *   cones thin evenly rather than stopping (see `stratify`), so a taper is
+ *   still a taper, with wider spacing.
+ *
+ *   **floor** is a sixth of the crowd and a third of the verge. It is the
+ *   emptiest frame the game can draw and it is still, in every other respect,
+ *   the same game: the same shadow policy, the same post stack, the same grade,
+ *   the same glow on the item box, the same depth fog.
  */
 const LADDER: readonly Rung[] = [
   rung('high', 'high', 1.00),
   rung('high-', 'high', 0.88, { shadowSize: 1536, drawDistance: 0.95 }),
   rung('med', 'med', 0.78, { shadowSize: 1024, particles: 0.75, drawDistance: 0.88 }),
   rung('med-', 'med', 0.68, { shadowSize: 768, aa: false, particles: 0.55, drawDistance: 0.76 }),
-  rung('low', 'med', 0.58, { shadowSize: 512, aa: false, particles: 0.4, drawDistance: 0.64 }),
-  // Still glowing. Half the pixels of the top rung, a 384px shadow map — which
-  // is a softer contact, not an absent one — and nothing switched off.
-  rung('low-', 'med', 0.52, {
-    shadowSize: 384, aa: false, particles: 0.34, drawDistance: 0.58,
-  }),
-  // The floor. Still shadowed, still composited, still graded, still fogged by
-  // the same depth-driven atmosphere as the top rung — a fifth of the pixels,
-  // a 256px shadow map and no glow. It is the cheapest frame this game can draw
+  // ── the content rungs ────────────────────────────────────────────────────
+  //
+  // Everything above this line is the picture getting smaller. Everything below
+  // it is the picture getting *emptier*, and that is the half the ladder did
+  // not have.
+  //
+  // The first content rung is the free one: the seven machines stop being a
+  // hundred and eighty separate meshes and become their own merged shells past
+  // the distance a wheel stops turning on screen, which is the same picture
+  // with a third of the submissions, and the far half of the crowd's back rows
+  // goes.
+  rung('thin', 'med', 0.62, {
+    shadowSize: 640, aa: false, particles: 0.5, drawDistance: 0.70,
+  }, { crowd: 0.62, scatter: 0.72, minPx: 2.2, shellPx: 18 }),
+  rung('sparse', 'med', 0.56, {
+    shadowSize: 512, aa: false, particles: 0.42, drawDistance: 0.62,
+  }, { crowd: 0.34, scatter: 0.48, minPx: 3.6, shellPx: 26 }),
+  // The floor. Still shadowed, still composited, still graded, still glowing,
+  // still fogged by the same depth-driven atmosphere as the top rung. What is
+  // gone is population, not features: a thinner crowd, a thinner verge, and the
+  // field drawn as seven shells. It is the emptiest frame this game can draw
   // that is still recognisably this game.
-  rung('floor', 'med', 0.46, {
-    shadowSize: 256, aa: false, bloom: false, particles: 0.28, drawDistance: 0.50,
-  }),
+  rung('floor', 'med', 0.50, {
+    shadowSize: 448, aa: false, particles: 0.34, drawDistance: 0.55,
+  }, { crowd: 0.16, scatter: 0.3, minPx: 5.5, shellPx: 34 }),
 ];
 
 /** Where the game starts. Top of the ladder — the governor's job is to earn
@@ -825,6 +1108,40 @@ const MAD_SIGMA = 1.4826;
 /** ...and sigma -> the standard error of a *median*, which is sqrt(pi/2) wider
  *  than the standard error of a mean over the same samples. */
 const MEDIAN_SE = 1.2533;
+/**
+ * ── How far one emergency drop is allowed to go ────────────────────────────
+ *
+ * The emergency path used to move exactly one rung, wait out `PANIC_SETTLE`,
+ * judge, and move one more — which is correct arithmetic and the wrong *shape*
+ * for what the player is looking at. Measured on the session this round was
+ * sent back for: six changes in two hundred seconds, three of them inside the
+ * first three and a half race-seconds after the flag, so a player who had just
+ * launched watched the picture step down at 1.30, 2.44 and 3.58. Three pops
+ * cost three times what one pop costs and buy exactly what one bigger pop would
+ * have bought.
+ *
+ * A machine at 900ms a frame is not one rung away from the target, it is
+ * forty-four times too slow, and the governor already knows that — it is
+ * reading the number. So the emergency path now sizes its step from the
+ * evidence instead of always taking one:
+ *
+ *   steps = round( ln(how many times too slow) / ln(RUNG_GAIN) )
+ *
+ * `RUNG_GAIN` is measured, not guessed: the interleaved frozen-frame walk of
+ * the ladder puts adjacent rungs between 14% and 26% apart, and 1.20 is the
+ * geometric middle of that. It is deliberately an *under*-estimate of what a
+ * content rung buys, because the two ways of being wrong are not symmetric —
+ * an under-sized jump costs one more change, an over-sized one hands the player
+ * a worse picture than the machine needed and the ladder cannot climb back out
+ * of it while the machine is still failing.
+ *
+ * The cap is the other half of that asymmetry. Three rungs reaches the floor of
+ * a seven-rung ladder in two changes from the top, which is the number this
+ * round is about, and it keeps a single wildly wrong reading — one stalled
+ * frame, one garbage collection — from spending the entire ladder at once.
+ */
+const RUNG_GAIN = 1.2;
+const PANIC_MAX_STEP = 3;
 /** Consecutive futile drops before the governor puts one back and stands down. */
 const FUTILE_LIMIT = 2;
 /** ...and how much worse the frame has to get before it tries again. */
@@ -976,14 +1293,55 @@ function isComposed(phase: string | undefined): boolean {
  * the flag", counted in seconds. An edge published by the module that owns the
  * fact, exactly like `ui:menu` above it.
  *
- * It cannot deadlock and needs no valve — see the corollary in the header. On
- * a machine that is fine, sim time and wall time are the same thing and this is
- * 1.2 seconds. On one slow enough for `engine.ts`'s eight-step cap to bind,
- * every delivered frame buys exactly eight fixed steps, so a frame is worth
- * 0.067 sim-seconds and the gate opens after eighteen of them however long each
- * one takes. Bounded in pictures, either way.
+ * ── ...and why it is now as long as the launch, rather than 1.2s ──────────
+ *
+ * 1.2 was a number. What the gate is actually protecting is a *gesture*: the
+ * player times the flag, holds accelerate through the last beat, and the game
+ * answers with `config.race.rocketStart.boost` — 1.5 race-seconds of boost,
+ * screen effects, sound and camera kick, which is the single loudest thing the
+ * game ever does and the single most-watched second and a half in a race. A
+ * grace that expires at 1.2 lets go **inside** it.
+ *
+ * Measured, on the session this round was sent back for: six rung changes in
+ * two hundred seconds, and three of them at race time 1.30, 2.44 and 3.58 —
+ * every one of them after the old grace and every one of them during or
+ * immediately after the rocket start. The player watched 1088x612 become
+ * 927x522 become 832x468 become 736x414 across the three and a half seconds
+ * they were being rewarded for a good launch.
+ *
+ * So it is derived from the boost rather than chosen: the launch is over when
+ * the boost that *is* the launch is over, plus a beat to look away in. A
+ * number two modules have to agree about is an interface, not a tuning
+ * constant — ARCHITECTURE §11a — and the race owns this one.
+ *
+ * ── ...and why it now has a door, when the last version argued it needed none ─
+ *
+ * The old argument was: this is measured on the fixed-step clock, `engine.ts`
+ * caps the fixed step at eight per frame, so every delivered frame buys
+ * exactly 0.067 sim-seconds and the gate opens after eighteen pictures at any
+ * frame rate. All of that is still true. What has changed is the arithmetic on
+ * the other side of it: 2.2 race-seconds is **thirty-three** pictures, which at
+ * 0.7 delivered frames a second is forty-seven wall seconds of a player sitting
+ * at 0.7fps while the governor refuses to help.
+ *
+ * That is the exact shape `SEAL_PATIENCE` was added for — a refusal whose cost
+ * in the unit a person waits in grows with the slowness it is gating — and the
+ * previous round's version of this file argued its way out of it by measuring
+ * the grace in pictures and never converting the answer into seconds. Eighteen
+ * pictures was defensible without a door. Thirty-three is not, so it has the
+ * same door every other refusal in this file has. See `LAUNCH_PATIENCE`.
  */
-const CEREMONY_GRACE = 1.2;
+const CEREMONY_GRACE = config.race.rocketStart.boost.time + 0.7;
+/**
+ * ...and the door on it, in wall seconds of delivered play since the flag.
+ *
+ * Unreachable on any machine that is not failing: 2.2 race-seconds is 2.2 wall
+ * seconds at 60fps and about 4 at 15fps, so the grace is over long before this
+ * is. It opens only below about one and a half frames a second, which is where
+ * the grace's own cost has grown past half a minute and the player has bigger
+ * problems than a resolution change during their boost.
+ */
+const LAUNCH_PATIENCE = 22;
 /**
  * ── The valve, and why one is needed at all ────────────────────────────────
  *
@@ -1124,6 +1482,40 @@ const FRONT_END_PATIENCE = 12;
  * ladder's own bottom again.
  */
 const FRONT_END_FLOOR = 3;
+
+// ── the content pass's own constants ───────────────────────────────────────
+
+/**
+ * Instanced dressing at or under this bounding radius, in metres, is
+ * **scatter**: a thing there are hundreds of, none of which is a landmark.
+ *
+ * Measured off the census of a settled Cone Canyon frame. Under this line sit
+ * the traffic cones (0.6m, 807 of them, 74,244 triangles — the single largest
+ * named row in the world), the drums (0.7m, 96), the tyre stacks (0.9m, 85),
+ * the scrub (1.1m, 98) and the boulders (1.8m, 94). Over it sit the things the
+ * eye navigates by — the crane, the mast, the land masses, the floodlight
+ * towers, the grandstands — and thinning any of those is thinning the *place*
+ * rather than the clutter in it.
+ */
+const SCATTER_MAX_R = 2.6;
+/**
+ * ...and fewer instances than this in a batch and thinning it shows.
+ *
+ * Nine cones taken down to five is a gap in a taper. Two hundred taken down to
+ * a hundred and twenty is a slightly less busy verge, which is what a content
+ * rung is allowed to look like.
+ */
+const SCATTER_MIN_N = 14;
+/**
+ * How far past a screen-size threshold a thing has to climb before it comes
+ * back.
+ *
+ * The same dead band `vehicles/index.ts` puts on its part ladder and for the
+ * same reason: a batch — or a rival — sitting exactly on the cut is a batch
+ * sitting exactly on the cut for the whole corner, and without a band it
+ * strobes once a frame.
+ */
+const CONTENT_HYSTERESIS = 1.25;
 
 /** One entry in the change log. Built only when the ladder actually moves. */
 export interface QualityChange {
@@ -1281,6 +1673,22 @@ export interface QualityProbe {
   drawDistance: number;
   particles: number;
   shadowSize: number;
+  /**
+   * The content rung, and whether it found anything to spend.
+   *
+   * `crowd`/`scatter`/`minPx`/`shellPx` are what the rung asked for;
+   * `crowdGeos`/`batches`/`cullables`/`shells` are what the census found to
+   * apply it to, and `culled`/`shelled` are what it is holding off *this
+   * frame*. A rung whose numbers are set and whose counts are zero is a census
+   * that matched nothing — a renamed prop, a course with no crowd — and the
+   * whole point of reporting both is that this reads as a broken classifier
+   * rather than as a lever that mysteriously buys nothing.
+   */
+  content: {
+    crowd: number; scatter: number; minPx: number; shellPx: number;
+    crowdGeos: number; batches: number; cullables: number; shells: number;
+    culled: number; shelled: number;
+  };
 
   // ── the instrument: wall time between delivered frames ───────────────────
   /** Mean delivered frame time. **This is the number the ladder decides on.** */
@@ -1569,6 +1977,18 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   const sinceFlag = (): number =>
     (flagAt === -Infinity ? -1 : +(ctx.time.elapsed - flagAt).toFixed(2));
   /**
+   * ...and the same stretch in **wall seconds of delivered play**, which is the
+   * unit `LAUNCH_PATIENCE` is denominated in.
+   *
+   * Two clocks for one beat, on purpose. `sinceFlag` is what the gate is *for*
+   * — a gesture of the game, three fixed-step seconds long at every frame rate
+   * — and this is what the gate *costs*, which is a different question with a
+   * different answer the moment `engine.ts`'s eight-step cap starts binding.
+   * Keeping only the first is how this file has twice shipped a refusal nobody
+   * had converted into what a person waits.
+   */
+  let flagFor = 0;
+  /**
    * Seconds of delivered play spent inside **this** composed beat.
    *
    * Zero while the game is being played, and zero behind the front-end — a
@@ -1647,6 +2067,141 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   const log: QualityChange[] = [];
   const verdicts: QualityVerdict[] = [];
 
+  // ── the content pass ──────────────────────────────────────────────────────
+  //
+  // The half of the ladder that takes things out of the frame rather than
+  // pixels off the picture. See `ContentTrim`.
+  //
+  // Everything here is a *visual* write — `visible`, `InstancedMesh.count`,
+  // `BufferGeometry.drawRange` — made from `update()` at order 95, after every
+  // system that owns those flags has had its say and before the draw. Nothing
+  // in `fixedUpdate` anywhere in the game reads any of them, which is what
+  // keeps "the same seed puts every racer in the same place at every rung" a
+  // property of the design; `tools/qualitydiff.mjs` proves it at both ends of
+  // the ladder and the content rungs are inside that proof.
+
+  /** A crowd geometry, and where its people start. See `ContentTrim.crowd`. */
+  interface CrowdGeo {
+    geo: THREE.BufferGeometry;
+    /** Indices in the whole thing. */
+    full: number;
+    /**
+     * ...and the prefix that is *not* people and may never be trimmed.
+     *
+     * Found from the geometry rather than from a name: `world/kit.ts` writes an
+     * `aAmp` of zero on anything that does not move and a positive one on every
+     * box of every spectator, because that is what the crowd material's vertex
+     * program bobs. So the largest suffix of the index buffer whose vertices
+     * are all animated is exactly "the people", whatever the stand around them
+     * is made of, and trimming into the head — which would start deleting the
+     * terracing out from under them — is arithmetically impossible rather than
+     * merely discouraged.
+     */
+    head: number;
+    /** What is currently drawn, so a re-apply with the same trim is free. */
+    at: number;
+  }
+  /** An instanced batch small enough and numerous enough to thin. */
+  interface ScatterBatch {
+    mesh: THREE.InstancedMesh;
+    full: number;
+  }
+  /**
+   * Anything the screen-size test may switch off, with the two radii it needs.
+   *
+   * `radius` is the whole batch, used to take the *near edge* of it, so a
+   * sector of verge running past the camera is never culled for the sake of its
+   * far end. `item` is one instance, which is the thing an eye actually has to
+   * resolve — a batch of two hundred traffic cones is three hundred metres
+   * across and every cone in it is sixty centimetres.
+   */
+  interface Cullable {
+    node: THREE.Object3D;
+    cx: number; cy: number; cz: number;
+    radius: number;
+    item: number;
+    hidden: boolean;
+  }
+  /**
+   * A racer's merged shell: the same geometry and the same materials, baked
+   * into one mesh per material, standing still.
+   *
+   * ── Why this is the safest cut on the ladder ───────────────────────────────
+   *
+   * It is the only one that is *pixel-identical* to what it replaces. The
+   * shell is built from the machine's own meshes, in the machine's own
+   * materials, at the transforms they were sitting at — so the only thing it
+   * gives up is that the wheels stop turning and the body stops leaning. At the
+   * first content rung's `shellPx` of 18 that happens at thirty-six metres,
+   * where a machine is twenty-eight pixels across and its wheel is seven, with
+   * sub-pixel tread lugs; there is no rotation left to see.
+   *
+   * What it buys is the number the review named: **the seven racers are 745 of
+   * the frame's 1045 audited draw calls for 4% of its triangles**, across 187
+   * separate meshes. `mat()` in `vehicles/parts.ts` already caches by colour and
+   * options, so the seventy-five materials really are seventy-five different
+   * paints and no merge can go below them — but twenty-six meshes a machine
+   * can, and does, become about eleven.
+   *
+   * The shadow pass is the other half and it has to be built the other way
+   * round, or a merge that halves the colour pass doubles the shadow one: the
+   * part ladder in `vehicles/index.ts` has already stopped almost everything
+   * casting by this distance, so a shell whose eleven meshes all cast would be
+   * a regression. Only the largest bucket casts — the body — which is the mesh
+   * the dark shape under a kart is made of anyway.
+   */
+  interface Shell {
+    /** The merged group, parented under the racer's own root. */
+    group: THREE.Object3D;
+    /** Root's own children, which the shell stands in for. */
+    hides: THREE.Object3D[];
+    /** ...and what each of them was showing when the shell took over. */
+    was: boolean[];
+    on: boolean;
+  }
+
+  const crowdGeos: CrowdGeo[] = [];
+  const scatter: ScatterBatch[] = [];
+  const cullables: Cullable[] = [];
+  const shells = new Map<number, Shell>();
+  /** What the content pass has been asked for. Never null — rung 0 is `FULL`. */
+  let content: ContentTrim = FULL_CONTENT;
+  /** The track the census was taken on, so it is taken once per course. */
+  let censusFor = '';
+  /** Counters for the probe, so a content rung that quietly matched nothing is
+   *  visible as a zero rather than as a rung that did not work. */
+  let contentCrowd = 0;
+  let contentScatter = 0;
+  let contentCullable = 0;
+  let contentShells = 0;
+  /** Batches the screen-size test is holding off, and racers on their shells,
+   *  this frame. The two numbers a review reads to see the rung working. */
+  let culledNow = 0;
+  let shelledNow = 0;
+  /**
+   * Frames on which every shell is drawn whether it is wanted or not.
+   *
+   * A shell's first draw uploads its merged buffers, and under a software
+   * rasteriser that is not free: measured on a frozen 1600x900 bench, the
+   * frame that first switched five machines to their shells took **5.07
+   * seconds** against a 1.1s steady frame, and the same switch on the next pass
+   * — buffers already resident — cost nothing measurable. A governor whose
+   * rescue move is a five-second freeze is the exact failure `precompileLadder`
+   * exists to prevent, one layer down.
+   *
+   * So the upload is moved to the one frame that is already a load: `main.ts`
+   * renders once immediately after `resetAll` to prime shaders (see the note
+   * beside that call), and this makes that frame draw every shell alongside
+   * every machine. It costs one doubled field on a frame nobody sees, behind
+   * the launch board, and it buys back the freeze.
+   */
+  let primeShells = 0;
+
+  // Scratch. The content pass runs every rendered frame over a hundred-odd
+  // batches and eight racers and must not allocate a byte doing it.
+  const _cam = new ctx.THREE.Vector3();
+  const _wp = new ctx.THREE.Vector3();
+
   // Our own sample buffers. `track.sample()` and `spline.atDistance()` both
   // hand back a shared scratch when none is supplied, and the camera and the
   // contact pass are reading theirs in the same frame — see the note in
@@ -1692,6 +2247,495 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     const have = ctx.renderer.getPixelRatio();
     if (have > want - 1e-3 && have < want + 1e-3) return;
     ctx.renderer.setPixelRatio(want);
+  }
+
+  // ── the content pass: the census ──────────────────────────────────────────
+
+  /**
+   * The largest suffix of `geo`'s index buffer whose every vertex is animated.
+   *
+   * That is "the people", exactly — see `CrowdGeo.head`. Walked backwards from
+   * the end and stopped at the first vertex the crowd's vertex program does not
+   * move, so a geometry that interleaves its stand with its spectators
+   * (none does today) degrades to trimming nothing rather than to trimming the
+   * terracing.
+   */
+  function crowdHead(geo: THREE.BufferGeometry): number {
+    const idx = geo.getIndex();
+    const amp = geo.getAttribute('aAmp') as { getX(i: number): number } | undefined;
+    if (!idx || !amp) return idx ? idx.count : 0;
+    for (let i = idx.count - 1; i >= 0; i--) {
+      if (amp.getX(idx.getX(i)) <= 0) return i + 1;
+    }
+    return 0;
+  }
+
+  /**
+   * Reorder a batch's instances so that **any prefix of them is spread over the
+   * whole batch**.
+   *
+   * `InstancedMesh.count` is the only density dial that costs nothing: one
+   * integer, no reallocation, no upload, exactly reversible. What it draws is
+   * the first N instances, and the first N instances of a batch built in
+   * placement order are the first N *metres of lap* — so used naively it does
+   * not thin a verge, it deletes the end of one.
+   *
+   * So the matrices are permuted once, at census time, into van der Corput
+   * order: index 0, then the middle, then the two quarters, then the four
+   * eighths. Every prefix of that sequence is a low-discrepancy sample of the
+   * whole, so `count = 0.48 * full` is a verge with half the cones on it rather
+   * than half a verge, at every share and with no per-frame work at all. It is
+   * deterministic, it is done once, and `count = full` puts the batch back
+   * exactly as it was — the permutation is a relabelling, not a loss.
+   */
+  function stratify(mesh: THREE.InstancedMesh): void {
+    const n = mesh.count;
+    if (n < 4) return;
+    // Idempotent. The census can be re-taken — a course change, a bench calling
+    // `__QUALITY.census()` — and applying a low-discrepancy permutation twice
+    // gives a permutation that is still valid and no longer low-discrepancy,
+    // which is the worst kind of bug: it does not fail, it just quietly stops
+    // thinning evenly.
+    if (mesh.userData.mcStratified) return;
+    mesh.userData.mcStratified = true;
+    const attr = mesh.instanceMatrix;
+    const arr = attr.array as Float32Array;
+    const order: number[] = [];
+    for (let i = 0; i < n; i++) order.push(i);
+    // Radical inverse base 2: the bits of i, reversed. Cheap and exact.
+    const vdc = (i: number): number => {
+      let b = i;
+      b = ((b & 0x55555555) << 1) | ((b >>> 1) & 0x55555555);
+      b = ((b & 0x33333333) << 2) | ((b >>> 2) & 0x33333333);
+      b = ((b & 0x0f0f0f0f) << 4) | ((b >>> 4) & 0x0f0f0f0f);
+      b = ((b & 0x00ff00ff) << 8) | ((b >>> 8) & 0x00ff00ff);
+      b = (b << 16) | (b >>> 16);
+      return (b >>> 0) / 4294967296;
+    };
+    order.sort((a, b) => vdc(a) - vdc(b));
+    const copy = arr.slice(0, n * 16);
+    for (let p = 0; p < n; p++) {
+      const s = order[p]! * 16;
+      const d = p * 16;
+      for (let k = 0; k < 16; k++) arr[d + k] = copy[s + k]!;
+    }
+    attr.needsUpdate = true;
+  }
+
+  /**
+   * What the frame is made of, and which parts of it a rung may spend.
+   *
+   * Run once per course, from `reset()`, with the world built — the same load
+   * moment `precompileLadder` uses, and for the same reason: a walk of the
+   * scene graph is not something to do on a frame a player is watching.
+   *
+   * ── Why the classifier is measurements and not a list of names ─────────────
+   *
+   * Two of the three classes here are decided by *what the thing is like*
+   * rather than by what it is called: a scatter batch is an instanced draw with
+   * more than `SCATTER_MIN_N` copies of something under `SCATTER_MAX_R` across,
+   * and a cullable is anything instanced at all. Those survive a course being
+   * re-dressed, a prop being renamed, and a whole new landscape kit.
+   *
+   * The crowd is the exception and it is a name test, because "a spectator" is
+   * not a shape — but even there the *trim* is derived from the geometry's own
+   * animation attribute rather than from the name, so the worst a rename can do
+   * is switch the crowd rung off. `probe().content` reports how many of each
+   * class the census found, so that failure reads as `crowd: 0` instead of as a
+   * rung that mysteriously buys nothing.
+   *
+   * Two things are deliberately exempt:
+   *
+   *   **The contact patches.** `world:contact` is the soft dark blob under
+   *   every prop that stands on the dirt, and ARCHITECTURE §12 is unambiguous
+   *   about what happens without it. They are two triangles each and they are
+   *   not thinned at any rung, so every prop that is drawn is a prop that is
+   *   grounded. (The reverse — a blob left behind by a cone the scatter rung
+   *   removed — is a soft patch of shade on dirt, which is what dirt looks
+   *   like.)
+   *
+   *   **Everything outside the `world` group.** The road, the barriers, the
+   *   kerbs, the item boxes and the coins are *gameplay surfaces*: the road has
+   *   to be obvious at speed and an item box that is not drawn is an item box
+   *   the player drives past. A frame budget does not get to spend those.
+   */
+  function censusContent(): void {
+    for (const c of crowdGeos) c.geo.setDrawRange(0, Infinity);
+    for (const s of scatter) s.mesh.count = s.full;
+    for (const c of cullables) if (c.hidden) { c.node.visible = true; c.hidden = false; }
+    crowdGeos.length = 0;
+    scatter.length = 0;
+    cullables.length = 0;
+    culledNow = 0;
+
+    const world = ctx.scene.children.find((c) => c.name === 'world');
+    if (!world) return;
+    const seen = new Set<string>();
+    world.traverse((o) => {
+      const m = o as THREE.Mesh & { isInstancedMesh?: boolean; count?: number;
+        boundingSphere?: { center: THREE.Vector3; radius: number } | null;
+        computeBoundingSphere?(): void };
+      if (!m.isMesh) return;
+      const geo = m.geometry;
+      if (!geo) return;
+      if (!geo.boundingSphere) geo.computeBoundingSphere();
+      const item = geo.boundingSphere?.radius ?? 0;
+      const isCrowd = /crowd/i.test(m.name);
+      const isContact = /contact/i.test(m.name);
+
+      if (isCrowd && geo.index && !seen.has(geo.uuid)) {
+        seen.add(geo.uuid);
+        const full = geo.index.count;
+        crowdGeos.push({ geo, full, head: crowdHead(geo), at: full });
+      }
+
+      if (m.isInstancedMesh) {
+        const n = m.count ?? 0;
+        if (!isCrowd && !isContact && n >= SCATTER_MIN_N && item > 0 && item <= SCATTER_MAX_R) {
+          stratify(m as THREE.InstancedMesh);
+          scatter.push({ mesh: m as THREE.InstancedMesh, full: n });
+        }
+        // The screen-size test wants the batch's own sphere, which an
+        // `InstancedMesh` computes across its instances. `place.ts` already
+        // asked for it; ask again only if it did not.
+        if (!m.boundingSphere) m.computeBoundingSphere?.();
+        const bs = m.boundingSphere;
+        if (bs && !isContact) {
+          o.updateMatrixWorld();
+          _wp.copy(bs.center).applyMatrix4(o.matrixWorld);
+          cullables.push({
+            node: o, cx: _wp.x, cy: _wp.y, cz: _wp.z,
+            radius: bs.radius, item, hidden: false,
+          });
+        }
+      }
+    });
+    contentCrowd = crowdGeos.length;
+    contentScatter = scatter.length;
+    contentCullable = cullables.length;
+  }
+
+  /**
+   * Bake a racer's machine into one mesh per material, once, at a load moment.
+   *
+   * See `Shell`. Two rules make this safe to do from here rather than from the
+   * module that owns the model:
+   *
+   *   It is **additive**. Nothing existing is removed, re-parented or
+   *   re-materialised; a group is added under the racer's own root and left
+   *   switched off. If this file is disposed the shell goes with it and the
+   *   machine is exactly what `vehicles/registry.ts` built.
+   *
+   *   It **copies rather than shares** geometry, so the part ladder in
+   *   `vehicles/index.ts` can go on writing `visible` and `castShadow` on the
+   *   originals without either of us noticing the other. Ancestor visibility is
+   *   what arbitrates: while the shell is up, root's own children are off, and
+   *   every write the rig and the ladder make lands on nodes nobody is drawing.
+   */
+  function buildShell(root: THREE.Object3D): Shell | null {
+    const T = ctx.THREE;
+    const inv = new T.Matrix4();
+    const local = new T.Matrix4();
+    root.updateMatrixWorld(true);
+    inv.copy(root.matrixWorld).invert();
+    const buckets = new Map<THREE.Material, THREE.BufferGeometry[]>();
+
+    let meshes = 0;
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.visible || !mesh.geometry) return;
+      // The contact pass owns this one and moves it every frame.
+      if (o.name === 'shadowBlob') return;
+      // A multi-material mesh has per-group index ranges that a flat merge
+      // would lose. None exist on any machine today; skip rather than corrupt.
+      if (Array.isArray(mesh.material)) return;
+      const src = mesh.geometry;
+      if (!src.getAttribute('position')) return;
+      const g = src.index ? src.toNonIndexed() : src.clone();
+      local.multiplyMatrices(inv, mesh.matrixWorld);
+      g.applyMatrix4(local);
+      const mat = mesh.material as THREE.Material;
+      const list = buckets.get(mat);
+      if (list) list.push(g); else buckets.set(mat, [g]);
+      meshes++;
+    });
+    if (meshes < 4) {
+      for (const list of buckets.values()) for (const g of list) g.dispose();
+      return null;
+    }
+
+    const group = new T.Group();
+    group.name = 'lodShell';
+    const built: Array<{ mesh: THREE.Mesh; tris: number }> = [];
+    for (const [mat, list] of buckets) {
+      const merged = mergeParts(list);
+      for (const g of list) g.dispose();
+      if (!merged) continue;
+      const mesh = new T.Mesh(merged, mat);
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
+      mesh.frustumCulled = true;
+      group.add(mesh);
+      built.push({
+        mesh,
+        tris: (merged.getAttribute('position')?.count ?? 0) / 3,
+      });
+    }
+    if (!built.length) return null;
+    // One caster: the biggest bucket, which is the body. See `Shell`.
+    built.sort((a, b) => b.tris - a.tris);
+    built[0]!.mesh.castShadow = true;
+    group.visible = false;
+    root.add(group);
+
+    const hides: THREE.Object3D[] = [];
+    for (const child of root.children) {
+      if (child === group || child.name === 'shadowBlob') continue;
+      hides.push(child);
+    }
+    return { group, hides, was: hides.map(() => true), on: false };
+  }
+
+  /**
+   * Concatenate non-indexed geometries that share a material.
+   *
+   * Position and normal always; uv and vertex colour only when **every** one of
+   * them has it. A merge that invents a uv channel for half its vertices
+   * produces a mesh whose texture is garbage on the half that was invented, and
+   * the machines that carry one — the train's plate, the digger's decals — are
+   * exactly the ones a reviewer photographs. Dropping the channel entirely is
+   * the safe direction to be wrong in: a shared `mat()` material declares
+   * neither `map` nor `vertexColors` unless every mesh painted with it wanted
+   * them, so a bucket that is not unanimous is a bucket where the channel was
+   * never being read.
+   */
+  function mergeParts(list: THREE.BufferGeometry[]): THREE.BufferGeometry | null {
+    if (!list.length) return null;
+    let count = 0;
+    let allUv = true;
+    let allColor = true;
+    let allNormal = true;
+    for (const g of list) {
+      count += g.getAttribute('position')!.count;
+      if (!g.getAttribute('uv')) allUv = false;
+      if (!g.getAttribute('color')) allColor = false;
+      if (!g.getAttribute('normal')) allNormal = false;
+    }
+    if (count <= 0) return null;
+    const T = ctx.THREE;
+    const pos = new Float32Array(count * 3);
+    const nrm = new Float32Array(count * 3);
+    const uv = allUv ? new Float32Array(count * 2) : null;
+    const col = allColor ? new Float32Array(count * 3) : null;
+    let o = 0;
+    for (const g of list) {
+      const p = g.getAttribute('position') as THREE.BufferAttribute;
+      const n = g.getAttribute('normal') as THREE.BufferAttribute | undefined;
+      const u = uv ? (g.getAttribute('uv') as THREE.BufferAttribute) : null;
+      const c = col ? (g.getAttribute('color') as THREE.BufferAttribute) : null;
+      for (let i = 0; i < p.count; i++) {
+        const k = (o + i) * 3;
+        pos[k] = p.getX(i); pos[k + 1] = p.getY(i); pos[k + 2] = p.getZ(i);
+        if (n) { nrm[k] = n.getX(i); nrm[k + 1] = n.getY(i); nrm[k + 2] = n.getZ(i); }
+        if (u && uv) { uv[(o + i) * 2] = u.getX(i); uv[(o + i) * 2 + 1] = u.getY(i); }
+        if (c && col) { col[k] = c.getX(i); col[k + 1] = c.getY(i); col[k + 2] = c.getZ(i); }
+      }
+      o += p.count;
+    }
+    const out = new T.BufferGeometry();
+    out.setAttribute('position', new T.BufferAttribute(pos, 3));
+    out.setAttribute('normal', new T.BufferAttribute(nrm, 3));
+    if (uv) out.setAttribute('uv', new T.BufferAttribute(uv, 2));
+    if (col) out.setAttribute('color', new T.BufferAttribute(col, 3));
+    // A bucket where one part shipped normals and another did not would light
+    // half of itself black. Recomputing is a build-time cost paid once.
+    if (!allNormal) out.computeVertexNormals();
+    out.computeBoundingSphere();
+    return out;
+  }
+
+  /** Drop every shell, so a new field does not inherit the last one's. */
+  function clearShells(): void {
+    for (const s of shells.values()) {
+      // Only a shell that was actually standing in has anything to give back.
+      // `was` is only written on the edge, so restoring from it on a shell that
+      // never came up would switch on the puffs and glows that were born
+      // hidden — a machine trailing exhaust smoke while parked on the grid.
+      if (s.on) for (let i = 0; i < s.hides.length; i++) s.hides[i]!.visible = s.was[i]!;
+      s.group.parent?.remove(s.group);
+      s.group.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh) m.geometry?.dispose();
+      });
+    }
+    shells.clear();
+    contentShells = 0;
+    shelledNow = 0;
+  }
+
+  function buildShells(): void {
+    clearShells();
+    for (const racer of ctx.racers) {
+      const root = racer.model?.root ?? racer.visual;
+      if (!root) continue;
+      const shell = buildShell(root);
+      if (shell) shells.set(racer.id, shell);
+    }
+    contentShells = shells.size;
+    // One frame with every shell on the screen, which `main.ts`'s priming
+    // render is about to be. See `primeShells`.
+    primeShells = shells.size ? 1 : 0;
+  }
+
+  /**
+   * Install a content rung.
+   *
+   * The two density levers are set here, once per rung change — they are state,
+   * not a per-frame decision, and re-applying an unchanged trim writes nothing.
+   * The two screen-size levers cannot be: they depend on where the camera is,
+   * so they live in `contentFrame` below.
+   */
+  function applyContent(next: ContentTrim): void {
+    content = next;
+    for (const c of crowdGeos) {
+      const people = c.full - c.head;
+      // Whole triangles only, or the tail of the range is a torn quad — and the
+      // rounding is applied to the *people*, so it can never eat into the head.
+      let keep = Math.round(people * Math.max(0, Math.min(1, next.crowd)));
+      keep -= keep % 3;
+      let want = c.head + keep;
+      if (want > c.full) want = c.full;
+      if (want === c.at) continue;
+      c.at = want;
+      c.geo.setDrawRange(0, want >= c.full ? Infinity : want);
+    }
+    for (const s of scatter) {
+      const want = Math.max(1, Math.round(s.full * Math.max(0, Math.min(1, next.scatter))));
+      if (s.mesh.count !== want) s.mesh.count = want;
+    }
+  }
+
+  /**
+   * The two levers that depend on where the camera is, run once per rendered
+   * frame.
+   *
+   * ── The unit ──────────────────────────────────────────────────────────────
+   *
+   * Pixels of the *drawing buffer*, resolved against the live lens exactly as
+   * `vehicles/index.ts` does. Metres would be the wrong unit twice over: the
+   * lens opens with speed and kicks on every boost, and this file's own render
+   * scale changes how many pixels a metre is worth. A rung that halves the
+   * resolution should tighten its own content cut, and denominated this way it
+   * does so without a second constant.
+   *
+   * ── Why it may write `visible` at all ─────────────────────────────────────
+   *
+   * `world/index.ts` writes the same flag at order 22 for its own draw-distance
+   * test and this runs at 95, so the frame's last word is here. On the frame a
+   * batch is released this hands it back as visible even if the world had just
+   * hidden it for distance; the world re-asserts on the very next frame and the
+   * cost of being wrong is one frame of one far batch. Hiding is never
+   * speculative in the other direction — a batch the world has already switched
+   * off is left alone.
+   */
+  function contentFrame(): void {
+    const canvas = ctx.renderer.domElement;
+    const h = canvas.height || canvas.clientHeight || 720;
+    const pxPerMetre = (h * 0.5) / Math.tan((ctx.camera.fov * Math.PI) / 360);
+    _cam.copy(ctx.camera.position);
+
+    // ── the dressing ──────────────────────────────────────────────────────
+    const minPx = content.minPx;
+    let culled = 0;
+    for (let i = 0; i < cullables.length; i++) {
+      const c = cullables[i]!;
+      if (minPx <= 0) {
+        if (c.hidden) { c.node.visible = true; c.hidden = false; }
+        continue;
+      }
+      const dx = c.cx - _cam.x, dy = c.cy - _cam.y, dz = c.cz - _cam.z;
+      // The *near edge* of the batch, so a run of verge passing the camera is
+      // never judged on where its far end is.
+      const near = Math.max(1, Math.sqrt(dx * dx + dy * dy + dz * dz) - c.radius);
+      const px = (c.item * pxPerMetre) / near;
+      const bar = c.hidden ? minPx * CONTENT_HYSTERESIS : minPx;
+      if (px < bar) {
+        if (!c.hidden) { c.node.visible = false; c.hidden = true; }
+        culled++;
+      } else if (c.hidden) {
+        c.node.visible = true;
+        c.hidden = false;
+      }
+    }
+    culledNow = culled;
+
+    // ── the field ─────────────────────────────────────────────────────────
+    //
+    // The priming frame draws every shell next to every machine, once, so the
+    // buffer upload lands on a load rather than on a rescue. See `primeShells`.
+    if (primeShells > 0) {
+      primeShells--;
+      for (const s of shells.values()) if (!s.on) s.group.visible = true;
+      shelledNow = 0;
+      return;
+    }
+    const shellPx = content.shellPx;
+    let shelled = 0;
+    // Indexed rather than `for...of`: this is the hot path's hot path and an
+    // array iterator is an allocation the engine is only *usually* clever
+    // enough to remove.
+    const racers = ctx.racers;
+    for (let ri = 0; ri < racers.length; ri++) {
+      const racer = racers[ri]!;
+      const s = shells.get(racer.id);
+      if (!s) continue;
+      let want = false;
+      if (shellPx > 0) {
+        const root = racer.model?.root ?? racer.visual;
+        if (root) {
+          root.getWorldPosition(_wp);
+          const d = Math.max(1, _wp.distanceTo(_cam));
+          // A machine is about 1.1m of bounding radius; taking it off the def
+          // would mean a lookup per racer per frame for a number that varies by
+          // a fifth across the cast and is being compared against a threshold
+          // with a 25% dead band on it.
+          const px = (1.1 * pxPerMetre) / d;
+          want = px < (s.on ? shellPx * CONTENT_HYSTERESIS : shellPx);
+        }
+      }
+      if (want) {
+        // Captured on the edge, re-asserted every frame. The rig at order 85
+        // writes `visible` on nodes under here for its own reasons — a spin
+        // disc fading in with rpm, an exhaust glow with boost — and this pass
+        // has to have the last word for as long as the shell is standing in,
+        // or a machine shows its glow through its own replacement.
+        for (let i = 0; i < s.hides.length; i++) {
+          if (!s.on) s.was[i] = s.hides[i]!.visible;
+          s.hides[i]!.visible = false;
+        }
+        if (!s.on) s.group.visible = true;
+        s.on = true;
+        shelled++;
+        continue;
+      }
+      if (!s.on) {
+        // Also the frame after `primeShells`, which left every shell showing
+        // so its buffers would upload on a load frame.
+        if (s.group.visible) s.group.visible = false;
+        continue;
+      }
+      s.on = false;
+      {
+        s.group.visible = false;
+        // Back to what each child was showing when the shell took over. One
+        // frame stale — the rig and the part ladder both run at order 85 and
+        // re-assert on the next frame — and staleness is the right failure:
+        // restoring everything to `true` would switch on the puffs and glows
+        // that are somebody else's to switch on.
+        for (let i = 0; i < s.hides.length; i++) s.hides[i]!.visible = s.was[i]!;
+      }
+    }
+    shelledNow = shelled;
   }
 
   /**
@@ -1789,6 +2833,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     ctx.renderer.shadowMap.enabled = q.shadows;
     ctx.renderer.shadowMap.needsUpdate = true;
     applyScale(r.scale);
+    applyContent(r.content);
 
     let entry: QualityChange | null = null;
     if (from !== index) {
@@ -1960,15 +3005,23 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    *                                     the product to change the picture,
    *                                     because an opaque set is covering it
    *   intro       `CEREMONY_PATIENCE`   20s
-   *   sealed      `SEAL_PATIENCE`       25s — countdown, finish, results
+   *   sealed      `SEAL_PATIENCE`       35s — countdown, finish, results
    *   loading     no door               boot, and the pause screen
-   *   the flag    `CEREMONY_GRACE`      bounded in delivered frames already
+   *   the launch  `LAUNCH_PATIENCE`     22s — the flag and the rocket start
    *
    * `loading` is the one that keeps its wall, and for the reason the others
    * lost theirs: it is not slowed by the frame rate. Boot ends when the game is
    * built and the pause screen ends when the player presses a key, and a paused
    * game is the same still frame over and over — nothing to hide a change
    * behind and no clock running down.
+   *
+   * The launch's row is new and it is the fifth round's correction. The grace
+   * after the flag used to be argued out of needing a door because it is
+   * measured in delivered frames — true, and it stopped one line short of the
+   * question that matters, which is what those frames cost in seconds on the
+   * machine the file exists for. It is a longer beat now (it covers the rocket
+   * start it was always meant to protect, rather than expiring inside it) and
+   * so it carries the same door as everything else.
    *
    * The doors are on the **emergency path only** by construction: the ordinary
    * path asks `frontEndOpen` and `pictureLocked()` as separate questions above
@@ -1984,11 +3037,14 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     if (phase === 'loading') return true;
     if (phase === 'intro') return ceremonyFor < CEREMONY_PATIENCE;
     if (isComposed(phase)) return ceremonyFor < SEAL_PATIENCE;
-    // The flag's own beat, on the fixed-step clock rather than on the wall
-    // clock — see `CEREMONY_GRACE`. `flagAt` is latched on the `race:racing`
-    // edge, so this is the same beat at every frame rate instead of one frame
-    // at 0.7fps, and a seek re-arms it instead of walking straight past it.
-    return ctx.time.elapsed - flagAt < CEREMONY_GRACE;
+    // The flag's own beat and the launch that follows it, on the fixed-step
+    // clock rather than on the wall clock — see `CEREMONY_GRACE`. `flagAt` is
+    // latched on the `race:racing` edge, so this is the same gesture at every
+    // frame rate instead of one frame at 0.7fps, and a seek re-arms it instead
+    // of walking straight past it. `flagFor` is the door: the same beat costs
+    // forty-seven wall seconds on a machine at 0.7fps and 2.2 on one that is
+    // fine, and only the first of those is a wait worth arguing about.
+    return ctx.time.elapsed - flagAt < CEREMONY_GRACE && flagFor < LAUNCH_PATIENCE;
   }
 
   /**
@@ -2177,6 +3233,13 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       drawDistance: +q.drawDistance.toFixed(3),
       particles: +q.particles.toFixed(3),
       shadowSize: q.shadows ? q.shadowSize : 0,
+      content: {
+        crowd: content.crowd, scatter: content.scatter,
+        minPx: content.minPx, shellPx: content.shellPx,
+        crowdGeos: contentCrowd, batches: contentScatter,
+        cullables: contentCullable, shells: contentShells,
+        culled: culledNow, shelled: shelledNow,
+      },
 
       wallMs: +wallMean.toFixed(2),
       wallMedianMs: +wallMedian.toFixed(2),
@@ -2247,20 +3310,44 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    * **empty** — nothing in this game draws the same geometry-and-material pair
    * more than eight times without instancing it. That is not a null result, it
    * is the finding: the draw calls are not going where a missing `InstancedMesh`
-   * would put them. Read `materials` instead and the answer is immediate:
+   * would put them. Read `materials` next to `meshes` and the answer is
+   * immediate:
    *
    *   group      calls   triangles   meshes   materials
-   *   Group        476      32,906      163          65   <- the seven racers
-   *   world        151     451,156      107           7
-   *   track         31     166,150       21          20
-   *   itemRig      101      14,544       59          30
+   *   Group        745      36,362      187          75   <- the seven racers
+   *   world        171     516,356      121           7
+   *   track         34     167,102       23          22
+   *   itemRig       37       4,790       22          15
    *
-   * Sixty-one percent of the frame's draw calls for four percent of its
-   * triangles, and sixty-five materials across seven machines. `mergeStatic()`
-   * buckets by material **identity**, and `mat()` mints a fresh material per
-   * call, so two parts painted the same colour are two buckets, two meshes and
-   * two draws for ever. A merge that keeps N materials produces N draws and
-   * saves nothing.
+   * Sixty-eight percent of the frame's draw calls for four percent of its
+   * triangles, and seventy-five materials across seven machines. Two things
+   * follow, and only one of them is what it looks like.
+   *
+   * `mat()` in `vehicles/parts.ts` **is** cached, by colour and options, so
+   * those seventy-five are seventy-five genuinely different paints and no
+   * amount of merging goes below them — an earlier draft of this comment said
+   * the opposite and was wrong. What can go is the *meshes*: a hundred and
+   * eighty-seven of them across seven machines, where merging by material
+   * identity gives about eleven a machine. That is what `Shell` does, and
+   * because it is the same geometry in the same materials it is the one cut on
+   * the whole ladder that changes no pixel at all.
+   *
+   * ── ...and read `items`, which is the row a cut can be aimed at ────────────
+   *
+   * `groups` says where the frame went. It never says what to do, because "the
+   * world is 516k triangles" is not a lever. `items` is the same walk bucketed
+   * by the name each module gave its own meshes, and on the same frame it names
+   * the two things the content rungs actually spend:
+   *
+   *   world:cone         807 instances    74,244 tri   0.6m across
+   *   world:crowd0..2     30 instances   140,808 tri  12.1m
+   *   world:standCrowd*    3 instances    59,124 tri  11.5m
+   *   world:drum          96 instances    16,512 tri   0.7m
+   *   world:tyres         85 instances    15,300 tri   0.9m
+   *   track:ground          1 instance    61,952 tri   the landscape field
+   *
+   * Eight hundred traffic cones at ninety-two triangles each, and a crowd that
+   * is a fifth of everything drawn. See `ContentTrim`.
    *
    * ── ...and this is not `renderer.info` ────────────────────────────────────
    *
@@ -2307,8 +3394,32 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     savesCalls: number;
     triangles: number;
   }
+  /**
+   * One named thing in the frame, which is the row a *cut* can be aimed at.
+   *
+   * `groups` says the world is 362k triangles and `offenders` says nothing is
+   * un-instanced, and between them they still do not say what to do: "the world
+   * is expensive" is not a lever. This is the list that is — every drawable
+   * bucketed by the name its own module gave it (`world:crowdBank`,
+   * `land:mass`, `track:barrier`), with the two facts a content rung decides on
+   * next to the cost: how big the thing is in metres, and how far off the road
+   * it lives.
+   */
+  interface AuditItem {
+    group: string;
+    name: string;
+    calls: number;
+    triangles: number;
+    meshes: number;
+    instances: number;
+    /** Mean world-space bounding radius of the meshes in this row, metres. */
+    radius: number;
+    /** ...and the mean distance from the camera at the moment of the audit. */
+    dist: number;
+  }
   function audit(): {
     total: AuditRow; groups: AuditRow[]; offenders: AuditOffender[];
+    items: AuditItem[];
   } {
     const rows = new Map<string, AuditRow>();
     const blank = (name: string): AuditRow => ({
@@ -2336,6 +3447,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       geometry?: {
         uuid?: string;
         index?: { count: number } | null;
+        drawRange?: { start: number; count: number };
         getAttribute?(name: string): { count: number } | undefined;
       };
       material?: unknown;
@@ -2343,6 +3455,9 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
 
     /** geometry+material pair -> how many separate meshes draw it. */
     const pairs = new Map<string, AuditOffender>();
+    /** ...and group+name -> what that named thing costs. */
+    const named = new Map<string, AuditItem>();
+    const _c = new ctx.THREE.Vector3();
 
     for (const top of ctx.scene.children) {
       const name = top.name || top.type;
@@ -2353,7 +3468,13 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         if (!mesh.isMesh && !mesh.isPoints && !mesh.isLine) return;
         const geo = mesh.geometry;
         if (!geo) return;
-        const verts = geo.index?.count ?? geo.getAttribute?.('position')?.count ?? 0;
+        // The **drawn** count, not the resident one. A crowd geometry the
+        // content rung has trimmed with `setDrawRange` still owns all its
+        // indices; reporting those would make the audit contradict
+        // `renderer.info` at exactly the rungs the audit exists to explain.
+        const whole = geo.index?.count ?? geo.getAttribute?.('position')?.count ?? 0;
+        const ranged = geo.drawRange?.count ?? Infinity;
+        const verts = ranged < whole ? ranged : whole;
         const n = mesh.isInstancedMesh ? (mesh.count ?? 0) : 1;
         // A multi-material mesh is one draw per group.
         const list = Array.isArray(mesh.material) ? mesh.material : null;
@@ -2367,6 +3488,40 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         const tris = ((verts / 3) | 0) * n;
         r.triangles += tris;
         if (mesh.castShadow && n > 0) r.casts += groups;
+
+        // The named bucket — the one a cut can be aimed at. Radius and
+        // distance come off the geometry's own bounding sphere pushed through
+        // the node's world matrix, which is what a screen-size test would use.
+        {
+          const key = `${name}/${mesh.name || o.type}`;
+          let it = named.get(key);
+          if (!it) {
+            it = {
+              group: name, name: mesh.name || o.type,
+              calls: 0, triangles: 0, meshes: 0, instances: 0, radius: 0, dist: 0,
+            };
+            named.set(key, it);
+          }
+          it.meshes++;
+          it.instances += n;
+          if (n > 0) it.calls += groups;
+          it.triangles += tris;
+          const node = o as unknown as {
+            geometry?: { boundingSphere?: { radius: number; center: THREE.Vector3 } | null;
+              computeBoundingSphere?(): void };
+            matrixWorld: THREE.Matrix4;
+          };
+          const g = node.geometry;
+          if (g && !g.boundingSphere) g.computeBoundingSphere?.();
+          const bs = g?.boundingSphere;
+          if (bs) {
+            const s = o.matrixWorld.elements;
+            const sx = Math.hypot(s[0]!, s[1]!, s[2]!);
+            it.radius += bs.radius * sx;
+            _c.copy(bs.center).applyMatrix4(o.matrixWorld);
+            it.dist += _c.distanceTo(ctx.camera.position);
+          }
+        }
 
         // The instancing bucket. Instanced meshes are already the answer and
         // are skipped; everything else is a candidate to be one.
@@ -2410,7 +3565,14 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     const offenders = [...pairs.values()]
       .filter((p) => p.draws > REPEAT_BAR)
       .sort((a, b) => b.savesCalls - a.savesCalls);
-    return { total, groups, offenders };
+    const items = [...named.values()]
+      .map((it) => ({
+        ...it,
+        radius: +(it.radius / Math.max(1, it.meshes)).toFixed(1),
+        dist: +(it.dist / Math.max(1, it.meshes)).toFixed(1),
+      }))
+      .sort((a, b) => b.triangles - a.triangles);
+    return { total, groups, offenders, items };
   }
 
   return {
@@ -2485,7 +3647,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // The flag itself, from the module that drops it. `setPhase` emits this
       // on the transition into `racing` and `setPhaseQuiet` does not, so a
       // resume from pause cannot counterfeit a start. See `CEREMONY_GRACE`.
-      ctx.bus.on('race:racing', () => { flagAt = ctx.time.elapsed; });
+      ctx.bus.on('race:racing', () => { flagAt = ctx.time.elapsed; flagFor = 0; });
       ctx.bus.on<{ on: boolean }>('race:pause', (e) => {
         const on = e?.on === true;
         if (on === paused) return;
@@ -2616,6 +3778,33 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         },
         /** What the frame is made of, by scene group. See `audit`. */
         audit,
+        /**
+         * Apply a content trim on its own, for the cost bench.
+         *
+         * The other half of `try()`. A rung moves five settings, a render scale
+         * and four content levers together, and the only way to know what any
+         * one of them is worth is to move it by itself against a frozen sim
+         * state. Passing nothing puts the content back to whatever the standing
+         * rung asks for.
+         */
+        content(trim?: Partial<ContentTrim>): QualityProbe {
+          auto = false;
+          applyContent(trim
+            ? { ...LADDER[index]!.content, ...trim }
+            : LADDER[index]!.content);
+          contentFrame();
+          clearWindow();
+          externalTouch();
+          return probe();
+        },
+        /** Re-take the census by hand, after a bench has rebuilt the world. */
+        census(): QualityProbe {
+          censusContent();
+          buildShells();
+          applyContent(content);
+          externalTouch();
+          return probe();
+        },
         ladder: LADDER.map((r) => ({
           label: r.label,
           scale: r.scale,
@@ -2627,6 +3816,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
           aa: r.settings.aa,
           particles: r.settings.particles,
           drawDistance: r.settings.drawDistance,
+          content: r.content,
         })),
       };
     },
@@ -2694,6 +3884,23 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // main.ts's own priming render rather than on a frame a player is
       // watching. Once per course per session; see `precompileLadder`.
       precompileLadder();
+      // ── the content ladder's own load-time work ──────────────────────────
+      //
+      // Same moment, same argument, and the two halves have different
+      // lifetimes. The census is per *course* — the dressing is a pure
+      // function of the track id and `world/index.ts` skips rebuilding an
+      // identical one — while the shells are per *field*, because `reset()`
+      // hands out new racer objects with new models every race.
+      const key = ctx.track?.id ?? '';
+      if (censusFor !== key || crowdGeos.length + scatter.length === 0) {
+        censusFor = key;
+        censusContent();
+      }
+      buildShells();
+      // Whatever rung is standing has to be re-installed onto the new census
+      // and the new shells, or a race that starts at rung 5 starts with a full
+      // crowd and seven un-merged machines until the governor next moves.
+      applyContent(LADDER[index]!.content);
       // `benchSteps` is re-baselined rather than compared across the reset: the
       // harness took a great many of them getting here and the first live frame
       // after a race build has no previous frame to be spoiled relative to
@@ -2890,6 +4097,9 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         ceremonyPhase = '';
       }
       frontEndFor = frontEndOpen ? frontEndFor + secs : 0;
+      // ...and the launch's, which is the one clock in this file that measures
+      // a *race* beat in wall seconds. See `LAUNCH_PATIENCE`.
+      if (flagAt !== -Infinity) flagFor += secs;
 
       // ── is the race behind the front-end worth drawing at all ────────────
       //
@@ -2899,6 +4109,20 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // for the title screen to start drawing a race nobody can see again. See
       // `frontEndCovers` and `FrameBudget.skipDraw`.
       frontEndCovers = frontEndOpaque();
+
+      // ── the content rung's per-frame half ────────────────────────────────
+      //
+      // Above every early return, for the same reason `frontEndCovers` is: it
+      // is a property of the *frame about to be drawn*, not of the governor's
+      // opinion. A pinned page, a benched page and a page whose ladder has
+      // stood down all still want the machine two hundred metres away drawn as
+      // one mesh rather than as thirty — that is what the rung the reviewer
+      // pinned actually means, and a screenshot taken at rung 5 has to be a
+      // photograph of rung 5.
+      //
+      // It is skipped only when there is nothing to draw: no census, no shells
+      // and no cover to compute against.
+      if (cullables.length || shells.size) contentFrame();
 
       // `benchFrames` only moves when `renderFrame` was called from outside the
       // rAF loop: the front end primes exactly one such frame per race start,
@@ -3077,14 +4301,33 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         panicFrames += frameTick;
         if (panicFor >= PANIC_DWELL && panicFrames >= PANIC_DWELL_FRAMES) {
           markDrop();
+          // ── one change, not three ──────────────────────────────────────
+          //
+          // Sized from how far over budget the machine actually is and clamped
+          // to whatever floor this scene is allowed to reach, so a machine
+          // forty times too slow spends one pop getting most of the way down
+          // instead of three getting a third of the way. See `RUNG_GAIN`.
+          let step = 1;
+          if (wallMean > 0) {
+            const over = wallMean / (TARGET_MS * DOWN_FACTOR);
+            if (over > 1) {
+              const n = Math.round(Math.log(over) / Math.log(RUNG_GAIN));
+              step = n < 1 ? 1 : n > PANIC_MAX_STEP ? PANIC_MAX_STEP : n;
+            }
+          }
+          let want = index + step;
+          if (want > bottom) want = bottom;
           // Which gate gave way, on the log line, rather than leaving a
           // reviewer to work out why `frontEnd: true` or `phase: 'countdown'`
           // is not the failure it used to be. `heldFor` on the same entry is
-          // how long it had held out.
-          applyRung(index + 1,
-            frontEndCovers ? 'dropped (panic, behind the menu)'
-              : isComposed(ctx.race?.phase) ? 'dropped (panic, ceremony overran)'
-                : 'dropped (panic)');
+          // how long it had held out, and the multiplier is how many rungs one
+          // change is worth — a log line reading `x3` is three pops the player
+          // did not see.
+          const many = want - index > 1 ? ` x${want - index}` : '';
+          applyRung(want,
+            frontEndCovers ? `dropped (panic, behind the menu)${many}`
+              : isComposed(ctx.race?.phase) ? `dropped (panic, ceremony overran)${many}`
+                : `dropped (panic)${many}`);
           return;
         }
         return hold('panic');
@@ -3163,6 +4406,16 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     dispose(): void {
       offVisibility?.();
       offVisibility = null;
+      // Hand the frame back whole. Everything the content pass does is a
+      // switch it holds down, so a governor that goes away without letting go
+      // would leave the game running for ever on the last rung's crowd.
+      applyContent(FULL_CONTENT);
+      contentFrame();
+      clearShells();
+      crowdGeos.length = 0;
+      scatter.length = 0;
+      cullables.length = 0;
+      censusFor = '';
       // Hand the draw back on the way out. This file is the only thing that
       // ever sets `skipDraw`, so a governor that is disposed while the
       // front-end happens to be up would otherwise leave the engine refusing to

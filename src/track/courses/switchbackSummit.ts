@@ -321,6 +321,32 @@ export const switchbackSummit: CourseDefEx = {
         latFrom: 0.46, latTo: 1, surface: 'dirt', tint: '#9AA2B4',
       },
     ],
+    // ── THE AVALANCHE GATE: what makes the cut a bet ───────────────────────
+    //
+    // `props.avalancheFence` has been true on this course since the world
+    // module dressed it, and every one of those fences has been a fence: a
+    // static thing standing on a hillside doing nothing. This is the one that
+    // works.
+    //
+    // A counterweighted lattice boom stands on the outside of the Spur's cut
+    // and swings shut across it — the gate a real alpine road closes when the
+    // slope above it is loaded. The main road never closes: the arm is 8.6
+    // metres long on a pivot nineteen metres out, so shut it reaches the tarmac
+    // edge and stops. What it takes away is the **shortcut**, which is the only
+    // discount on this circuit and which has never cost anybody anything.
+    //
+    // Eleven seconds a cycle, shut for four of them. So the cut is open about
+    // two thirds of the time and a driver who sets up for it 150 metres back
+    // and finds the lamps lit has to decide, at speed, whether to take the long
+    // way round the promontory after all. A shortcut you always take is a
+    // shorter track; a shortcut you have to look at is a decision.
+    //
+    // `bump`: a boom arm sweeps a kart sideways off the gravel. It does not
+    // deserve a spin — you were on a shortcut you chose to be on.
+    hazards: [{
+      at: on('T6 THE SPUR', 0.5), kind: 'boom', period: 11, phase: 0.45,
+      lateral: 1.35, width: 8.6, hit: 'bump', lead: 1.5, signAt: 88,
+    }],
     // Seven corners here run 1/44 to 1/54 of curvature and the traverses 1/130
     // to 1/539, so a threshold at 1/85 kerbs the switchbacks and leaves the
     // fast road along the face unmarked.

@@ -12,6 +12,7 @@ import { createQualitySystem } from './core/quality.ts';
 import { installHarness } from './core/harness.ts';
 import { makeRng } from './core/math.ts';
 import { createTrackSystem } from './track/index.ts';
+import { createHazardSystem } from './track/courses/hazards.ts';
 import { createKartPhysics, createRacer } from './physics/kart.ts';
 import { createAiSystem, createAiDriver } from './ai/driver.ts';
 import { createItemSystem } from './items/index.ts';
@@ -93,6 +94,7 @@ async function boot(): Promise<void> {
   engine.add(createAiSystem(ctx));
   engine.add(createKartPhysics(ctx));
   engine.add(createItemSystem(ctx));
+  engine.add(createHazardSystem(ctx));
   engine.add(createRaceDirector(ctx));
   engine.add(createCameraSystem(ctx));
   engine.add(createVehicleSystem(ctx));
