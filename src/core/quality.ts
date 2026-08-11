@@ -1,81 +1,53 @@
 // The quality governor: what the game gives up, when, and on whose evidence.
 //
-// ── Why this is measured and not chosen ─────────────────────────────────────
+// ── 1. The instrument, because four rounds of this file were lost to it ─────
 //
-// `config.quality` has always held three tiers and `harness.setQuality` has
-// always been able to pick one, and between them that is a settings menu, not a
-// frame budget. Nothing in the game had ever *looked* at how long a frame took
-// on the machine it was running on. The tier was decided once, at boot, by a
-// literal — `makeQuality('high')` in main.ts — and a laptop that could not hold
-// sixty frames a second ran the same shadow map, the same draw distance and the
-// same particle budget as one that could, and hitched.
+// The verdict is taken from **wall time between delivered frames**, sampled
+// here rather than off `budget.wallMs`, and everything else in this file
+// depends on that choice being right.
 //
-// ── The instrument comes before the ladder ─────────────────────────────────
-//
-// The first version of this file walked a ladder against `budget.meanMs`, which
-// is *CPU work*: the time spent inside `fixedUpdate`, inside the systems'
-// `update`, and inside the call to `renderer.render()`. That last one is the
-// trap. `renderer.render()` returns when the command buffer has been handed to
-// the driver, not when the picture exists, so on a machine whose GPU is the
-// bottleneck it returns almost immediately and the frame's cost lands in the
-// *gap before the next callback* where nothing was looking.
-//
-// Measured live, at 1600x900 on a software rasteriser, that gap was everything:
-// `meanMs` averaged 23ms while real frames were arriving 250ms apart. The
+// It is not `budget.meanMs`. That is CPU work — `fixedUpdate`, the systems'
+// `update`, and the call to `renderer.render()` — and the last one returns when
+// the command buffer is handed to the driver, not when the picture exists. On a
+// GPU-bound machine the frame's cost lands in the gap before the next callback
+// where nothing was looking. Measured live at 1600x900 on a software
+// rasteriser: `meanMs` averaged 23ms while real frames arrived 250ms apart. The
 // governor read 23, called it "in band", and sat at the top rung for five and a
-// half minutes while the player watched four frames a second. A ten-fold
-// under-read is not a tuning problem, it is the wrong instrument.
+// half minutes while the player watched four frames a second.
 //
-// So the verdict is taken from **wall time between delivered frames**, sampled
-// here rather than read off `budget.wallMs`, for two reasons: this file needs a
-// short window it can reset the moment it changes something, and it needs the
-// spread — the worst frame and the share of frames that hitched — not just a
-// mean. A game that averages 12ms and stutters to 40ms every twentieth frame is
-// not a game running well, and a mean cannot say so.
+// This file needs a short window it can reset the moment it changes something,
+// and it needs the spread — the worst frame and the share that hitched — not
+// just a mean. A game that averages 12ms and stutters to 40ms every twentieth
+// frame is not a game running well, and a mean cannot say so.
 //
-// ── ...and the instrument must not throw away the evidence ─────────────────
-//
-// Twice now this file has been failed for a *gate* rather than for a ladder,
-// and both times the gate had the same shape: a threshold that a slow machine
-// could not cross, sitting in front of the machinery that exists for slow
-// machines. First a warm-up counted in 240 rendered frames — four seconds at
-// sixty and two minutes twenty at 1.7. Then, one layer down, a rule that any
-// frame longer than two seconds "was not a frame": on a machine delivering
-// frames 1.7 to 2.6 seconds apart, that discarded most of them, and the
-// seconds-counted warm-up it was feeding accrued **1.66 seconds in 200 seconds
-// of wall time**. The probe read `priming, samples 0` for three minutes.
-//
-// The rule now: **nothing about a frame's duration is ever evidence that it was
-// not a frame.** A frame is discarded only when something observable says the
-// page was not running through it — a `visibilitychange` edge, or the harness
-// having stepped the simulation inside the gap (`budget.benchSteps`). Both are
-// causes, not symptoms, and both are counted and reported in `probe()` as
-// `suspended` and `hijacked`, because an instrument that silently throws things
-// away is exactly how the last two rounds were lost.
+// **Nothing about a frame's duration is ever evidence that it was not a frame.**
+// A frame is discarded only when something observable says the *race* was not in
+// it: a `visibilitychange` edge, the harness having stepped the simulation
+// inside the gap (`budget.benchSteps`), or this file having switched the draw
+// off (`budget.skipDraw`). All three are causes rather than symptoms, and all
+// three are counted in `probe()` as `suspended`, `hijacked` and `undrawn` —
+// because an instrument that silently throws things away is exactly how the
+// rounds before this one were lost. An earlier rule discarded any frame longer
+// than two seconds; on a machine delivering frames 1.7 to 2.6 seconds apart it
+// threw away most of them and the warm-up it fed accrued 1.66 seconds in 200.
 //
 // `budget.meanMs`, `meanSimMs` and `meanDrawMs` are still read, but only to
-// *attribute* a frame the wall clock has already convicted: work above about
-// two thirds of the frame means the CPU is the problem and says which half of
-// it, and work far below it means the cost is downstream — the GPU, or vsync.
+// *attribute* a frame the wall clock has already convicted — see `boundBy`,
+// whose one-word answer is appended to the governor's status precisely so that
+// a reviewer reading `ms: 145` next to `liveWallMs: 1400` can tell that both
+// are true and which one the frame is made of.
 //
-// ── The unit rule: a gate is denominated in the thing it gates ─────────────
+// ── 2. The unit rule: a gate is denominated in the thing it gates ───────────
 //
-// Three rounds have now been lost in this file to three different mechanisms
-// that share one shape. A warm-up counted in 240 rendered frames, which a
-// machine too slow to render cannot reach. A stall filter counted in
-// milliseconds, which discarded the exact frames the governor exists to
-// measure. And a moment gate that read `race.phase` — which ARCHITECTURE §11a
-// says outright cannot see the front-end — with a ceremony grace counted in
-// delivered-play seconds against a beat measured in race seconds.
-//
-// The class is not "counted in frames" or "counted in milliseconds". It is a
-// gate denominated in a **different unit from the thing it gates**, in a file
-// where the available clocks come apart by three orders of magnitude the
-// moment the machine gets slow. At 0.7 delivered frames a second — the state
-// this file exists for — one delivered frame is 1.43 seconds of wall time and
-// 0.067 seconds of *race* time, because `engine.ts` caps the fixed step at
-// eight per frame and the simulation drops into slow motion underneath. A
-// second is not a second is not a second.
+// At 0.7 delivered frames a second — the state this file exists for — one
+// delivered frame is 1.43 seconds of wall time and 0.067 seconds of *race*
+// time, because `engine.ts` caps the fixed step at eight per frame and the
+// simulation drops into slow motion underneath. A second is not a second is not
+// a second, and three rounds were lost to gates denominated in the wrong one: a
+// warm-up counted in 240 rendered frames, which a machine too slow to render
+// cannot reach; a stall filter counted in milliseconds, which discarded exactly
+// the frames the governor exists to measure; and a moment gate reading
+// `race.phase`, which ARCHITECTURE §11a says outright cannot see the front-end.
 //
 // Four units, and the rule for choosing between them:
 //
@@ -85,73 +57,46 @@
 //   a person waiting    → wall seconds of delivered play (`liveSeconds`).
 //   a machine's speed   → milliseconds between delivered frames.
 //
-// ...and the corollary, which is the other half of the third round: **a gate
-// needs a valve only when the thing it waits for depends on the frame rate.**
-// The intro sweep ends when the simulation reaches the end of it, and the
-// simulation is slowed by the very cost the governor is trying to cut — a
-// genuine circle, and why `CEREMONY_PATIENCE` exists.
+// ...and the corollary: **every refusal in this file is a wait, and the test is
+// not "does this terminate" but "how long is this in wall seconds on the
+// machine the file exists for, and is that a number anybody would defend out
+// loud".** A countdown sealed with no door measured 56 seconds of delivered
+// play at 1.2fps. Every gate whose length depends on the frame rate has a valve;
+// the only ones without are `loading` and `paused`, whose length does not.
 //
-// The round-3 version of this paragraph carried on: *"The front-end ends when
-// the player presses a key, and the flag's grace ends after 1.2 race-seconds
-// that every delivered frame buys 0.067 of. Both are bounded without a valve,
-// and fitting them with one would only put the bug back."* Half of that
-// survived round 4 and half of it was the round-4 failure, and the difference
-// between the two halves is worth stating because it is the rule:
+// ── 3. The audit ───────────────────────────────────────────────────────────
 //
-//   **The flag's grace was right.** It is measured on the fixed-step clock, so
-//   every delivered frame buys exactly 0.067 of it however slow the machine
-//   is. Eighteen pictures, at any frame rate. Bounded in the unit that matters
-//   without anybody having to do anything.
-//
-//   **The front-end was wrong, and so was the countdown seal.** "It ends when
-//   the player presses a key" describes what ends the wait and says nothing
-//   about *how long the player is in it*, which is the thing a gate costs.
-//   Measured: fifty seconds of a player reading four screens at 0.7fps behind
-//   `holding: 'front-end'`, and fifty-six more inside a three-race-second
-//   countdown at 1.2fps behind `holding: 'mid-ceremony'`. A wait a hundred
-//   seconds long is not bounded merely because something eventually ends it.
-//
-// So the test is not "does this terminate" but **"how long is this in wall
-// seconds on the machine the file exists for, and is that a number anybody
-// would defend out loud"**. Everything here now answers that question in the
-// audit above, and everything whose answer was tens of seconds has a door.
-//
-// ── The audit ──────────────────────────────────────────────────────────────
-//
-// Every gate, threshold and accumulator in this file, what it is denominated
-// in, and what it is worth at 0.7fps. This is the list the third round was
-// lost for not having written down:
+// Every gate, threshold and accumulator, what it is denominated in, and what it
+// is worth at 0.7fps. This is the list the third round was lost for not having.
 //
 //   WARMUP_S 3             wall s of delivered play   2 frames        ok (*)
 //   PANIC_ARM_S 1.4        wall s of delivered play   1 frame         ok (*)
 //   MIN_SAMPLES 6          delivered frames           8.6s            ok
 //   PANIC_SAMPLES 4        delivered frames           5.7s            ok
 //   VERDICT_SAMPLES 14     delivered frames           20s             ok
-//   SKIP_FRAMES 3          delivered frames           4.3s            ok (now measured)
+//   SKIP_FRAMES 3          delivered frames           4.3s            ok
 //   WALL_WINDOW 64         delivered frames           91s of history  ok
 //   DOWN/LATE/PANIC/UP     ms between delivered frames   unchanged    ok
 //   UP_WORK_MS, UP_WORST   ms of CPU work             unchanged       ok
-//   FUTILE_* , RETRY       dimensionless ratios       unchanged       ok
+//   FUTILE_*, RETRY        dimensionless ratios       unchanged       ok
 //   BENCH_HOLD 4, BURST 1  wall s                     3 / 1 frames    ok
 //   UP_DWELL 9             wall s under budget        unreachable     ok
 //   liveSeconds            wall s of delivered play   honest          ok
 //   CEREMONY_PATIENCE 20   wall s inside the sweep    a valve         ok
-//   SEAL_PATIENCE 35       wall s inside one beat     a valve         ok (r4)
-//   FRONT_END_PATIENCE 12  wall s behind the menu     a valve         ok (r4)
-//   CEREMONY_GRACE 2.2     race s after the flag      33 frames       ok (r5)
-//   LAUNCH_PATIENCE 22     wall s inside the launch   a valve         ok (r5)
-//   RUNG_GAIN 1.2          dimensionless ratio        measured        ok (r5)
-//   PANIC_MAX_STEP 3       rungs per change           2 changes       ok (r5)
-//   minPx / shellPx        screen pixels of radius    scale-relative  ok (r5)
-//   crowd / scatter        shares of a population     dimensionless   ok (r5)
-//   SHELL_MIN_M 28         metres from the camera     frame-rate-free ok (r6)
-//   MEMORY_SETTLE_S 10     wall s at one rung         a person        ok (r6)
-//   MEMORY_SETTLE_FRAMES   delivered frames           14s at 0.7fps   ok (r6)
-//   SESSION_WINDOW 512     delivered frames           the session     ok (r6)
-//   the seams              events, not durations      unbounded (**)  ok (r6)
-//   THIN_KNEE_PX 6         screen pixels of radius    scale-relative  ok (r7)
-//   thinFar                a share, at zero size      dimensionless   ok (r7)
-//   SEAM_HELD              a class, not a number      events (**)     ok (r7)
+//   SEAL_PATIENCE 35       wall s inside one beat     a valve         ok
+//   FRONT_END_PATIENCE 12  wall s behind the menu     a valve         ok
+//   CEREMONY_GRACE 2.2     race s after the flag      33 frames       ok
+//   LAUNCH_PATIENCE 22     wall s inside the launch   a valve         ok
+//   RUNG_GAIN 1.2          dimensionless ratio        measured        ok
+//   minPx / shellPx        screen pixels of radius    scale-relative  ok
+//   crowd / scatter        shares of a population     dimensionless   ok
+//   SHELL_MIN_M 28         metres from the camera     frame-rate-free ok
+//   MEMORY_SETTLE_S 10     wall s at one rung         a person        ok
+//   MEMORY_SETTLE_FRAMES   delivered frames           14s at 0.7fps   ok
+//   SESSION_WINDOW 512     delivered frames           the session     ok
+//   THIN_KNEE_PX 6         screen pixels of radius    scale-relative  ok
+//   thinFar                a share, at zero size      dimensionless   ok
+//   SEAM_HELD              a class, not a number      events (**)     ok
 //   COLLAPSE_FACTOR 5      ms between delivered frames unchanged      ok (r8)
 //   COLLAPSE_FRAMES 2      delivered frames           2.9s            ok (r8)
 //   COLLAPSE_SAMPLES 2     delivered frames           2.9s            ok (r8)
@@ -160,107 +105,38 @@
 //   PANIC_MAX_STEP         rungs per change           the ladder      ok (r8)
 //   skipDraw frames        not a unit — discarded     see `undrawn`   ok (r8)
 //
-// The round-eight rows are all on one path and they are one number between
-// them: **the whole descent, from the first over-budget frame to the floor with
-// its resolution installed, is two delivered frames and 1.2 seconds.** It was
-// fifty to seventy seconds of delivered play, walked as two three-rung pops
-// with a fourteen-sample verdict between them, and a minute of the worst
-// picture the game can draw is not a rescue. See `COLLAPSE_DWELL`.
+//   (*) `WARMUP_S` and `PANIC_ARM_S` stay in wall seconds on purpose: they gate
+//   a statistic, the sample counts beside them are what binds on a slow
+//   machine, and the thing they wait out — shader compilation, texture upload,
+//   the JIT — is wall-clock work.
 //
-//   (**) The seam rule is the one entry on this list that is not a number, and
-//   it is deliberately not one. "Wait N seconds before rebuilding the swap
-//   chain" is the shape every gate in this file has been failed for; "rebuild
-//   it at boot, at a race build, or when the browser is already rebuilding it"
-//   is a set of *events*, and an event has no unit to get wrong. It can be
-//   arbitrarily long — a player who never starts a second race never gets a
-//   second flush — and that is correct rather than a defect: the cost of not
-//   flushing is a picture drawn larger than it needs to be, and the cost of
-//   flushing is the worst frame of the session. See `flushScale`.
+//   (**) The seam rule is the one entry that is not a number, deliberately.
+//   "Wait N seconds before doing X" is the shape every gate here has been failed
+//   for; "do it at boot, at a race build, or when the browser is already doing
+//   it" is a set of *events*, and an event has no unit to get wrong.
 //
-// ...and the five that were wrong, every one of them in the same direction —
-// a protection that shrinks to nothing exactly when the machine needs it:
+// The round-eight rows are one number between them: **the whole descent, from
+// the first over-budget frame to the floor with its resolution installed, is
+// two delivered frames and 1.2 seconds.** It was fifty to seventy seconds of
+// delivered play, walked as two three-rung pops with a fourteen-sample verdict
+// in between, and a minute of the worst picture the game can draw is not a
+// rescue. See `COLLAPSE_DWELL`.
 //
-//   CEREMONY_GRACE 1.2     was delivered-play seconds, so one frame of cover
-//                          for a beat that is 1.2 *race*-seconds long. Now
-//                          race seconds, read straight off `ctx.race.time`.
-//                          Measured before the fix: rung 3→4 fired between
-//                          race time 0.0 and 0.2s, on GO, and rung 4→5 at 1.2s.
-//   pictureLocked()        was `race.phase` and nothing else, so the whole
-//                          front-end was invisible to it: three of five rung
-//                          changes in a live 180-second session were made with
-//                          the title screen and the roster on the display, all
-//                          three logged `phase: intro`. Now the `ui:menu`
-//                          edges and the `race:pause` edges, the way
-//                          `race/director.ts` has always done it, with the
-//                          phase as the third opinion rather than the only one.
-//   VERDICT_ABANDON        was 30 wall seconds, against a window that fills in
-//                          *frames*: SKIP_FRAMES + VERDICT_SAMPLES is 17 of
-//                          them, which is 24s at 0.7fps and 34s at 0.5 — so
-//                          below about 0.55fps every verdict was abandoned and
-//                          the futility check could never run at all. Now
-//                          delivered frames, and it fires only when frames are
-//                          genuinely being discarded.
-//   DOWN_DWELL 1.2         wall seconds over budget, which is one frame at
-//   PANIC_DWELL 0.35       0.7fps: "never act on a single hitch" had become
-//                          "act on a single hitch". Now a wall dwell *and* a
-//                          frame count, and the slow machine is bound by the
-//                          frames.
-//   SETTLE 2.2             wall seconds since a change, which is one frame at
-//   PANIC_SETTLE 0.9       0.7fps — so the settle that exists to let a change's
-//                          own transient pass could be satisfied by the
-//                          transient itself. Now both, same shape.
+// ── 4. What is on the ladder, and why it is not one lever ───────────────────
 //
-//   (*) `WARMUP_S` and `PANIC_ARM_S` stay in wall seconds on purpose. They
-//   gate a statistic, the sample counts beside them are what actually binds on
-//   a slow machine, and the thing they are waiting out — shader compilation,
-//   texture upload, the JIT — is wall-clock work.
+// A ladder made of one lever runs out. The first one here was made of render
+// scale: measured on a frozen racing frame at 1600x900, rung 0 to the floor
+// went 640,276 triangles to 616,846 and 296 draw calls to 253 — **3.7% of the
+// geometry** — and bought 2.1x, all of it resolution. A machine needing more
+// than 2.1x reached the bottom, was handed a 736x414 picture, and still missed.
 //
-// ...and the two the *fourth* round was lost for, which is the same bug once
-// more with a different mechanism: `CEREMONY_GRACE` was converted to race
-// seconds and marked "ok" without anyone converting it back into **what a
-// player waits**. Three race-seconds of countdown plus 1.2 of grace is 56 wall
-// seconds at 1.2fps, and the governor was sealed for every one of them. A unit
-// audit that never asks "and how long is that in the unit the player is in" is
-// half an audit. The two new rows above are the answer, and the rule they
-// encode is: *every* refusal in this file is a wait, and the only ones without
-// a door are the ones whose length does not depend on the frame rate —
-// `loading`, which is the boot and the pause screen.
-//
-// The flag's grace used to be on that short list, on the argument that it is
-// measured on the fixed-step clock and is therefore bounded in *pictures* at
-// any frame rate. That argument was true and it stopped one line early, which
-// is the fifth round's version of the same mistake: eighteen pictures at 0.7fps
-// is twenty-six wall seconds, and the grace is now long enough to cover the
-// launch it is protecting — thirty-three pictures, forty-seven wall seconds.
-// Nobody would defend forty-seven seconds out loud, so it has a door like
-// everything else. See `LAUNCH_PATIENCE`.
-//
-// ── ...and then round five was about the thing the instrument had to pull ───
-//
-// Four rounds of this file were about *measuring*: which clock, which unit,
-// which gate, whose evidence. They were all won and the file still scored a
-// six, for a reason none of them could have caught, because it is not a
-// property of any instrument in here:
-//
-//   **The ladder had nothing on it.** Measured on one frozen racing frame at
-//   1600x900, rung 0 to the floor went 640,276 triangles to 616,846 and 296
-//   draw calls to 253 — **3.7% of the geometry** — and bought 2.1x, all of it
-//   out of the render scale. Every rung was the same picture at fewer pixels.
-//   So a machine that needed more than 2.1x walked to the bottom, was handed a
-//   736x414 frame, and still missed; and the last rung of that walk gave up the
-//   bloom pyramid and halved the shadow map to 256px to buy nine tenths of one
-//   percent.
-//
-// `drawDistance` was the only content lever on the ladder and it was not one.
+// `drawDistance` was the only content lever on it and it was not one:
 // `world/index.ts` switches each dressing batch on its *centre* against a
-// per-kind range; the batches are split by lap sector across a 2.5km circuit,
-// and the ones that cost anything are the ones beside the camera at every draw
-// distance. 1.0 to 0.5 removed 23k triangles out of 640k and nothing left the
-// frame that anybody could see leaving.
+// per-kind range, the batches are sector-split across a 2.5km circuit, and the
+// ones that cost anything are beside the camera at every draw distance. 1.0 to
+// 0.5 removed 23k triangles out of 640k.
 //
-// What the same frame is actually made of — `__QUALITY.audit()`, which is where
-// this file's own instrument named its own targets and then had no rung that
-// could spend either of them:
+// What the frame is actually made of — `__QUALITY.audit()`:
 //
 //   world     171 calls   516,356 triangles    7 materials
 //   track      34 calls   167,102 triangles   22
@@ -272,552 +148,203 @@
 //   world:drum         96 instances    16,512 triangles
 //   world:tyres        85 instances    15,300 triangles
 //
-// So the bottom of the ladder is three **content** rungs now, and what they
-// spend is named above: the population of the verge, the population of the
-// stands, and the seven machines' twenty-six-meshes-each. Measured the same
-// way, on one frozen frame with the simulation actually held still:
+// So every rung carries **content** as well as resolution: the population of
+// the verge, the population of the stands, the seven machines' twenty-six
+// meshes each, and the sub-pixel dressing. Measured the same way on one frozen
+// frame, 775,346 -> 572,137 triangles and 409 -> 278 draw calls end to end,
+// **-26.2% and -32.0%**, with the program count flat at 87 for the whole
+// descent. See `ContentTrim`, `LADDER` and `censusContent`.
 //
-//                        triangles          draw calls
-//   before   rung 0 -> 6   640,276 -> 616,846   296 -> 253    -3.7%
-//   now      rung 0 -> 6   775,346 -> 572,137   409 -> 278   **-26.2%**
+// ── 5. The seam rule, and what round eight took back out of it ──────────────
 //
-// ...with the program count flat at 87 for the whole descent, so the ladder
-// still compiles nothing on its way down. See `ContentTrim`, `censusContent`
-// and the ladder's own block for what each rung spends and what it costs.
+// A lever is **seam-held** when the player can watch the change happen — not
+// "is the after-picture worse", every rung is worse, but *can the change itself
+// be seen*. Round seven found this by playing the game rather than by reading a
+// log: the governor spent `crowd` mid-race on the start/finish straight and a
+// packed grandstand became bare grey terracing between one frame and the next,
+// forty metres in front of the player. No timing instrument in this file could
+// ever have caught that; a `setDrawRange` costs nothing at all.
 //
-// ── ...and round six was about the cost of the change itself ───────────────
+// Four levers are behind the seam and land at boot, at a race build behind the
+// closed launch board, or at a window resize: `crowd`, `scatter`, `aa`,
+// `drawDistance`. Six are live, every one either denominated in projected
+// pixels — so the only things it can move are already too small to resolve —
+// or invisible on the frame it lands: `scale`, `tier`, `particles`, `minPx`,
+// `thinFar`, `shellPx`. See `SEAM_HELD` for the measurements behind each.
 //
-// The ladder measured well and the *transitions* were the worst frames of the
-// session. Measured live at 1280x720 on the page's own rAF loop: two rung
-// changes in two hundred seconds, `changeMs` 3101.8 and 1494.3, against a
-// delivered median of 875ms and 512ms at the time. The machinery built to
-// smooth the frame delivered the largest hitch the player would ever see, and
-// delivered it at the moment the game was already failing.
+// **Round eight moved two of them.** Round seven's list had six behind the
+// seam, and the review that followed measured what that cost: at the floor,
+// mid-race, 150 seconds of live play at 1280x720, the frame still read
+// `renderScale 1.00`, `aa true`, `tier 'high'`, `drawDistance 1` and a 1280x720
+// backing store. The only setting that had moved was `particles`. **The whole
+// in-race authority of a seven-rung ladder was 22% of the geometry, 13% of the
+// draw calls and none of the pixels** — a struggling player rode the entire
+// race at full cost while the ladder walked to its own floor and installed the
+// fix for the *next* race.
 //
-// One line caused it and this file had already named the line — see the
-// measurement table on `precompileLadder`, which prices a bare
-// `setPixelRatio` at +348ms *in both directions* on a 320x180 bench and then
-// concluded that it "cannot be removed from this file". That conclusion was
-// half right. The structural fix — hold every post target at rung 0's size and
-// render into a viewport sub-rectangle — is `render/post.ts`'s to make and is
-// raised as a cross-module request. What this file can do without it is stop
-// making the call **on a frame the player is being shown**.
+//   `scale` came out because its reason had gone. It was deferred for a
+//   *swap-chain rebuild* — 3101ms live at 1280x720 — and because
+//   `setPixelRatio` shrinks the canvas underneath a DOM HUD that stays at
+//   native resolution. Neither is a fact about resolution; both are facts about
+//   that one call. The measurement table on `precompileLadder` had the answer
+//   in it and it was read as a negative result: *the eight post targets resized
+//   by hand, 229ms against a 225ms median — zero*. `render/post.ts` now
+//   implements `setRenderScale`, the world is drawn into targets it owns at a
+//   fraction of their size, and the canvas never moves at all. What is left is
+//   a picture that goes slightly soft, which is a degree of the same thing
+//   every rung does. Rate-limited to one landing per `SCALE_HOLD_S`; inherits
+//   the moment gate from the rung change that asked for it. See `freeScalePath`
+//   and `serviceScale`, and note that `scaleFlushes` now stays at **0** for the
+//   life of a session.
 //
-// The same line caused a second defect that has nothing to do with time.
-// `setPixelRatio` shrinks the canvas *underneath a fixed-size DOM overlay*, so
-// a place badge drawn by `ui/hud.ts` stays pixel-sharp while the asphalt six
-// inches to its left goes to a smear. Every cut the ladder made was advertised
-// by that contrast, including the gentlest one. A ladder that announces itself
-// is a ladder the player is watching instead of the race.
+//   `tier` came out because holding it made `ctx.quality.tier` a lie: at the
+//   floor, mid-race, it read `high`. Exactly one module reads it —
+//   `render/lighting.ts`, `SHADOW_EXTENT`, 62 / 52 / 46m — so the whole
+//   measurable content of a live tier change is the outer edge of the shadow
+//   frustum moving ten metres on a frame already drawn at half resolution.
+//   `low` is also *reachable* now: the ladder used to select only `high` and
+//   `med`, so every module branching on `low` was branching on dead code. It
+//   does not mean `config.quality.low`, which is the cliff below.
 //
-// ── So the resolution lever was a *seam* lever — and now it is not ─────────
+// Two things follow that are in the code rather than here. A futility verdict
+// does not survive a seam (`flushSeam`), because every judgement taken between
+// two seams was taken on a cut that was only half made. And `composeSettings`
+// reads the seam-held fields off a different rung index from everything else,
+// so a mid-race rung is genuinely two rungs at once until the next race build.
 //
-// Round six made it one, on two arguments that were both about
-// `renderer.setPixelRatio`: it rebuilds the drawing buffer, and it shrinks the
-// canvas underneath a DOM HUD that stays at native resolution. Both were true.
-// Neither was about *resolution*; both were about that one call.
+// ── 6. The three things that make a governor either useful or a menace ──────
 //
-// The measurement table on `precompileLadder` had the answer in it the whole
-// time and it was read as a negative result: **"the eight post targets resized
-// by hand — 229ms against a 225ms median — zero."** The world is drawn into
-// targets `render/post.ts` owns; only the final blit touches the canvas. So the
-// scene target, the depth texture and the five bloom mips now follow the scale
-// (`PostStack.setRenderScale`) and the canvas never moves at all. No rebuild,
-// no HUD mismatch, `scaleFlushes` 0 for the session.
-//
-// What is left of the objection is that the picture goes softer, which is a
-// *degree* of the thing every rung on this ladder does and the least visible
-// thing on the lever table per millisecond bought. So the lever is live, rate-
-// limited to one landing per `SCALE_HOLD_S`, and it inherits the moment gate
-// from the rung change that asked for it.
-//
-// **Why that mattered enough to reopen a settled design.** Measured live at
-// 1280x720, autopilot, 150 seconds: the ladder walked to its own floor and the
-// frame it delivered there still read `renderScale 1.00`, `aa true`, `tier
-// 'high'`, `drawDistance 1`, and a 1280x720 backing store. The only setting
-// that had moved was `particles`. The whole in-race authority of a seven-rung
-// ladder was 22% of the geometry, 13% of the draw calls and none of the pixels
-// — the player's *current* race was the one race it could not rescue, and the
-// fix it earned was installed for the next one.
-//
-// The fallback is still in the code and still correct: `freeScalePath` probes
-// for the method on every call, and a composer that cannot do it puts every
-// word above about seams back in force with nothing else changing.
-//
-// ── ...and the rungs had to be rebuilt around that ─────────────────────────
-//
-// This is the part that is not optional. With the resolution deferred to a
-// seam, the old rungs 0-3 were *resolution and a shadow map* and nothing else,
-// so every one of them would have moved the ladder without moving the frame —
-// and the futility check, correctly, would have convicted the ladder of doing
-// nothing and stood it down before it reached the rungs that work. A lever that
-// lands later cannot also be the lever that pays for the rung.
-//
-// So every rung now carries a bite of **content** as well as its bite of
-// resolution: scatter density, crowd density, the sub-pixel dressing cull and
-// the shell distance all step at every rung instead of appearing at rung 4. The
-// deferred resolution then arrives on top of that at the next seam.
-//
-// ── Round seven: the seam rule was right and it was applied to one lever ────
-//
-// The round-six review found the fix above worked — the hitch was gone — and
-// then found the next defect by *playing the game* rather than by reading the
-// log:
-//
-//   "the crowd trim is the ladder's most visible lever and the governor spends
-//   it mid-race on the start/finish straight, so the grandstands go from a
-//   packed house to bare grey tiers between one frame and the next, in front of
-//   the player."
-//
-// Nothing in this file could have caught that. Every instrument here measures
-// *time*, and a `setDrawRange` costs no time at all — it is one call, no
-// allocation, no recompile, and it was priced in this file's own tables as
-// free. It is free. It is also a grandstand emptying forty metres in front of
-// the player, which is a worse thing to do to a racing game than the 3101ms
-// hitch round six removed.
-//
-// The lesson generalises, and generalising it is the whole of round seven:
-// **the seam rule was never about reallocation cost. It is about whether the
-// player can see the change happen.** The render scale qualified twice over —
-// it costs a swap-chain rebuild *and* it visibly resizes the picture — and
-// having two reasons is why only it was deferred.
-//
-// So every lever is classified by one question, and the classification is in
-// the code rather than in a comment: `SEAM_HELD` names the reset-only ones,
-// `composeSettings` reads them off a different rung index from everything else,
-// and `flushSeam` is the only door.
-//
-// Round seven put six levers behind it and round eight took two back out, for
-// two different reasons that are both worth naming:
-//
-//   `scale`  — deferred for a cost that no longer exists. See the section
-//              above: the canvas never moves any more, so the only thing left
-//              to argue about is a softer picture.
-//   `tier`   — deferred on a visibility argument that was never checked against
-//              what the field actually does. Exactly one module reads it
-//              (`render/lighting.ts`, `SHADOW_EXTENT`, 62/52/46m), so holding it
-//              bought a ten-metre band of far shadow and cost `ctx.quality.tier`
-//              its truthfulness: at the floor, mid-race, it read `high`.
-//
-// Four are behind the seam now — `crowd`, `scatter`, `aa`, `drawDistance` —
-// and six in front of it, every one either denominated in projected pixels, in
-// what happens next, or (the resolution) uniform across a picture that is
-// already being redrawn: `scale`, `tier`, `particles`, `minPx`, `thinFar`,
-// `shellPx`.
-//
-// The frame-half had to be rebuilt around that, exactly as round six rebuilt
-// the rungs around the deferred resolution, and for exactly the same reason: a
-// rung whose levers all land later is a rung the futility check convicts. What
-// it needed was a lever with real weight that still could not be seen moving,
-// and the census says where the weight is — the verge's clutter is a quarter of
-// everything drawn. `thinFar` is that lever: the same thinning `scatter` does,
-// hung off a ramp whose near end is a fixed projected size, so a rung can only
-// ever change the density of things that are already smaller than a cone at
-// ninety-five metres. See `ContentTrim.thinFar` and `THIN_KNEE_PX`.
-//
-// One consequence had to be paid for in the machinery rather than in the table:
-// **a futility verdict does not survive a seam.** Every judgement taken between
-// two race builds was taken on rungs whose expensive half was not installed, so
-// "cutting does not help this machine" was a statement about a cut that was
-// half made. `flushSeam` clears `stalled` and `futile` when it actually moves
-// something, on the same rule the `ui:menu` edges already obey: a verdict
-// belongs to the scene it was measured on.
-//
-// ── What all of that measured, live (round seven — kept for the shape) ─────
-//
-// Read the `render scale held at 1.00 throughout` line below as the defect
-// round eight was sent back for rather than as a result: it is the ladder
-// walking its whole length without touching the largest lever it owns.
-//
-// Two sessions on the page's own rAF loop at 1280x720 under SwiftShader, the
-// harness never stepping or rendering, autopilot driving. The second is a plain
-// reload of the first, which is the whole point of the memory:
-//
-//   **session A — a machine this ladder has never seen**
-//     rung 0 -> 3 at liveSeconds 29.7   2479.7ms -> 1948.2ms   `worked` 0.214
-//     rung 3 -> 6 at liveSeconds 66.0   1972.0ms -> 1399.1ms   `worked` 0.291
-//     drawing-buffer rebuilds: **0**    render scale held at 1.00 throughout
-//     changeMs 2531.9 and 3024.4 against a median frame at the moment of each
-//       change of 2479.7 and 1972.0 — `changeRatio` **1.02 and 1.53**, the
-//       second being three consecutive frames' worst on a window whose spread
-//       routinely puts an ordinary frame there.
-//     `changeWorstMs / sessionMedianMs` = **1.76x**, which is this round's own
-//       stated pass condition, met on its own terms.
-//     1.77x off the frame end to end **with the resolution lever never touched
-//       once**. The content half of the ladder is not the makeweight the round
-//       five table implies; it is most of it.
-//
-//   **session B — the same machine, one reload later**
-//     boots at rung 6, render scale 0.50, applied once at `flushScale('boot')`
-//     **zero rung changes for the whole session**, `changeWorstMs` 0
-//     session median **803.7ms** against A's settled 1399.1ms, and against the
-//       2479.7ms the same box delivered at rung 0 before the governor moved
-//
-// B against A's settled state is the cleanest measurement of the resolution
-// lever this file has ever had: same rung, same course, same box, the only
-// difference 1.00 scale against 0.50 — **about 2x**. And the player saw the
-// game arrive at it, rather than walk to it.
-//
-// ── ...and the one hitch that was left, which the instrument found ─────────
-//
-// The first two runs of the above measured `changeRatio` 2.52 on the rung 0 ->
-// 3 change and 0.94 on the rung 3 -> 6 one, and the asymmetry is the reading:
-// the only thing rung 0 -> 3 does that rung 3 -> 6 does not is turn the FXAA
-// resolve off, which moves the composite from `ldrTarget` to the back buffer.
-// `warmPrograms()` in `render/post.ts` already *compiles* that variant at boot,
-// and on a software rasteriser a compiled program is not the expensive half —
-// SwiftShader JITs a pixel routine per pipeline state on the first **draw**.
-// So `precompileLadder` now draws one composed frame per distinct render state
-// as well as compiling it, at the same load screen, behind the launch board.
-// That took the change from 2.52x to 1.02x. See `precompileLadder`.
-//
-// Note also what the *naive* form of the pass condition does when the ladder is
-// working hard: on the first run, `changeWorstMs` 4650.9 against a session
-// median of 1496 read 3.11x, and every part of that ratio was the ladder having
-// cut the session median by three while the run was going on. A denominator the
-// thing being measured is moving is not a denominator; the same two changes
-// read 1.03 and 1.06 locally. Both forms are reported —
-// `QualityChange.medianMs` and `changeRatio` beside `changeWorstMs` — so that
-// nobody has to take this paragraph's word for which one is which.
-//
-// ── ...and two smaller things measured in the same pass ────────────────────
-//
-// **The shadow map is one size now.** The lever table below prices the whole
-// 2048 -> 256 range at 2% of a frame; the same table prices its *realloc* at
-// +262ms, and four of the ladder's five transitions moved it. It was the one
-// lever whose hitch was comparable to what it bought, this file said so in
-// writing, and it is gone: every rung runs the top rung's map. That is a
-// strictly better picture at six of the seven rungs for a cost the instrument
-// cannot resolve.
-//
-// **The ceremony valve costs a fraction of what it used to.** The review that
-// sent this round back found both rung changes landing inside the composed
-// intro sweep through `CEREMONY_PATIENCE` — "the one rule the gate exists to
-// enforce is broken by the door fitted to it" — and the door is still there,
-// because a phase gate on a starved simulation deadlocks and the measured sweep
-// on this box ran sixty wall seconds at 0.22fps. What has changed is what comes
-// through it. It used to be a three-second freeze *and* the resolution jumping
-// a third under a HUD that did not move; it is now a slightly thinner crowd and
-// a few sub-pixel dressing batches, on a frame that cost 1.03x an ordinary one.
-// A door that lets a whisper through is a different object from a door that
-// lets a shout through, even when it is the same door.
-//
-// **The rung is remembered.** `START_RUNG` was 0 on every page load with no
-// storage of any kind, so a slow machine re-walked the ladder in front of the
-// player every single session — 57 seconds of delivered play to reach the floor
-// in the measured one. The settled rung is now written to `localStorage` under
-// a coarse hardware key (the unmasked GL renderer string, a coarse pixel-count
-// bucket, and a signature of the ladder itself so that editing the table
-// invalidates every stored answer), and read back at boot. Combined with the
-// seam rule this is the whole fix: **the second session starts at the right
-// resolution, applied before the first frame, and never changes it again.** See
-// `hardwareKey`, `readMemory` and `rememberRung`.
-//
-// ── The three things that make a governor either useful or a menace ─────────
-//
-// **0. It must not be a cliff.** Every rung on this ladder keeps the shadow
-// map, the post stack, the bloom and the atmosphere. What comes off is
-// resolution, shadow map *size*, particle density, draw distance and — at the
-// bottom three — population: how many spectators, how many cones, and whether
-// the machine two hundred metres away is thirty meshes or one. Nothing on it
-// turns a feature off, which means nothing on it recompiles the game: the
-// floor rung two ladders ago took the program count from 75 to 110 and cost a
-// 762ms frame, so the ladder's rescue move was the worst hitch of the session,
-// and it left the cone standing on the dirt casting no shadow at all while
+// **0. It must not be a cliff.** Every rung keeps the shadow map, the post
+// stack, the bloom and the atmosphere, so **the whole ladder compiles one
+// program set** and cannot hitch on the way down. The floor rung two ladders
+// ago was `config.quality.low`: it took the program count from 75 to 110 and
+// cost a **762ms** frame — the ladder's rescue move being the worst hitch of
+// the session — and it left the cone standing on the dirt casting nothing while
 // `world/`, `track/` and `render/` all still believed in the one shadow policy
 // ARCHITECTURE §12 describes. A governor may spend the game's looks; it may not
-// contradict the game's art direction.
+// contradict the game's art direction. The shadow map is one size for the whole
+// ladder for the same reason: the range 2048 -> 256 is worth 2% of a frame and
+// its *realloc* is +262ms. See `SHADOW_PX`.
 //
-// The bloom pyramid was the last survivor of that argument and it is gone from
-// the ladder too, on the same reasoning applied to a smaller loss. The old
-// floor spent it *and* halved the shadow map to 256px to buy 0.9%, which is a
-// rung that gives up the item box's glow and softens a contact shadow into a
-// smear for nothing measurable — against the most-read object on the road and
-// against §12's own contact-is-everything rule. The shadow map now bottoms out
-// at 448px and the glow survives to the floor; what pays for them is the
-// population rungs, which buy more than either of them ever did.
+// **1. It must not oscillate.** The thresholds are far apart. The dwells are
+// asymmetric — a rung is lost after 1.2s over budget and regained only after 9s
+// under it. Every change is followed by a lockout long enough for its own
+// transient to pass. And climbing back demands measured headroom as well as a
+// wall clock, because a vsync-locked 16.7ms says nothing about how close to the
+// edge the machine is.
 //
-// **1. It must not oscillate.** A ladder that drops a rung, gets faster, climbs
-// back, gets slower and drops again is worse than no ladder at all: the player
-// watches the shadows and the draw distance breathe. Four mechanisms stop it.
-// The thresholds are far apart. The dwells are asymmetric — a rung is lost
-// after 1.2s over budget and regained only after 9s under it, so a single hitch
-// can cost a rung but can never win one back on its own. Every change is
-// followed by a lockout long enough for the change's own transient to pass. And
-// climbing back demands more than the wall clock: the frame has to be arriving
-// on time *and* have measured headroom underneath it, because a vsync-locked
-// 16.7ms says nothing about how close to the edge the machine is.
+// **2. It must not change at a moment the player is looking at.** Three
+// questions, in the order they can be trusted: is the front-end up (an edge,
+// published by the module that owns the screen), is the game paused (an edge),
+// and only then what the race thinks it is doing — `race.phase` cannot see the
+// front-end and a session where it was the only opinion made three of five rung
+// changes with the title screen on the display. Then the curvature lookahead:
+// the frames that blow the budget are the frames where a lot is happening, so a
+// naive ladder does all its switching at the apex.
 //
-// **2. It must not change at a moment the player is looking at.** This is the
-// one a purely numerical governor gets wrong, and it has three halves by now.
-//
-// The first is the corner. The frames that blow the budget are exactly the
-// frames where a lot is happening — a hairpin with the pack alongside, a
-// mini-turbo firing, dust in the air — so a naive ladder does all its switching
-// at the precise moments the player is concentrating hardest, and the draw
-// distance pops at the apex. Changes wait for a straight.
-//
-// ── ...and the moment it must not change is not the only thing that matters —
-//    so does *how many times* ────────────────────────────────────────────────
-//
-// Every version of this gate up to round four asked "may I change the picture
-// now" and never "how many times am I about to ask that". A machine forty
-// times too slow is not one rung away from the target and the governor is
-// reading the number that says so; it dropped one rung anyway, waited out
-// `PANIC_SETTLE`, judged, and dropped again. Measured, on the session that
-// sent round four back: six changes in two hundred seconds and three of them
-// inside the first three and a half race-seconds after the flag, so a player
-// who had just timed a good launch watched 1088x612 become 927x522 become
-// 832x468 become 736x414 while their rocket start was still burning.
-//
-// A gate cannot fix that, because none of those three changes was made at a
-// forbidden moment — they were made one after another at moments that were
-// each individually fine. The fix is upstream of the gate: **one change, sized
-// from the evidence**, so the ladder spends one pop where it used to spend
-// three. See `RUNG_GAIN` and `PANIC_MAX_STEP`; and see `CEREMONY_GRACE`, which
-// is the other half — the grace now covers the launch it was named for instead
-// of expiring a tenth of a second into it.
-//
-// ...and the one exception, which round eight had to carve out: **a machine
-// five times over the budget has no composed picture to protect.** The gate's
-// doors are 20 to 35 wall seconds long, which is right when the thing behind
-// them is a countdown the player can watch; at twelve frames a second and worse
-// it is a slideshow, and every second spent waiting for a better moment is a
-// second of exactly what the gate exists to prevent. The collapse path is the
-// only branch in this file that does not consult `pictureLocked()`. It still
-// refuses to act while the game is *paused*, because a still frame with a plate
-// on it is not costing anybody anything. See `COLLAPSE_FACTOR`.
-//
-// The second is the ceremony, and it was found the expensive way. `onAStraight`
-// was the only "not now" this file had, and it was consulted on the *ordinary*
-// path only — while the emergency path, which is the sole path a machine slow
-// enough to need this file ever takes, called `applyRung` directly. Measured
-// live over two hundred seconds: all seven rung changes logged
-// `dropped (panic)` or `stalled`, so the moment gate was never consulted once
-// in a real session, and two of the seven landed inside the countdown — one on
-// the numeral "1" and one on "GO!". The picture went 1088x612 -> 927x522 ->
-// 768x432 and lost its bloom across the two seconds the player is timing a
-// rocket start, in front of a near-static grid camera with nothing to mask it.
-//
-// So the gate is now a *phase* gate as well as a curvature one, it is consulted
-// by both paths, and it is the first thing either of them asks. The countdown,
-// the finish and the results sheet are held — the game is being watched rather
-// than played. `CEREMONY_GRACE` carries the refusal a little past the flag,
-// because the beat the flag falls on is exactly as precious as the "1" before
-// it.
-//
-// This paragraph used to end "and a machine that has been at 1.5fps for forty
-// seconds can wait a few more for the flag", with the countdown *sealed* — no
-// door, at any frame rate. It is not a few more. Measured on the machine that
-// sentence is about: **56 seconds of delivered play**, `liveSeconds` 84 to 140,
-// reporting `locked: true, holding: 'mid-ceremony'` for all of it, because a
-// three-race-second countdown at 0.087x sim rate is half a minute of wall
-// clock and the file's own unit audit had converted the beat into race seconds
-// and stopped there. See `SEAL_PATIENCE`. Every refusal in this file is a wait
-// now; the sealed beats simply wait longer than the sweep does.
-//
-// The third half of that — and the reason this round was lost — is that the
-// phase cannot see the front-end. **ARCHITECTURE §11a says so outright**: the
-// race is built at boot and keeps simulating behind an opaque title screen, so
-// `race.phase` walks `intro` → `countdown` → `racing` while the player is still
-// looking at the roster, and anything drawing over the game must stand off on
-// the `ui:menu` edges instead. `race/director.ts` has always done this
-// (`frontEndOpen`) and `ui/coach.ts` was fixed to; this file asked the race
-// director what was on screen and believed the answer. Measured live over 180
-// seconds: three of five rung changes were made with the title screen and the
-// machine roster on the display, all three logged `phase: intro`, and the
-// remaining two landed within two tenths of a second of the flag. Every change
-// the session made was made at a moment this gate exists to refuse.
-//
-// So the gate now asks three questions in the order they can be trusted: is
-// the front-end up (an edge, published by the module that owns the screen), is
-// the game paused (an edge, likewise), and only then what the race thinks it
-// is doing.
-//
-// ── ...and then the front-end turned out to be the wrong answer twice ──────
-//
-// The refusal above was right about *which signal to read* and wrong about
-// what to do with it. `pictureLocked()` opened `if (frontEndOpen || paused)
-// return true;` — no valve, no door, no measurement — and the front-end is not
-// merely a screen the governor should not change the picture behind. It was
-// **the most expensive frame in the game**: 0.5-0.9fps on PRESS START against
-// 1.5fps actually racing, because 356-538 draw calls and 794k-827k triangles of
-// race geometry went through the full HDR post stack every frame into a buffer
-// the menu's own opaque set covers edge to edge. Measured live, the governor
-// reported `holding: 'front-end', locked: true` for the first fifty seconds of
-// delivered play and did not move a rung until `liveSeconds` 69.96.
-//
-// Two changes, and they are opposites of each other, which is why the bug
-// survived three rounds of people looking straight at it:
-//
-//   **Stop drawing it.** `budget.skipDraw` — see `frontEndCovers` and
-//   `FrameBudget.skipDraw`. The update still runs; only the draw is skipped,
-//   and only while the module that owns the screen is covering the whole frame
-//   with its own set. That is not a quality cut, it is a frame that was being
-//   thrown away by the compositor and is now not being drawn.
-//
-//   **Stop exempting it.** An opaque front-end is the *safest* moment in the
-//   entire product to change the render scale: there is nothing on the display
-//   to pop. The moment-gate argument for locking here was never true, and the
-//   wait it justified was fifty seconds of a player reading four screens at
-//   0.7fps. `FRONT_END_PATIENCE` is the door, and it is on the emergency path
-//   only — the ordinary path still refuses, because a steady-state window taken
-//   behind the menu is a measurement of the menu's set rather than of the race.
-//
-// The intro sweep is composed too and was the first refusal to be fitted with a
-// valve, because a phase gate on a starved simulation can deadlock — see
-// `CEREMONY_PATIENCE`. Every refusal in this file carries one now except the
-// two whose length does not depend on the frame rate.
-//
-// The emergency path keeps everything else it was given: it sits *above* the
-// warm-up gate rather than below it, because a machine delivering twenty frames
-// a second does not need another three seconds of evidence to prove it, and it
-// skips the curvature lookahead, because at 2fps there is no such thing as
-// between corners. It does not get to skip the ceremony.
+// Two amendments, both measured. **How many times** matters as much as when: a
+// machine forty times too slow is not one rung away and the number saying so is
+// right there, so one change is *sized* from the evidence rather than repeated
+// (see `sizedStep`) — six changes in two hundred seconds, three of them inside
+// three and a half race-seconds of the flag, was the session that found it. And
+// **a machine five times over the budget has no composed picture to protect**:
+// the gate's doors are 20-35 wall seconds, which is right when the thing behind
+// them is a countdown the player can watch and wrong when it is a slideshow.
+// The collapse path is the only branch here that does not consult
+// `pictureLocked()`. See `COLLAPSE_FACTOR`.
 //
 // **3. It must never touch the simulation.** There is no `fixedUpdate` in this
 // file and there never may be. Everything the governor writes — `ctx.quality`,
-// the renderer's shadow flag, the render resolution, and now three more flags
-// on the scene graph (`visible`, `InstancedMesh.count`, `drawRange`) — is read
-// only from `update` and from the draw. Nothing in physics, ai, items, race or
-// track reads `ctx.quality` at all, which is what makes "the same seed puts
-// every racer in the same place at every rung" a property of the design rather
-// than a hope. `tools/qualitydiff.mjs` proves it by running one seed at both
-// ends of the ladder and diffing the snapshots, and the content rungs are
-// inside that proof — it takes the ladder's *last* rung, whatever the ladder
-// currently is, so adding three could not quietly exempt them:
+// the renderer's shadow flag, the render resolution, and three flags on the
+// scene graph (`visible`, `InstancedMesh.count`, `drawRange`) — is read only
+// from `update` and from the draw. Nothing in physics, ai, items, race or track
+// reads `ctx.quality` at all. `tools/qualitydiff.mjs` proves it by running one
+// seed at both ends of the ladder and diffing the snapshots, and it takes the
+// ladder's *last* rung, whatever the ladder currently is, so adding rungs
+// cannot quietly exempt them:
 //
 //   qualitydiff — seed 7, cone-canyon, 25s, rungs 0 vs 6
-//     rung 0  high   2048 / dd 1.00 / p 1.00 |  277 calls  565,158 tris
-//     rung 6  floor  2048 / dd 0.55 / p 0.34 |  259 calls  488,042 tris
-//     saved 6% of the draw calls, 14% of the triangles
+//     rung 0  high   2048 / dd 1.00 / p 1.00 |  339 calls  630,186 tris
+//     rung 6  floor  2048 / dd 0.55 / p 0.34 |  305 calls  531,838 tris
 //     control: two runs at rung 0 are byte-identical
 //     identical at every checkpoint: position, speed, lap, place, coins, item
 //     PASSED
 //
-// Note the shadow column, which is the round-six freeze: the floor rung runs
-// the *same* 2048 map as the top one, and the proof still passes with the
-// content rungs, the shell floor and the seam-deferred resolution inside it —
-// it takes the ladder's own last rung, whatever the ladder currently is.
-//
-// ── The one thing on this list that is not a quality cut ───────────────────
+// ── 7. The one thing on this list that is not a quality cut ────────────────
 //
 // `budget.skipDraw`. It gives up nothing: the frame it removes is a frame the
 // compositor was throwing away, drawn underneath a front-end whose own opaque
 // set covers the display edge to edge. Measured at 1600x900 under a software
-// rasteriser, on the untouched title screen, with the page driving its own rAF
-// loop and nothing touching `__GAME`:
+// rasteriser on the untouched title screen, with nothing touching `__GAME`:
 //
 //                        before            after
 //   PRESS START          0.5-0.9 fps       0.8-1.1 fps
 //   frame                1170-1822 ms      903-1196 ms
 //   race draw calls      356-538           0
 //   race triangles       794k-827k         0
-//   race drawMs          2.9-12.5          0
-//   governor             `front-end`,      rungs 0→1→2→3 behind the menu,
-//                        rung 0, locked    then `front-end (floor)`
-//   rung at the flag     0 (first change   3, reached at liveSeconds 65.8
-//                        at liveSeconds
-//                        69.96)
 //
-// ── ...and the right-hand column of that table was the round-eight defect ──
+// ...and the *governor* column of that table was the round-eight defect. With
+// `skipDraw` on and the race drawing 0 calls and 0 triangles, it still walked
+// rung 0 -> rung 3 behind the menu and settled into `panic (judging last cut)`,
+// then wrote the answer to `localStorage`. Every one of those frames was made
+// by `ui/menus/stage.ts`'s own second renderer, which this file does not size
+// and whose own comment admits it "cannot hear this ladder": the governor was
+// cutting the race's content to pay somebody else's bill on a screen where the
+// race was not drawn at all, and remembering the wrong answer for next time.
 //
-// Read it again. `skipDraw` is on, the race is drawing **0 calls and 0
-// triangles**, and the governor walks three rungs and settles into
-// `panic (judging last cut)` — then writes the answer to localStorage. Every
-// one of those frames was made by `ui/menus/stage.ts`'s own second renderer,
-// which this file does not size and whose own comment admits it "cannot hear
-// this ladder". The governor was cutting the race's content to pay somebody
-// else's bill, on a screen where the race was not being drawn at all, and then
-// remembering the wrong answer for the next session.
+// Those frames are now **discarded**, exactly like a frame the harness drove.
+// They feed neither `liveWallMs` nor `liveSeconds` nor any dwell, they cannot
+// arm a drop, and they are counted as `undrawn` in the probe so the discard is
+// visible rather than silent. Behind an opaque front-end the governor reports
+// `undrawn (race not in this frame)` and does nothing, which is the only honest
+// thing it can do about a frame it does not own. See `undrawnFrame`.
 //
-// A frame whose draw this file switched off is now **discarded**, exactly like
-// a frame the harness drove: it feeds neither `liveWallMs` nor `liveSeconds`
-// nor any dwell, it cannot arm a drop, and it is counted as `undrawn` in the
-// probe so the discard is visible rather than silent. Behind an opaque
-// front-end the governor now reports `undrawn (race not in this frame)` and
-// does nothing at all, which is the only honest thing it can do about a frame
-// it does not own. See `undrawnFrame` and `FRONT_END_FLOOR`.
+// The remaining cross-module request stands: `ui/menus/stage.ts` sizes its
+// backing store from a hardcoded `Math.min(1, 1200 / w)` and cannot hear the
+// `scale` this file publishes on `quality:changed`. One line —
+// `Math.min(1, 1200 / w) * scale` — and the front-end's own frame becomes a
+// frame this ladder can spend on. See `FRONT_END_FLOOR`.
 //
-// ── What it will not do ────────────────────────────────────────────────────
+// ── 8. What it will not do ─────────────────────────────────────────────────
 //
-// It parks itself the moment anything drives the game through `window.__GAME`.
-// A capture renders six fixed steps at a time from a Node round trip on a
-// software rasteriser at two hundred milliseconds a frame; read as gameplay
-// that is an argument for the bottom rung, and the review sheet would quietly
-// photograph the wrong game. `budget.benchFrames` is how the engine tells the
-// two apart, and two of them inside a second latch this page as a bench for
-// good.
+// **It parks the moment anything drives the game through `window.__GAME`.** A
+// capture renders six fixed steps at a time from a Node round trip at two
+// hundred milliseconds a frame; read as gameplay that is an argument for the
+// bottom rung, and the review sheet would quietly photograph the wrong game.
+// `budget.benchFrames` tells the two apart and two inside a second latch this
+// page as a bench for good. It also stands down permanently the moment a human
+// or a reviewer picks a tier by hand, because that is a decision and this is
+// only a measurement.
 //
-// It also stands down permanently the moment a human or a reviewer picks a tier
-// by hand, because that is a decision and this is only a measurement.
+// **And it stops cutting when cutting stops working.** Every drop records what
+// the frame cost before it and checks, once settled, whether the frame actually
+// got cheaper. Two drops in a row that buy nothing, or one that makes things
+// measurably worse, and the governor puts the last one back and stands down.
+// "It got worse" is its own verdict and is acted on immediately: it used to be
+// folded in with `futile` and counted as one strike of two, and a live session
+// scored rung 3 -> 4 at `gain: -0.562` against `bar: 0.188` and then dropped
+// again 0.85 seconds later because the strike before it had been cleared.
 //
-// And it stops cutting when cutting stops working. Every drop records what the
-// frame cost before it and checks, once the change has settled, whether the
-// frame actually got cheaper. Two drops in a row that buy nothing and the
-// governor puts the last one back and stands down: the machine is being held up
-// by something this ladder does not own, and carrying on down it would spend
-// the game's looks on nothing at all.
-//
-// **...and one drop that makes things measurably worse counts as both.** That
-// distinction was missing and it cost a live session a third of its frame rate:
-// rung 3 -> 4 was scored `{call:'futile', gain:-0.562, bar:0.188}` — the frame
-// got 56% *worse* — and 0.85 seconds later the governor dropped again, because
-// the strike before it had been a `worked` and the two-strike counter had just
-// been cleared. The player finished at 0.48 render scale on a rung the
-// instrument had already measured as slower than the one above it. "It got
-// worse" is not half of "it did nothing"; it is the one reading no amount of
-// spread can explain away, and it is now its own verdict, `worse`, acted on the
-// moment it lands.
-//
-// A verdict is also **about the scene it was taken on**, so both `ui:menu`
-// edges clear it. A governor that correctly measured "cutting does not help
-// this title screen" must not arrive at the flag unable to cut anything.
-//
-// **That check has to be able to count.** It is the one place in this file that
-// compares two measurements rather than a measurement against a constant, and
-// the first version of it did so with a four-sample *mean* against a 4% bar. On
+// **That check has to be able to count**, and the first version could not: on
 // the machine it exists for, delivered frames run 17ms to 1233ms around a 483ms
-// median — the instrument's own spread is wider than anything it is being asked
-// to resolve — and it mis-fired live: a drop that an interleaved three-pass
-// measurement puts at 21-31% cheaper was scored at 3.5%, called "drops buy
-// nothing", rolled back, and the player was held forty seconds at a rung a
-// fifth slower than the one the governor had just taken away from them.
+// median, and a four-sample mean against a 4% bar convicted a drop an
+// interleaved measurement puts at 21-31% cheaper. Three things fix it, and each
+// alone would still have been a coin toss — a **median** (the mean read 642ms
+// where the median read 483), **enough samples unconditionally**
+// (`VERDICT_SAMPLES` or no verdict), and **a bar the window itself has to
+// clear** (`FUTILE_GAIN` or the standard error of the difference, whichever is
+// larger; above `FUTILE_RESOLVE` the answer is `unresolved` and nothing is
+// decided).
 //
-// Three things fix that, and they are worth stating separately because each one
-// alone would still have been a coin toss:
+// The asymmetry there is the whole design. A false "it worked" costs one rung
+// of resolution on a ladder that keeps the shadows, the post stack, the grade
+// and the fog. A false "it bought nothing" costs a third of the frame rate for
+// as long as the player keeps playing. So when the instrument cannot tell, it
+// says so — and the check stays sharp for the case it was built for: a
+// vsync-locked 30Hz panel, indistinguishable from a slow GPU from inside the
+// page, where the frame is 33ms with almost no spread and two cuts that move it
+// by nothing are unambiguous.
 //
-//   - **A median, not a mean.** Two thirds of that spread is one tail; the mean
-//     read 642ms where the median read 483.
-//   - **Enough samples, unconditionally.** The four-sample escape hatch is
-//     gone. `VERDICT_SAMPLES` or no verdict.
-//   - **A bar the window itself has to clear.** The gain has to beat
-//     `FUTILE_GAIN` *or* the standard error of the difference of the two
-//     medians, whichever is larger. When the window is too noisy to resolve a
-//     real rung — `FUTILE_RESOLVE`, above which even a working cut would read
-//     as nothing — the verdict is `unresolved` and no verdict is taken at all.
-//
-// The asymmetry in that last one is deliberate and is the whole design. A false
-// "it worked" costs the player one rung of resolution on a ladder whose every
-// rung keeps the shadows, the post stack, the grade and the fog. A false "it
-// bought nothing" costs them a third of their frame rate for as long as they
-// keep playing. So when the instrument cannot tell, it says so, the ladder
-// carries on, and the futility check stays sharp for the case it was built for
-// — a vsync-locked panel, where the frame is 33ms with almost no spread, the
-// standard error is a rounding error, and two cuts that move it by nothing are
-// unambiguous.
-//
-// That last mechanism is also the answer to the one thing wall time genuinely
-// cannot tell you. A display running at 30Hz delivers a 33ms frame no matter
-// how idle the machine is, and from inside the page it is indistinguishable
-// from a GPU taking 33ms — there is no web API for the refresh rate, and a
-// `render()` that returns in 8ms says nothing about what the driver did next.
-// So the governor assumes it is at fault, which is the right way round: guessing
-// wrong on a 30Hz panel costs a soft rung, and guessing wrong on a slow GPU is
-// the five-out-of-ten this file was sent back for. The futile check then cleans
-// it up — two cuts that move a vsync-locked 33ms by nothing, and the ladder
-// puts one back and leaves it alone.
-
 import { config } from './config.ts';
 // Types only — this file never imports the three *runtime*, which arrives
 // through `ctx.THREE` like every other system's does. The distinction matters:
@@ -1041,108 +568,34 @@ function rung(
 }
 
 /**
- * Rung 0 is the most expensive. The governor only ever moves one step.
+ * Rung 0 is the most expensive.
  *
- * ── Why resolution leads ───────────────────────────────────────────────────
+ * ── Why resolution leads, and why the ladder is not made of it ─────────────
  *
- * An earlier ladder gave up draw distance first, then particles, then the
- * shadow map, and it was measured — at one frozen sim state, one rung at a
- * time — to be worth almost nothing: rung 0 to rung 3 moved the frame from 359
- * draw calls and 638k triangles to 367 and 610k, and a pixel diff of the two
- * frames put the difference at 5% of pixels and a mean delta of 4/765. Three
- * visible steps, four percent of the geometry, and no measurable time.
+ * The machines this file exists for are **fill**-bound: they draw the scene
+ * into an HDR target, then a bright pass, five downsample mips, five upsample
+ * mips, a composite and an FXAA resolve, with a shadow map on top. Every one of
+ * those costs pixels rather than vertices, so culling a floodlight tower two
+ * hundred metres away removes ninety triangles from a pass that was never
+ * counting triangles. An earlier ladder that gave up draw distance, then
+ * particles, then the shadow map measured 4% of the geometry and no measurable
+ * time across three visible steps.
  *
- * That is what a triangle-shaped ladder looks like on a machine that is not
- * triangle-bound. The machines this file exists for are *fill*-bound: they are
- * drawing a 1600x900 scene into an HDR target, a bright pass, five downsample
- * mips, five upsample mips, a composite and an FXAA resolve, and a shadow map
- * on top, and every one of those costs pixels rather than vertices. Culling a
- * floodlight tower two hundred metres away removes ninety triangles from a
- * pass that was never counting triangles.
+ * Resolution scales all of it at once, quadratically, and is the least visible
+ * thing per millisecond bought. So each rung takes a bite of it first.
  *
- * Resolution is the one lever that scales *all* of it at once — the scene, the
- * composite, the resolve and the entire bloom chain, quadratically — and it is
- * by a long way the least visible thing on this list per millisecond bought,
- * because the game is already resolving through FXAA and a bloom. So each rung
- * takes a bite out of the render scale first, and the authored looks come off
- * alongside it in much smaller pieces.
+ * That is an argument about the *order* of the rungs, and a previous version of
+ * this table read it as an argument about their *contents* — seven rungs of one
+ * lever, 3.7% of the geometry end to end, 2.1x and nothing left. A ladder needs
+ * a second axis for the same reason a gearbox needs more than one gear: not
+ * because the first one is bad, but because it runs out. So every rung also
+ * carries **content**, spread across the whole descent rather than banked at
+ * the bottom, and each rung is worth 6-10% on the frame it is taken on.
  *
- * ── ...and why leading with it is not the same as being made of it ─────────
+ * ── What each lever is worth, isolated ─────────────────────────────────────
  *
- * All of the above is still true and it is also how this ladder scored a six.
- * "Resolution is the best lever per millisecond" is an argument about the
- * *order* of the rungs; the ladder read it as an argument about their
- * *contents*, and ended up with seven rungs of one lever. Measured end to end
- * it removed 3.7% of the geometry, which means the whole ladder was worth
- * exactly what halving the pixels is worth — 2.1x — and a machine needing more
- * than that reached the bottom, was handed a 736x414 picture, and still missed.
- *
- * A ladder needs a second axis for the same reason a gearbox needs more than
- * one gear: not because the first one is bad, but because it runs out. So the
- * bottom three rungs are **content** rungs. They keep taking their bite of
- * resolution — a rung that only moves a lever worth one percent is a rung the
- * futility check will convict, and it would be right to — and on top of it they
- * take out the two populations the census names and the seven machines'
- * mesh count. See `ContentTrim` and `censusContent`.
- *
- * ── Why there is no cliff at the bottom any more ───────────────────────────
- *
- * There used to be. The floor rung was `config.quality.low`, which drops
- * shadows, the whole post stack and AA in one step, and every part of that was
- * a mistake that measurement found:
- *
- *   - **It recompiled the game.** Turning the post stack off puts
- *     `THREE.FogExp2` back on the scene, so every material in view rebuilds.
- *     Measured live: programs 75 -> 110 and a **762ms first frame**, in the one
- *     frame the governor had picked to rescue a machine that was already
- *     failing. The ladder's rescue move was the worst hitch of the session.
- *   - **It broke the one shadow policy.** `render/lighting.ts` derives the sun,
- *     `track/terrain.ts` receives from it and `world/index.ts` casts into it,
- *     and each of those depends on the other two. A rung that switches the map
- *     off is a rung on which the cone stands on the dirt casting nothing while
- *     the barriers beside it also cast nothing — see ARCHITECTURE §12. Shadow
- *     *resolution* is a dial; the shadow map is not.
- *   - **The step above it bought nothing.** Measured at 1600x900 under
- *     SwiftShader, the old rung 3 (scale 0.72) ran at 1041ms and the old rung 4
- *     (scale 0.62) at 1067ms — a drop that made the frame *worse*, which is
- *     precisely the reading the futility check exists to catch and precisely
- *     the path it could not reach.
- *
- * So every rung on this ladder now carries the same shadow policy and the same
- * post stack, and **the whole ladder compiles one program set**. Nothing below
- * rung 0 introduces a shader the top rung has not already drawn: the tier only
- * moves between `high` and `med`, which differ in numbers rather than in
- * features, `aa` picks between two programs that are both built at boot, and
- * `bloom` skips passes rather than changing any material.
- *
- * ── ...and since round six, a rung change reallocates nothing either ────────
- *
- * That last sentence used to end "a rung change is a few render-target resizes
- * and a shadow-map realloc, and nothing else", with the drawing-buffer rebuild
- * accounted for separately and priced at 3101ms live. All three are gone from
- * the transition. The shadow map is one size for the whole ladder
- * (`SHADOW_PX`); the render targets follow the drawing buffer and the drawing
- * buffer only moves at a seam (`flushScale`); and what is left is a handful of
- * field writes, one `setDrawRange` per crowd geometry and one integer per
- * scatter batch. A rung change is now cheaper than a frame.
- *
- * What is given up instead, in the order it comes off: **resolution, at the
- * next seam**, and immediately — on the frame the rung is taken — the sub-pixel
- * dressing, the far half of the field's mesh count, the verge's density,
- * antialiasing, particle density, draw distance and the crowd's back rows. The
- * shadow map and the bloom pyramid are not on the list at all; see §0 in the
- * header and `SHADOW_PX`.
- *
- * ── What it measured ───────────────────────────────────────────────────────
- *
- * Median real rAF period, one frozen sim state at 1600x900 under a software
- * rasteriser, interleaved passes so page warm-up could not flatter the rung
- * that happened to go first (it very nearly did once: walked in order, rung 0
- * read 1383ms against the same rung's 683ms after twenty warm-up frames, and
- * the whole ladder looked twice as good as it is).
- *
- * **Each lever, isolated** (`__QUALITY.try`, frozen sim, median rAF period,
- * three interleaved passes, against the 986ms top rung):
+ * `__QUALITY.try`, frozen sim, median rAF period, three interleaved passes,
+ * against the 986ms top rung at 1600x900 under SwiftShader:
  *
  *   render scale 0.88 / 0.78 / 0.68 / 0.58 / 0.48   -16% / -24% / -36% / -46% / -54%
  *   bloom off                                        -8%
@@ -1153,51 +606,25 @@ function rung(
  *   shadows off entirely                            -13%   (and 462 draws -> 290)
  *   postfx off entirely                             -35%   (the cliff; not taken)
  *
- * Two things fall straight out of that table. Resolution is worth more than
- * every other *authored-setting* lever put together — so it leads every rung.
- * And the shadow *map size* is nearly free in both directions: 2048 to 256 is
- * two percent, which is why the ladder can hand the whole range back to the art
- * direction and keep a real shadow at every rung for almost nothing. What
- * shadows actually cost is the second draw of every caster (462 draw calls to
- * 290), and that is a cost the game has decided to pay everywhere — see
- * ARCHITECTURE §12.
+ * Two conclusions. Resolution is worth more than every other *authored-setting*
+ * lever put together. And the shadow map's *size* is nearly free in both
+ * directions, which is why the whole range goes back to the art direction and
+ * every rung keeps a 2048 map (`SHADOW_PX`). What shadows actually cost is the
+ * second draw of every caster, and that is a cost the game has decided to pay
+ * everywhere — ARCHITECTURE §12.
  *
- * Note the qualifier, because it is the whole of round five: every row in that
- * table is a *setting*. None of them is a thing leaving the frame, and the
- * table's own conclusion — "resolution is worth more than everything else" —
- * was therefore true of the wrong universe. The content levers below are not in
- * it and are the reason the ladder has a bottom worth reaching.
+ * Note the qualifier: every row there is a *setting*. None of them is a thing
+ * leaving the frame, which is why the table's own conclusion was true of the
+ * wrong universe.
  *
- * **Each content lever, isolated** (`__QUALITY.content`, same frozen frame at
- * full render scale, so the geometry is the only thing moving). Triangles are
- * exact — `renderer.info`, counted after the frustum — and are what this table
- * is for. **The times are not in it, and that is deliberate.** At 1600x900
- * under SwiftShader a frame is about a second, so a fourteen-second window is
- * two or three samples, and a box with other work on it produced medians
- * ranging from 1.0s to 23.8s for the *same* rung across three interleaved
- * passes. A number that noisy is not a measurement; the exact geometry is.
+ * ── ...and each content lever, same frozen frame, full render scale ─────────
  *
- * Time can still be measured *pairwise*, which is what `--a`/`--b` alternation
- * is for — contention lands on both members of a pair equally, and the first
- * pass is discarded as warm-up. Rung 3 (the deepest rung the old ladder's
- * *shape* could reach without giving up a feature) against rung 6:
- *
- *   rung 3  med-   683ms   0.68 scale   760,960 tris   358 calls
- *   rung 6  floor  500ms   0.50 scale   570,845 tris   274 calls
- *   **1.37x, 27% off the frame** — and half of that 0.68 -> 0.50 is
- *   resolution, so the content half is buying real time and not only geometry.
- *
- * (Four alternating passes: 683/633/667/700 against 483/500/483/500. The fifth
- * number in each list is the warm-up pass and is thrown away — 8766 and 1133.)
- *
- * Pairing survives *contention* but not *unfairness*: the same recipe run for
- * rung 0 against rung 6 while a second browser was working the box returned
- * 5833/9450/1600/8483/2000 for rung 0 against 500/533/533/833/2317 for rung 6,
- * and answered "10.9x". That number is not in this file, because the load fell
- * on the expensive member of every pair and a rung that costs more is a rung
- * that is easier to interrupt. **A timing on a shared box is only worth
- * quoting when the two things being compared are close together.** The geometry
- * is worth quoting whatever else is running.
+ * `__QUALITY.content`. Triangles are exact — `renderer.info`, counted after the
+ * frustum — and are what this table is for. **The times are deliberately not in
+ * it**: at 1600x900 under SwiftShader a frame is about a second, so a
+ * fourteen-second window is two or three samples and a loaded box produced
+ * medians from 1.0s to 23.8s for the same rung. A number that noisy is not a
+ * measurement; the geometry is.
  *
  *                       triangles      calls    against 796,844 / 386
  *   crowd 0.34            770,065        —      -27k
@@ -1209,107 +636,62 @@ function rung(
  *   shellPx ∞             724,640       289     -72k, -97 calls  (7 of 7)
  *   all four, at floor    568,230       348     **-28.7% of the frame**
  *
- * (`shellPx` 60 is far more aggressive than any rung uses — it shells a machine
- * at eighteen metres. The ladder's own values are 18/26/34, which is thirty-six
- * to sixteen metres at each rung's own resolution, and they are chosen so that
- * a wheel has stopped reading before it stops turning. See `shellPx`.)
- *
- * The two surprises in that table are worth writing down. **Scatter is the big
- * one** — the verge's clutter is a quarter of everything drawn, because eight
+ * The two surprises are worth writing down. **Scatter is the big one** — eight
  * hundred traffic cones at ninety-two triangles each is 74k on its own and the
  * drums, tyre stacks, scrub and boulders are another 53k. And **the shell buys
- * triangles as well as draws**, which it should not appear to: it is the same
- * geometry. The 72k is the *shadow* pass — a machine is a dozen casters and its
- * shell is one, which is the whole silhouette either way at the distance the
- * shell is used.
+ * triangles as well as draws**, which it should not appear to: the 72k is the
+ * *shadow* pass, where a machine is a dozen casters and its shell is one.
  *
- * **The ladder itself**, walked at 1600x900 on **one** frozen racing frame —
+ * Time can be measured *pairwise* — contention lands on both members of a pair
+ * equally. Rung 3 against rung 6, four alternating passes, warm-up discarded:
+ * 683/633/667/700 against 483/500/483/500, **1.37x**. A timing on a shared box
+ * is only worth quoting when the two things compared are close together: the
+ * same recipe for rung 0 against rung 6 under load answered "10.9x", because
+ * the load fell on the expensive member of every pair.
+ *
+ * ── The ladder walked, one frozen racing frame at 1600x900 ─────────────────
+ *
  * `setTimeScale(0)` and then `render()` only, never `advance()`, which steps
  * the simulation whatever the time scale says and quietly turns a controlled
- * A/B into seven photographs of seven different moments. This is the round-five
- * table, kept because the *shape* is what it is for; the shadow column is now
- * 2048 at every row (`SHADOW_PX`) and the content values moved up the ladder,
- * so the middle rows are emptier than they read here and the ends are not:
+ * A/B into seven photographs of seven different moments:
  *
- *   rung   label    scale  shadow   triangles   calls  progs  culled  shelled
- *   0      high      1.00    2048     775,346     409     87       0        0
- *   1      high-     0.88    1536     770,324     397     87       0        0
- *   2      med       0.78    1024     761,536     358     87       0        0
- *   3      med-      0.68     768     762,268     362     87       0        0
- *   4      thin      0.62     640     689,257     354     87       6        1
- *   5      sparse    0.56     512     621,653     328     87       8        3
- *   6      floor     0.50     448     572,137     278     87       9        5
+ *   rung   label    scale  triangles   calls  progs  culled  shelled
+ *   0      high      1.00    775,346     409     87       0        0
+ *   1      high-     0.88    770,324     397     87       0        0
+ *   2      med       0.78    761,536     358     87       0        0
+ *   3      med-      0.68    762,268     362     87       0        0
+ *   4      thin      0.62    689,257     354     87       6        1
+ *   5      sparse    0.56    621,653     328     87       8        3
+ *   6      floor     0.50    572,137     278     87       9        5
  *
  *   end to end: **-26.2% of the triangles and -32.0% of the draw calls**,
  *   against -3.7% and -14.5% for the ladder before it.
  *
- * The round-six rungs redistribute that descent rather than deepen it — the
- * floor's content trim is within a few percent of the row above — so the end
- * to end figure stands and the middle of the walk is where it moved. What did
- * change is that the descent is now worth something *on the frame it is taken*
- * at every step instead of only at the last three, which is the property the
- * futility check actually tests.
+ * ...and the same walk through the `far` lens — the shot the brief describes as
+ * "the far shot must not pay for detail nobody can resolve": 782,680 ->
+ * 575,883 triangles (-26.4%) and 437 -> 275 draw calls (-37.1%), with all seven
+ * machines on their shells at the floor.
  *
- * ...and the same walk through the `far` lens, which is the shot the brief this
- * file answers describes as "the far shot must not pay for detail nobody can
- * resolve": 782,680 -> 575,883 triangles (-26.4%) and 437 -> 275 draw calls
- * (-37.1%), with all seven machines on their shells at the floor.
- *
- * On a real race rather than one frame — `tools/qualitydiff.mjs`, seed 7, 25s,
- * rung 0 against rung 6 — the round-six ladder measures **-14% of the triangles
- * and -6% of the draw calls**, against -36% and -22% for the round-five one.
- * Most of that difference is `SHELL_MIN_M`, and it is bought on purpose: the
- * shell was the biggest draw-call saving on the ladder *and* it was stopping the
- * wheels on a locomotive twenty-three metres from the camera. Geometry is the
- * cheaper of the two things to give back. (The rung-0 baseline has also moved —
- * 565,158 triangles here against 775,346 in the frozen-frame table above —
- * because the course itself has changed underneath both numbers, so the two
- * percentages are not measured against the same frame either.)
- *
- * Rungs 0 to 3 were flat in that walk — 775k to 762k, one and a half percent —
- * and the note here used to defend it: *those four rungs are the resolution
- * ladder and they are the cheapest thing to give a machine that is only a
- * little over.* That defence died with the swap-chain rebuild. Once the
- * resolution can only land at a seam, four rungs of pure resolution are four
- * rungs that move the ladder and not the frame, and the futility check convicts
- * the whole descent before it reaches the rungs that work. They carry content
- * now; see the note above the table.
+ * The **program count is flat for the whole descent**, against 75 -> 101 two
+ * ladders ago: the ladder compiles nothing, so it cannot hitch on the way down.
+ * The one variant that used to appear at rung 2 — the composite drawn straight
+ * to the back buffer when `aa` goes off — is built at boot by `warmPrograms()`
+ * in `render/post.ts`, along with the upscale blit a reduced render scale asks
+ * for. A shell is the machine's own materials and a thinned batch is the same
+ * material with a smaller count.
  *
  * Every step buys more than `FUTILE_GAIN`, which is the bar the ladder before
- * last could not clear — its rung 3 to rung 4 measured *worse*. And the program
- * count is **flat for the whole descent**, against 75 -> 101 two ladders ago:
- * the ladder no longer compiles anything, so it cannot hitch on the way down.
- * (The one variant that used to appear at rung 3 — the composite drawn straight
- * to the back buffer when `aa` goes off, which is a different program from the
- * same composite drawn into a target — is now built at boot by
- * `warmPrograms()` in `render/post.ts`. The content rungs add nothing here
- * either: a shell is the machine's own materials and a thinned batch is the
- * same material with a smaller count.)
+ * last could not clear — its rung 3 to rung 4 measured *worse*.
  *
- * The numbers move with the course; the shape does not. Every rung has to buy
- * more than `FUTILE_GAIN` or it is not a rung, and the futility check will now
- * actually notice — see where it sits relative to the panic branch.
+ * ── Reading a row ──────────────────────────────────────────────────────────
  *
- * ── Why the bottom three were content and not more resolution ──────────────
+ * The first object is settings and the second is content. `aa`, `drawDistance`
+ * and `crowd`/`scatter` are the seam-held half; the `scale` argument, the tier,
+ * `particles`, `thinFar`, `minPx` and `shellPx` land on the frame the rung is
+ * taken on. See `SEAM_HELD`.
  *
- * Kept because the argument is still the reason the *content* levers exist at
- * all; what changed in round six is only that they are no longer confined to
- * the bottom three. Read "the bottom three" as "the content half" throughout.
- *
- * Because resolution had run out, and because the two rungs that were down
- * there instead were the ones the review convicted. The old floor took the
- * shadow map from 384 to 256 **and** switched the bloom pyramid off to buy nine
- * tenths of one percent. Photographed side by side, that step lost the verge
- * cones' contact shadows to a smear and the item boxes' glow outright — both
- * named in ARCHITECTURE §12, *contact is everything* and the item box being the
- * most-read object on the road — for a gain the instrument could not resolve
- * from noise on its own window.
- *
- * The three that replace them each carry their own bite of resolution
- * (0.68 -> 0.62 -> 0.56 -> 0.50, which is -17%, -18% and -20% of the pixels)
- * because a rung that only moves a lever worth one percent is a rung the
- * futility check will convict. What is *new* on each of them is population, and
- * the order between them is the order of what a player can name:
+ * The order of what a player can name, on the way down: sub-pixel dressing and
+ * distant machines first, then the verge's density, then the crowd's back rows.
  *
  *   **thin** is the free one. The seven machines become their own merged shells
  *   past the distance a wheel stops turning on screen — the same picture, a
@@ -1322,48 +704,9 @@ function rung(
  *
  *   **floor** is a sixth of the crowd and a third of the verge. It is the
  *   emptiest frame the game can draw and it is still, in every other respect,
- *   the same game: the same shadow policy, the same post stack, the same grade,
- *   the same glow on the item box, the same depth fog.
+ *   the same game: the same shadow policy, the same 2048 shadow map, the same
+ *   post stack, the same grade, the same glow on the item box, the same fog.
  */
-// ── ...and why every rung now carries content, not just the bottom three ────
-//
-// The version of this table that the round-five notes above describe put all of
-// the content on rungs 4-6 and left 0-3 as a pure resolution ladder. That was
-// right when the resolution moved on the frame the rung did. It stopped being
-// right the moment the render scale became a *seam* lever (see the header):
-// four rungs whose only lever lands at the next race build are four rungs that
-// move the ladder without moving the frame, and the futility check — correctly
-// — would convict the ladder of doing nothing and stand it down two rungs above
-// the ones that work.
-//
-// So the content levers are spread across the whole descent. Each rung is worth
-// 6-10% on the frame it is taken on, which clears `FUTILE_GAIN` without the
-// resolution, and the resolution arrives on top of it at the next seam. The
-// order of what a player can name is unchanged: sub-pixel dressing and distant
-// machines first, then the verge's density, then the crowd's back rows.
-//
-// ── ...and round seven, which is the same argument one lever further ────────
-//
-// The paragraph above was written about the resolution and it turned out to be
-// about six levers. `crowd`, `scatter`, `aa`, `tier` and `drawDistance` all
-// change the picture in a way a player can watch happen — see `SEAM_HELD` — so
-// all five joined the resolution behind the seam, and the ladder's frame-half
-// had to be rebuilt around what was left exactly as round six rebuilt it around
-// the resolution.
-//
-// What was left was `particles`, `minPx` and `shellPx`, and the census says
-// that is not enough: the verge's clutter is a quarter of the drawn geometry
-// and none of those three can reach it. `thinFar` is the answer — the same
-// thinning `scatter` does, denominated in projected pixels so that it can only
-// touch what is already too small to resolve — and the frame-half of every rung
-// is now `particles` + `minPx` + `thinFar` + `shellPx`, four levers that all
-// share one property: **the thing they move is under a few pixels across at the
-// moment they move it.**
-//
-// Read each row as two halves. The first object is settings and the second is
-// content; within them, `tier`/`aa`/`drawDistance` and `crowd`/`scatter` (and
-// the `scale` argument) are the seam-held half, and `particles`, `thinFar`,
-// `minPx` and `shellPx` land on the frame the rung is taken on.
 const LADDER: readonly Rung[] = [
   rung('high', 'high', 1.00),
   // Nothing here has a name. `minPx` 1.8 is a dressing batch under two pixels
@@ -1418,230 +761,116 @@ const LADDER: readonly Rung[] = [
   }, { crowd: 0.16, scatter: 0.3, thinFar: 0.25, minPx: 5.5, shellPx: 32 }),
 ];
 
-// ── the seam rule, applied to every lever rather than to one ────────────────
+// ── the seam rule ──────────────────────────────────────────────────────────
 //
-// **Round seven's whole content, and the shortest statement of it: a rung has
-// two halves and only one of them may land while the player is watching.**
+// **A rung has two halves and only one of them may land while the player is
+// watching.**
 //
-// Round six put the render scale behind a seam because moving it costs a
-// swap-chain rebuild — a 3101ms frame — and closed with the ladder's remaining
-// levers untouched. The review that followed found the next one by playing the
-// game rather than by reading the log: the governor spent `crowd` mid-race on
-// the start/finish straight, and a packed grandstand became bare grey terracing
-// between one frame and the next, forty metres in front of the player. That is
-// not a hitch and no timing instrument in this file could ever have caught it.
-// It is the ladder's most visible lever being spent at the most visible moment
-// on the course.
+// The rule was found the hard way twice, from opposite directions. Round six
+// deferred the render scale because moving it cost a swap-chain rebuild — a
+// 3101ms frame. Round seven found the real principle by *playing the game*: the
+// governor spent `crowd` mid-race on the start/finish straight, and a packed
+// grandstand became bare grey terracing between one frame and the next, forty
+// metres in front of the player. That is not a hitch and no timing instrument
+// in this file could have caught it; a `setDrawRange` costs nothing at all.
 //
-// So every lever is now classified, out loud, by one test:
+// So the test is not cost. It is: **can the change itself be seen happening?**
+// Not "is the after-picture worse" — every rung is worse, that is what a rung
+// is — but can the transition be watched. A thing that vanishes is a change. A
+// thing that was already three pixels across and is now not drawn is not.
 //
-//   **Can the player see the transition?** Not "is the after-picture worse" —
-//   every rung is worse, that is what a rung is — but *can the change itself be
-//   seen happening*. A thing that vanishes is a change. A thing that was already
-//   three pixels across and is now not drawn is not.
+//   **seam-safe** — may move on any frame the moment gate allows. Either (a)
+//   denominated in *projected pixels*, so the only things it can move are
+//   already too small to resolve, or (b) invisible on the frame it lands
+//   because it only governs what happens next, or (c) uniform across a picture
+//   that is being redrawn anyway.
 //
-// Two classes come out of it, and the second one is not a refusal to spend the
-// lever. It is a decision about **when**:
+//     `minPx`     a dressing batch stops being submitted below N pixels of
+//                 instance radius. A rung step is 0.6-1.1px.
+//     `shellPx`   a machine is drawn as its own merged shell — pixel-identical
+//                 geometry in the same materials. What it gives up is that the
+//                 wheels stop turning, and `SHELL_MIN_M` keeps that
+//                 twenty-eight metres away whatever the pixel test says.
+//     `thinFar`   the same instrument pointed at density: a scatter batch thins
+//                 on a ramp as it shrinks, anchored so a rung changes nothing
+//                 at the near end. See `ContentTrim.thinFar`, `THIN_KNEE_PX`.
+//     `particles` a cap on what the *next* burst may spawn. Nothing already in
+//                 the air changes.
+//     `scale`     (c). The whole picture goes very slightly soft, under a HUD
+//                 that is DOM at native resolution and does not move with it.
+//                 See `freeScalePath` — this is the round-eight entry and the
+//                 reason it is here rather than below is that the *cost* the
+//                 seam was avoiding no longer exists.
+//     `tier`      (a), by accident of what the field actually drives:
+//                 `SHADOW_EXTENT` in `render/lighting.ts`, 62 / 52 / 46m. The
+//                 outer edge of the shadow frustum moves ten metres.
 //
-//   **seam-safe** — may move on any frame the moment gate allows. Everything in
-//   this class is either (a) denominated in *projected pixels*, so the only
-//   things it can move are the ones already too small to resolve, and moves them
-//   through a hysteresis band, or (b) invisible on the frame it lands because it
-//   only governs what happens next.
-//
-//     `minPx`    a dressing batch stops being submitted below N pixels of
-//                instance radius. A rung step is 0.6-1.1px, so the batches that
-//                change state are exactly the ones between 3.0 and 3.6 pixels.
-//     `shellPx`  a machine is drawn as its own merged shell. The shell is
-//                pixel-identical geometry in the same materials; what it gives
-//                up is that the wheels stop turning, and `SHELL_MIN_M` keeps
-//                that twenty-eight metres away whatever the pixel test says.
-//     `thinFar`  the same instrument pointed at density rather than existence:
-//                a scatter batch thins on a ramp as it shrinks, anchored so
-//                that a rung changes nothing at the near end of the ramp. See
-//                `ContentTrim.thinFar` and `THIN_KNEE_PX`.
-//     `particles` a cap on what the *next* burst is allowed to spawn. Nothing
-//                already in the air changes. `fx/index.ts` reads it per spawn.
-//
-//   **reset-only** — recorded when the rung is taken and installed at the next
+//   **reset-only** — recorded when the rung is taken, installed at the next
 //   seam: boot, a race build behind the closed launch board, or a window resize
-//   the browser is already reallocating for. Every one of these changes
-//   something the player can watch happen, at a distance where they can watch
-//   it:
+//   the browser is already reallocating for.
 //
-//     `scale`    the round-six entry: a swap-chain rebuild, and a picture that
-//                changes size under a fixed-size HUD.
-//     `crowd`    the round-seven entry, and the one a person found: the back
-//                rows of every stand on the course, at once, whether the stand
-//                is behind the camera or forty metres ahead of it.
-//     `scatter`  the same shape one object down. Thinning the verge's share is
-//                cones disappearing from the verge the player is driving past;
-//                the *distance*-graded half of the same lever is `thinFar`, and
-//                that half stays live.
-//     `aa`       the FXAA resolve is every edge in the frame at once. It is the
-//                largest authored lever after resolution and it is also the
-//                only one whose effect is uniform across the picture, which is
-//                exactly what makes it a thing you notice arriving.
-//     `tier`     `high` -> `med` moves `SHADOW_EXTENT` in `render/lighting.ts`
-//                from 62m to 52m, so every cast shadow in a ten-metre band
-//                stops being drawn. A shadow blinking out is the one change
-//                ARCHITECTURE §12 is least willing to accept.
-//     `drawDistance` whole batches switch off at their own ring. The measured
-//                loss at one step is 35k triangles — a stand of pines, a
-//                floodlight tower — and a tower that disappears is a tower the
-//                player watched disappear.
+//     `crowd`     the one a person found: the back rows of every stand on the
+//                 course, at once, whether the stand is behind the camera or
+//                 forty metres ahead of it.
+//     `scatter`   the same shape one object down — cones disappearing from the
+//                 verge the player is driving past. The *distance*-graded half
+//                 of the same lever is `thinFar`, and that half is live.
+//     `aa`        the FXAA resolve is every edge in the frame at once, and the
+//                 only lever whose effect is uniform *and* sharp-edged.
+//     `drawDistance` whole batches switch off at their own ring: 35k triangles
+//                 at one step, a stand of pines, a floodlight tower — and a
+//                 tower that disappears is a tower the player watched go.
 //
-// The classification is measured, not asserted: `tools/levervis.mjs` pins a
-// rung on a frozen frame, moves one lever, and counts the pixels that changed
-// *among the pixels the animation left alone* — three control frames say which
-// those are, because a harness render advances the visual clock and a quarter
-// of the frame moves by itself. The numbers are in the table on `SEAM_HELD`,
-// and so is the one thing that bench cannot see.
+// The argument is **mechanical**, not empirical: a lever is seam-safe when the
+// thing it changes is, at the moment it changes, smaller than a player can
+// resolve — a property of how the lever is *denominated*. `crowd` and `scatter`
+// are shares of a population and a share has no distance.
 //
-// What this costs, and why it is not a cost: **the ladder still descends at the
-// same rate and still spends every lever.** A rung taken mid-race lands its
-// seam-safe half immediately and its reset-only half at the next race build,
-// which is the same deal round six struck for the resolution and the same
-// argument — the product's expensive frames are already spent behind the launch
-// board, and a player who has just finished a race is not looking at the crowd.
+// `tools/levervis.mjs` was built to score this by pixels and the result is
+// worth keeping for what it says about the *bench* rather than the levers: on a
+// frozen frame at rung 2, with three control frames masking off everything the
+// animation moves, **every row is the control** — including the one that
+// removes eighty thousand triangles of spectator. The crowd is the most
+// animated thing in the frame, so the mask that removes animation removes the
+// crowd, and the one lever a human could see from across the room is the one
+// the bench is structurally blind to. Compare `moment.png` and
+// `crowdFloor-frame.png` by eye instead. The single lever it does convict on
+// its own is `aa`, measured where it toggles: **10.5% of static pixels against
+// a 2% floor**, mean delta 64.
 //
-// The one thing it *does* cost is that a rung's frame-half has to be worth
-// having on its own, or the futility check will convict the ladder of doing
-// nothing before it reaches the rungs that work. That is the same trap round six
-// walked into with the resolution and it is answered the same way: see the note
-// above `LADDER` and `thinFar`, which exists because the frame-half needed a
-// lever with real weight in it.
+// ── What the seam costs, stated plainly ────────────────────────────────────
+//
+// `tools/framehalf.mjs`, frozen mid-lap frame, walking the ladder twice: once
+// with `set()`, which installs whole rungs the way a race build does, and once
+// with `mid()`, which installs the frame-half only.
+//
+//                    whole rung                 frame-half only
+//   rung 0        1,005,886 tris / 473 calls    1,006,756 / 479
+//   rung 3          825,027 / 435                 990,582 / 455
+//   rung 6          714,010 / 432                 979,034 / 437
+//
+// Read that table with round eight in mind: it was taken when `scale` was
+// seam-held, and it is the measurement that convicted the design. On a
+// fill-bound machine the mid-race half bought **no measurable time at all** —
+// 1400ms at the floor's frame-half against 1333ms at rung 0, inside the noise,
+// while the whole floor rung ran at 567ms. Almost all of the 2.35x was the
+// render scale, and the render scale was the half the player could not have.
+//
+// That is why `scale` and `tier` are seam-safe now and why the table above has
+// two lists rather than one of six. What is left behind the seam is the half a
+// person can *watch* rather than the half that costs anything, which is the
+// only version of this rule that was ever worth having.
+//
+// Two things follow that are in the code rather than in this comment. A
+// futility verdict cannot survive a seam (`flushSeam`), because every verdict
+// taken between two seams was taken on a cut that was only half made. And
+// `composeSettings` reads the seam-held fields off a different rung index from
+// everything else, so between a mid-race rung change and the race build that
+// follows it the game is genuinely standing on two rungs at once.
 
 /**
  * The levers a rung may only install at a seam, named once so that the ladder,
- * the composer and the log all agree about which they are.
- *
- * ── What was measured, and the one thing the measurement cannot see ────────
- *
- * `tools/levervis.mjs --course switchback-summit --at 1.2 --rung 2` pins rung 2
- * on the start/finish straight of the heaviest course in the game — the exact
- * shot the review rejected, both grandstands in frame — freezes the simulation,
- * and moves one lever at a time. Because a harness render still advances the visual clock
- * by a fixed step, three control frames are taken first and only the pixels
- * they found *static* are counted. Two rows are null controls: `none` applies
- * nothing, and `aa` at rung 2 is already off so it applies nothing either.
- *
- *   lever                     changed px   Δtriangles
- *   none (control)               9,038         +2,226
- *   aa (control, already off)    8,625            -66
- *   crowd      0.80 -> 0.62      9,794        -22,559
- *   crowd      0.80 -> 0.16      8,911        -80,265
- *   scatter    0.72 -> 0.60      9,096        -24,320
- *   scatter    0.72 -> 0.30      8,546        -85,116
- *   thinFar    0.64 -> 0.50     11,759           +360
- *   minPx      2.4  -> 3.0       6,013         +2,186
- *   shellPx    14   -> 18        7,329         +2,192
- *   drawDist   0.88 -> 0.80      7,426        -14,365
- *   tier       high -> med       7,958         -2,294
- *
- * **Every row is the control.** Nothing on that list is separable from the
- * frame's own churn, including the row that removes eighty thousand triangles
- * of spectator, and the reason is the instrument rather than the levers: *the
- * crowd is the most animated thing in the frame*, so the mask that removes
- * animation removes the crowd, and the one lever a human reviewer could see
- * from across the room is the one the bench is structurally blind to. Compare
- * the `moment.png` and `crowdFloor-frame.png` it writes, by eye, and the
- * right-hand stand goes from packed colour to grey terracing with a fringe.
- *
- * That is the whole reason this table is not the argument. **The argument is
- * mechanical**: a lever is seam-safe when the thing it changes is, at the
- * moment it changes, smaller than a player can resolve — which is a property of
- * how the lever is *denominated*, not of how a bench happened to score it.
- * `crowd` and `scatter` are shares of a population and a share has no distance,
- * so they can and do take people out of a stand forty metres away. `minPx`,
- * `shellPx` and `thinFar` are denominated in projected pixels and cannot.
- *
- * The one lever the bench does convict on its own is `aa`, measured where it
- * actually toggles (rung 1 -> 2, mid-lap): **10.5% of static pixels against a
- * 2% floor**, mean delta 64. It is every edge in the frame at once.
- *
- * ── What it costs, stated plainly, because it is not free ──────────────────
- *
- * `tools/framehalf.mjs`, same course, same frozen mid-lap frame, walking the
- * ladder twice:
- * once with `set()`, which installs whole rungs the way a race build does, and
- * once with `mid()`, which installs the frame-half only the way a mid-race rung
- * change now does.
- *
- *                    whole rung                 frame-half only
- *   rung 0        1,005,886 tris / 473 calls    1,006,756 / 479
- *   rung 3          825,027 / 435                 990,582 / 455
- *   rung 6          714,010 / 432                 979,034 / 437
- *   end to end      **-29.0% tris, -8.7%**       **-2.8% tris, -8.8%**
- *
- * ...and in time, pairwise off the page's own rAF loop at 1600x900 under
- * SwiftShader, warm-up pass discarded:
- *
- *   rung 0                    1333ms
- *   frame-half at the floor   1400ms   (**nothing**, inside the noise)
- *   whole floor rung           567ms   (**2.35x**)
- *
- * That is the price of the seam rule on a **fill-bound** machine, and it is
- * worth stating in the strongest form: *on the machine this file exists for,
- * the mid-race half of the ladder buys no measurable time at all.* Almost all
- * of the 2.35x is the render scale, and the render scale is seam-held.
- *
- * The trade is deliberate and it is the one the review asked for. What the
- * ladder does mid-race is **earn** the rung; what the race build does is
- * install it. A machine that is over budget spends one race at the picture it
- * started with and every race after that at the picture it earned, and — via
- * `hardwareKey`/`readMemory` — every *session* after that starts there. The
- * alternative is the one that was rejected: buy the time now and empty the
- * grandstand in front of the player to do it.
- *
- * Two things follow that are in the code rather than in this comment. A
- * futility verdict cannot survive a seam (`flushSeam`), because every verdict
- * taken between two seams was taken on a cut that was only half made. And the
- * cross-module request in the header has been answered — see below.
- *
- * ── Round eight: what all of that got wrong, in the reviewer's words ───────
- *
- * *"The governor cannot rescue the race it is in."* Every argument above is
- * about **which frame** a lever may land on, and none of them ever asked what
- * the ladder is worth once they are all applied. Measured live at 1280x720,
- * 150 seconds, autopilot: the ladder walked rung 0 to the floor and the frame
- * it delivered at the bottom still had `renderScale 1.00`, `aa true`,
- * `tier 'high'`, `drawDistance 1` and a 1280x720 backing store. The only
- * setting that had moved at all was `particles`. **The entire in-race authority
- * of a seven-rung ladder was 22% of the geometry, 13% of the draw calls and
- * none of the pixels** — and a machine that was failing rode the whole race at
- * full cost while the ladder walked to its own floor and installed the fix for
- * the *next* race.
- *
- * That is not a seam rule, it is a ladder with the working half unplugged. Two
- * things change, and the first is not a compromise on visibility at all:
- *
- *   **`scale` comes off the seam because the seam's reason is gone.** The
- *   round-six entry was justified by a *swap-chain rebuild* — 3101ms live — and
- *   by the canvas resizing under a native-resolution DOM HUD. `render/post.ts`
- *   now implements `setRenderScale` (see `freeScalePath`): the world is drawn
- *   into targets this stack owns at a fraction of their size and resolved back
- *   to a canvas that never moves. No rebuild, no HUD mismatch, one reallocation
- *   of three render targets. What is left is a picture that goes slightly soft,
- *   which is a *degree* of the same thing every other rung does and the least
- *   visible thing on the lever table per millisecond bought. It is rate-limited
- *   to one landing per `SCALE_HOLD_S` so a wobbling ladder cannot thrash the
- *   allocator, and it inherits the moment gate from the rung change that asked
- *   for it.
- *
- *   **`tier` comes off it because holding it made `ctx.quality.tier` a lie.**
- *   Every module in the game is entitled to branch on the tier; at the floor,
- *   mid-race, it read `high`. In practice exactly one module reads it —
- *   `render/lighting.ts`, for `SHADOW_EXTENT`, 62m / 52m / 46m — so the whole
- *   measurable content of a live tier change is the outer edge of the shadow
- *   frustum moving ten metres on a frame that is already at half resolution.
- *   That is a smaller change than the rung it arrives with.
- *
- * What stays behind the seam is the half the round-seven review found by
- * *looking*: `crowd` and `scatter` are shares of a population and a share has
- * no distance, so they empty a grandstand forty metres in front of the player;
- * and `aa` is the one lever a bench convicts on its own, at 10.5% of static
- * pixels against a 2% floor.
+ * the composer and the log all agree about which they are. See the block above.
  */
 const SEAM_HELD = ['scale', 'crowd', 'scatter', 'aa', 'drawDistance'] as const;
 /** ...and its own union, so `seamDiffers` can be exhaustive over it. */
@@ -2757,6 +1986,20 @@ export interface QualityProbe {
   scaleSteps: number;
   scaleFlushWhy: string;
   /**
+   * The pixels the world is actually drawn into, as `WxH`, and the canvas it is
+   * resolved onto beside it.
+   *
+   * **Read this rather than the canvas.** Through the free path the canvas
+   * deliberately never changes size — that is the entire point, because the HUD
+   * is DOM at native resolution and a canvas that shrinks under it is the defect
+   * round six removed. A review that checks `canvas.width` to see whether the
+   * ladder spent its resolution will therefore always read "it did not", which
+   * was true before round eight and is now exactly backwards. `scenePx` is the
+   * number that moves.
+   */
+  scenePx: string;
+  canvasPx: string;
+  /**
    * The rung the seam-held half of the picture is standing at, and which of its
    * levers the ladder is still waiting on a seam to install.
    *
@@ -3471,6 +2714,17 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   function baseRatio(): number {
     return Math.min(globalThis.devicePixelRatio || 1, 2);
   }
+
+  /** The drawing buffer, in device pixels. Reported, not acted on. */
+  const _buf = { x: 0, y: 0 };
+  function bufSize(): { x: number; y: number } {
+    const c = ctx.renderer?.domElement;
+    _buf.x = c ? c.width : 0;
+    _buf.y = c ? c.height : 0;
+    return _buf;
+  }
+  function bufW(): number { return bufSize().x; }
+  function bufH(): number { return bufSize().y; }
 
   /**
    * Where the frame went, once the wall clock has already said it was late.
@@ -4307,7 +3561,28 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    *  the call sites can be `return hold('...')` — one statement, no fallthrough
    *  and no way to leave without the budget agreeing with the decision. */
   function hold(why: string): void {
-    holding = why;
+    // ── the one word that tells a reviewer which number to believe ─────────
+    //
+    // `stats()` reports three costs that legitimately disagree by an order of
+    // magnitude — `ms` (CPU work this frame: sim + update + the call into the
+    // driver), `wallMs` (the engine's sixty-frame mean) and `liveWallMs` (this
+    // file's own delivered-frame window). A reviewer reading 145ms next to
+    // 1400ms cannot tell which is broken, and the honest answer is neither:
+    // `renderer.render()` returns when the command buffer is handed over, so on
+    // a GPU-bound machine almost the whole frame is downstream of the last
+    // instruction the page can time.
+    //
+    // `boundBy()` already knows which of those is happening. Stating it here
+    // costs one string concatenation on the frames where the governor is
+    // holding *because* the frame is late, and it turns two numbers that look
+    // like a contradiction into a measurement with a cause attached.
+    const b = ctx.budget;
+    if (b && wallMean > 0 && (why === 'over budget' || why === 'panic' || why === 'in band')) {
+      const bound = boundBy(b);
+      holding = bound ? `${why} (${bound})` : why;
+    } else {
+      holding = why;
+    }
     publish();
   }
 
@@ -4615,75 +3890,45 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   }
 
   /**
-   * Is the game showing a picture the player is being *shown* rather than one
-   * they are driving through?
+   * Is this a moment the player would not forgive a visible change at?
    *
-   * **Both paths consult this, the ordinary one and the emergency one**, and it
-   * is the first question either of them asks. See the header: for two rounds
-   * the only moment gate in this file sat on the ordinary path, which is the
-   * path a machine slow enough to need a governor never takes.
+   * Three questions in the order they can be trusted — the front-end's edge,
+   * the pause edge, and only then `race.phase`, which ARCHITECTURE §11a says
+   * outright cannot see the front-end. A session where the phase was the only
+   * opinion made three of five rung changes with the roster on the display and
+   * logged `phase: intro` for every one of them.
    *
-   * It costs three field reads and three comparisons, it never allocates, and
-   * it is deliberately not clever: no lookahead, no camera test, nothing that
-   * could fail open. The whole of it is "is anybody driving, and has the flag
-   * been down long enough to look away from".
-   *
-   * ── The order of the three questions is the fix ────────────────────────────
-   *
-   * It used to ask one, `ctx.race?.phase`, and ARCHITECTURE §11a says in as
-   * many words that the phase cannot answer it: the race is built at boot and
-   * simulates behind the front-end, so it reports `intro`/`countdown`/`racing`
-   * over a title screen, and it reports `loading` for both the boot and the
-   * pause screen. Measured live: three of five rung changes in a 180-second
-   * session were made with the roster on the display and logged `phase:
-   * intro`. The two edges come first now because they are *published by the
-   * modules that own those screens* — the same signals `race/director.ts` and
-   * `ui/coach.ts` stand off — and the phase is the third opinion rather than
-   * the only one.
-   *
-   * ── Every refusal here is now a *wait*, not a wall ─────────────────────────
+   * ── Every refusal here is a *wait*, not a wall ────────────────────────────
    *
    * The version this replaces opened `if (frontEndOpen || paused) return true;`
    * and answered `true` unconditionally for every sealed phase. Three of those
-   * four refusals have a property the header names as the class of bug this
+   * four refusals have the property the header names as the class of bug this
    * file keeps losing rounds to: **their cost in wall seconds is proportional
    * to the slowness they are gating.** `engine.ts` caps the fixed step at eight
    * per frame, so once a frame costs more than 66ms the simulation drops into
    * slow motion and every beat measured in race-seconds stretches to match.
    * Measured on one live session: 50 seconds held at `front-end`, then a
-   * 56-second countdown seal, and the ladder's first rung change at
-   * `liveSeconds` 69.96 on a machine that had been failing since frame one.
+   * 56-second countdown seal, and the first rung change at `liveSeconds` 69.96
+   * on a machine that had been failing since frame one.
    *
-   * The file had already found that shape once and fitted the intro sweep with
-   * `CEREMONY_PATIENCE`, then argued in its own header that no other refusal
-   * needed one. That argument is now measured to be wrong twice over, so:
-   *
-   *   front-end   `FRONT_END_PATIENCE`  12s — and it is the *safest* moment in
-   *                                     the product to change the picture,
-   *                                     because an opaque set is covering it
+   *   front-end   `FRONT_END_PATIENCE`  12s
    *   intro       `CEREMONY_PATIENCE`   20s
    *   sealed      `SEAL_PATIENCE`       35s — countdown, finish, results
-   *   loading     no door               boot, and the pause screen
    *   the launch  `LAUNCH_PATIENCE`     22s — the flag and the rocket start
+   *   loading     no door               boot, and the pause screen
    *
-   * `loading` is the one that keeps its wall, and for the reason the others
-   * lost theirs: it is not slowed by the frame rate. Boot ends when the game is
-   * built and the pause screen ends when the player presses a key, and a paused
-   * game is the same still frame over and over — nothing to hide a change
-   * behind and no clock running down.
-   *
-   * The launch's row is new and it is the fifth round's correction. The grace
-   * after the flag used to be argued out of needing a door because it is
-   * measured in delivered frames — true, and it stopped one line short of the
-   * question that matters, which is what those frames cost in seconds on the
-   * machine the file exists for. It is a longer beat now (it covers the rocket
-   * start it was always meant to protect, rather than expiring inside it) and
-   * so it carries the same door as everything else.
+   * `loading` keeps its wall for the reason the others lost theirs: it is not
+   * slowed by the frame rate. Boot ends when the game is built and the pause
+   * screen ends when the player presses a key, and a paused game is the same
+   * still frame over and over.
    *
    * The doors are on the **emergency path only** by construction: the ordinary
    * path asks `frontEndOpen` and `pictureLocked()` as separate questions above
    * this one and refuses on either. A steady-state window taken behind the
    * front-end is a measurement of the menu's own set, not of the race.
+   *
+   * ...and the collapse path does not ask at all — at five times the budget
+   * there is no composed picture to protect. See `COLLAPSE_DWELL`.
    */
   function pictureLocked(): boolean {
     // A still frame with a plate over it. No door — see above.
@@ -4829,36 +4074,23 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    *
    * ── ...and what happened to the last row ──────────────────────────────────
    *
-   * What remained after that was one drawing-buffer reallocation per rung
-   * change, which is what changing the render resolution *is*, and this comment
-   * concluded "it cannot be removed from this file". Measured live at 1280x720
-   * on a real session rather than on a 320x180 bench, that reallocation was
-   * **3101ms and 1494ms** — the two largest frames of a two-hundred-second run,
-   * against a median of 875ms and 512ms. A governor whose own action is the
-   * worst frame of the session is the thing this file was sent back for twice.
+   * "One drawing-buffer reallocation per rung change" is what changing the
+   * render resolution *was*, and this comment concluded it "cannot be removed
+   * from this file". Measured live at 1280x720 rather than on a 320x180 bench,
+   * that reallocation was **3101ms and 1494ms** — the two largest frames of a
+   * two-hundred-second run against a median of 875ms and 512ms.
    *
    * The conclusion was wrong in one word: it cannot be removed *from a frame*.
-   * Round six moved it off the frames the player is being shown — boot, race
-   * build, window resize — and the review that followed found the price of
-   * that: the player's *current* race is the one race the ladder cannot rescue.
-   *
-   * ── ...and what the table above had already said about the fix ────────────
-   *
-   * Row three: **the eight post targets resized by hand, 229ms against a 225ms
-   * median — zero.** That row was measured to rule out pre-sizing and it is
-   * also the whole answer. The expensive thing was never "changing the
-   * resolution", it was `setPixelRatio` rebuilding the *canvas*; the targets
-   * the world is actually drawn into belong to `render/post.ts` and cost
-   * nothing to move. So `render/post.ts` now implements `setRenderScale`: the
-   * scene target, the depth texture and the five bloom mips follow the scale,
-   * the composite resolves into a canvas that never moves, and the DOM HUD
-   * cannot come apart from the road because nothing under it has changed size.
-   *
-   * `freeScalePath` finds it, `applyScale` services it on the frame it is asked
-   * for, and `scaleFlushes` stays at 0 for the whole session — the drawing
-   * buffer is never rebuilt at all. If the composer is ever replaced with one
-   * that cannot do it, every word above about seams applies again and nothing
-   * else in this file changes.
+   * Round six moved it off the frames the player is being shown, and the review
+   * that followed found the price of that — the player's *current* race is the
+   * one race the ladder could not rescue. Round eight removed it instead, using
+   * row three of the table above: **the eight post targets resized by hand,
+   * 229ms against a 225ms median — zero.** The expensive thing was never
+   * "changing the resolution", it was `setPixelRatio` rebuilding the *canvas*.
+   * `render/post.ts` now implements `setRenderScale`, the scene target, the
+   * depth texture and the five bloom mips follow the scale, the composite
+   * resolves onto a canvas that never moves, and `scaleFlushes` stays at 0 for
+   * the life of the session. See `freeScalePath`.
    *
    * Either way the number is published instead of hidden: every change carries
    * its own `changeMs`, `probe().changeWorstMs` is the worst of the session,
@@ -4934,6 +4166,8 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       scaleFlushes,
       scaleSteps,
       scaleFlushWhy: lastFlushWhy,
+      scenePx: `${Math.max(2, Math.round(bufW() * liveScale))}x${Math.max(2, Math.round(bufH() * liveScale))}`,
+      canvasPx: `${bufW()}x${bufH()}`,
       seamRung: seamIndex,
       pending: deferredLevers(),
       drawDistance: +q.drawDistance.toFixed(3),
@@ -5588,10 +4822,24 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
          * read the triangles and draw calls off `__GAME.stats()` each time.
          * That walk is the ladder a player gets inside one race; the difference
          * between it and the `set()` walk is what the next race build lands.
+         *
+         * That difference is much smaller than it was. Round eight moved
+         * `scale` and `tier` out of the seam-held half, so the only levers a
+         * `mid()` walk still cannot reach are `crowd`, `scatter`, `aa` and
+         * `drawDistance` — and the largest single lever on the table, the
+         * resolution, is now in the walk rather than behind it. Note that
+         * triangles and draw calls are the *wrong* instrument for it: the
+         * resolution moves neither.
          */
         mid(i: number): QualityProbe {
           auto = false;
           applyRung(i, 'pinned (frame-half)');
+          // The frame-half includes the resolution and the tier since round
+          // eight, and `serviceScale`'s rate limit is denominated in delivered
+          // play — which a frozen bench does not accrue, so a walk of `mid(0)`
+          // to `mid(6)` inside one `page.evaluate` would land the first step
+          // and refuse the other five. The bench is not a player; land it.
+          flushScale('bench');
           contentFrame();
           externalTouch();
           return probe();
