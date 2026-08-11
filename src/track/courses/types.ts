@@ -194,6 +194,96 @@ export interface RampDef {
 }
 
 /**
+ * ── the noun for a thing that moves ────────────────────────────────────────
+ *
+ * **Everything else in this file is furniture.** A boost strip, a spill, a
+ * ramp, a gate and an island are all shapes bolted to the road: they are in the
+ * same place on lap three as they were on lap one, and once a driver has been
+ * round once they are solved. A critic played the cup and named the hole
+ * exactly — *"nothing on any of the four courses can ever touch the player, so
+ * each course is a shape to be driven rather than a place that fights back"* —
+ * and the grep that proved it was one line long: `stunRacer` had **exactly one
+ * caller in the entire game**, in `src/items/index.ts`, and neither `track/`
+ * nor `world/` imported physics at all. The cup was stamped `cup: 'hazard'`
+ * four times over and contained no hazard.
+ *
+ * A hazard is therefore the one thing in `TrackFeatures` with a **clock**. It
+ * is resolved every fixed step by `hazards.ts` from `ctx.time.elapsed` — never
+ * `Math.random`, never a wall-clock read — so the cycle is the same on every
+ * machine, in every replay, and on the reviewer's software rasteriser. What a
+ * player learns on lap one is still true on lap three; what they cannot do is
+ * ignore it.
+ *
+ * ── the two rules a hazard is held to ──────────────────────────────────────
+ *
+ * Both are about *fairness*, which is the only thing separating a hard course
+ * from a cheap one:
+ *
+ *   1. **Readable at 100 metres.** The body is large, it is painted in the
+ *      cup's own hazard livery, and it moves — motion is what the eye finds in
+ *      peripheral vision before it finds colour.
+ *   2. **Telegraphed a full second before arrival.** Every hazard plants a
+ *      warning sign on the verge `signAt` metres upstream, and its two lamps
+ *      start flashing `lead` seconds before the body reaches the tarmac. The
+ *      lamps are the contract: if they are dark, the road is yours.
+ *
+ * ── and one rule about the road ────────────────────────────────────────────
+ *
+ * Only one hazard in the cup closes a whole carriageway (the quarry's dumper,
+ * on a road eleven metres wide, for 1.6 seconds in nine). The other three take
+ * away *a line* — the inside of the Carousel, the dry lane of a brine band, the
+ * spur cut — and leave a way through for a driver who reads them. A hazard that
+ * can only be waited out is a traffic light.
+ */
+export type HazardKind = 'truck' | 'rockfall' | 'surge' | 'boom';
+
+export interface HazardDef {
+  /** Lap fraction of the point on the road the hazard crosses. */
+  at: number;
+  /**
+   * Where on the road the body is, as a fraction of the half width, **in the
+   * spline's frame** — the same frame `ShortcutDef.side` and `SurfacePatchDef`
+   * use, and therefore the mirror of the driver's. `-1` is the driver's right.
+   *
+   * What exactly it names depends on what is moving, because a machine that
+   * crosses the road and a gate that swings onto it do not have the same
+   * geometry:
+   *
+   *   * `truck`    — the centre of the traverse. Almost always 0.
+   *   * `rockfall` — the middle of the band the boulders land in.
+   *   * `surge`    — where the bore **rests**: the middle of the dry lane it
+   *                  is there to close. Its *sign* is also the edge of the
+   *                  road the water arrives from.
+   *   * `boom`     — the foot of the gate's swing. The pivot stands 5.6m
+   *                  further out again, and the arm is `width` long, so a gate
+   *                  quoted at 1.35 on a 20-metre road shuts to the tarmac edge
+   *                  and no further.
+   */
+  lateral?: number;
+  kind: HazardKind;
+  /** Seconds of one full cycle. The whole hazard is a function of this. */
+  period: number;
+  /** 0..1 offset into the cycle at the flag. Three surges 1/3 apart is a wave. */
+  phase?: number;
+  /** Metres of road the body takes away, measured across the road. */
+  width?: number;
+  /** Metres of road the body takes away, measured along it. */
+  length?: number;
+  /**
+   * What the hit looks like, in physics' own three-value vocabulary — see
+   * `stunRacer`. A dumper `spin`s you; a bore of brine and a boom arm `bump`
+   * you sideways. Nothing in the cup `squish`es: 2.2 seconds is a lap.
+   */
+  hit?: 'spin' | 'squish' | 'bump';
+  /** Seconds the sign's lamps flash before the body reaches the tarmac. */
+  lead?: number;
+  /** Metres upstream the warning sign is planted. Defaults to 78. */
+  signAt?: number;
+  /** Body colour, when the course's rock or plant is a particular colour. */
+  tint?: number;
+}
+
+/**
  * A pinch gate: the two hazard-striped blocks standing where the road necks.
  *
  * The *pinch itself* is width — authored in the waypoints, so the barriers
@@ -283,11 +373,33 @@ export interface TerrainDef {
  *
  * If you add a fifth course, it needs a fifth noun. A course whose feature list
  * is a subset of another course's is a re-skin, and this cup has been one.
+ *
+ * ── and then a critic pointed out that none of those four could touch you ──
+ *
+ * All five nouns above are *furniture*. The next round's finding was that the
+ * cup called itself `hazard` and had none: `stunRacer` had one caller in the
+ * whole game and it was the item box. So there is now a sixth noun, `hazards`,
+ * and it is the only one with a clock in it — again one per round, again no two
+ * alike:
+ *
+ *   1 Cone Canyon      `rockfall` — the canyon drops its rim onto the inside
+ *                      lane of the Carousel. The fork now has a wrong answer.
+ *   2 Jackhammer       `truck` — a 100-tonne dumper shuttles across the Cut on
+ *                      a nine-second cycle. Eleven metres, and none of them.
+ *   3 Saltpan          `surge` — three bores of brine, a third of a cycle
+ *                      apart, each closing the dry lane of its own band.
+ *   4 Switchback       `boom` — the avalanche gate swings shut across the spur
+ *                      cut, so the shortcut is a bet rather than a discount.
  */
 export interface TrackFeatures {
   pads?: BoostPadDef[];
   patches?: SurfacePatchDef[];
   shortcuts?: ShortcutDef[];
+  /**
+   * **The only thing in this interface with a clock.** See `HazardDef` — one
+   * per round, no two alike, resolved from `ctx.time` in `hazards.ts`.
+   */
+  hazards?: HazardDef[];
   /** Launch ramps. See `RampDef` — the elevation is applied to the waypoints. */
   ramps?: RampDef[];
   /** Nose blocks marking a width pinch. See `GateDef`. */

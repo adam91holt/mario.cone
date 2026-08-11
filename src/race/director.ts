@@ -265,12 +265,22 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
   let sample: SplineSample | null = null;
 
   /** True while the front-end (`src/ui/menus`) has a screen up. It publishes
-   *  `ui:menu` on both edges; this module stands off the controls while it is
-   *  open rather than reaching into it. */
+   *  `ui:menu` on both edges; this module stands off the controls — and, since
+   *  the standoff in `fixedUpdate`, the whole race — while it is open, rather
+   *  than reaching into it. */
   let frontEndOpen = false;
   ctx.bus.on<{ open: boolean }>('ui:menu', ({ open }) => {
+    if (open === frontEndOpen) return;
     frontEndOpen = open;
-    if (open && paused) togglePause();
+    if (open) {
+      if (paused) togglePause();
+      return;
+    }
+    // **Cleared, not restored.** Every way out of the front-end goes through
+    // `reset` — launching builds a new race, backing out rebuilds the old one —
+    // and both put the field on the grid themselves. Handing back the snapshot
+    // this module froze would undo the placement that just happened.
+    held.clear();
   });
 
   const overlay: RaceOverlay | null = createOverlay(ctx, onPick);
@@ -1578,6 +1588,32 @@ export function createRaceDirector(ctx: GameContext): GameSystem {
       if (paused) {
         keepFieldStill();
         if (overlay) menuInput(dt, overlay.pause.menu);
+        return;
+      }
+
+      /**
+       * **A race does not run behind the front-end.**
+       *
+       * `boot()` in main.ts starts a race *before* the title screen is raised —
+       * the menus need a built world to stage themselves against — and nothing
+       * here stood that race down. So from the first frame of a cold load the
+       * field rolled itself into formation, the lights ran, the flag dropped
+       * and seven AI drivers raced a full three laps, all underneath a
+       * wordmark. Reported from an iPhone as "it just starts moving the car
+       * before the countdown", which is the formation approach in `intro`,
+       * seen by a player who had not been let in yet and — on that build — had
+       * no controls to answer it with.
+       *
+       * `frontEndOpen` was already tracked here for `canPause`. This is the
+       * same fact spent on the thing it was always describing: while a screen
+       * is up, the phase machine does not tick and the field does not move.
+       * The snapshot is taken on the first held step rather than on the `open`
+       * edge, because that edge fires from inside `engine.resetAll()` and the
+       * grid placement it should be freezing may not have run yet.
+       */
+      if (frontEndOpen) {
+        if (held.size === 0) holdField();
+        keepFieldStill();
         return;
       }
 

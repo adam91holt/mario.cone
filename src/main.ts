@@ -12,6 +12,7 @@ import { createQualitySystem } from './core/quality.ts';
 import { installHarness } from './core/harness.ts';
 import { makeRng } from './core/math.ts';
 import { createTrackSystem } from './track/index.ts';
+import { createHazardSystem } from './track/courses/hazards.ts';
 import { createKartPhysics, createRacer } from './physics/kart.ts';
 import { createAiSystem, createAiDriver } from './ai/driver.ts';
 import { createItemSystem } from './items/index.ts';
@@ -26,6 +27,7 @@ import { createAudioSystem } from './audio/index.ts';
 import { getVehicle, listVehicles } from './vehicles/registry.ts';
 import { createCoachSystem } from './ui/coach.ts';
 import { createHudSystem } from './ui/hud.ts';
+import { createTouchSystem } from './ui/touch.ts';
 import { createMenuSystem } from './ui/menus/index.ts';
 import type {
   GameContext, QualitySettings, RaceConfig, VehicleId,
@@ -92,6 +94,7 @@ async function boot(): Promise<void> {
   engine.add(createAiSystem(ctx));
   engine.add(createKartPhysics(ctx));
   engine.add(createItemSystem(ctx));
+  engine.add(createHazardSystem(ctx));
   engine.add(createRaceDirector(ctx));
   engine.add(createCameraSystem(ctx));
   engine.add(createVehicleSystem(ctx));
@@ -100,6 +103,7 @@ async function boot(): Promise<void> {
   engine.add(createQualitySystem(ctx));
   engine.add(createHudSystem(ctx));
   engine.add(createCoachSystem(ctx));
+  engine.add(createTouchSystem(ctx));
   engine.add(createMenuSystem(ctx));
 
   /** Tear down the previous field and build a fresh one. */

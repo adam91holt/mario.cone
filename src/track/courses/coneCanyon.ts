@@ -244,6 +244,34 @@ export const coneCanyon: CourseDefEx = {
         latFrom: 0.06, latTo: 0.32, surface: 'dirt', style: 'island',
       },
     ],
+    // ── THE ROCKFALL: what makes the fork a gamble ─────────────────────────
+    //
+    // The Split has been a choice between a short line and a long one since it
+    // was built, and a choice whose right answer never changes is a thing you
+    // solve once and then stop reading. So the canyon drops its rim on it.
+    //
+    // Three boulders come off the cut above the head of the horseshoe, take a
+    // second and a half of air, and land across the **inside** lane — the apex
+    // line, the shorter arc, the one the worn tarmac points at and the one
+    // every CPU driver in the field is on. They sit there for three seconds
+    // while the loader gets to them, and then the lane is open again.
+    //
+    // That is the whole design of round one's signature finally closing: the
+    // outside lane is longer, emptier and has the boost strip on its exit, and
+    // now it is also *the one that is always there*. You commit at turn-in, a
+    // hundred and fifty metres before the apex — which is exactly where the
+    // sign's lamps are, and exactly why they are lit two seconds before a rock
+    // is released rather than as it lands.
+    //
+    // Seventeen seconds against a fifty-second lap, so the corner is never in
+    // the same state twice in a race. The rocks are the canyon's own terracotta
+    // (`tint`), because a hazard has to look like it came from the place it
+    // fell out of.
+    hazards: [{
+      at: on('T5 THE CAROUSEL', 0.52), kind: 'rockfall', period: 17, phase: 0.1,
+      lateral: -0.55, hit: 'spin', lead: 2.0, signAt: 120, tint: 0xa05a33,
+    }],
+
     // Raised from 0.005. Eight corners run 1/32 to 1/66 of curvature and the
     // Rimrock Sweep runs 1/126, so a threshold at 1/125 puts a rumble strip on
     // everything a player brakes for and leaves the one flat-out sweeper clean.

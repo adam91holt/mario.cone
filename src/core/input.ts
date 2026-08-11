@@ -46,7 +46,26 @@ export interface InputController {
   clearVirtual(key?: keyof VirtualInput): void;
   press(name: string): void;
   setEnabled(v: boolean): void;
+  /**
+   * The on-screen controls' reading, or null when no finger is on the glass.
+   *
+   * Touch lives here rather than in `virtual` because `virtual` is the harness's
+   * override and short-circuits the whole device path — the same short-circuit
+   * that hid inverted steering from every automated critic for days. A phone is
+   * a device, not a test fixture, so it samples like one.
+   */
+  setTouch(sample: TouchSample | null): void;
   dispose(): void;
+}
+
+/** What the on-screen controls report. Steer is in the same left-positive
+ *  convention as everything else that feeds physics. */
+export interface TouchSample {
+  steer: number;
+  accel: number;
+  brake: number;
+  drift: boolean;
+  item: boolean;
 }
 
 export function createInput(): InputController {
@@ -65,6 +84,7 @@ export function createInput(): InputController {
 
   let steerSmoothed = 0;
   let enabled = true;
+  let touch: TouchSample | null = null;
 
   const onKey = (down: boolean) => (e: KeyboardEvent): void => {
     const action = KEYMAP[e.code];
@@ -141,20 +161,32 @@ export function createInput(): InputController {
     //
     // The devices are therefore what must be negated, not the simulation:
     // flipping the integration would silently invert every CPU driver too.
+    // A finger on the glass outranks a gamepad and the keyboard, and is itself
+    // outranked by the harness. `tou` is negated for the same reason `pad` is:
+    // the on-screen stick reports screen-right as positive, like every other
+    // device a person actually holds.
+    const tou = touch;
+    if (tou) state.source = 'touch';
+
     let steerTarget: number;
     if (has('steer')) steerTarget = clamp(virtual.steer!, -1, 1);
+    else if (tou) steerTarget = -tou.steer;
     else if (pad) steerTarget = -pad.steer;
     else steerTarget = (raw.left ? 1 : 0) - (raw.right ? 1 : 0);
 
-    // Digital keys get eased into an analog value; sticks are already analog.
-    const digital = !pad && !has('steer');
+    // Digital keys get eased into an analog value; sticks and thumbs are
+    // already analog.
+    const digital = !pad && !tou && !has('steer');
     steerSmoothed = digital ? damp(steerSmoothed, steerTarget, 0.00002, dt) : steerTarget;
     state.steer = Math.abs(steerSmoothed) < 0.001 ? 0 : steerSmoothed;
 
-    state.accel = has('accel') ? clamp(virtual.accel!, 0, 1) : pad ? pad.accel : raw.accel ? 1 : 0;
-    state.brake = has('brake') ? clamp(virtual.brake!, 0, 1) : pad ? pad.brake : raw.brake ? 1 : 0;
-    state.drift = has('drift') ? !!virtual.drift : pad ? pad.drift : !!raw.drift;
-    state.item = has('item') ? !!virtual.item : pad ? pad.item : !!raw.item;
+    const pick = <T>(k: keyof VirtualInput, v: () => T, t: T, p: T, r: T): T =>
+      has(k) ? v() : tou ? t : pad ? p : r;
+
+    state.accel = pick('accel', () => clamp(virtual.accel!, 0, 1), tou?.accel ?? 0, pad?.accel ?? 0, raw.accel ? 1 : 0);
+    state.brake = pick('brake', () => clamp(virtual.brake!, 0, 1), tou?.brake ?? 0, pad?.brake ?? 0, raw.brake ? 1 : 0);
+    state.drift = pick('drift', () => !!virtual.drift, !!tou?.drift, !!pad?.drift, !!raw.drift);
+    state.item = pick('item', () => !!virtual.item, !!tou?.item, !!pad?.item, !!raw.item);
     state.look = has('look') ? clamp(virtual.look!, -1, 1) : pad ? pad.look : raw.look ? 1 : 0;
 
     const nowPressed: Record<string, boolean> = {
@@ -193,6 +225,7 @@ export function createInput(): InputController {
     },
     press(name) { oneShots.add(name); },
     setEnabled(v) { enabled = v; },
+    setTouch(sample) { touch = sample; },
     dispose() {
       if (typeof window === 'undefined') return;
       window.removeEventListener('keydown', keyDown);

@@ -13,11 +13,14 @@
 //   T1  Weighbridge Kink  a 105m right you take flat, aimed at a rock face
 //   T2  Screed Kink       the road unwinds left for a moment
 //   T3  Hopper Sweep      95m right, the last fast corner before the benches
-//   T4  Tipping Right     38m right, hard on the brakes, the road narrows to 19
-//   T5  Bench One         a 24m LEFT, straight off a hard right. 17m of road.
-//   T6  Bench Two         a 24m right straight back out of it. 17m wide.
-//   T7  Pit Entry         the lip. The floor drops 19m in 160m — 20% at its
-//                         steepest — and **THE CUT** is halfway down it.
+//   T4  Tipping Right     38m right, hard on the brakes, the road narrows to
+//                         19 — and the pit edge is under it. The road tips over
+//                         here and does not stop going down for 570 metres
+//   T5  Bench One         a 24m LEFT on the ramp down, at 9%. 17m of road.
+//   T6  Bench Two         a 24m right, and the road goes level: this is the
+//                         first bench, fifteen metres under the weighbridge
+//   T7  Pit Entry         the lip. The floor drops another 27m in 280 — 18% at
+//                         its steepest — and **THE CUT** is halfway down it.
 //   T8  Floor One         a fast left across the pit floor at its widest, 21m
 //   T9  THE CRUSHER       24m right at 16m wide — the narrowest road in the cup
 //   T10 Crusher Exit      and immediately 26m the same way. 188° in 100 metres.
@@ -55,13 +58,44 @@
 // into the pit, and it is pointing downhill at a corner you cannot see the exit
 // of. The run from the line to T1 is 83 metres.
 //
-// The elevation is the pit, and only the pit: the rim road is level to within
-// a metre for the first half of the lap, then the floor falls away 19m through
-// T7, stays flat for the whole floor section, and climbs back out at about 5%
-// up the haul road. That shape is not free-hand — the rim road and the pit
-// floor pass within 160m of each other, and the embankment either side of a
-// road is anchored to *that* road's height, so a bigger difference there would
-// stand the rim's bank over the top of the floor road. 19m is what fits.
+// ── THE STAIRCASE: what this course does that Cone Canyon does not ─────────
+//
+// A critic measured these two circuits side by side and found **one course
+// twice**: both three laps, both exactly road/dirt/boost/air, 28.6 metres of
+// elevation range against 27.6, 37.1% of the lap tighter than an 80-metre
+// radius against 35.5%, 41.8 m/s of mean speed against 43.4. Two names, two
+// colour grades, one road. And the verdict was right — the *plan* of this
+// circuit is nothing like the canyon's, but the thing a driver feels in their
+// stomach is elevation, and this had 19.8 metres of it spread over two
+// kilometres of gently undulating loop with some gravel on it.
+//
+// A quarry is a hole. This one is now **forty-two metres deep**, and the lap is
+// a staircase into it and one long haul back out:
+//
+//   * the **rim** is level to within a metre for the first 640 metres — the
+//     weighbridge, the screening plant, the fast half of the lap;
+//   * the road tips over the edge at T4 and drops **fifteen metres in 170** to
+//     the first bench, at up to 9%;
+//   * T6 runs level along that bench, which is what a bench is;
+//   * T7 and **THE CUT** are the plunge: another 27 metres in 280, peaking at
+//     18% on the narrowest tarmac in the game;
+//   * the floor is dead flat for the whole Crusher section — a pit floor is;
+//   * and then 42 metres of climb over 570 up the haul road, at 8-11%, which
+//     is what a real haul road is graded at and which costs roughly a fifth of
+//     the kart's acceleration all the way to the line.
+//
+// That is 42.4 metres of range against the canyon's 26, and — more to the
+// point — a profile with three distinct steps in it against the canyon's one
+// long swell. The two courses no longer measure the same on the instrument the
+// critic used.
+//
+// The depth is bounded by geometry rather than by taste. The rim road and the
+// pit floor pass within a hundred metres of each other, and the embankment
+// either side of a road is anchored to *that* road's height, so the difference
+// across that gap becomes a face: at 42m deep the steepest cross-gap on the lap
+// is 24.7 metres over 118, which is 21% — a quarry high wall, and comfortably
+// inside the 37% Switchback Summit already ships between two legs of its
+// mountain. Much past this and the two skirts start standing over each other.
 //
 // Waypoints are authored on the map; `loopFromWaypoints` resamples them and
 // derives the banking from the measured turn rate.
@@ -95,49 +129,49 @@ import type { CourseDefEx } from './types.ts';
 /** The ring, driven from the weighbridge straight at (-312, 140). */
 const WAYPOINTS: Waypoint[] = [
   { x: -312, z: 140, y: -0.3, width: 23 },
-  { x: -276, z: 162, y: -0.1, width: 23 },
-  { x: -239, z: 185, y: -0.1, width: 24 },
+  { x: -276, z: 162, y: -0.3, width: 23 },
+  { x: -239, z: 185, y: -0.2, width: 24 },
   // T1 Weighbridge Kink
-  { x: -203, z: 208, y: -0.1, width: 24 },
+  { x: -203, z: 208, y: -0.2, width: 24 },
   { x: -163, z: 222, y: -0.2, width: 24 },
-  { x: -119, z: 220, y: -0.2, width: 24 },
-  { x: -85, z: 210, y: -0.2, width: 24 },
+  { x: -119, z: 220, y: -0.3, width: 24 },
+  { x: -85, z: 210, y: -0.3, width: 24 },
   { x: -50, z: 200, y: -0.3, width: 24 },
-  { x: -15, z: 190, y: -0.3, width: 23 },
+  { x: -15, z: 190, y: -0.4, width: 23 },
   // T2 Screed Kink
-  { x: 20, z: 181, y: -0.3, width: 23 },
+  { x: 20, z: 181, y: -0.4, width: 23 },
   { x: 58, z: 175, y: -0.4, width: 23 },
   { x: 97, z: 178, y: -0.4, width: 23 },
   // T3 Hopper Sweep
   { x: 149, z: 188, y: -0.5, width: 22 },
   { x: 190, z: 187, y: -0.5, width: 22 },
   { x: 227, z: 169, y: -0.5, width: 22 },
-  { x: 252, z: 137, y: -0.6, width: 22 },
+  { x: 252, z: 137, y: -0.5, width: 22 },
   { x: 266, z: 110, y: -0.6, width: 21 },
   // T4 Tipping Right
   { x: 279, z: 83, y: -0.6, width: 19 },
-  { x: 283, z: 68, y: -0.6, width: 19 },
-  { x: 280, z: 52, y: -0.7, width: 19 },
-  { x: 271, z: 39, y: -0.7, width: 19 },
-  { x: 242, z: 11, y: -0.7, width: 18 },
+  { x: 283, z: 68, y: -0.7, width: 19 },
+  { x: 280, z: 52, y: -0.9, width: 19 },
+  { x: 271, z: 39, y: -1.4, width: 19 },
+  { x: 242, z: 11, y: -4.4, width: 18 },
   // T5 Bench One
-  { x: 212, z: -17, y: -0.7, width: 17 },
-  { x: 206, z: -26, y: -0.8, width: 17 },
-  { x: 204, z: -36, y: -0.8, width: 17 },
-  { x: 208, z: -47, y: -0.8, width: 17 },
-  { x: 230, z: -85, y: -0.8, width: 17 },
+  { x: 212, z: -17, y: -8.6, width: 17 },
+  { x: 206, z: -26, y: -9.7, width: 17 },
+  { x: 204, z: -36, y: -10.7, width: 17 },
+  { x: 208, z: -47, y: -11.8, width: 17 },
+  { x: 230, z: -85, y: -14.6, width: 17 },
   // T6 Bench Two
-  { x: 252, z: -123, y: -0.9, width: 17 },
-  { x: 255, z: -132, y: -0.9, width: 17 },
-  { x: 254, z: -141, y: -0.9, width: 17 },
-  { x: 250, z: -150, y: -0.9, width: 17 },
-  { x: 242, z: -156, y: -0.9, width: 17 },
-  { x: 208, z: -174, y: -1.1, width: 18 },
-  { x: 174, z: -193, y: -1.7, width: 18 },
+  { x: 252, z: -123, y: -15, width: 17 },
+  { x: 255, z: -132, y: -15.1, width: 17 },
+  { x: 254, z: -141, y: -15.1, width: 17 },
+  { x: 250, z: -150, y: -15.1, width: 17 },
+  { x: 242, z: -156, y: -15.2, width: 17 },
+  { x: 208, z: -174, y: -15.9, width: 18 },
+  { x: 174, z: -193, y: -18.4, width: 18 },
   // T7 Pit Entry
-  { x: 139, z: -212, y: -2.7, width: 19 },
-  { x: 128, z: -215, y: -4.4, width: 19 },
-  { x: 116, z: -215, y: -7.1, width: 17 },
+  { x: 139, z: -212, y: -23.2, width: 19 },
+  { x: 128, z: -215, y: -25.3, width: 19 },
+  { x: 116, z: -215, y: -27.3, width: 17 },
   // ── THE CUT ──────────────────────────────────────────────────────────────
   // Round two's signature, and the whole of it is in this column of numbers.
   // The haul road threads between two rock benches on the way into the pit and
@@ -163,63 +197,63 @@ const WAYPOINTS: Waypoint[] = [
   // 50.2 m/s against the 45.2 this course is supposed to be the slowest in the
   // cup at. The pinch has to arrive *at* the pinch: 17 metres to 11 in
   // twenty-five, which is also more frightening than a taper.
-  { x: 105, z: -212, y: -8.1, width: 12 },
-  { x: 95, z: -209, y: -9.0, width: 11 },
-  { x: 85, z: -206, y: -9.9, width: 12.5 },
-  { x: 74, z: -203, y: -10.9, width: 18 },
-  { x: 32, z: -191, y: -14.8, width: 20 },
-  { x: -10, z: -180, y: -17.9, width: 21 },
+  { x: 105, z: -212, y: -29.3, width: 12 },
+  { x: 95, z: -209, y: -31, width: 11 },
+  { x: 85, z: -206, y: -32.4, width: 12.5 },
+  { x: 74, z: -203, y: -34, width: 18 },
+  { x: 32, z: -191, y: -38.4, width: 20 },
+  { x: -10, z: -180, y: -41, width: 21 },
   // T8 Floor One
-  { x: -52, z: -168, y: -19.4, width: 21 },
-  { x: -66, z: -167, y: -19.9, width: 21 },
-  { x: -79, z: -170, y: -19.8, width: 21 },
-  { x: -110, z: -185, y: -19.8, width: 19 },
-  { x: -140, z: -200, y: -19.7, width: 18 },
+  { x: -52, z: -168, y: -42, width: 21 },
+  { x: -66, z: -167, y: -42.1, width: 21 },
+  { x: -79, z: -170, y: -42.1, width: 21 },
+  { x: -110, z: -185, y: -42.2, width: 19 },
+  { x: -140, z: -200, y: -42.3, width: 18 },
   // T9 THE CRUSHER
-  { x: -171, z: -215, y: -19.6, width: 16 },
-  { x: -179, z: -217, y: -19.6, width: 16 },
-  { x: -188, z: -216, y: -19.6, width: 16 },
-  { x: -196, z: -212, y: -19.6, width: 16 },
-  { x: -202, z: -206, y: -19.5, width: 16 },
-  { x: -220, z: -178, y: -19.5, width: 16 },
+  { x: -171, z: -215, y: -42.4, width: 16 },
+  { x: -179, z: -217, y: -42.4, width: 16 },
+  { x: -188, z: -216, y: -42.4, width: 16 },
+  { x: -196, z: -212, y: -42.4, width: 16 },
+  { x: -202, z: -206, y: -42.4, width: 16 },
+  { x: -220, z: -178, y: -42.4, width: 16 },
   // T10 Crusher Exit
-  { x: -238, z: -150, y: -19.4, width: 16 },
-  { x: -241, z: -142, y: -19.4, width: 16 },
-  { x: -242, z: -132, y: -19.4, width: 16 },
-  { x: -238, z: -123, y: -19.3, width: 16 },
-  { x: -232, z: -116, y: -19.3, width: 16 },
-  { x: -224, z: -111, y: -19.3, width: 16 },
-  { x: -187, z: -99, y: -19.2, width: 17 },
-  { x: -151, z: -87, y: -19.1, width: 19 },
+  { x: -238, z: -150, y: -42.4, width: 16 },
+  { x: -241, z: -142, y: -42.4, width: 16 },
+  { x: -242, z: -132, y: -42.4, width: 16 },
+  { x: -238, z: -123, y: -42.4, width: 16 },
+  { x: -232, z: -116, y: -42.3, width: 16 },
+  { x: -224, z: -111, y: -42.3, width: 16 },
+  { x: -187, z: -99, y: -42.2, width: 17 },
+  { x: -151, z: -87, y: -41.8, width: 19 },
   // T11 Floor Two
-  { x: -114, z: -75, y: -19.1, width: 20 },
-  { x: -110, z: -74, y: -18.9, width: 20 },
-  { x: -106, z: -72, y: -18.6, width: 20 },
+  { x: -114, z: -75, y: -40.9, width: 20 },
+  { x: -110, z: -74, y: -40.7, width: 20 },
+  { x: -106, z: -72, y: -40.6, width: 20 },
   // T12 Floor Three
-  { x: -74, z: -51, y: -18.1, width: 18 },
-  { x: -66, z: -43, y: -17.6, width: 18 },
-  { x: -61, z: -33, y: -17.1, width: 18 },
-  { x: -61, z: -22, y: -16.6, width: 18 },
-  { x: -64, z: -12, y: -16.1, width: 18 },
-  { x: -71, z: -3, y: -15.5, width: 18 },
-  { x: -80, z: 3, y: -14.6, width: 18 },
-  { x: -122, z: 18, y: -13.1, width: 19 },
-  { x: -165, z: 34, y: -11.5, width: 20 },
+  { x: -74, z: -51, y: -39, width: 18 },
+  { x: -66, z: -43, y: -38.5, width: 18 },
+  { x: -61, z: -33, y: -37.9, width: 18 },
+  { x: -61, z: -22, y: -37.4, width: 18 },
+  { x: -64, z: -12, y: -36.8, width: 18 },
+  { x: -71, z: -3, y: -36.1, width: 18 },
+  { x: -80, z: 3, y: -35.4, width: 18 },
+  { x: -122, z: 18, y: -32.5, width: 19 },
+  { x: -165, z: 34, y: -29.6, width: 20 },
   // T13 Sump Left
-  { x: -207, z: 50, y: -10, width: 21 },
-  { x: -224, z: 53, y: -8.7, width: 21 },
-  { x: -240, z: 49, y: -7.5, width: 21 },
+  { x: -207, z: 50, y: -26.4, width: 21 },
+  { x: -224, z: 53, y: -25.2, width: 21 },
+  { x: -240, z: 49, y: -23.8, width: 21 },
   // T14 Haul Road
-  { x: -286, z: 29, y: -6.4, width: 21 },
-  { x: -302, z: 25, y: -5.4, width: 21 },
-  { x: -318, z: 28, y: -4.5, width: 21 },
-  { x: -332, z: 36, y: -3.8, width: 21 },
-  { x: -343, z: 49, y: -3.1, width: 21 },
-  { x: -347, z: 64, y: -2.4, width: 21 },
-  { x: -346, z: 81, y: -1.8, width: 21 },
+  { x: -286, z: 29, y: -19, width: 21 },
+  { x: -302, z: 25, y: -17, width: 21 },
+  { x: -318, z: 28, y: -15, width: 21 },
+  { x: -332, z: 36, y: -13, width: 21 },
+  { x: -343, z: 49, y: -11.1, width: 21 },
+  { x: -347, z: 64, y: -9.4, width: 21 },
+  { x: -346, z: 81, y: -7.6, width: 21 },
   // T15 Gate Sweep
-  { x: -341, z: 101, y: -1.2, width: 23 },
-  { x: -330, z: 123, y: -0.6, width: 23 },
+  { x: -341, z: 101, y: -5.4, width: 23 },
+  { x: -330, z: 123, y: -3, width: 23 },
 ];
 
 export const jackhammerQuarry: CourseDefEx = {
@@ -328,6 +362,44 @@ export const jackhammerQuarry: CourseDefEx = {
     // and it pinches for the barrier and the wall physics enforces at the same
     // time, because all three come off `s.width`. See `GateDef`.
     gates: [{ at: 0.496, length: 30, height: 1.2 }],
+
+    // ── THE HAUL TRUCK: what the gate is for ───────────────────────────────
+    //
+    // The Cut has been the narrowest tarmac in the game for two rounds and it
+    // has never once been *occupied*. A critic put it plainly — the cup was
+    // stamped `hazard` four times and contained nothing that could touch a
+    // player — and the pinch is the obvious place to fix that, because the
+    // hardest thing about eleven metres of road is what happens when there is
+    // something on it.
+    //
+    // So a hundred-tonne quarry dumper shuttles across the haul road, on the
+    // exact lap fraction the gate blocks already stand at. It runs the shot
+    // rock from the face out to the tip and comes back empty, and it tips at
+    // the far end where you can watch it. **The gate blocks are its portals**:
+    // they were signage for a pinch and they are now the two things the truck
+    // drives between, which is what a nose block on a haul road is for.
+    //
+    // Twenty-four seconds a cycle, two crossings in it, and the road is gone
+    // for about two and a half of them each time — a fifth of the cycle, on a
+    // straight you arrive at downhill at 55 m/s. This is the one hazard in the
+    // cup that closes a whole carriageway, and it is allowed to because it is
+    // on the widest sight line on the circuit: the machine is nine and a half
+    // metres of hazard yellow with two beacons on it, in the open the whole
+    // time, and the sign's lamps come on two full seconds before its nose
+    // reaches the tarmac.
+    //
+    // The period is deliberately *not* a factor of the lap. A lap here is
+    // about 46 seconds against a 24-second cycle, so the truck is nearly two
+    // crossings further on every time you come back and no lap is the lap
+    // before it.
+    //
+    // `spin` rather than `squish`: 2.2 seconds is most of a place, and being
+    // clipped by a machine that big and then *also* having to sit still for a
+    // lap is two punishments for one mistake. See `HazardDef`.
+    hazards: [{
+      at: 0.496, kind: 'truck', period: 24, phase: 0.62,
+      lateral: 0, hit: 'spin', lead: 2.0, signAt: 104,
+    }],
     // A shade higher than Cone Canyon's, because half this circuit is under
     // 40m of radius and kerbing all of it would leave nothing to aim at.
     kerbCurvature: 0.005,
