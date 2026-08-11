@@ -5815,3 +5815,96 @@ STEP 4 — If FINISHED:
   f. Standing gaps no single piece owns, for the next coherence pass: the purple tier-3 mini-turbo has still never been seen by anyone; a single carried item is not drawn in the world at all because the orbit rig is only built for count>1; the finish letterbox guillotines the position badge on the one beat it matters.
 
 Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
+
+### 🤖 Claude — 2026-08-11 06:55 UTC
+
+Wave is alive — newest agent write one second ago, `claude` elapsed 5h49m with no restart.
+
+### 🤖 Claude — 2026-08-11 06:56 UTC
+
+Tick complete, no user-facing news — the wave is mid-flight.
+
+- **Session archive refreshed** and pushed (`1822b0d`): 564 turns, 4,550 records, longest prompt 16,851 chars kept whole.
+- **Wave `wf_a4784a0d-17d` alive** — newest agent write 1 second before the check, `claude` elapsed 5h49m so no container restart. Journal: 6 started, 5 results, 1 agent still running. (The run id written in the loop prompt, `wf_85410807-a0a`, is stale — resolved by `ls -t` as instructed.)
+- **Typecheck clean.** No captures or smoke run, per the rule against touching them while agents are active.
+
+Nothing to resume, nothing to decide. Next tick picks it up.
+
+### 🧑 Prompt — 2026-08-11 07:15 UTC
+
+Let’s rename the project to Gary’s kart
+
+### 🤖 Claude — 2026-08-11 07:16 UTC
+
+Three-way split confirmed, and it's a minefield: 37 product-name occurrences to change, ~159 "Mario Kart"/MK8 design references that must survive, plus `cone` the machine and `mario-cone` filesystem paths. Let me size the wordmark work.
+
+### 🤖 Claude — 2026-08-11 07:17 UTC
+
+Before I fan this out — two forks that change what gets built. The rest I'll decide myself.
+
+### 🧑 Prompt — 2026-08-11 07:17 UTC
+
+[Request interrupted by user]
+
+### 🧑 Prompt — 2026-08-11 07:17 UTC
+
+Let’s rename it once everything is done
+
+### 🤖 Claude — 2026-08-11 07:18 UTC
+
+Understood — deferred until the build lands. Let me record it where it survives a context loss, along with what I already found so the discovery isn't repeated.
+
+### 🤖 Claude — 2026-08-11 07:18 UTC
+
+I have the exact loop prompt. Appending the rename as a final step, with the discovery baked in so it isn't re-derived.
+
+### 🤖 Claude — 2026-08-11 07:22 UTC
+
+Recorded as the final step of the hourly build loop, so it survives a context loss or container restart. It won't start until every piece on the board passes.
+
+Worth flagging what I found while sizing it, because it's not a find-and-replace:
+
+**`grep -ri mario` returns 115 hits, and only 37 of them are the product name.** The other ~159 (counting `MK8`) are references to *actual Mario Kart* — the design benchmark the entire critic loop is built on, since every critic writes their MK8 recollection from memory before they're allowed to look at our build. A blind sed on "mario" would delete the project's whole design rationale. There's a third class too: `cone` the machine and Cone Canyon the course, which stay regardless. And a fourth: `mario-cone` appears in filesystem paths inside `tools/session.mjs` and the workflow scripts, where changing it just breaks the tools.
+
+**The wordmark is the real work.** `art.ts` carries its own letter table holding exactly the eight shapes MARIO.CONE needs. GARY'S KART needs `G K S T` — liftable unchanged from `glyphs.ts`, same cut — plus **a Y and an apostrophe that exist nowhere and have to be drawn** in that face, plus a word space the mark has never needed. And the orange cone currently stands in for the `.`, deliberately landing mid-word during the assembly animation; "Gary's Kart" has no dot, so the cone needs somewhere to live. The apostrophe slot is the obvious home — a road cone is already a raised triangle — but it has to read as punctuation rather than as debris.
+
+Two things I'll ask you when the time comes, not now: whether to rename the GitHub repo (the Pages URL doesn't redirect, so the link you've already sent people would 404), and whether Gary is anyone — the cast is Foreman, Bollard, Skip, Gravel, Barrier, Tarmac and Detour, so right now the title names someone who isn't in the game.
+
+The courses + perf wave is still running; nothing about it changed this tick.
+
+### 🧑 Prompt — 2026-08-11 07:22 UTC
+
+MARIO.CONE build loop — hourly. Repo adam91holt/mario.cone (PUBLIC), branch claude/mario-kart-racing-game-z8wdf1. WFDIR=/root/.claude/projects/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9/subagents/workflows
+
+EVERY TICK, before anything else: `node tools/session.mjs`. It refreshes docs/session/prompts.md and docs/session/session.jsonl — the conversation that is building this game, which the user asked to be published and kept current. It exits non-zero if a message body was truncated; if that happens fix the tool rather than committing a mangled archive. Commit the refresh with whatever else the tick produces.
+
+Do NOT trust any run id written here — resolve it: RUN=$(ls -t $WFDIR | head -1). Current run: coherence pass = wf_85410807-a0a.
+
+STEP 1 — PROVE the wave is alive. Two checks; the second has never been wrong:
+  date -u
+  ls -lt --time-style=+%H:%M:%S $WFDIR/$RUN/agent-*.jsonl | head -3
+  ps -eo etime,comm | grep -w claude
+(a) Newest agent-*.jsonl mtime older than ~25 minutes = dead. USE `ls -t`; a plain `ls | tail` sorts ALPHABETICALLY and once hid the only live agent behind eleven finished ones.
+(b) ELAPSED of the main `claude` process. DECISIVE. If claude has been alive for LESS time than the gap since the last agent write, the container restarted and every in-flight agent is dead, however recent the mtimes look. Two agents whose last write is the IDENTICAL second is the same signature. Do NOT grep for claude in a `--sort=-pcpu | head -4` list — Chrome outranks it and it will not appear.
+Never judge by files existing or Chrome counts: subagents run IN-PROCESS inside the main claude process, so `ps aux | grep claude` shows nothing for a healthy wave.
+
+Count: node -e "const fs=require('fs');let s=0,r=0;for(const l of fs.readFileSync(process.argv[1],'utf8').trim().split('\n')){try{const e=JSON.parse(l);if(e.type==='started')s++;if(e.type==='result')r++;}catch{}}console.log(s,r)" $WFDIR/$RUN/journal.jsonl
+Concurrency is 2 on this 4-core box.
+
+STEP 2 — If DEAD, RESUME, DO NOT RELAUNCH:
+  Workflow({scriptPath:"<the same script>", resumeFromRunId:"<the dead RUN>", args:<the SAME args object, byte-for-byte>})
+Completed agent() calls return from cache instantly and only the killed agents re-run, carry intact. Args must match exactly or the cache misses. First `npx tsc --noEmit`, then commit and push whatever exists (say in the message if unverified). Read the dead run's journal for results that already have a `score` — those verdicts are earned and must never be re-bought.
+IF TYPECHECK FAILS INSIDE A FILE A DEAD AGENT WAS MID-WRITE ON, that is NOT transient — the agent is not coming back to finish it, and the resumed agent restarts that step from scratch. `git checkout --` those files rather than committing a build that cannot compile.
+AFTER ANY LAUNCH OR RESUME, VERIFY: grep 'YOUR PIECE' AND 'Observed:' out of each new agent transcript.
+
+STEP 3 — If ALIVE: `npx tsc --noEmit`. If clean, commit and push. Do NOT run captures or smoke while agents are active, and never pkill on any pattern matching "capture.mjs".
+
+STEP 4 — If FINISHED:
+  a. `npx tsc --noEmit` then `node tools/capture.mjs --smoke`. Typecheck-clean has passed on a build that did not boot; smoke is the real gate.
+  b. `node tools/capture.mjs` and LOOK at the PNGs with Read. Never trust an agent's summary.
+  c. Update tools/progress.state.json with the real verdicts, `node tools/progress.mjs`, `node tools/readmeshots.mjs`.
+  d. Commit, push, PR (base main, draft false), merge, then `git fetch origin main && git reset --hard origin/main && git push --force-with-lease` (merges are squashed, so ff-only will refuse).
+  e. Remaining work, in order: COURSES re-judge — it scored 5.0 because theme.ground never painted terrain and thirteen theme.props keys had zero reads; that wiring now exists, so its job is to USE it and prove the four courses are distinguishable from the overhead shot without the minimap. Then PERF re-run, which regressed to 475 draw calls and 667k triangles when the item economy fix put 102 boxes on the course. Then closing verdicts on wave 1 (feel, camera, track, look, cast), merged long ago and never judged.
+  f. Standing gaps no single piece owns, for the next coherence pass: the purple tier-3 mini-turbo has still never been seen by anyone; a single carried item is not drawn in the world at all because the orbit rig is only built for count>1; the finish letterbox guillotines the position badge on the one beat it matters.
+
+Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
