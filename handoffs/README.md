@@ -189,6 +189,23 @@ each one failed before its fix landed:
 | `tools/countdown.mjs` | nothing moves, and no boost is granted, before the flag |
 | `tools/phone.mjs` | the race waits for the player, and there are controls on glass |
 | `tools/steercheck.mjs` | left is left — it drives real key events, because `setInput()` bypasses the device layer |
+| `tools/underground.mjs` | the chase lens never ends up inside the landscape |
+
+`tools/underground.mjs` carries three guards, and every one of them was bought
+with a measurement that said the wrong thing:
+
+- **Terrain is the two meshes named `ground` and `embankment`.** Picking them by
+  vertex count also catches grandstands, crowds and an overhead sign, and
+  "reproduced" the bug 8.5 m underground on cone-canyon when the camera was
+  passing beneath a gantry under clear sky.
+- **`reset()` takes `courseId`/`vehicleId` and silently ignores unknown keys.**
+  Passing `course` loads the default, so the test measured cone-canyon four
+  times and printed four course names. It now checks `snapshot().track.id`
+  against what it asked for.
+- **The engine's rAF loop never stops**, and steps the simulation by wall time
+  alongside anything the harness drives, so `setTimeScale(0)` has to be
+  re-applied after *every* reset. Without it a sample labelled `t=2s` is nothing
+  of the sort. `capture.mjs` has always done this and says why.
 
 `tools/countdown.mjs` prints one standing **WARN** that is deliberately not a
 failure: the start grid on cone-canyon stands on a boost strip, so the flag
