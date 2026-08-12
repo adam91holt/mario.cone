@@ -608,6 +608,24 @@ async function runSmoke() {
         console.log(`      ${g.group.padEnd(18)}${String(g.drawn).padStart(6)}`
           + `${String(g.shadow).padStart(8)}${String(g.triangles).padStart(12)}`);
       }
+      // ── and every rung, not only the one the governor is standing on ─────
+      //
+      // The budget used to be printed for rung 0 alone, which is the rung a
+      // struggling machine is trying to get *away* from. A reviewer walked the
+      // other six by hand and found every one of them above rung 0 on draw
+      // calls, with the first rescue rung 14% over the ceiling — and nothing in
+      // the build said so, because nothing in the build had ever looked. The
+      // walk is `__QUALITY.gate().ladder`; the assertions on it are in
+      // `src/core/quality.ts` beside the ceilings, so there is still one copy
+      // of the numbers.
+      if (gate.ladder?.length) {
+        console.log('    the ladder             calls  triangles  shelled  progs');
+        for (const r of gate.ladder) {
+          console.log(`      rung ${r.rung} ${r.label.padEnd(12)}`
+            + `${String(r.drawCalls).padStart(6)}${String(r.triangles).padStart(11)}`
+            + `${String(r.shelled).padStart(9)}${String(r.programs).padStart(7)}`);
+        }
+      }
     } else {
       console.log(`  draw calls   ${stats.drawCalls}`);
       console.log(`  triangles    ${stats.triangles}`);

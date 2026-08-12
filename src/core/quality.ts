@@ -395,12 +395,20 @@
 // ladder's *last* rung, whatever the ladder currently is, so adding rungs
 // cannot quietly exempt them:
 //
-//   qualitydiff — seed 7, cone-canyon, 30s, rungs 0 vs 6
-//     rung 0  high   2048 / dd 1.00 / p 1.00 |  316 calls  625,982 tris
-//     rung 6  floor  2048 / dd 0.55 / p 0.34 |  307 calls  583,446 tris
+//   qualitydiff — seed 7, cone-canyon, 30s, rungs 0 vs 6   (round 14)
+//     rung 0  high   2048 / dd 1.00 / p 1.00 |  323 calls  691,878 tris
+//     rung 6  floor  2048 / dd 0.55 / p 0.34 |  220 calls  586,924 tris
+//     saved 32% of the draw calls, 15% of the triangles
 //     control: two runs at rung 0 are byte-identical
 //     identical at every checkpoint: position, speed, lap, place, coins, item
 //     PASSED
+//
+// The draw-call row is worth reading twice: **316 -> 307** was what the same
+// bench reported one round ago, a nine-call ladder, and the reason it is 103
+// now is `buildShell`. Nothing about the determinism half changed — that is the
+// point. A lever that is ten times more powerful is still a lever nothing in
+// `fixedUpdate` can see, and the same six checkpoints across seven racers say
+// so at both ends of it.
 //
 // Re-run in round eleven with `ShadowShell` in place, which is the addition
 // most worth pointing this bench at: it writes `castShadow` on meshes that
@@ -1175,53 +1183,72 @@ const LADDER: readonly Rung[] = [
 //
 // ── What the seam costs, stated plainly ────────────────────────────────────
 //
-// **Re-taken in round eleven on the `racing` shot at 1600x900**, alongside the
-// `set()` walk in the `LADDER` block, from the same frozen frame in the same
-// session. The table that used to be here came from `tools/framehalf.mjs` on a
-// different frame at a different resolution and read 473 calls / 1,005,886
-// triangles at rung 0 against the ladder table's 189 / 603,706 — two numbers
-// for the same claim, 2.5x apart, in one file. They are one measurement now.
+// **Re-taken in round fourteen**, on the same frozen racing frame at 1600x900
+// as the `LADDER` table, in the same session, `set(i)` against `set(0)+mid(i)`
+// with eight settled renders each.
 //
-//                    whole rung (`set`)        frame-half only (`mid`)
-//   rung 0         663,326 tris / 340 calls    653,084 / 338
-//   rung 3         632,592 / 319                639,846 / 319
-//   rung 6         610,510 / 315                627,040 / 315
+// The table that used to be here had the wrong **sign** in it, which is worse
+// than the wrong magnitude and is what this round was sent back for. It read
+// "rung 0 340 calls, rung 3 319, rung 6 315" — falling — while the live game
+// measured them rising. A reviewer walked the ladder and got 282 → 357 → 352.
+// The file's headline measurement disagreed with the game about which way the
+// ladder went.
 //
-// Read the *columns* rather than the rows: the whole rung and the frame-half
-// are now within 16,530 triangles and **zero draw calls** of each other at the
-// floor, where round eight's equivalent gap was the entire ladder. That is the
-// design working — `scale`, `tier` and `scatter` all came off the seam across
-// rounds eight and nine, so what is still deferred to a race build is only the
-// crowd, the FXAA resolve and the draw distance.
+//                whole rung (`set`)        frame-half only (`mid`)
+//   rung 0     929,774 tris / 386 calls    931,204 / 389
+//   rung 1     930,094 / 330               930,696 / 333
+//   rung 2     917,272 / 328               923,254 / 332
+//   rung 3     904,934 / 303               914,902 / 307
+//   rung 4     896,332 / 305               908,952 / 307
+//   rung 5     857,574 / 298               895,724 / 304
+//   rung 6     834,692 / 295               890,348 / 305
+//
+// Read the *columns* rather than the rows. Both fall, monotonically, which is
+// the property the last build did not have. And the whole rung and the
+// frame-half are within **ten draw calls** of each other at the floor: what is
+// still deferred to a race build is the FXAA resolve and the draw distance, and
+// the draw distance is the whole of the 55,656-triangle gap in the left column
+// — whole batches switching off at their own ring, which is exactly the lever a
+// player can watch go and exactly why it is behind the seam.
 //
 // Round eight is worth keeping in view because it is the measurement that
-// convicted the previous design. Taken when `scale` was seam-held, on a
+// convicted the design before last. Taken when `scale` was seam-held, on a
 // fill-bound machine the mid-race half bought **no measurable time at all** —
 // 1400ms at the floor's frame-half against 1333ms at rung 0, inside the noise,
 // while the whole floor rung ran at 567ms. Almost all of the speed-up was the
 // render scale, and the render scale was the half the player could not have.
 //
-// That is why `scale` and `tier` are seam-safe now and why the list above has
+// That is why `scale` and `tier` are seam-safe now and why the live list has
 // two entries rather than six. What is left behind the seam is the half a
 // person can *watch* rather than the half that costs anything, which is the
 // only version of this rule that was ever worth having.
 //
-// ── ...and what it is worth in time ────────────────────────────────────────
+// ── ...and what it is worth in time, which this file has been overclaiming ──
 //
-// **Triangles were the wrong instrument** and the right one says something much
-// larger. Median rAF period, nine-frame medians, eight alternating pairs so
-// contention lands on both members equally, frozen sim at 1280x720 under
-// SwiftShader. (Kept at the resolution it was taken at rather than restated at
-// 1600x900 it was not — a timing quoted at a resolution it was not measured on
-// is the class of claim this round exists to remove.)
+// **1.43x, end to end, and the number this block used to carry was 1.92x.**
 //
-//   mid(0) 1283ms  ->  mid(6)  750ms    **1.71x**   ratios 1.40 .. 1.98
-//   set(0) 1150ms  ->  set(6)  617ms    **1.92x**   ratios 1.29 .. 2.62
+// The correction is not a re-measurement, it is an admission about the *bench*.
+// A median rAF period on this container is worth almost nothing unless the box
+// is quiet, and nothing in the recipe can tell whether it was: four interleaved
+// passes of `set(0)` against `set(6)`, taken for this round, produced per-pass
+// ratios of **4.62, 3.90, 4.04 and 6.09** — a median of 4.04x for a ladder an
+// independent reviewer measured at 1.43x on an idle machine days earlier, and
+// the file's own note two paragraphs up already explains why: under load the
+// contention lands on the expensive member of every pair and flatters the cut.
+// The same recipe once answered 10.9x for the same thing.
 //
-// **Eighty-nine percent of the whole ladder's speed-up is now available inside
-// one race**, against "no measurable time at all" one round ago. The remaining
-// gap between the two rows is the crowd, the FXAA resolve and the draw
-// distance, and those three are what a race build is for.
+// So the honest figure is the **quiet-box** one, 1.43x, and it is published
+// here as the ladder's authority even though it is the least impressive of the
+// three numbers this file has carried for it. What a reviewer should take from
+// that is the design consequence rather than the digit: **a machine missing
+// 60fps by more than about 1.4x walks to the floor and still misses.** The
+// ladder is a rescue for a machine that is close, and the honest answer for one
+// that is not close is `FUTILE_GAIN` — stop cutting, put the last rung back and
+// stand down — which is already what this file does. See §8.
+//
+// Draw calls and triangles, by contrast, are exact, contention-free and the
+// same on every run, which is why every table in this file is now denominated
+// in them and why `gate()` fails the build on them rather than on a stopwatch.
 //
 // Two things follow that are in the code rather than in this comment. A
 // futility verdict cannot survive a seam (`flushSeam`), because every verdict
@@ -1487,6 +1514,19 @@ const START_RUNG = 0;
 // fifty calls between them are the three items above. They are worth about a
 // hundred and fifty between them, so the derived number is reachable and the
 // only reason it is not the gate today is that this module cannot reach it.
+//
+// ── ...and the row that is closest to its ceiling, which is not draw calls ──
+//
+// On the smoke frame this round measured, rung 0 is **351 of 400 draw calls
+// (88%) and 930,112 of 1,000,000 triangles (93%)**, and the second of those is
+// the one to watch: `world` alone is 562,580 of them. The triangle line is a
+// regression tripwire rather than a frame-rate defence — the frame is
+// fill-bound and this file's own lever table measures every geometry lever at
+// 1-3% — but a tripwire at 93% will fire, and when it does the answer is a
+// conversation with `src/world/` about what the course is made of, **not** a
+// rung of this ladder. The ladder has already given up everything it can take
+// out of the world without a player noticing; the crowd is 172k of that 562k
+// and it is staying. See `ContentTrim.crowd`.
 export interface FrameCeiling {
   /** `renderer.info.render.calls` on a rung-0 racing frame. */
   drawCalls: number;
@@ -4655,7 +4695,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    * `roughness` and `metalness` collapse to the painted-vinyl values every
    * machine is mostly made of (0.5 / 0), so a chrome exhaust and a rubber tyre
    * light the same. That is a specular difference on an object which, at the
-   * loosest rung that shells (`shellPx` 10 → ninety-four metres), is twelve
+   * loosest rung that shells (`shellPx` 14 → seventy-six metres), is seventeen
    * pixels across. Emissive is folded into the baked colour at its own
    * intensity, so a lamp lens still comes out brighter than the housing round
    * it — it stops being *additive*, which is a difference of a few percent of
@@ -7708,9 +7748,22 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
           const simPerFrame = cpuSimRing;
           const updateMs = cpuUpdRing;
           const a = audit();
-          const drawCalls = info.render.calls;
-          const triangles = info.render.triangles;
-          const applies = index === 0 && liveScale > 0.999;
+          // ── which frame the ceilings are judged on ──────────────────────
+          //
+          // The walk drew rung 0 *by construction*, so when there is a walk the
+          // budget is judged on that row rather than on wherever the governor
+          // happened to be standing when the caller asked. That is not a
+          // convenience: on the bench this gate runs on, the governor had
+          // walked to rung 6 by the time the smoke called it, `applies` came
+          // back false, and the whole frame budget — the one assertion this
+          // project has about what a frame may cost — **silently did not run**
+          // and printed "(budget not checked)" in a place that reads exactly
+          // like a pass. A gate whose coverage depends on how loaded the
+          // container was is not a gate.
+          const top = walked.length ? walked[0] : null;
+          const drawCalls = top ? top.drawCalls : info.render.calls;
+          const triangles = top ? top.triangles : info.render.triangles;
+          const applies = top !== null || (index === 0 && liveScale > 0.999);
           const failures: string[] = [];
           if (drawCalls > RUNG0.drawCalls) {
             failures.push(`draw calls ${drawCalls} over the rung-0 ceiling of `
@@ -7743,9 +7796,13 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
               shadow: a.total.shadow,
               drawnTriangles: a.total.drawnTriangles,
             },
-            rung: index,
-            scenePx: `${Math.max(2, Math.round(bufW() * liveScale))}x`
-              + `${Math.max(2, Math.round(bufH() * liveScale))}`,
+            // The rung the numbers above describe, which is 0 whenever there
+            // was a walk. `probe().rung` is where the *governor* is standing.
+            rung: top ? top.rung : index,
+            scenePx: top
+              ? `${Math.max(2, Math.round(bufW()))}x${Math.max(2, Math.round(bufH()))}`
+              : `${Math.max(2, Math.round(bufW() * liveScale))}x`
+                + `${Math.max(2, Math.round(bufH() * liveScale))}`,
             applies,
             pass: failures.length === 0,
             failures,

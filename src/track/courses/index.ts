@@ -474,6 +474,21 @@
 //
 // ── what is honestly still short ───────────────────────────────────────────
 //
+//   * *`tools/underground.mjs` fails Switchback Summit, and it is not the
+//     layout.* One sample in three hundred puts the chase lens 56 degrees and
+//     15 metres above a grounded racer, at the bottom of THE PLUNGE. It was
+//     **measured against the old start line as well** — same tool, same seed,
+//     with only `START` reverted: 58.9 degrees and 16.75 metres, 1/300. So the
+//     re-phase did not cause it and moved it slightly in the right direction;
+//     what causes it is that `render/camera.ts` floors the lens at
+//     `max(roadSurfaceY - 0.35, groundY)` sampled at the *camera's* station,
+//     which on a 37% descent is nine metres behind the kart and three metres
+//     above it — and then the kart lands and drops away underneath the boom.
+//     `groundY` is not the lever here: it is -1 against a road that bottoms at
+//     0.6, which is the rule this directory states and obeys. A camera that
+//     derives its floor from the road *behind* it cannot follow a plunge, and
+//     the plunge is the one thing on this circuit nothing may soften.
+//
 //   * *`kart:launch` still fires four times a race, not once per ramp pass.*
 //     This is not the road — see `RampDef` and `ramp.ts`. Physics zeroes the
 //     kart's surface-normal velocity on **every grounded step**, so the
