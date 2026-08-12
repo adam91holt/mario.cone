@@ -1,6 +1,6 @@
 {
-  "phase": "Wave 2 landed; the player report and its cause are both closed",
-  "phaseNote": "Eight agents, no errors, six verdicts, both pieces ending at 6.5 and every blind A/B still Mario Kart. The player-reported camera burial on Jackhammer Quarry is fixed and gated, and so is the cause underneath it: a critic measured the chase lens sitting a median 24.9 and a peak 73.6 degrees above the kart for 26 of a 57-second lap — half that course played from a satellite — and traced it to render/camera.ts flooring the lens at Math.max(roadY, course.groundY), a flat datum that pins the camera while a road descends below it. The quarry is a 40.5m pit; its groundY now sits at -45 against a road bottoming at -42. tools/underground.mjs grew a second gate for it, on the angle from racer to lens over a full lap, after the critic caught the first gate certifying a course that could not be played. npm test is green on all six: typecheck, smoke, countdown, phone, steer, underground.",
+  "phase": "Wave 3 landed: courses 7.0, perf 7.0",
+  "phaseNote": "Eight agents, no errors, seven verdicts, both pieces ending at 7.0 and every blind A/B still Mario Kart. The scores walked 6.5, 6.5, 6.5, 6.0, 5.5 before recovering to 7.0 twice — critics cutting deeper into pieces that kept improving underneath them rather than a build going backwards. The lowest verdict of the run is the one worth keeping: on a frozen frame, the rescue ladder rung 1 drew 357 calls and 866,894 triangles against rung 0 at 282 and 847,654, so the first step down cost a struggling machine MORE, and every rung below zero was above rung 0 on draw calls. Nine rounds of ladder work and nobody had measured a rung against rung 0 on the same frame.",
   "pieces": [
     {
       "id": "feel",
@@ -124,9 +124,9 @@
       "name": "Course roster",
       "scope": "src/track/courses",
       "state": "fail",
-      "rounds": 12,
-      "verdict": "6.5. Wave 2 ran six verdicts across its rounds and this is the last: 6.5, 6.0 for the satellite camera, then 6.5 again once that was fixed. The road-and-arrival kit is real now — four different gantries, four barriers, four kerbs — and the four grid shots are genuinely four circuits.",
-      "gap": "Cone Canyon and Saltpan Bypass have no chapters: captured at 22%, 50% and 78% of the same lap they are the same picture — same tarmac, same verge, same barrier run, same horizon, same light — so a whole lap of the cup opener and of its longest course passes without the place ever changing. Switchback Summit does exactly this right (valley floor y=14.5, mid-mountain traverse with pines and a drop at y=68.2, summit works at y=114.2) and proves the roster knows how."
+      "rounds": 14,
+      "verdict": "7.0, up from 6.5. Wave 3 ran three courses verdicts — 6.5 on sameness, 6.0 on the ground the camera actually sees, then 7.0. The chapters landed, and a critic measuring one full lap per course reports lap times 51.2/56.4/68.4/61.8s and elevation ranges 27.3/42.7/17.2/101.9m: genuinely four circuits, not a re-skin roster.",
+      "gap": "THE FLOOD — the named signature mechanic of an entire round of the cup — renders as a flat, static, untextured translucent quad with hard straight polygon edges laid on the tarmac, and no racer driving through it produces a single splash, spray plume or wake. Five racers were captured simultaneously inside the water with zero spray between them; the only white particles in frame were item-strike sparks, which is why the crossing reads as a pile-up rather than a flood. Second, smaller: Switchback Summit is a 102m alpine mountain with no trees, bushes or vegetation of any kind."
     },
     {
       "id": "themewire",
@@ -142,9 +142,9 @@
       "name": "Performance",
       "scope": "engine-wide",
       "state": "fail",
-      "rounds": 13,
-      "verdict": "6.5. Four verdicts this wave: 6.5, 7.0, then 6.5 again. The HUD blur the previous round directed was correctly reversed by the next critic, and the ladder got a measured cost table and a gate() front door on capture.mjs.",
-      "gap": "On a failing machine the emergency collapseSeam() path installs the seam-held content levers with no moment gate, so the start-line grandstands empty from packed to bare grey terracing under the 3 of the countdown — the exact regression the seam rule was written to forbid, on the one camera-locked frame in the game with nothing to hide it behind. The repo's own tools/perfgate.mjs already prints FAIL: 2 change(s) inside a sealed phase: countdown,countdown, and photographs it. Holding those levers through the countdown costs the failing machine 0.4% at the floor and 3.8% at the top, against 60.1% for the resolution lever they travel with."
+      "rounds": 16,
+      "verdict": "7.0, recovered from 5.5. Wave 3 ran four perf verdicts — 6.5 on the governor arriving blind, 6.5 on the ladder paying in picture and buying nothing, 5.5 on the ladder costing MORE than rung 0, then 7.0. The 5.5 was the measurement nobody had taken and it stands: rung 1 drew 357 calls against rung 0 at 282.",
+      "gap": "The governor writes the rung it settled on to localStorage and re-applies it on every future launch — a reload boots straight into 0.50 render scale with FXAA off — while the product contains no graphics, quality, resolution or picture control anywhere. ctx.qualityPref publishes all seven rungs with labels, rung, auto, remembered, set() and forget(), and grep finds it read by nothing outside quality.ts and types.ts. So a player downgraded by one busy launch cannot see that it happened, refuse it, or get their picture back."
     },
     {
       "id": "coherence",
