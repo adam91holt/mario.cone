@@ -261,8 +261,8 @@
   // ── board state ──────────────────────────────────────────────────────
   // Updated as the build progresses. Everything below renders from this.
   const STATE = {
-  "phase": "Wave landed: courses 7.0, perf 7.0",
-  "phaseNote": "The courses+perf wave finished all eight agents clean on 2026-08-11. Neither piece passed and both still lose the blind side-by-side against Mario Kart, but the round-1 gaps are closed and measured: the four circuits are now different shapes by the numbers, and the quality ladder no longer moves a visible lever while the player is watching. What each piece earned instead is a sharper gap — the courses are four shapes in one world, and the ladder is down to a single lever that only half the frame obeys. A critic also caught the player-reported camera burial, on Jackhammer Quarry: two of five shots came back as a full frame of grey scree with no kart and no road, because the benches sit hard against the road with no boom clearance.",
+  "phase": "Wave 2 stopped by the weekly agent limit at round 1",
+  "phaseNote": "Both pieces took one round and came back 6.5, and the round-2 build and judge for each died on 'You have hit your weekly limit, resets 11am UTC' rather than on a container suspend. Both verdicts are earned and recorded. The perf result is the interesting one: the previous critic directed that the render scale be published to the HUD so the whole frame softens together, the builder did it, and a fresh critic marked it down for blurring the one layer Nintendo never degrades. Two critics, opposite directives, and the second is right — the instruments are what a player reads in peripheral vision when the game is running worst.",
   "pieces": [
     {
       "id": "feel",
@@ -386,9 +386,9 @@
       "name": "Course roster",
       "scope": "src/track/courses",
       "state": "fail",
-      "rounds": 9,
-      "verdict": "7.0, up from 6.5. The layout gap is closed and measured: longest straight 621m on saltpan against 151m in the quarry (4.1x), elevation 115.2m on switchback against 13.6m on saltpan (8.5x), bounding-box aspect 2.35 on canyon against 1.29 in the quarry. The four map cards — dogleg, comb, wedge, hourglass — now pass the cover-the-names test. Two rounds this wave, 6.0 then 7.0, both losing the blind A/B.",
-      "gap": "The four circuits are now genuinely different shapes but they are still the same place. The same yellow truss gantry, hazard-striped banner, twin grandstands, crowd, bunting, five-bulb light rig and grid geometry appear pixel-for-pixel at all four start lines, and the road kit — striped panel barrier on grey drums, red/white kerb, white edge line, dashed centre — is identical on every course, so choosing a circuit changes the map card and the terrain tint and never changes the world you arrive in."
+      "rounds": 10,
+      "verdict": "6.5, down from 7.0. Wave 2 got one round before the weekly agent limit stopped it. The road-and-arrival kit landed but the critic judged the roster below the skyline and found it thinner than the shapes suggested.",
+      "gap": "Below the skyline the four circuits are one course in four paint jobs — the same dark-grey tarmac and identical #FFF8F0 centreline, the same mottled terrain plane with a visibly repeating hex micro-tile, the same single boulder prop scattered dozens of times, the same blue daylight sky on all four — and the road itself never does anything: three of the four have effectively no surface event on the racing line, with Cone Canyon measuring literally zero metres of anything but tarmac and boost strip across its whole 2.5 km."
     },
     {
       "id": "themewire",
@@ -404,9 +404,9 @@
       "name": "Performance",
       "scope": "engine-wide",
       "state": "fail",
-      "rounds": 10,
-      "verdict": "7.0. The seam rule landed — the crowd trim and every other visible-pop lever are now locked before the flag — but locking them cost the governor its mid-race authority, which round one scored 6.0 for. Two rounds this wave, 6.0 then 7.0, both losing the blind A/B.",
-      "gap": "Mid-race the governor has one working lever, render scale, and it scales the 3D without the DOM HUD: a struggling player watches the world dissolve to half resolution and break into stair-steps underneath numerals that stay pixel-perfect. The seam the ladder rule exists to forbid is now the ladder itself, and the collapse path takes 1.00 to 0.50 in a single frame rather than easing."
+      "rounds": 11,
+      "verdict": "6.5, down from 7.0. The builder did what the last directive asked and published the render scale to the HUD as a blur ramp; the next critic marked it down for exactly that. One round before the limit stopped the wave.",
+      "gap": "When the governor spends resolution it also blurs the instrument set — lap counter, race clock, place badge, coin readout, minimap and item socket all go through a CSS blur up to 1.0px — so the readouts a player parses in peripheral vision get harder to read at exactly the moment the game is running worst, which is the one layer Nintendo never degrades."
     },
     {
       "id": "coherence",
@@ -541,7 +541,7 @@
       "caption": ""
     }
   ],
-  "updated": "2026-08-11 22:46 UTC"
+  "updated": "2026-08-12 11:56 UTC"
 };
 
   const LABEL = { queued: "Queued", build: "Building", review: "In review", fail: "Sent back", pass: "Passed" };

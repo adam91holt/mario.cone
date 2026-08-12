@@ -88,13 +88,17 @@
 //   * **The lake only flooded in one place.** A dry lake does not drain in the
 //     first twelve per cent of a lap. There are two more crossings now, one on
 //     the works leg and one out on the west leg, each leaving its dry lane on
-//     the opposite hand from the other, so the four stations sit about a
-//     kilometre apart the whole way round.
+//     the opposite hand from the other, so the five stations sit about a
+//     kilometre apart the whole way round instead of stacked in the first
+//     eleven seconds. Adding them cost something and it was measured: at the
+//     periods the bypass trio was running, `tools/hazardcensus.mjs` went from
+//     thirteen hits a race to twenty-two against a pass mark of 8-20, so all
+//     five periods are longer now. See `hazards` below.
 //
 // The bypass is also the one straight in the cup with a **building** on it:
 // the salt works' loading jetty crosses it at the start line, on timber piles,
-// with two chutes hanging over the carriageway and a windrow of raw salt on
-// the deck. See `kit`.
+// with a through truss over its deck, a windrow of raw salt along it and two
+// loading chutes discharging onto the crust outside the barrier. See `kit`.
 //
 // Width follows speed here more visibly than anywhere: 34m on the bypass where
 // eight karts fan out four abreast, 21m through the chicane where two of them
@@ -429,21 +433,34 @@ export const saltpanBypass: CourseDefEx = {
     // reports. **Measure it, do not reason about it**: the sign convention in
     // `types.ts` was the wrong way round for a whole round and it cost this
     // course, Cone Canyon and Switchback Summit their entire hazard budget.
+    // ── and what redistributing them costs, measured ───────────────────────
+    //
+    // Two more stations at the periods the bypass trio was already running took
+    // `node tools/hazardcensus.mjs --courses saltpan-bypass --seeds 1,7` from
+    // thirteen hits a race to **21 and 22**, against a pass mark of 8-20. Adding
+    // water without taking any away is not redistribution, it is a flood.
+    //
+    // So the five periods are longer than the eleven seconds the bypass trio
+    // used to share — the bypass keeps the shortest, because it is still the
+    // signature — and no two of the five are the same, which is what keeps the
+    // field from meeting every station on the same phase. Note the arithmetic
+    // that actually moves the number: a bore's hit rate is very nearly its
+    // *armed fraction*, and the armed window is a fixed number of seconds, so
+    // period is the only linear lever on this. The first bore was also sitting
+    // at −2.5m on a driven line whose median is −3.5, which is why it alone was
+    // catching 56% of everything that passed it.
     hazards: [
-      { at: on('THE BYPASS', 0.427), kind: 'surge', period: 11, phase: 0,
-        lateral: -0.15, hit: 'bump', lead: 1.6, signAt: 96 },
-      { at: on('THE BYPASS', 0.627), kind: 'surge', period: 11, phase: 1 / 3,
-        lateral: 0.15, hit: 'bump', lead: 1.6, signAt: 96 },
-      { at: on('THE BYPASS', 0.827), kind: 'surge', period: 11, phase: 2 / 3,
-        lateral: -0.02, hit: 'bump', lead: 1.6, signAt: 96 },
-      // The works leg and the west leg. Thirteen and seventeen seconds rather
-      // than eleven, and prime against each other and against the bypass's
-      // three, so no two stations on this circuit ever come round together —
-      // see `HazardDef.period` on why a hazard whose cycle matches the field's
-      // own spread turns seven racers into one sample.
-      { at: on('s8', 0.41), kind: 'surge', period: 13, phase: 0.45,
+      { at: on('THE BYPASS', 0.427), kind: 'surge', period: 15, phase: 0,
+        lateral: 0.05, hit: 'bump', lead: 1.6, signAt: 96 },
+      { at: on('THE BYPASS', 0.627), kind: 'surge', period: 16, phase: 1 / 3,
+        lateral: 0.18, hit: 'bump', lead: 1.6, signAt: 96 },
+      { at: on('THE BYPASS', 0.827), kind: 'surge', period: 17, phase: 2 / 3,
+        lateral: -0.20, hit: 'bump', lead: 1.6, signAt: 96 },
+      // The works leg and the west leg, each leaving its dry lane on the
+      // opposite hand from the other, so neither teaches you the other.
+      { at: on('s8', 0.41), kind: 'surge', period: 19, phase: 0.45,
         lateral: 0.22, hit: 'bump', lead: 1.6, signAt: 88 },
-      { at: on('s12', 0.19), kind: 'surge', period: 17, phase: 0.80,
+      { at: on('s12', 0.19), kind: 'surge', period: 18, phase: 0.80,
         lateral: -0.22, hit: 'bump', lead: 1.6, signAt: 88 },
     ],
     // The works corners run 1/30 to 1/60 of curvature and the pan's sweeps and

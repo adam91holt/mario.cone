@@ -54,6 +54,16 @@
 //   4. **Build cost only.** Every texture is drawn once and cached by key,
 //      every repeated part is instanced, and `update()` does nothing but sway a
 //      banner and toggle five lamp meshes. No allocation in any hot path.
+//
+// ── and one thing in here that is not a kit ────────────────────────────────
+//
+// `unfoldSkirt`, at the bottom. It is the fix for the chase camera driving
+// underground — a player report, reproduced by `tools/underground.mjs` on two
+// of these four circuits — and it is here because it is a defect in a landscape
+// the courses in this directory are the ones to expose, and because
+// `track/terrain.ts` is not this module's file. It runs on every course, kit or
+// no kit, and it is a no-op on a circuit that does not fold back over itself.
+// Its own comment says what it is, what it measured, and where it belongs.
 
 import * as THREE from 'three';
 import { MeshBuilder, fbm, noise2, smoothstep, surfacePoint, type Lane } from '../geom.ts';
@@ -180,19 +190,19 @@ function seawallTexture(): THREE.CanvasTexture {
     g.fillStyle = '#EFEDE4';
     g.fillRect(0, 0, W, H);
     // The blue capping owns the top band of the profile.
-    const cap = g.createLinearGradient(W * 0.52, 0, W, 0);
+    const cap = g.createLinearGradient(W * 0.42, 0, W, 0);
     cap.addColorStop(0, '#2E6C9E');
     cap.addColorStop(0.45, '#3E82B8');
     cap.addColorStop(1, '#22557D');
     g.fillStyle = cap;
-    g.fillRect(W * 0.52, 0, W * 0.48, H);
+    g.fillRect(W * 0.42, 0, W * 0.58, H);
     g.fillStyle = 'rgba(255,255,255,0.55)';
-    g.fillRect(W * 0.52, 0, 3, H);
+    g.fillRect(W * 0.42, 0, 3, H);
     // Render courses. Wide, shallow, slightly uneven — a wall somebody built.
     for (let i = 0; i < 6; i++) {
       const y = (i + 0.5) * (H / 6);
       g.fillStyle = 'rgba(150,148,138,0.32)';
-      g.fillRect(0, y, W * 0.52, 1.5);
+      g.fillRect(0, y, W * 0.42, 1.5);
     }
     // Crust: salt blooming out of the foot, which is where the pan wets it.
     for (let i = 0; i < 320; i++) {
@@ -204,11 +214,11 @@ function seawallTexture(): THREE.CanvasTexture {
     }
     // Tide staining just above it, so the crust reads as deposited rather than
     // as noise.
-    const stain = g.createLinearGradient(W * 0.30, 0, W * 0.52, 0);
+    const stain = g.createLinearGradient(W * 0.24, 0, W * 0.42, 0);
     stain.addColorStop(0, 'rgba(150,140,110,0.30)');
     stain.addColorStop(1, 'rgba(150,140,110,0)');
     g.fillStyle = stain;
-    g.fillRect(W * 0.30, 0, W * 0.22, H);
+    g.fillRect(W * 0.24, 0, W * 0.18, H);
   });
 }
 
@@ -224,13 +234,16 @@ function snowfenceTexture(): THREE.CanvasTexture {
   return tex('kit:snowfence', 64, 128, (g, W, H) => {
     const rnd = rand(0x7c31d5);
     g.clearRect(0, 0, W, H);
-    // Four slats per 2m of road: a 25cm board on a 50cm pitch.
+    // Four slats per 2m of road: a 31cm board on a 50cm pitch. The gap is what
+    // makes it a snow fence rather than a hoarding, and the board is what makes
+    // it read as one at a hundred metres — under about half and half it stops
+    // being either.
     const SLATS = 4;
     for (let i = 0; i < SLATS; i++) {
       const y = i * (H / SLATS);
-      const wSlat = (H / SLATS) * 0.52;
-      const shade = 0.82 + 0.18 * rnd();
-      const r = Math.round(0x6f * shade), gg = Math.round(0x4e * shade), b = Math.round(0x36 * shade);
+      const wSlat = (H / SLATS) * 0.62;
+      const shade = 0.84 + 0.16 * rnd();
+      const r = Math.round(0x9a * shade), gg = Math.round(0x6d * shade), b = Math.round(0x4a * shade);
       g.fillStyle = `rgb(${r},${gg},${b})`;
       g.fillRect(0, y, W, wSlat);
       // Weathered top edge and a dark grain line down each board.
@@ -246,7 +259,7 @@ function snowfenceTexture(): THREE.CanvasTexture {
     // Two horizontal rails, opaque all the way along, so the fence hangs
     // together instead of reading as loose sticks.
     for (const [u, h] of [[0.22, 5], [0.80, 5]] as const) {
-      g.fillStyle = '#5A3E2B';
+      g.fillStyle = '#6B4A32';
       g.fillRect(u * W, 0, h, H);
       g.fillStyle = 'rgba(232,220,198,0.28)';
       g.fillRect(u * W, 0, 1.5, H);
@@ -465,7 +478,10 @@ function buildSnowFence(c: BarrierCtx): void {
   const fenceMat = new THREE.MeshLambertMaterial({
     map: snowfenceTexture(),
     side: THREE.DoubleSide,
-    alphaTest: 0.5,
+    // 0.35, not 0.5. A 30cm board on a 50cm pitch mips down to roughly 60%
+    // coverage, and a half-alpha cut erodes the fence away exactly where a
+    // player is looking longest — down the road, at distance.
+    alphaTest: 0.35,
     transparent: false,
   });
   c.materials.push(bankMat, fenceMat);
@@ -483,7 +499,7 @@ function buildSnowFence(c: BarrierCtx): void {
   for (const side of [-1, 1] as const) {
     const lanes: Lane[] = [
       { lat: (s) => side * (c.edge(s) + 0.34), lift: () => 0.10, u: 0 },
-      { lat: (s) => side * (c.edge(s) + 0.30), lift: () => 1.52, u: 1 },
+      { lat: (s) => side * (c.edge(s) + 0.30), lift: () => 1.68, u: 1 },
     ];
     if (side < 0) lanes.reverse();
     screen.addRibbon(c.spline, lanes, { verge: c.verge, step: 2, vScale: 2, closed: true });
@@ -527,7 +543,7 @@ function buildSnowFence(c: BarrierCtx): void {
       // stands and what stops it reading as a row of railway sleepers.
       lean.setFromAxisAngle(fwd, side * 0.17);
       q.multiply(lean);
-      scl.set(1, 1.85, 1);
+      scl.set(1, 2.02, 1);
       m.compose(pos, q, scl);
       posts.setMatrixAt(n++, m);
     }
@@ -582,6 +598,12 @@ class Struts {
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
+
+const _shade = new THREE.Color();
+/** A darker mix of a kit colour, so one declared steel can carry two values. */
+function shade(color: number, f: number): number {
+  return _shade.setHex(color).multiplyScalar(f).getHex();
+}
 
 /** A square lattice tower from `y0` to `y1`, half-width `r`, centred at `cx`. */
 function tower(st: Struts, cx: number, y0: number, y1: number, r: number, splay = 1.3): void {
@@ -739,11 +761,20 @@ function buildConveyor(a: BuildArgs): ArrivalParts {
   belt.add(housing);
 
   // A rounded hood on top — the silhouette people recognise a conveyor by.
-  const capMat = new THREE.MeshStandardMaterial({ color: steel, roughness: 0.42, metalness: 0.45 });
+  // Matte and darker than the frame: a polished half-cylinder sixty metres long
+  // catches the whole sky and photographs as a white slab across the top of the
+  // frame, which is what a monorail looks like.
+  const capMat = new THREE.MeshStandardMaterial({
+    color: shade(steel, 0.72), roughness: 0.78, metalness: 0.12,
+  });
   a.materials.push(capMat);
-  const cap = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.15, run, 12, 1, false, 0, Math.PI), capMat);
+  // A full barrel rather than a half shell. A half-cylinder has to be aimed —
+  // `thetaLength` selects an arc, the arc rotates with the group, and a hood
+  // that ends up on the *underside* leaves the flat top of the housing facing
+  // the sky, which is exactly the pale slab this was drawn to get rid of.
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, run, 14), capMat);
   cap.rotation.z = Math.PI * 0.5;
-  cap.position.y = 0.8;
+  cap.position.y = 0.62;
   cap.castShadow = true;
   belt.add(cap);
 
@@ -958,7 +989,7 @@ function buildPylon(a: BuildArgs): ArrivalParts {
   const steel = a.kit.steel ?? 0xb7c0c9;
   const accent = a.kit.accent ?? 0xe04a2b;
   const span = a.span;
-  const TALL = 27, SHORT = 19;
+  const TALL = 23.5, SHORT = 16.5;
 
   const st = new Struts();
   tower(st, -span, -3, TALL, 1.5, 1.6);

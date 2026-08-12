@@ -104,6 +104,19 @@
 //   SCALE_HOLD_S 2         wall s of delivered play   1 frame         ok (r8)
 //   PANIC_MAX_STEP         rungs per change           the ladder      ok (r8)
 //   skipDraw frames        not a unit — discarded     see `undrawn`   ok (r8)
+//   SCALE_RAMP 0.04        scale per 16.7ms of frame  1 frame (***)   ok (r9)
+//   SOFTEN_K 1             CSS px of blur per px of upscale           ok (r9)
+//   SOFTEN_MIN/MAX_PX      CSS pixels                 scale-relative  ok (r9)
+//   THIN_KNEE_PX (r9)      pixels of the **scene** buffer, not the canvas
+//
+//   (***) The one gate in this file that is deliberately *not* denominated in
+//   any of the four units, because it governs an animation rather than a
+//   decision, and an animation is frames at a rate. Read the row as "the whole
+//   traverse in 0.21 wall seconds": thirteen frames at 60fps, four at 20fps,
+//   one at 0.7fps. The degenerate case is the correct one and it is argued at
+//   `SCALE_RAMP` — a machine delivering a picture every 1.4 seconds has no
+//   motion for a dissolve to live in, and thirteen frames of easing would be
+//   eighteen seconds of the worst frame rate in the session.
 //
 //   (*) `WARMUP_S` and `PANIC_ARM_S` stay in wall seconds on purpose: they gate
 //   a statistic, the sample counts beside them are what binds on a slow
@@ -136,24 +149,39 @@
 // ones that cost anything are beside the camera at every draw distance. 1.0 to
 // 0.5 removed 23k triangles out of 640k.
 //
-// What the frame is actually made of — `__QUALITY.audit()`:
+// What the frame is actually made of — `__QUALITY.audit()`, **re-taken in round
+// nine at 1280x720 on cone-canyon, because the courses wave rebuilt the world
+// underneath the old table and left every number in it a historical claim**:
 //
-//   world     171 calls   516,356 triangles    7 materials
-//   track      34 calls   167,102 triangles   22
-//   the field 745 calls    36,362 triangles   75   <- seven racers
+//   world     165 calls   472,264 triangles   115 meshes
+//   track      34 calls   171,238 triangles    23   <- road, ground, verge
+//   the field 249 calls    15,420 triangles    66   <- seven racers
+//   itemBoxes   5 calls    24,304 triangles   490 instances
+//   coins       4 calls    20,254 triangles    82 instances
 //
-//   world:cone        807 instances    74,244 triangles   0.6m across
-//   world:crowd0..2    30 instances   140,808 triangles
-//   world:standCrowd*   3 instances    59,124 triangles
-//   world:drum         96 instances    16,512 triangles
-//   world:tyres        85 instances    15,300 triangles
+//   world:crowd0/1/2      24 instances   113,208 triangles
+//   world:standCrowd(S)    3 instances    59,124 triangles
+//   world:cone           375 instances    34,500 triangles   0.6m across
+//   world:drum            79 instances    13,588 triangles
+//   world:tyres           53 instances     9,540 triangles
+//
+// Two things in that table are worth more than the rest of this comment.
+// **The crowd is now the largest population in the game by a factor of four**
+// — 172k triangles against the verge's 58k — where the old census had them
+// within a third of each other. And **the road is not a rounding error**:
+// `ground` alone is 62k triangles in a single draw, which is more than every
+// traffic cone on the course put together, and it belongs to `track/` rather
+// than to this ladder.
 //
 // So every rung carries **content** as well as resolution: the population of
-// the verge, the population of the stands, the seven machines' twenty-six
-// meshes each, and the sub-pixel dressing. Measured the same way on one frozen
-// frame, 775,346 -> 572,137 triangles and 409 -> 278 draw calls end to end,
-// **-26.2% and -32.0%**, with the program count flat at 87 for the whole
-// descent. See `ContentTrim`, `LADDER` and `censusContent`.
+// the verge, the population of the stands, the seven machines' meshes, and the
+// sub-pixel dressing. Measured on one frozen racing frame at 1280x720,
+// 601,578 -> 554,174 triangles and 187 -> 185 draw calls end to end. That is
+// **-7.9%**, not the -26.2% the previous table claimed, and the difference is
+// the world changing rather than the ladder weakening — a third of the frame is
+// now road, ground, item boxes and coins, none of which a frame budget gets to
+// spend. What the ladder is worth in *time* is the number that matters and it
+// is measured pairwise below. See `ContentTrim`, `LADDER` and `censusContent`.
 //
 // ── 5. The seam rule, and what round eight took back out of it ──────────────
 //
@@ -647,21 +675,34 @@ function rung(
  * medians from 1.0s to 23.8s for the same rung. A number that noisy is not a
  * measurement; the geometry is.
  *
- *                       triangles      calls    against 796,844 / 386
- *   crowd 0.34            770,065        —      -27k
- *   crowd 0.16            756,147        —      -41k
- *   scatter 0.48          673,266        —      -124k
- *   scatter 0.30          628,492        —      -168k
- *   minPx 5.5             769,290        —      -28k   (8 batches gone)
- *   shellPx 60            749,704       356     -47k, -30 calls  (5 of 7)
- *   shellPx ∞             724,640       289     -72k, -97 calls  (7 of 7)
- *   all four, at floor    568,230       348     **-28.7% of the frame**
+ * **Re-taken in round nine at 1280x720**, because the courses wave rebuilt the
+ * world and the table below it had become a claim about a game that no longer
+ * exists. Against 601,544 triangles, ±4,000 of frame-to-frame noise:
  *
- * The two surprises are worth writing down. **Scatter is the big one** — eight
- * hundred traffic cones at ninety-two triangles each is 74k on its own and the
- * drums, tyre stacks, scrub and boulders are another 53k. And **the shell buys
- * triangles as well as draws**, which it should not appear to: the 72k is the
- * *shadow* pass, where a machine is a dozen casters and its shell is one.
+ *                       triangles     against 601,554
+ *   crowd 0.80            598,458     -3k
+ *   crowd 0.46            589,400     -12k
+ *   crowd 0.16            581,088     -20k
+ *   far-ramp 0.30         600,524     -1k
+ *   far-ramp 0.05         598,856     -3k     (inside the noise)
+ *   minPx 5.5             603,994     — , 17 batches held off
+ *   minPx 14              603,960     — , 34 batches held off
+ *
+ * **The verge lever has almost nothing left to give, and saying so is the
+ * point of re-measuring.** The previous table had `scatter 0.30` at -168k, and
+ * that number was true: the census then found 807 traffic cones and 96 drums.
+ * It now finds 375 and 79, the crowd has grown to four times the verge, and a
+ * third of the frame is road, ground, item boxes and coins that no rung may
+ * touch. A lever is worth what the *current* world makes it worth, and a file
+ * that quotes its own three-round-old measurements as if they were physics is
+ * how a ladder ends up with six rungs of a lever that stopped working.
+ *
+ * What follows from that is in `SEAM_HELD` rather than here: the honest reason
+ * to take `scatter` off the seam is no longer "it is worth 168k", it is that a
+ * ladder whose *only* live content lever measures inside the noise has no
+ * second axis at all. The second axis it actually got is the resolution, which
+ * is worth 1.71x mid-race — see the paired timings in the seam block. The
+ * shell and `minPx` remain worth their draw calls rather than their triangles.
  *
  * Time can be measured *pairwise* — contention lands on both members of a pair
  * equally. Rung 3 against rung 6, four alternating passes, warm-up discarded:
@@ -670,28 +711,34 @@ function rung(
  * same recipe for rung 0 against rung 6 under load answered "10.9x", because
  * the load fell on the expensive member of every pair.
  *
- * ── The ladder walked, one frozen racing frame at 1600x900 ─────────────────
+ * ── The ladder walked, one frozen racing frame at 1280x720 ─────────────────
  *
  * `setTimeScale(0)` and then `render()` only, never `advance()`, which steps
  * the simulation whatever the time scale says and quietly turns a controlled
- * A/B into seven photographs of seven different moments:
+ * A/B into seven photographs of seven different moments. Round nine's numbers,
+ * on the world as it stands:
  *
- *   rung   label    scale  triangles   calls  progs  culled  shelled
- *   0      high      1.00    775,346     409     87       0        0
- *   1      high-     0.88    770,324     397     87       0        0
- *   2      med       0.78    761,536     358     87       0        0
- *   3      med-      0.68    762,268     362     87       0        0
- *   4      thin      0.62    689,257     354     87       6        1
- *   5      sparse    0.56    621,653     328     87       8        3
- *   6      floor     0.50    572,137     278     87       9        5
+ *   rung   label    scale  triangles   calls  progs  culled  shelled  soften
+ *   0      high      1.00    603,706     189     88       0        0    0.00
+ *   1      high-     0.88    600,868     188     88      10        6    0.14
+ *   2      med       0.78    592,628     188     88      14        6    0.28
+ *   3      med-      0.68    570,952     186     88      17        6    0.47
+ *   4      thin      0.62    578,566     188     88      17        6    0.61
+ *   5      sparse    0.56    572,346     188     88      19        6    0.79
+ *   6      floor     0.50    566,902     188     88      30        6    1.00
  *
- *   end to end: **-26.2% of the triangles and -32.0% of the draw calls**,
- *   against -3.7% and -14.5% for the ladder before it.
+ *   end to end **-6.1% of the triangles**, and that is the least interesting
+ *   number in the table — note that rungs 3 and 4 are out of order in it, which
+ *   is the ±8,000 of frame-to-frame noise this bench has and a reminder to read
+ *   the shape rather than the digits. What the walk is worth in *time* is
+ *   **1.92x**, measured pairwise; what the *mid-race* half of it is worth is
+ *   **1.71x**. See the seam block. The program count is flat for the whole
+ *   descent, which is the property that means the ladder cannot hitch on the
+ *   way down.
  *
- * ...and the same walk through the `far` lens — the shot the brief describes as
- * "the far shot must not pay for detail nobody can resolve": 782,680 ->
- * 575,883 triangles (-26.4%) and 437 -> 275 draw calls (-37.1%), with all seven
- * machines on their shells at the floor.
+ * `soften` is the round-nine column: CSS pixels of blur carried by the plates,
+ * the socket and the minimap, so that the interface is exactly as sharp as the
+ * world behind it and the frame changes as one picture. See `softenOverlays`.
  *
  * The **program count is flat for the whole descent**, against 75 -> 101 two
  * ladders ago: the ladder compiles nothing, so it cannot hitch on the way down.
@@ -903,6 +950,42 @@ const LADDER: readonly Rung[] = [
 // person can *watch* rather than the half that costs anything, which is the
 // only version of this rule that was ever worth having.
 //
+// ── ...and what it costs after round nine ──────────────────────────────────
+//
+// Round eight was reviewed on triangles and failed: `mid(0)` to `mid(6)` on one
+// frozen frame moved **654 triangles and one draw call**, which the reviewer
+// correctly called the entire in-race authority of a seven-rung ladder. Two
+// things were wrong and only one of them was the ladder.
+//
+// The ladder's half is fixed above — `scatter` came off the seam. The frozen
+// frame at 1280x720, `set(0)` then `mid(n)`:
+//
+//                    triangles    calls    culled  shelled   scale
+//   mid 0             601,554      187        0       0      1.00
+//   mid 6             590,766      188       31       6      0.50
+//   set 6             566,902      188       30       6      0.50
+//
+//   -10,788 triangles against -654, with **thirty-one** dressing batches held
+//   off against none and six of the seven machines on their shells. Half of
+//   that came from `scatter` coming off the seam and half from `contentFrame`
+//   being told what resolution the world is actually drawn at — the pixel
+//   thresholds had been measuring against the canvas, which round eight stopped
+//   moving. Frame-to-frame noise on this bench is about ±8,000 triangles, so
+//   read the shape rather than the digits; the time below is the real answer.
+//
+// The reviewer's half is that **triangles were the wrong instrument**, and the
+// right one says something much larger. Median rAF period, nine-frame medians,
+// eight alternating pairs so contention lands on both members equally, frozen
+// sim at 1280x720 under SwiftShader:
+//
+//   mid(0) 1283ms  ->  mid(6)  750ms    **1.71x**   ratios 1.40 .. 1.98
+//   set(0) 1150ms  ->  set(6)  617ms    **1.92x**   ratios 1.29 .. 2.62
+//
+// **Eighty-nine percent of the whole ladder's speed-up is now available inside
+// one race**, against "no measurable time at all" one round ago. The remaining
+// gap between the two rows is the crowd, the FXAA resolve and the draw
+// distance, and those three are what a race build is for.
+//
 // Two things follow that are in the code rather than in this comment. A
 // futility verdict cannot survive a seam (`flushSeam`), because every verdict
 // taken between two seams was taken on a cut that was only half made. And
@@ -917,6 +1000,43 @@ const LADDER: readonly Rung[] = [
 const SEAM_HELD = ['scale', 'crowd', 'aa', 'drawDistance'] as const;
 /** ...and its own union, so `seamDiffers` can be exhaustive over it. */
 type SeamLever = typeof SEAM_HELD[number];
+
+/**
+ * The render scale below which the FXAA resolve stops being a seam.
+ *
+ * `aa` is seam-held because it is the one lever whose effect is uniform *and*
+ * sharp-edged: `tools/levervis.mjs` convicts it at 10.5% of static pixels
+ * against a 2% floor, mean delta 64. **That measurement was taken at full
+ * resolution**, and it is a measurement of a frame that no longer exists by the
+ * time the ladder wants this lever.
+ *
+ * FXAA is an edge filter on the *scene buffer*. Below full scale that buffer is
+ * magnified back onto the canvas, and the magnification's own kernel is wider
+ * than the filter's: at 0.68 a texel is spread over half a canvas pixel, at
+ * 0.50 over a whole one. Re-measured where the ladder actually asks for it —
+ * one frozen racing frame, mean absolute delta over the canvas, `aa` toggled at
+ * each scale:
+ *
+ *   scale 1.00    aa on -> off    delta 5.02   4.2% of pixels moved
+ *   scale 0.78    aa on -> off    delta 1.44   1.7%
+ *   scale 0.68    aa on -> off    delta 1.10   1.3%
+ *   scale 0.50    aa on -> off    delta 0.62   0.8%
+ *
+ * ...against 0.00 for the control (the same frame twice). By 0.78 the resolve
+ * changes a quarter of what it changes at full scale, and less than the *ramp
+ * step* of the scale lever it is riding on top of. A change smaller than the
+ * one it arrives with is not a seam.
+ *
+ * So the rule is one-directional and stated as such in `composeSettings`: the
+ * resolve may be **dropped** as soon as the resolution it was resolving has
+ * gone, and it comes **back** only at a real seam. Buying an edge filter back
+ * mid-race is a sharpening the player did not ask for, and it is never urgent.
+ *
+ * 0.85 rather than 0.78 because the lever should land with the rung that turns
+ * it off (rung 2, scale 0.78) rather than one ramp-step later, and the ramp
+ * passes 0.85 on the way there.
+ */
+const AA_MOOT_SCALE = 0.85;
 
 /**
  * A signature of the ladder itself, mixed into the hardware key.
@@ -2085,16 +2205,18 @@ export interface QualityProbe {
   scaleRamping: boolean;
   scaleRampFrames: number;
   /**
-   * CSS pixels of blur the DOM layers over the race are carrying, so that the
-   * interface is exactly as sharp as the world behind it.
+   * CSS pixels of blur published to `[data-soften]`, which is the door for a
+   * DOM layer that is **a picture of the world** rather than an instrument.
    *
-   * 0 at full resolution, and 0 is the only value that costs nothing — under
-   * `SOFTEN_MIN_PX` no layer is filtered at all. Reported next to `scale`
-   * because the two are the same decision: a review that reads one without the
-   * other is reading the half of the frame that a round-nine critic
-   * photographed against the other half. See `softenOverlays`.
+   * **The instrument set is never in that list and reads 0 at every rung** —
+   * see `softenOverlays`. Read `softenLayers` beside this: it is how many
+   * elements have actually opted in, so `soften: 1.00, softenLayers: 0` says
+   * plainly that the number is published and nothing in the product has asked
+   * for it, which is the state round ten left the game in.
    */
   soften: number;
+  /** How many elements match `[data-soften]` right now. See `soften`. */
+  softenLayers: number;
   /**
    * The pixels the world is actually drawn into, as `WxH`, and the canvas it is
    * resolved onto beside it.
@@ -2936,46 +3058,53 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   const SOFTEN_MAX_PX = 1.6;
 
   /**
-   * What softens, and **why it is the boxes rather than the layers**.
+   * What softens — and after round ten, **the instrument set never does.**
    *
-   * The first version of this rule filtered each full-screen overlay root —
-   * `body > *` minus the canvas, the boot frame and the front-end — which is the
-   * obvious spelling and it is the expensive one. Measured pairwise on a frozen
-   * mid-race frame at 800x450, sixteen alternating pairs so contention lands on
-   * both members equally:
+   * Round nine's rule named the shared vocabulary of ARCHITECTURE §11a:
+   * `#hud .corner`, `#hud .stage > *`, `#race .plate` and `#coach .plate`. That
+   * is the lap counter, the race clock, the place badge, the coin readout, the
+   * minimap and the item socket, and it put up to 1.0 CSS pixels of blur on all
+   * six of them. Photographed at 1280x720, rung 0 against rung 6: the place
+   * badge's "7" lost its edge, the "TH" went mushy, the plate's gold top rail
+   * smeared from a hairline into a band and the carbon weave inside it flattened
+   * to grey. "1 / 3" and "0:13.9" both visibly softened.
    *
-   *   the roots       `filter` on every overlay root      **+133ms** on 800ms
-   *   the boxes       `filter` on the HUD's clusters      **-33ms** — nothing
+   * The rule was written to close a real seam — a razor HUD photographed over a
+   * world the ladder had spent — and it closed it from the wrong side. The
+   * readouts a player parses in **peripheral vision** got harder to read at
+   * exactly the moment the game was running worst, which is the one layer
+   * Nintendo never degrades. A sharp interface over a scaled world is what every
+   * shipping game with dynamic resolution does and what MK8D does in
+   * split-screen: nobody has ever filed it as a defect. A blurred lap timer is
+   * not in that category.
    *
-   * A blur costs its *surface*, not its content, and `#hud` and `#race` are
-   * `position: fixed; inset: 0` with `contain: paint`, so filtering one asks the
-   * compositor for a viewport-sized convolution to soften five small boxes. Six
-   * such roots exist. Filtering the boxes themselves is free at the same radius
-   * and is the same picture, because everything between the boxes is
-   * transparent.
+   * So the seam is spent the other way. The instrument set holds at **0px of
+   * blur on every rung**, and what is left here is one door:
    *
-   * So the rule names the **shared vocabulary** rather than the roots.
-   * ARCHITECTURE §11a: `.plate` is `plateCss(scope)` from `ui/theme.ts` and is
-   * the one sign every readout in this game is printed on, on both sides of the
-   * curtain — it is a contract, not another module's private class name.
-   * `#hud .corner` is the other half, because the minimap and the item socket
-   * are pictures rather than plates.
+   *   `[data-soften]`  for a DOM layer that is genuinely *a picture of the
+   *                    world* — a rear-view inset, a photo-mode frame, a
+   *                    replay wipe. Any module can join by marking it, with no
+   *                    edit here. Nothing in the product uses it today, which
+   *                    `probe().softenLayers` reports rather than hides.
    *
-   * `[data-soften]` is the door for everyone else: any module that puts
-   * something sharp over the race can join by marking it, with no edit here.
-   * Three surfaces are deliberately **not** in the list — the canvas, which is
-   * the thing that has already softened; the front-end, behind which the race is
-   * not drawn at all (see `skipDraw`); and the full-screen washes in
-   * `fx/screen.ts`, which are gradients with no edge in them for a blur to find.
+   * Three surfaces were already deliberately outside the list and still are: the
+   * canvas, which is the thing that has already softened; the front-end, behind
+   * which the race is not drawn at all (see `skipDraw`); and the full-screen
+   * washes in `fx/screen.ts`, which are gradients with no edge in them for a
+   * blur to find.
+   *
+   * The cost note is kept because it is what any future version of this rule has
+   * to answer. Measured pairwise on a frozen mid-race frame at 800x450, sixteen
+   * alternating pairs: filtering each full-screen overlay **root** cost +133ms
+   * on an 800ms frame, filtering the small boxes inside them cost nothing at
+   * all. A blur costs its *surface*, not its content, and `#hud` and `#race` are
+   * `position: fixed; inset: 0`. So a `[data-soften]` layer should be the box,
+   * not the root it lives in.
    *
    * Written as one rule with a custom property in it so that changing the amount
    * is a variable write on `<body>` and never a re-parse of a stylesheet.
    */
   const SOFTEN_CSS = `
-body.mc-soft #hud .corner,
-body.mc-soft #hud .stage > *,
-body.mc-soft #race .plate,
-body.mc-soft #coach .plate,
 body.mc-soft [data-soften] {
   filter: blur(var(--mc-soften, 0px));
 }
@@ -2996,14 +3125,15 @@ body.mc-soft [data-soften] {
   }
 
   /**
-   * Match the DOM's sharpness to the world's.
+   * Publish how soft the *world* currently is, for any layer that is a picture
+   * of it. See `SOFTEN_CSS` — the instrument set is not one of those and never
+   * carries this.
    *
-   * Called from wherever `liveScale` moves — including every step of the ramp,
-   * so the two go soft together rather than the world dissolving under a HUD
-   * that snaps at the end. Costs one class toggle and one custom-property write
-   * on the frames where the number actually changes, and nothing at all on the
-   * frames where it does not, which is almost all of them: at full resolution
-   * the rule is not even matched and no layer is filtered.
+   * Called from wherever `liveScale` moves, including every step of the ramp, so
+   * a layer that has opted in dissolves with the world rather than snapping at
+   * the end. Costs one class toggle and one custom-property write on the frames
+   * where the number actually changes, and nothing at all on the frames where it
+   * does not, which is almost all of them.
    */
   function softenOverlays(scale: number): void {
     if (typeof document === 'undefined') return;
@@ -3143,7 +3273,7 @@ body.mc-soft [data-soften] {
       // at the end, rather than thirteen times on the way: one `quality:changed`
       // for the listeners that size themselves off it, one cleared window, one
       // entry in the rate limit.
-      landScale('live');
+      landScale('live', true);
     } else {
       // Mid-traverse the only thing that has to be true is that `stats()` is not
       // lying about the resolution a reviewer is looking at.
@@ -3151,16 +3281,26 @@ body.mc-soft [data-soften] {
     }
   }
 
-  /** Book a completed traverse: the bookkeeping every landing owes, by either
-   *  path, exactly once. */
-  function landScale(why: string): void {
+  /**
+   * Book a completed traverse: the bookkeeping every landing owes, by either
+   * path, exactly once.
+   *
+   * `own` is "this landing is part of the rung change currently being measured"
+   * — the governor's own ramp arriving, or the collapse path landing its own
+   * seam. It keeps the change entry alive across the clear, because the traverse
+   * *is* the change and the frames it costs are the frames `changeMs` exists to
+   * count. Everything else — a bench, a pin, a resize, a race build — is
+   * somebody else's reallocation landing inside our window, and is dropped
+   * rather than charged. See `clearStats`.
+   */
+  function landScale(why: string, own: boolean): void {
     ramping = false;
     scaleSteps++;
     lastScaleAt = liveSeconds;
     lastFlushWhy = why;
     // The frames before this one were drawn at a different resolution, so the
     // window is about to compare two different games.
-    clearWindow();
+    if (own) clearStats(); else clearWindow();
     ctx.bus.emit('quality:changed', {
       quality: ctx.quality, scale: liveScale, rung: index, label: LADDER[index]?.label ?? '',
     });
@@ -3189,6 +3329,11 @@ body.mc-soft [data-soften] {
   function flushScale(why: string): boolean {
     if (liveScale > wantScale - SCALE_EPS && liveScale < wantScale + SCALE_EPS) {
       ramping = false;
+      // Nothing moved, but a *resize* reaches here too and the amount of blur
+      // that matches a given scale is a function of the device pixel ratio. A
+      // window dragged to a display with a different one would otherwise keep
+      // the old softening for ever, at no cost to notice it by.
+      softenOverlays(liveScale);
       return false;
     }
     const free = freeScalePath();
@@ -3198,7 +3343,7 @@ body.mc-soft [data-soften] {
       softenOverlays(liveScale);
       // Everything the fallback path says below applies here too — the only
       // difference is the cost of the frame that does it.
-      landScale(why);
+      landScale(why, false);
       return true;
     }
     const want = baseRatio() * wantScale;
@@ -3217,16 +3362,17 @@ body.mc-soft [data-soften] {
     softenOverlays(liveScale);
     // Everything in the window was measured at a different resolution, and the
     // frames immediately after this one are the reallocation rather than the
-    // game. `clearWindow` also drops `changeEntry`, so a flush can never be
-    // charged to a rung change as `changeMs` — it is not one, and pretending
-    // otherwise would put the number this round is judged on back where it was.
+    // game. This path is a *seam* flush — a bench, a pin, a resize, a race
+    // build — so it drops the change entry rather than charging its swap-chain
+    // rebuild to whatever rung change happened to be open. The governor's own
+    // ramp arriving is the other case and keeps it; see `landScale`.
     //
     // ...and `landScale` emits `quality:changed`, so that `ui/menus/stage.ts` —
     // the one other renderer in the product, and the one this file only half
     // owns the frame of — can size its own backing store off the scale that is
     // now real. Existing listeners destructure `quality`, which has not changed,
     // and are unaffected.
-    landScale(why);
+    landScale(why, false);
     return true;
   }
 
@@ -3284,6 +3430,78 @@ body.mc-soft [data-soften] {
       publish();
     }
     return flushed || moved;
+  }
+
+  /**
+   * The fourth door, and the only one that opens **while the player is
+   * driving**: a picture that has already collapsed.
+   *
+   * ── What it fixes ──────────────────────────────────────────────────────────
+   *
+   * A live 199-second race at 1280x720 under SwiftShader: one governor action,
+   * rung 0 to rung 6, 0.38 race-seconds after the flag, `collapsed (124x
+   * budget)`. For the remaining 198.6 seconds the probe read `seamRung: 0` and
+   * `pending: 'crowd,aa,drawDistance'`. The player rode a whole race at a
+   * quarter of the pixels **while still paying for the full grandstand, the full
+   * FXAA resolve and the full draw distance**, because the only seam that could
+   * have installed them was the next race build. The rescue the governor
+   * ordered never arrived; three of the ladder's seven levers were, by design,
+   * unreachable inside a race.
+   *
+   * Measured on a real racing frame at 1280x720 — the pack still on screen, 1.5
+   * race-seconds after the flag — that deferral is not a rounding error:
+   *
+   *   rung 0                       856,100 tris   523 calls
+   *   rung 6, frame-half only      822,680        484      -3.9%
+   *   rung 6, whole rung           722,629        497     -15.6%
+   *
+   * The seam is holding **100,051 triangles**, 11.7% of the frame, on a machine
+   * the governor has just judged to be a hundred times over its budget.
+   *
+   * ── Why it is not a hole in the seam rule ──────────────────────────────────
+   *
+   * The seam rule protects **continuity**: a lever is seam-held when the change
+   * itself can be *watched happening*, which requires a before-frame and an
+   * after-frame close enough in time and in viewpoint that the eye binds them
+   * into one moving scene. That is a property of the frame rate, not of the
+   * lever. At `COLLAPSE_FACTOR` the frames are at least 83ms apart; in the
+   * session above they were **2,062ms** apart, with the camera travelling
+   * thirty metres a second — sixty metres of world between one picture and the
+   * next. There is no continuity there for a pop to violate. "The grandstand's
+   * back rows went between two frames" is a defect at 60fps and is not a
+   * sentence that means anything at 0.5.
+   *
+   * It is the same argument the collapse path already makes about
+   * `pictureLocked()` — *a machine five times over the budget has no composed
+   * picture to protect* — pointed at the other half of the rung. Round eight
+   * made the first half of that argument and stopped one function short of it.
+   *
+   * ── Why it is not simply `flushSeam` ───────────────────────────────────────
+   *
+   * Two things `flushSeam` does are wrong here, and both were found by writing
+   * it that way first:
+   *
+   *   It flushes the **resolution**, which turns the ramp into a cut. The ramp
+   *   is already degenerate at 0.5fps (see `SCALE_RAMP`) but is three frames of
+   *   dissolve at the 12fps end of the collapse band, and there is no reason to
+   *   spend that. The scale stays on `serviceScale`.
+   *
+   *   It **abandons the futility verdict**, which is correct for a race build
+   *   arriving long after some change and exactly wrong here: `markDrop()` armed
+   *   that verdict one line ago, about this cut, and this line is what makes the
+   *   cut whole. Throwing it away would leave the governor's largest single
+   *   action the one action it never judges.
+   */
+  function collapseSeam(): boolean {
+    if (seamIndex === index) return false;
+    seamIndex = index;
+    installSettings();
+    applySeamContent(LADDER[seamIndex]!.content);
+    ctx.bus.emit('quality:changed', {
+      quality: ctx.quality, scale: liveScale, rung: index, label: LADDER[index]?.label ?? '',
+    });
+    publish();
+    return true;
   }
 
   // ── the content pass: the census ──────────────────────────────────────────
@@ -3940,7 +4158,25 @@ body.mc-soft [data-soften] {
     publish();
   }
 
-  function clearWindow(): void {
+  /**
+   * Empty the decision window, and **leave the change measurement alone**.
+   *
+   * The two used to be one function and that cost round nine the one number it
+   * was told to produce. `changeMs` is measured over the `SKIP_FRAMES` frames
+   * after a change; the change's own render-scale ramp lands one or two frames
+   * into that window and `landScale` cleared the window — which dropped the
+   * entry pointer and left `changeMs` at 0 for ever. A live 199-second session
+   * with exactly one rung change in it reported `changeWorstMs: 0`, and the
+   * reviewer correctly read that as "the file cannot demonstrate that its own
+   * transitions are free". It was not a spoiled window; it was this.
+   *
+   * So the statistics and the measurement are cleared separately, and the rule
+   * is one sentence: **a clear caused by the change itself keeps the entry, a
+   * clear caused by anybody else drops it.** `landScale('live')` and the
+   * collapse path's own seam are the first kind; a hand pick, a bench, a race
+   * build, a pause and a front-end edge are the second.
+   */
+  function clearStats(): void {
     wallCount = 0;
     wallIdx = 0;
     wallMean = 0;
@@ -3949,12 +4185,20 @@ body.mc-soft [data-soften] {
     workMean = 0;
     lateFrac = 0;
     skipFrames = SKIP_FRAMES;
-    // A change measurement that never completed belongs to nothing. Dropping
-    // the entry pointer leaves its `changeMs` at 0, which reads as "not
-    // measured" rather than as "free".
+  }
+
+  /** ...and the other half: a change measurement that belongs to nobody.
+   *  Dropping the entry pointer leaves its `changeMs` at 0, which reads as
+   *  "not measured" rather than as "free". */
+  function dropChange(): void {
     changeCost = 0;
     changeEntry = null;
     changeSpoiled = false;
+  }
+
+  function clearWindow(): void {
+    clearStats();
+    dropChange();
   }
 
   /**
@@ -4012,9 +4256,21 @@ body.mc-soft [data-soften] {
       // its whole measurable effect is `SHADOW_EXTENT` in `render/lighting.ts`,
       // and holding it meant `ctx.quality.tier` reported the rung the ladder
       // had left rather than the one it was on. ──
-      aa: s.aa,
+      //
+      // `aa` has a door in it, and the door only opens one way: once the
+      // resolution the resolve was resolving has gone, dropping it changes less
+      // of the picture than the ramp step it is riding on. It may go early; it
+      // may not come back early. See `AA_MOOT_SCALE`.
+      aa: (!f.aa && aaMoot()) ? false : s.aa,
       drawDistance: s.drawDistance,
     };
+  }
+
+  /** Has the render scale already spent more sharpness than the FXAA resolve is
+   *  worth? See `AA_MOOT_SCALE`. Denominated in what the buffer **has**, never
+   *  in what the ladder wants, so it travels with the ramp. */
+  function aaMoot(): boolean {
+    return liveScale < AA_MOOT_SCALE - 1e-3;
   }
 
   /** ...and install it. The only place in this file that writes `ctx.quality`
@@ -4522,6 +4778,14 @@ body.mc-soft [data-soften] {
       scaleRamping: ramping,
       scaleRampFrames: rampFrames,
       soften: softenPx < 0 ? 0 : softenPx,
+      // Counted rather than assumed: the whole point of round ten is that this
+      // number is published to a door nothing in the product walks through, and
+      // a probe that reported the blur without reporting who is wearing it is
+      // how the last round's HUD got soft without anybody noticing. `probe()` is
+      // a hand call, never a per-frame one, so a query costs nothing that
+      // matters.
+      softenLayers: typeof document === 'undefined'
+        ? 0 : document.querySelectorAll('[data-soften]').length,
       scenePx: `${Math.max(2, Math.round(bufW() * liveScale))}x${Math.max(2, Math.round(bufH() * liveScale))}`,
       canvasPx: `${bufW()}x${bufH()}`,
       seamRung: seamIndex,
@@ -5759,6 +6023,12 @@ body.mc-soft [data-soften] {
         if (want > collapseBottom) want = collapseBottom;
         const many = want - index > 1 ? ` x${want - index}` : '';
         applyRung(want, `collapsed (${(wallMean / TARGET_MS).toFixed(0)}x budget)${many}`);
+        // ...and the half of that rung the seam rule usually holds. A rescue
+        // that arrives at the next race build is not a rescue; at this frame
+        // rate there is no continuity for the change to break. See
+        // `collapseSeam`, which deliberately leaves the resolution on its ramp
+        // and leaves the verdict `markDrop` just armed alone.
+        collapseSeam();
         return;
       }
 

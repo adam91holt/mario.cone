@@ -13,24 +13,31 @@
 //                             hundred metres apart, an elbow at one end and
 //                             the Carousel hooked round the other; 2.4:1 on
 //                             the map card, which is twice as thin as anything
-//                             else in the cup.
+//                             else in the cup. *Yellow truss gantry, striped
+//                             panel barrier, red-and-white kerb* — the poster.
 //   2  Jackhammer Quarry      3 laps · 2.50km · 5 short strips · 2 cuts ·
 //                             2 spills · THE CUT · THE HAUL TRUCK. **The
 //                             comb.** Four hairpins folding four benches into
 //                             a square, with the haul road wrapped round the
 //                             outside. 249 metres of the lap under a 40-metre
 //                             radius; the longest straight anywhere on it is
-//                             160.
-//   3  Saltpan Bypass         2 laps · 3.52km · 3 long strips · 1 cut ·
-//                             1 drift · THE FLOOD · THE SURGE · THE CAUSEWAY.
-//                             **The wedge.** A right triangle with a
-//                             640-metre ruler down the hypotenuse and three
-//                             sheets of standing brine laid across it.
+//                             160. *Overland conveyor across the grid,
+//                             concrete jersey barrier, hazard kerb.*
+//   3  Saltpan Bypass         2 laps · 3.52km · 4 long strips · 1 cut ·
+//                             1 drift · THE FLOOD (5 crossings) · THE SURGE ·
+//                             THE CAUSEWAY. **The wedge.** A right triangle
+//                             with a 640-metre ruler down the hypotenuse,
+//                             three sheets of standing brine laid across it
+//                             and one on each of the other two sides.
+//                             *Loading jetty on piles, salt-crusted low wall,
+//                             works-blue kerb, yellow lines.*
 //   4  Switchback Summit      3 laps · 2.68km · 5 strips, all uphill · 1 cut ·
 //                             1 washout · THE KICKER · THE GATE. **The
 //                             hourglass.** Two lobes and a waist, the waist
 //                             being the gorge the road climbs out of and
 //                             plunges back into. 115 metres of climb.
+//                             *Cable-car pylons and two gondolas over the
+//                             line, timber snow fence, slate-and-snow kerb.*
 //
 // ── the round that gave the four circuits four shapes ──────────────────────
 //

@@ -406,7 +406,7 @@ export const jackhammerQuarry: CourseDefEx = {
       chequer: { dark: '#23262E', light: '#EFE9D8' },
       steel: 0x6d777e,
       accent: 0xf2b705,
-      banner: { field: '#2C3038', ink: '#F2B705', strip: '#B9C1C8' },
+      banner: { field: '#23262E', ink: '#F2B705', strip: '#F2B705' },
     },
 
     // ── the pit ───────────────────────────────────────────────────────────
