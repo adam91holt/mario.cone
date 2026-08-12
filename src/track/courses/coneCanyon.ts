@@ -439,7 +439,15 @@ export const coneCanyon: CourseDefEx = {
           from: on('r1', 0.05),
           to: on('r2', 0.24),
           height: 15,
-          batter: 4.2,
+          // **Five, and it was 4.2.** A critic photographed this chapter and
+          // reported the face *"fills 45% of the frame"* and *"reads as a
+          // painted backdrop"*. The second half is answered in `buildCutting`
+          // — the wall is benched, it wanders, and there are blocks at its toe
+          // now — and this is the first half: a bigger batter leans the upper
+          // lift back off the road, and the berm's own set-back takes another
+          // metre and a half of it out of the frame again, without touching
+          // the toe, the crest height or the horizon it closes.
+          batter: 5,
           // A shade darker and redder than `theme.ground`: a freshly blasted
           // face is the unweathered rock the desert crust is made out of.
           tint: 0xa85f31,

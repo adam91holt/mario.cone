@@ -30,6 +30,11 @@
 //                             cup that is not played at midday. See its theme
 //                             block: violet zenith, amber horizon, dust that
 //                             the low sun is coming through rather than over.
+//                             Three chapters, and two of them have **one
+//                             face**: the Tip Face over the outside of the
+//                             first hairpin, the Cut walled on both hands at
+//                             the bottom of the pit, and the High Wall along
+//                             the haul road out.
 //   3  Saltpan Bypass         2 laps · 3.52km · 4 long strips · 1 cut ·
 //                             1 drift · THE FLOOD (5 crossings) · THE SURGE ·
 //                             THE CAUSEWAY. **The wedge.** A right triangle
@@ -52,9 +57,12 @@
 //                             valley floor under them and a near-level summit
 //                             plateau over them. *Cable-car pylons and two
 //                             gondolas over the line, timber snow fence,
-//                             slate-and-snow kerb.* Two built places: the
-//                             gallery on the climb and the Cutting Sweep's rock
-//                             trench in front of the kicker.
+//                             slate-and-snow kerb.* Three built places: the
+//                             Notch's one-faced rock cut where the gradient
+//                             arrives, the gallery on the climb, and the
+//                             Cutting Sweep's trench in front of the kicker.
+//                             **The lap is cut at the foot of the mountain**,
+//                             not on the valley floor — see the round below.
 //
 // ── the round that gave the four circuits four shapes ──────────────────────
 //
@@ -394,6 +402,75 @@
 // in `render/lighting.ts` clamps every course to 0.50-0.60 radians, so the
 // 0.17 the quarry declares is read as 0.50 and the long shadows the palette is
 // written for do not exist. The palette does everything a course file can.
+//
+// ── the round about *phase*: where the lap is cut, not what is on it ───────
+//
+// A critic played the cup and scored it 6/10 on a finding that none of the
+// rounds above could have caught, because every one of them was measured on a
+// whole lap and this one is measured on **nine seconds** of it:
+//
+//   *"The four courses are separated by sky tint and start-line kit, but the
+//   ground the chase camera spends the race looking at is the same wide flat
+//   road on the same olive-grey plain on three of the four. Jackhammer Quarry
+//   contains no visible quarry and Switchback Summit is dead level at the
+//   default racing shot."*
+//
+// `capture.mjs`'s `racing` shot — captioned, by this project, *"the default
+// view a player spends the race in"* — autopilots nine seconds from the line
+// and photographs whatever is there. Measured with `tools/trace.mjs`, that is
+// **about 490 metres** of Cone Canyon and rather less of the slower circuits.
+// So the question a course file has to answer is not "does this lap contain a
+// place" but "**is the place inside the first five hundred metres of it**",
+// and three of the four answered no:
+//
+//     course        signature was at        is at
+//     Cone Canyon   Digger's Cutting 362m   unchanged — it always landed
+//     Jackhammer    THE CUT at 1165m        THE TIP FACE at 138m
+//     Saltpan       first sheet at 146m     unchanged — it always landed
+//     Switchback    THE CLIMB at 1110m      THE NOTCH at 271m
+//
+// Two different instruments, because the two courses were wrong in two
+// different ways:
+//
+//   * **The quarry had nothing built anywhere**, and its signature is at the
+//     bottom of a pit halfway round. It cannot move its grid — the weighbridge
+//     is the only level straight on the circuit — so the rock moved instead:
+//     three `chapters`, the first of them starting a hundred and thirty-eight
+//     metres after the chequer. Its high wall was always real and always **two
+//     hundred and sixty metres** away through a 210-metre fog plane, which is
+//     the distance at which a quarry is a colour grade.
+//   * **The mountain's signature could not be brought forward**, because a
+//     hundred metres of climb is where the ledger puts it and the ledger is the
+//     thing the shape round was won on. So the *lap* moved: `START` is now the
+//     foot of the climb rather than seventy metres into the valley straight.
+//     Nothing in its ring changed by a metre — the hourglass, the closure, the
+//     two 13.5% ramps are all exactly as measured — and every feature on it is
+//     authored as a lap fraction off `on()`, so the whole circuit re-phased
+//     itself. The one thing that had to move by hand was a boost strip that
+//     would have ended up under the back row of the grid.
+//
+// **The cost is named rather than hidden**: the mountain's lap now opens into
+// a corner, so it is the one circuit in the cup with no opening straight, and
+// its longest straight (229m, the valley floor) is now the run *to* the flag
+// rather than away from it. See its header. That is a worse start-line
+// composition and a better race, and the frame the roster is judged on is the
+// second one.
+//
+// ── ...and the same sheet said the rock was a painted backdrop ─────────────
+//
+//   *"The rock face is one smooth swept surface with a painted strata-and-
+//   streak texture, a continuous unbroken top edge, and no talus, boulders,
+//   ledges or vegetation where it meets the flat brown verge."*
+//
+// All of that followed from one property of `buildCutting`: **the wall's plan
+// line was a constant offset from the road.** Its height varied along the span
+// and its lateral did not, which makes a ruled surface, and a ruled surface is
+// a backdrop whatever is painted on it. It now wanders, it is cut in two lifts
+// with a two-to-four-metre catch berm between them, and there is an
+// InstancedMesh of blocks standing on the talus at its toe. See `buildCutting`
+// — and note the bug that cost the first attempt at the blocks: scattered at
+// road level, every one of them was *inside* the two and a half metres of
+// talus they were meant to be lying on.
 //
 // ── what is honestly still short ───────────────────────────────────────────
 //

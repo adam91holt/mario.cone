@@ -506,6 +506,22 @@ export interface ChapterDef {
   height?: number;
   /** Metres of lateral batter on a cutting; deck overhang on a viaduct. */
   batter?: number;
+  /**
+   * **Which flank the face stands on** — a `cutting` only. Omitted builds both,
+   * which is what a trench is.
+   *
+   * A quarry bench is not a trench and building it as one was the round-two
+   * finding in reverse: a haul road cut into a bench has a high wall on the
+   * *uphill* hand and nothing at all on the other, because the other hand is
+   * the drop to the bench below. Walling both sides of a bench closes the one
+   * view the course is about, and — worse — reads as the same corridor the
+   * canyon already owns. One face and an open drop is an **asymmetric** frame,
+   * which is the thing only the gallery had.
+   *
+   * The frame is the spline's — see `LATERAL FRAME` above `HazardDef`, `+1` is
+   * the inside of a right-hand corner, i.e. the driver's right.
+   */
+  side?: -1 | 1;
   /** Body colour of the built thing. */
   tint?: number;
   /** Trim: capping, handrail, chevrons, hazard bands. */

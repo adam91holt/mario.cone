@@ -1275,13 +1275,44 @@ function offsetAt(s: SplineSample, edge: number, off: number, side: -1 | 1): num
 }
 
 /**
- * A cutting: two faces standing just outside the barrier, and the horizon gone.
+ * A cutting: a face standing just outside the barrier, and the horizon gone.
  *
  * The whole read is the *crest line* — a wall of one height is a fence, and a
  * rock face has a broken top that moves against the sky as you drive under it.
  * So the crest is noise on the along-track distance, and it ramps in and out
  * over the first and last forty metres of the span so the road is not walled by
  * a step.
+ *
+ * ── and then it was photographed, and it was a painted backdrop ────────────
+ *
+ * A critic reviewed the round this shipped in and named the failure exactly:
+ * *"the rock face is one smooth swept surface with a painted strata-and-streak
+ * texture, a continuous unbroken top edge, and no talus, boulders, ledges or
+ * vegetation where it meets the flat brown verge — it reads as a painted
+ * backdrop, and it fills 45% of the frame at the course's own chapter."*
+ *
+ * Every word of that follows from one property of the first build: **the plan
+ * line of the wall was a constant offset from the road.** Lift varied along the
+ * span; lateral did not. A surface whose cross-section is the same five numbers
+ * at every station is a *ruled* surface, and no amount of texture rescues one —
+ * the strata slide along it because the geometry underneath them never turns.
+ *
+ * Three things answer it, and they are all geometry:
+ *
+ *   1. **The face wanders.** Each lane's offset carries its own along-track
+ *      noise, so the wall bulges into the verge and stands back off it. The
+ *      noise is one-sided (`noise2` is 0..1) so it can only ever move a face
+ *      *away* from the road, never inside the barrier line.
+ *   2. **The face is benched.** A blasted face is cut in lifts with a catch
+ *      berm between them, so the profile is face → shelf → face rather than one
+ *      batter. The shelf sits on a fraction of the *crest*, which is already
+ *      noisy, so the ledge line breaks along the span exactly as the top does.
+ *      It is a separate ribbon, which is what makes its edge hard: `MeshBuilder`
+ *      averages normals within a ribbon and not across two.
+ *   3. **The toe has rock at it.** Talus was already here and was a smooth
+ *      heap; a scatter of blocks now stands on it, biggest at the foot and
+ *      deterministic from `d0`, so the place where the wall meets the verge is
+ *      the one part of it a driver can measure distance against.
  */
 function buildCutting(c: ChapterCtx, ch: ChapterDef): void {
   const h = ch.height ?? 11;
@@ -1297,8 +1328,12 @@ function buildCutting(c: ChapterCtx, ch: ChapterDef): void {
   const tp = Math.min(0.34, 46 / span);
   const ramp = (f: number): number => smoothstep(0, tp, f) * smoothstep(0, tp, 1 - f);
   const b = new MeshBuilder();
+  // One flank or two. See `ChapterDef.side`: a trench has two faces and a
+  // quarry bench has one, and the difference is the whole difference between a
+  // corridor and a road on the side of a hole.
+  const sides: readonly (-1 | 1)[] = ch.side ? [ch.side] : [-1, 1];
 
-  for (const side of [-1, 1] as const) {
+  for (const side of sides) {
     // The crest, in metres above the road. Rock breaks; a works wall is built,
     // so it only breathes a few per cent.
     const crest = (s: SplineSample, f: number): number => {
@@ -1312,30 +1347,95 @@ function buildCutting(c: ChapterCtx, ch: ChapterDef): void {
         : 0.96 + 0.08 * noise2(s.distance / 40, side);
       return h * ramp(f) * n;
     };
-    const at = (off: number) => (s: SplineSample): number => offsetAt(s, edge(s), off, side);
-    // ── the face, and the top, as two ribbons ─────────────────────────────
+    // ── the wander: why the wall is not a parallel offset ─────────────────
     //
-    // Deliberately two, because `MeshBuilder` averages normals within one
+    // `noise2` is 0..1, which is the property this depends on rather than a
+    // detail of it: the term can only ever push a lane *outboard*. A signed
+    // noise would eventually hand a lane a smaller offset than `0.35` and put
+    // the toe of the wall inside the line physics enforces, which is a wall a
+    // kart drives through rather than into. A built wall does not wander.
+    const wander = isRock
+      ? (s: SplineSample, f: number): number =>
+        ramp(f) * (1.7 * noise2(s.distance / 33 + side * 9.1, side * 3.3)
+          + 0.7 * noise2(s.distance / 12.5 - side * 4.4, side * 6.1))
+      : (): number => 0;
+    // Every lane goes through `offsetAt`, and the whole offset goes through it
+    // — the wander and the berm's set-back included. Adding a metre *after* the
+    // clamp is how a wall folds itself inside out on the apex of a 34-metre
+    // corner, which is the failure the clamp exists to prevent.
+    const at = (off: (s: SplineSample, f: number) => number) =>
+      (s: SplineSample, f: number): number => offsetAt(s, edge(s), off(s, f), side);
+    const flat = (off: number, w = 1) =>
+      at((s, f) => off + w * wander(s, f));
+    // ── the face, the bench and the top, as three ribbons ─────────────────
+    //
+    // Deliberately separate, because `MeshBuilder` averages normals within one
     // ribbon and across a crest that is exactly wrong: the first cut of this
     // was one profile from the toe over the top and back down, and it
-    // photographed as a smooth grey whale-back — a dune, not a cut face. Two
-    // ribbons do not share vertices, so the crest is a hard edge and the face
-    // holds one value against the sky.
-    const face: Lane[] = [
-      // Buried toe, so there is no gap under the wall on a cambered corner.
-      { lat: at(0.35), lift: () => -1.6, u: 0 },
-      { lat: at(0.70), lift: (s, f) => -0.30 + 0.5 * ramp(f), u: 0.05 },
-      { lat: at(1.05), lift: (s, f) => crest(s, f) * 0.46, u: 0.42 },
-      { lat: at(1.35 + batter * 0.42), lift: (s, f) => crest(s, f) * 0.88, u: 0.82 },
-      { lat: at(1.35 + batter * 0.62), lift: (s, f) => crest(s, f), u: 1 },
-    ];
+    // photographed as a smooth grey whale-back — a dune, not a cut face.
+    // Ribbons do not share vertices, so every break in this profile — the
+    // berm's lip, its back, the crest — is a hard edge that holds one value
+    // against the sky.
+    //
+    // The berm is `bench` metres up a face cut in two lifts, which is how a
+    // face this tall is actually cut, and it is the piece that stops the wall
+    // being one sweep. Below about nine metres there is only one lift and the
+    // profile falls back to the single batter it always was.
+    const benched = isRock && h >= 9;
+    const lift1 = h > 16 ? 0.46 : 0.36;
+    const bench = (s: SplineSample, f: number): number => crest(s, f) * lift1;
+    /**
+     * Metres the upper lift stands back behind the lower one.
+     *
+     * Two to four, and the reason it is that wide is that a catch berm is
+     * photographed almost edge-on from a kart: a shelf a metre deep is a line
+     * on the wall and a shelf three metres deep is a *place* on it, with its
+     * own light on the floor of it and its own shadow under the lip.
+     */
+    const shelf = (s: SplineSample, f: number): number =>
+      benched ? ramp(f) * (2.0 + 1.9 * noise2(s.distance / 21 - side * 3.1, side * 8.8)) : 0;
+    const o1 = 1.05 + batter * 0.10;
+    const o2 = 1.35 + batter * 0.42;
+    const o3 = 1.35 + batter * 0.62;
+    const face: Lane[] = benched
+      ? [
+        // Buried toe, so there is no gap under the wall on a cambered corner.
+        { lat: flat(0.35, 0.35), lift: () => -1.6, u: 0 },
+        { lat: flat(0.70, 0.55), lift: (s, f) => -0.30 + 0.5 * ramp(f), u: 0.05 },
+        { lat: flat(o1), lift: (s, f) => bench(s, f) * 0.74, u: 0.26 },
+        // The lip of the berm, and its back wall a metre and a half behind it.
+        // Both carry the same wander, so the shelf stays a shelf.
+        { lat: flat(o1 + 0.28), lift: bench, u: 0.36 },
+        {
+          lat: at((s, f) => o1 + 0.28 + wander(s, f) + shelf(s, f)),
+          lift: (s, f) => bench(s, f) + 0.26, u: 0.41,
+        },
+        {
+          lat: at((s, f) => o2 + wander(s, f) + shelf(s, f)),
+          lift: (s, f) => crest(s, f) * 0.86, u: 0.80,
+        },
+        { lat: at((s, f) => o3 + wander(s, f) + shelf(s, f)), lift: crest, u: 1 },
+      ]
+      : [
+        { lat: flat(0.35, 0.35), lift: () => -1.6, u: 0 },
+        { lat: flat(0.70, 0.55), lift: (s, f) => -0.30 + 0.5 * ramp(f), u: 0.05 },
+        { lat: flat(1.05), lift: (s, f) => crest(s, f) * 0.46, u: 0.42 },
+        { lat: flat(o2), lift: (s, f) => crest(s, f) * 0.88, u: 0.82 },
+        { lat: flat(o3), lift: crest, u: 1 },
+      ];
     // The top: a narrow crest shelf, then the back falling away into the
     // landscape — which is what stops the wall reading as a cardboard flat the
     // moment the camera gets above it.
     const top: Lane[] = [
-      { lat: at(1.35 + batter * 0.62), lift: (s, f) => crest(s, f), u: 1 },
-      { lat: at(1.35 + batter), lift: (s, f) => crest(s, f) * (isRock ? 0.94 : 1), u: 0.88 },
-      { lat: at(1.35 + batter + 7), lift: (s, f) => crest(s, f) * 0.42 - 2.5, u: 0.5 },
+      { lat: at((s, f) => o3 + wander(s, f) + shelf(s, f)), lift: crest, u: 1 },
+      {
+        lat: at((s, f) => 1.35 + batter + wander(s, f) + shelf(s, f)),
+        lift: (s, f) => crest(s, f) * (isRock ? 0.94 : 1), u: 0.88,
+      },
+      {
+        lat: at((s, f) => 1.35 + batter + 7 + wander(s, f) + shelf(s, f)),
+        lift: (s, f) => crest(s, f) * 0.42 - 2.5, u: 0.5,
+      },
     ];
     if (side < 0) { face.reverse(); top.reverse(); }
     const opts = {
@@ -1395,22 +1495,41 @@ function buildCutting(c: ChapterCtx, ch: ChapterDef): void {
     }
   }
 
-  // Talus. A cut face sheds, and the toe of the heap is the one place the
-  // driver's eye can measure how far away the wall is.
+  // ── the toe: talus, and the blocks standing in it ───────────────────────
+  //
+  // A cut face sheds, and the toe of the heap is the one place the driver's eye
+  // can measure how far away the wall is. The heap was here first and was not
+  // enough on its own: a smooth ramp of one colour where a wall meets a flat
+  // verge is exactly the join a matte painting has. What reads is **blocks** —
+  // things with facets and cast shadows, at a size the eye already knows, in a
+  // scatter that gets sparser away from the foot.
   if (isRock) {
     const talusMat = new THREE.MeshLambertMaterial({
       color: shade(tint, 0.86), side: THREE.DoubleSide,
     });
     c.materials.push(talusMat);
     const t = new MeshBuilder();
-    for (const side of [-1, 1] as const) {
+    /** The height of the heap itself, at the ridge of it. */
+    const heap = (s: SplineSample, f: number, side: -1 | 1): number =>
+      ramp(f) * (0.9 + 1.9 * noise2(s.distance / 13 + side * 7.7, side));
+    /**
+     * ...and the height of its *surface* at a given offset, which is the
+     * number the blocks need and the reason they were invisible for a round:
+     * scattered at road level they sat inside two and a half metres of their
+     * own talus. A rock on a heap has to be on the heap.
+     */
+    const heapAt = (s: SplineSample, f: number, side: -1 | 1, o: number): number => {
+      const hgt = heap(s, f, side);
+      if (o <= 1.1) return -0.45 + (hgt + 0.45) * ((o + 0.1) / 1.2);
+      if (o <= 2.4) return hgt * (1 - 0.5 * (o - 1.1) / 1.3);
+      return Math.max(0, hgt * 0.5 * (1 - (o - 2.4) / 2.2));
+    };
+    for (const side of sides) {
       const at = (off: number) => (s: SplineSample): number => offsetAt(s, edge(s), off, side);
-      const heap = (s: SplineSample, f: number): number =>
-        ramp(f) * (0.9 + 1.9 * noise2(s.distance / 13 + side * 7.7, side));
       const lanes: Lane[] = [
         { lat: at(-0.1), lift: () => -0.45, u: 0 },
-        { lat: at(1.1), lift: (s, f) => heap(s, f), u: 0.5 },
-        { lat: at(2.4), lift: (s, f) => heap(s, f) * 0.5, u: 1 },
+        { lat: at(1.1), lift: (s, f) => heap(s, f, side), u: 0.5 },
+        { lat: at(2.4), lift: (s, f) => heap(s, f, side) * 0.5, u: 1 },
       ];
       if (side < 0) lanes.reverse();
       t.addRibbon(c.spline, lanes, {
@@ -1421,6 +1540,65 @@ function buildCutting(c: ChapterCtx, ch: ChapterDef): void {
     talus.name = `chapter:talus:${ch.name}`;
     talus.receiveShadow = true;
     c.root.add(talus);
+
+    // ── the blocks ────────────────────────────────────────────────────────
+    //
+    // One InstancedMesh for the whole cutting, both flanks, seeded off `d0` so
+    // the same course lays the same rocks every run and no two cuttings in the
+    // cup get the same scatter. A dodecahedron at detail 0 is fourteen faceted
+    // triangles per block, which is the cheapest thing in three.js that is not
+    // a box and does not read as one.
+    const rnd = rand(0x51a7c3 ^ Math.round(d0 * 7.3));
+    // One block every four and a half metres of wall, before the thinning
+    // below takes about a third of them out again. Photographed at span/7.5 the
+    // chase camera caught two of them in a sixty-metre view, which is a prop
+    // rather than a toe.
+    const per = Math.max(6, Math.round(span / 4.5));
+    const blocks: THREE.Matrix4[] = [];
+    const p = new THREE.Vector3();
+    const q = new THREE.Quaternion();
+    const scl = new THREE.Vector3();
+    const s: SplineSample = c.spline.atDistance(d0);
+    const up = new THREE.Vector3();
+    const spin = new THREE.Quaternion();
+    for (const side of sides) {
+      for (let i = 0; i < per; i++) {
+        const f = (i + rnd() * 0.9) / per;
+        if (ramp(f) < 0.3) continue;
+        c.spline.atDistance(d0 + span * f, s);
+        // Away from the wall, the blocks get smaller and rarer — which is what
+        // makes the heap read as something that fell rather than something that
+        // was laid out. `u` is cubed so most of them are at the foot.
+        const u = rnd() ** 3;
+        if (rnd() > 0.2 + 0.55 * (1 - u)) continue;
+        const size = (0.9 + 1.7 * rnd()) * (1 - 0.45 * u) * (h > 16 ? 1.3 : 1);
+        // **Outboard of the barrier line, always.** `edge` is where the barrier
+        // and the wall physics enforces both stand; a block inside it is a rock
+        // in the road that every kart in the field drives straight through.
+        // The band stops at 3.4 because past that it is inside the face.
+        const o = 0.3 + u * 3.1 + rnd() * 0.3;
+        const off = offsetAt(s, edge(s), o, side);
+        surfacePoint(s, off, c.verge, heapAt(s, f, side, o) + size * 0.28, p);
+        up.copy(s.up).normalize();
+        q.setFromUnitVectors(UP, up);
+        q.multiply(spin.setFromAxisAngle(UP, rnd() * Math.PI * 2));
+        scl.set(size, size * (0.5 + 0.45 * rnd()), size * (0.8 + 0.4 * rnd()));
+        blocks.push(new THREE.Matrix4().compose(p, q, scl));
+      }
+    }
+    if (blocks.length) {
+      const bm = new THREE.MeshLambertMaterial({ color: shade(tint, 0.94) });
+      c.materials.push(bm);
+      const im = new THREE.InstancedMesh(
+        new THREE.DodecahedronGeometry(0.5, 0), bm, blocks.length,
+      );
+      im.name = `chapter:blocks:${ch.name}`;
+      im.castShadow = true;
+      im.receiveShadow = true;
+      for (let i = 0; i < blocks.length; i++) im.setMatrixAt(i, blocks[i]!);
+      im.instanceMatrix.needsUpdate = true;
+      c.root.add(im);
+    }
   }
 }
 

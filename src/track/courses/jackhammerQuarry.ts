@@ -470,6 +470,145 @@ export const jackhammerQuarry: CourseDefEx = {
       steel: 0x6d777e,
       accent: 0xf2b705,
       banner: { field: '#23262E', ink: '#F2B705', strip: '#F2B705' },
+
+      // ── the round the quarry had no quarry *in the frame* ──────────────
+      //
+      // A critic played the cup and rejected it at 6/10 on this course
+      // specifically, and the sentence is worth keeping whole because it is a
+      // measurement of the one camera that matters:
+      //
+      //   *"Jackhammer Quarry is the only round in the roster with no
+      //   `chapters` entry and it shows: the pit is a flat asphalt curve on
+      //   level ground with the same smooth truncated-cone mounds Cone Canyon
+      //   uses, tinted amber. No bench, no terrace, no pit, no crusher,
+      //   nothing cut into the ground. The quarry's identity in the frame a
+      //   player lives in is an amber colour grade."*
+      //
+      // Every word of that was true and none of it was fixable in the terrain
+      // block below. The high wall *is* built — eleven overlapping heroes on a
+      // ring — and it stands **two hundred and sixty metres** past the
+      // shoulder, because that is where `room()` stops putting conveyors on
+      // ground it never checks the slope of. Two hundred and sixty metres
+      // through a 210-metre fog near plane is haze. The pit was real and it
+      // was not in the photograph.
+      //
+      // So the rock comes to the road. Three places, and — this is the part
+      // the canyon's single trench could not teach — **two of them have only
+      // one face.** See `ChapterDef.side`. A bench is not a trench: it has the
+      // high wall on the uphill hand and the drop to the bench below on the
+      // other, and building both sides would have given round two the same
+      // corridor round one already owns.
+      //
+      // The laterals are off `LATERAL FRAME` in `types.ts` — `+1` is the
+      // driver's right — and both are forced by the plan rather than chosen.
+      // T1 is a left-hand hairpin, so its outside is `+1`, and coming out of a
+      // 180 the weighbridge rim it just left is on that same hand all the way
+      // down Bench One. The haul road wraps the pit clockwise, so the
+      // excavation is on the driver's right for the whole climb out and the
+      // un-dug ground is on the left.
+      chapters: [
+        {
+          // **The frame the racing shot lands in.** `capture.mjs` autopilots
+          // nine seconds from the line and this course covers about 270 metres
+          // in them, which put the default review frame — *"the default view a
+          // player spends the race in"* — squarely in T1 with nothing built
+          // within four hundred metres of it. The face now starts 138 metres
+          // after the chequer and runs to the middle of Bench One: twenty
+          // metres of freshly shot rock standing over the outside of the first
+          // hairpin, with the pit opening away on the inside.
+          name: 'THE TIP FACE',
+          kind: 'cutting',
+          face: 'rock',
+          side: 1,
+          // ── the span is a measurement, not a taste ─────────────────────
+          //
+          // The first cut of this ran T1 0.12 → Bench One 0.85, on an estimate
+          // that nine seconds of autopilot buys about 270 metres here. It buys
+          // **435**: `index.json` from that capture put the player at y=-12.78,
+          // which is the last few metres of Bench One, twenty-three metres past
+          // the end of the face — and the review frame came back as the same
+          // empty amber curve it was supposed to fix. Twenty-three metres.
+          //
+          // So the face now runs from the middle of the first hairpin to the
+          // middle of the second: three hundred metres of wall, which covers
+          // every position the shot can land in rather than the one it was
+          // predicted to. Measure the frame, then build for it — the estimate
+          // was out by sixty per cent and the estimate was mine.
+          from: on('T1 TIPPING LEFT', 0.35),
+          to: on('T2 SCREEN HAIRPIN', 0.55),
+          height: 20,
+          batter: 4.2,
+          // Unweathered rock, cooler and darker than the film of fines the
+          // pit floor is painted in. A blasted face has not been rained on.
+          tint: 0x6a655c,
+        },
+        {
+          // ── the end wall, and the lesson a hairpin teaches about framing ──
+          //
+          // The Tip Face was extended once already because the review frame
+          // landed twenty-three metres past the end of it. It was then
+          // *measured* — `probe.mjs`, the spline station and the chapter's own
+          // bounding box — and the second answer was more interesting than the
+          // first: the frame lands mid-way round the Screen Hairpin, and
+          // **mid-way round a 180-degree corner the inside of it is ninety-six
+          // degrees off the camera axis.** A wall on the inside is not in the
+          // shot however long you make it. It is beside the road and the road
+          // is not what the driver is looking at.
+          //
+          // What a driver looks at in a hairpin is the **outside** — the wall
+          // the corner is cut into, straight ahead through the turn. So the
+          // hairpin gets its own face on the other hand, and the pair reads as
+          // the thing a quarry hairpin actually is: a bench road running along
+          // a rim wall, turning back on itself inside a cut in the end of the
+          // pit. Two chapters rather than one two-sided one, because a bench's
+          // downhill flank must stay open — a wall there would fill in the
+          // hole this circuit is, seen from every camera above it.
+          name: 'THE SCREEN CUT',
+          kind: 'cutting',
+          face: 'rock',
+          side: -1,
+          from: on('BENCH ONE', 0.86),
+          to: on('BENCH TWO', 0.20),
+          height: 18,
+          batter: 3.8,
+          tint: 0x645f57,
+        },
+        {
+          // **THE CUT, in a hole.** The signature was authored as *width* —
+          // twelve metres between two nose blocks with a hundred-tonne dumper
+          // shuttling across it — and photographed as a wide grey road that
+          // briefly got narrower. Twenty-two metres of wall on both hands is
+          // what makes it a cut: at the bottom of the pit there is no horizon
+          // to lose, and the machine is framed against rock rather than sky.
+          //
+          // This is the one chapter on the circuit with two faces, and it is
+          // the only place on the lap that has any business being a corridor.
+          name: 'THE CUT',
+          kind: 'cutting',
+          face: 'rock',
+          from: on('PIT FLOOR', 0.30),
+          to: on('PIT FLOOR EXIT', 0.60),
+          height: 22,
+          batter: 4,
+          tint: 0x6f6d67,
+        },
+        {
+          // **The haul out.** Two hundred and forty metres of 9-11% climb with
+          // the un-dug ground standing over the left-hand barrier and the pit
+          // falling away to the right — the last third of the lap, which
+          // telemetry says is where it is actually lost, and which until now
+          // was the same open plain as the first third.
+          name: 'THE HIGH WALL',
+          kind: 'cutting',
+          face: 'rock',
+          side: -1,
+          from: on('HAUL ROAD', 0.15),
+          to: on('HAUL ROAD TWO', 0.85),
+          height: 17,
+          batter: 3.6,
+          tint: 0x847f74,
+        },
+      ],
     },
 
     // ── the pit ───────────────────────────────────────────────────────────

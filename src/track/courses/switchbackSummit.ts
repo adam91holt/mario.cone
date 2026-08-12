@@ -29,11 +29,13 @@
 // the profile is not a swell or a staircase but a single climb and a single
 // plunge with a hairpin at the top of it.
 //
-//   ── the valley lobe (+270° of left turn, 0-20m) ──
-//   T0  Spillway Left   R150 onto the valley straight
-//   VALLEY STRAIGHT     227 metres, 28m wide, the start line 60 metres in
-//   T1  Culvert Sweep   R190, 55° — flat out, the last of the easy road
-//   T2  Batter Left     R58, 105° at 25m: the valley's one real corner
+// The lap is cut at the **foot of the mountain** — `m2`, the short straight
+// between the Batter Left and the Foot of the Climb — so the list below reads
+// in the order a player meets it. See `START` for why it moved eight hundred
+// metres, and what it cost.
+//
+//   ── the foot (the grid, and 271 metres to the gradient) ──
+//   m2 / START          89 metres of straight, the whole grid on it
 //   T3  Foot of Climb   R190, 80°, and the gradient arrives underneath it
 //   ── the neck, climbing (-90°) ──
 //   T4  The Notch       R60 into the gorge
@@ -53,6 +55,11 @@
 //   THE KICKER          a shelf, a lip, and a gap. See `RAMPS`
 //   THE PLUNGE          104m falling at 37%
 //   T11/T12 Spillway    R160 either way, with the washout across the outside
+//   ── the valley lobe, and the run to the flag (+270° of left turn, 0-9m) ──
+//   T0  Spillway Left   R150 out of the descent and onto the floor
+//   VALLEY STRAIGHT     229 metres, 28m wide — the finishing straight
+//   T1  Culvert Sweep   R190, 55° — flat out
+//   T2  Batter Left     R58, 105° at 25m: the last corner, 82 metres out
 //
 // ── the two rules ──────────────────────────────────────────────────────────
 //
@@ -61,12 +68,26 @@
 // Spur, and 23m across the kicker's deck — a road that pinches into a ramp and
 // opens out behind it, because a take-off you do not have to aim at is a bump.
 //
-// *Nothing is dead straight for longer than the run to the first corner* —
-// which here means the start straight is the longest straight on the lap. It
-// is: 229 metres, against the climb's two 167-metre steps and the 207 metres
-// of run-in, deck and landing that make up the kicker. The climb used to be
-// one 340-metre ruler and the traverses are what broke it, which is also what
-// a road up a mountain face actually looks like.
+// *Nothing is dead straight for longer than the run to the first corner.* This
+// is the one circuit in the cup that has to state that rule in its own terms,
+// and it is honest about why. Since the lap was re-cut at the foot of the
+// mountain (see `START`) there is no opening straight to measure against — the
+// flag drops seven metres before a 190-metre sweep — so the number the rule is
+// really protecting is the **longest** straight, and the answer is 229 metres:
+// the valley floor, which is now the *run to the flag* rather than the run
+// away from it. Four and a half seconds, against Cone Canyon's 320-metre pit
+// straight and the saltpan's 629-metre bypass. Every other straight on the lap
+// is shorter again — the climb's two 167-metre steps, and the 207 metres of
+// run-in, deck and landing that make up the kicker. The climb used to be one
+// 340-metre ruler and the traverses are what broke it, which is also what a
+// road up a mountain face actually looks like.
+//
+// The trade is worth naming rather than hiding: a lap that opens into a corner
+// is a lap with no place to compose a start on, and what it buys is that the
+// first thing a player sees after the flag is the mountain instead of a
+// kilometre of valley that looks like every other course in the cup. The grid
+// itself keeps its 89 metres of straight; it is behind the line rather than in
+// front of it.
 //
 // ── THE KICKER: round four's signature ─────────────────────────────────────
 //
@@ -210,17 +231,49 @@ const RING = ring(
 );
 
 /**
- * Metres from the ring's origin to the start/finish line — seventy-one metres
- * into the valley straight.
+ * Metres from the ring's origin to the start/finish line — the far end of `m2`,
+ * the short straight between the Batter Left and the Foot of the Climb.
  *
  * `track/index.ts` parks the back row of the grid 47 metres behind the chequer
  * and the intro formation rolls in from eleven metres further back again, so
- * the last 58 metres of road before the line have to be straight, level and
- * unpainted. On a course whose road spends most of a lap at 10-37% of
- * gradient, the valley straight is the only place that is true, and it is why
- * the line is on it rather than on the pit apron.
+ * the last 58 metres of road before the line have to be straight and unpainted.
+ * `m2` is 89 metres of straight rising at 2%, which clears the roll-in by
+ * twenty-four; the last paint of any kind before it is at `m6`, thirteen
+ * hundred metres upstream.
+ *
+ * ── why it moved eight hundred metres ──────────────────────────────────────
+ *
+ * It used to sit seventy-one metres into the valley straight, which is the
+ * flattest, widest road on the circuit and therefore the obvious place for a
+ * grid. It is also a kilometre from the mountain, and a critic measured what
+ * that costs in the one frame the project's own review sheet calls *"the
+ * default view a player spends the race in"*:
+ *
+ *   *"`capture.mjs`'s `racing` shot autopilots 9s from the line and on
+ *   switchback-summit it returns a level two-lane road with a timber fence —
+ *   the 13.5% ramps, the gorge and THE GALLERY are all past that point, so the
+ *   course-defining geometry is absent from the frame."*
+ *
+ * Nine seconds is about three hundred and fifty metres from a standing start.
+ * From the old line that bought the valley straight and half of a 190-metre
+ * sweep — the two hundred and seventy metres of this circuit that look like
+ * every other circuit. From here it buys the Foot of the Climb, THE NOTCH and
+ * the mouth of the gallery: the gradient arrives at 271 metres, the road necks
+ * from 24 to 17 at 285, and the roof goes on at 368.
+ *
+ * **The shape did not change and could not be allowed to.** Not one number in
+ * the ledger above moved; the hourglass, the closure, the 101 metres of climb
+ * and the 13.5% ramps are the circuit that was measured and praised. What
+ * changed is where the lap is cut, which is the one thing a course file can do
+ * about *phase* — and phase was the whole finding. A lap now opens at the foot
+ * of the mountain and closes with the plunge, the spillway and a 105-degree
+ * hairpin seventy metres before the flag, which is a better last corner than
+ * the 190-metre sweep it used to have anyway.
+ *
+ * Authored off the ring rather than as a bare number so that it cannot drift
+ * away from the straight it is supposed to be on if a segment is ever re-cut.
  */
-const START = 150;
+const START = RING.distanceAlong('m2', 0.92);
 const on = (name: string, along = 0.5): number =>
   ((RING.distanceAlong(name, along) - START) / RING.length + 1) % 1;
 
@@ -387,7 +440,13 @@ export const switchbackSummit: CourseDefEx = {
     // The last of them is seven hundred metres upstream of the start line, so
     // there is nothing painted anywhere near the grid.
     pads: [
-      { at: on('m2', 0.50), lateral: 0.30, width: 6, length: 20 },
+      // The first of them is a hundred and seventy metres after the flag, on
+      // the 190-metre sweep where the gradient first arrives — and it is here
+      // rather than on `m2` because `m2` is now the grid. A strip 37 metres
+      // behind the chequer is a strip the whole field is *parked on* when the
+      // lights go out; `tools/countdown.mjs` prints that as a WARN and Cone
+      // Canyon lost a round to the same mistake.
+      { at: on('T3 FOOT OF THE CLIMB', 0.55), lateral: 0.30, width: 6, length: 20 },
       { at: on('THE CLIMB', 0.45), lateral: -0.30, width: 6, length: 20 },
       { at: on('THE CLIMB TWO', 0.45), lateral: 0.28, width: 6, length: 20 },
       { at: on('m5', 0.35), lateral: 0.30, width: 6, length: 20 },
@@ -542,16 +601,55 @@ export const switchbackSummit: CourseDefEx = {
       // schist crest closes the horizon for three seconds, and then the road
       // stops descending, the lip arrives and the whole mountain is gone at
       // once. Cold grey rock, the same stone as the Spillway's washout.
-      chapters: [{
-        name: 'THE CUTTING SWEEP',
-        from: on('T10 CUTTING SWEEP', 0.10),
-        to: on('T10 CUTTING SWEEP', 1.0),
-        kind: 'cutting' as const,
-        height: 13,
-        batter: 4.2,
-        tint: 0x76808f,
-        face: 'rock' as const,
-      }],
+      chapters: [
+        // ── THE NOTCH, which is where the mountain starts and did not look
+        //    like it ────────────────────────────────────────────────────────
+        //
+        // The reason a 12.2% ramp photographs flat is that a road climbing
+        // away from the camera has nothing beside it to climb *against*. The
+        // gradient is real — it is the steepest sustained road in the game
+        // outside the plunge — and a critic still reported *"zero visible
+        // gradient, zero switchback"* from the frame the review sheet takes
+        // nine seconds after the flag.
+        //
+        // A notch is a cut through a shoulder, so this is the one place the
+        // name was already a promise. One face, on the mountain flank, whose
+        // crest climbs with the road: a wall whose top edge rises across the
+        // frame is the cheapest statement of gradient there is, and it costs
+        // nothing on the gorge hand, which stays open onto the drop.
+        //
+        // **Both flanks, and that is measured rather than preferred.** The
+        // gallery two hundred metres later is deliberately one-sided — wall
+        // on the mountain, piers over the gorge — and the first cut of this
+        // copied it. Then the quarry, doing the same thing in the same round,
+        // proved why a corner cannot: *mid-way round a turn, one flank of the
+        // road is ninety degrees off the camera axis*, so a single face is a
+        // coin toss about whether the frame the course is judged on contains
+        // any rock at all. A notch is a cut through a ridge and is walled on
+        // both hands anyway; ninety-four metres of it costs the gorge nothing,
+        // because the gorge opens the moment the road straightens and the
+        // gallery's own piers are what frame it.
+        {
+          name: 'THE NOTCH',
+          from: on('T4 THE NOTCH', 0.06),
+          to: on('THE CLIMB', 0.015),
+          kind: 'cutting' as const,
+          height: 19,
+          batter: 4.4,
+          tint: 0x707b8b,
+          face: 'rock' as const,
+        },
+        {
+          name: 'THE CUTTING SWEEP',
+          from: on('T10 CUTTING SWEEP', 0.10),
+          to: on('T10 CUTTING SWEEP', 1.0),
+          kind: 'cutting' as const,
+          height: 13,
+          batter: 4.2,
+          tint: 0x76808f,
+          face: 'rock' as const,
+        },
+      ],
     },
 
     // ── the mountain ──────────────────────────────────────────────────────
