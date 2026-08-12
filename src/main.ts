@@ -14,6 +14,7 @@ import { makeRng } from './core/math.ts';
 import { createTrackSystem } from './track/index.ts';
 import { createHazardSystem } from './track/courses/hazards.ts';
 import { createCourseKitSystem } from './track/courses/kit.ts';
+import { createFloodSystem } from './track/courses/flood.ts';
 import { createKartPhysics, createRacer } from './physics/kart.ts';
 import { createAiSystem, createAiDriver } from './ai/driver.ts';
 import { createItemSystem } from './items/index.ts';
@@ -90,6 +91,7 @@ async function boot(): Promise<void> {
   const track = createTrackSystem(ctx);
   engine.add(track);
   engine.add(createCourseKitSystem(ctx));
+  engine.add(createFloodSystem(ctx));
   engine.add(createGroundSystem(ctx));
   engine.add(createWorldSystem(ctx));
   engine.add(createLightingSystem(ctx));

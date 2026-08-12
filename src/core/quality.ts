@@ -128,7 +128,7 @@
 //   PRELUDE_SAMPLES 8      delivered front-end frames 9s at 0.9fps    ok (r13)
 //   PRELUDE_BUILD_SAMPLES  delivered front-end frames a seam          ok (r13)
 //   PRELUDE_DWELL_S 2      wall s of front-end frames 2 frames        ok (r13)
-//   PRELUDE_LIMIT 3        verdicts per session       events          ok (r13)
+//   PRELUDE_LIMIT 2        verdicts per session       events          ok (r13)
 //   THIN_KNEE_PX (r9)      pixels of the **scene** buffer, not the canvas
 //   UP_MAX_STEP            rungs per change           the ladder      ok (r11)
 //   PACED_FRAC 0.92        share of the target period a *best* frame  ok (r11)
@@ -143,6 +143,11 @@
 //   SHELL_CLEAR 0.7        material opacity           frame-rate-free ok (r14)
 //   LADDER_SLACK 8         draw calls of walk noise   measured        ok (r14)
 //   crowd                  **off the ladder** — pinned 1 at every rung  (r14)
+//   FLOOR_FUTILE_FACTOR    ms between delivered frames unchanged      ok (r15)
+//   FLOOR_DWELL_S 4        wall s of delivered play   3 frames        ok (r15)
+//   ...its frame half      delivered frames = VERDICT_SAMPLES 14      ok (r15)
+//   resumeRung             rungs of a remembered drop  a boot         ok (r15)
+//   floorRefused           a latch, not a number      the session     ok (r15)
 //
 //   `RUNG0.cpuMs` is the one new row with a unit trap in it, and it is the
 //   trap this section exists for: `budget.simMs` is however many fixed steps
@@ -503,6 +508,34 @@
 // folded in with `futile` and counted as one strike of two, and a live session
 // scored rung 3 -> 4 at `gain: -0.562` against `bar: 0.188` and then dropped
 // again 0.85 seconds later because the strike before it had been cleared.
+//
+// **...and that promise has to hold on the path a slow machine actually
+// takes**, which for two rounds it did not. A reviewer played a hundred seconds
+// at thirty-one times the budget and got `verdicts: []`, `futile: 0` — not a
+// broken check, an unreachable one. The prelude installs the whole ladder in a
+// single move behind the front-end, and a check built out of pairwise
+// comparisons has no pairs to make when six rungs land at once; the in-race
+// path then arrives at the floor, where its own `index < bottom` guard means
+// the largest act on the ladder is the one act it never judges. Three things
+// close it, and each is in a different place because the hole was:
+//
+//   the prelude's verdict is **recorded**. It was already being taken and acted
+//   on — `preludeBefore`, one strike, no error bar — and simply never written
+//   down, so from outside the page a check that had run was indistinguishable
+//   from one that had not. It is in `verdicts` under `where: 'prelude'` with
+//   the prelude's own clock and window, and it deliberately does not touch the
+//   in-race `futile`, which belongs to the other side of the curtain.
+//
+//   the **floor** gets a verdict of its own. Not "did the last cut work" —
+//   there is no last cut to ask about — but "after everything, is this frame
+//   still nowhere near", answered once the bottom rung has held its own window
+//   and agreed with the session's. See `FLOOR_FUTILE_FACTOR`.
+//
+//   ...and it is a verdict about the **ladder** rather than about a cut, so it
+//   latches. `stalled` clears at every race build by design; `floorRefused`
+//   never does, because a race build does not make the bottom rung cheaper and
+//   without the latch the ladder would re-earn a rung it had already convicted
+//   once per race for the rest of the session. See `bottomRung`.
 //
 // **That check has to be able to count**, and the first version could not: on
 // the machine it exists for, delivered frames run 17ms to 1233ms around a 483ms
@@ -1682,36 +1715,107 @@ function hardwareKey(ctx: GameContext): string {
   return `${gpu}|${bucket}|${LADDER_SIG}`;
 }
 
+/**
+ * What is stored for this machine.
+ *
+ * `rung` is -1 when nothing is. `pick` is the field round fifteen added and it
+ * is the difference between a **measurement** and a **decision**: the governor
+ * writes its settled rung with `pick: false`, `QualityPreference.set()` writes a
+ * player's choice with `pick: true`, and the two are restored by completely
+ * different rules on the next boot — see `resumeRung` and `init()`.
+ *
+ * A record written before that field existed has no `pick`, reads as `false`,
+ * and is therefore restored as the governor's note. That is the conservative
+ * direction: the worst it costs is that somebody who had hand-picked the floor
+ * before this change re-earns it once.
+ */
+interface QualityMemory {
+  rung: number;
+  pick: boolean;
+}
+
 /** The rung this machine settled at last time, or -1 if it has never been here.
  *
  *  Every access to storage in this file is wrapped: Safari's private mode
  *  throws on `localStorage` outright, a page served from `file://` has no
  *  origin to key it on in some browsers, and a governor that takes the boot
  *  down because it could not remember something is worse than one with no
- *  memory at all. */
-function readMemory(key: string): number {
+ *  memory at all.
+ *
+ *  Called once, in `init()`, so the object it returns is not an allocation in
+ *  any hot path. */
+function readMemory(key: string): QualityMemory {
   try {
     const raw = globalThis.localStorage?.getItem(MEMORY_KEY);
-    if (!raw) return -1;
-    const rec = JSON.parse(raw) as { k?: string; rung?: number };
-    if (!rec || rec.k !== key || typeof rec.rung !== 'number') return -1;
+    if (!raw) return { rung: -1, pick: false };
+    const rec = JSON.parse(raw) as { k?: string; rung?: number; pick?: boolean };
+    if (!rec || rec.k !== key || typeof rec.rung !== 'number') return { rung: -1, pick: false };
     const r = Math.round(rec.rung);
-    if (!(r >= 0)) return -1;
-    return r >= LADDER.length ? LADDER.length - 1 : r;
+    if (!(r >= 0)) return { rung: -1, pick: false };
+    return {
+      rung: r >= LADDER.length ? LADDER.length - 1 : r,
+      pick: rec.pick === true,
+    };
   } catch {
-    return -1;
+    return { rung: -1, pick: false };
   }
 }
 
-function writeMemory(key: string, rungIndex: number): void {
+function writeMemory(key: string, rungIndex: number, pick: boolean): void {
   try {
     globalThis.localStorage?.setItem(
-      MEMORY_KEY, JSON.stringify({ k: key, rung: rungIndex, at: Date.now() }));
+      MEMORY_KEY, JSON.stringify({ k: key, rung: rungIndex, pick, at: Date.now() }));
   } catch {
     // Storage full, disabled, or partitioned. The session still works; it just
     // starts from the top next time, which is where it used to start every time.
   }
 }
+
+/**
+ * ── What a remembered rung is worth on the *next* boot ──────────────────────
+ *
+ * **At most half the drop, and the governor re-earns the rest.**
+ *
+ * The memory is right about one thing and wrong about another, and for
+ * fourteen rounds this file only saw the first half. It is right that a machine
+ * does not become faster because the page was refreshed — so walking the whole
+ * ladder in front of the player every session is fifty-seven seconds of
+ * delivered play spent re-deriving an answer that was already known. It is
+ * wrong that the *evidence* for that answer survives the reload: the rung was
+ * earned inside one session, on one afternoon, against whatever else that
+ * machine happened to be doing — a background export, a second monitor, a
+ * browser mid-update — and none of those facts are properties of the hardware
+ * the key is filed under.
+ *
+ * A reviewer measured what the difference costs. One busy launch settled the
+ * session at the floor; every launch afterwards booted straight into
+ * `{rung: 6, scale: 0.5}` with FXAA off, silently, for ever, in a product whose
+ * entire visible vocabulary is MACHINE / CUP / CIRCUIT / CLASS / CONTROLS — so
+ * the player could not see that it had happened, refuse it, or ask for their
+ * picture back. **A governor's answer is durable; it is not standing.**
+ *
+ * So a remembered *drop* is restored by half, rounded towards the cut:
+ *
+ *   remembered  0  1  2  3  4  5  6
+ *   booted at   0  1  1  2  2  3  3
+ *
+ * Half is the useful number rather than a compromise. The expensive part of a
+ * cold start is the top of the ladder — rung 0 is the only rung that pays for
+ * the whole grandstand at full resolution — so half the drop takes most of the
+ * risk out of the first few seconds while leaving a picture the player can
+ * actually see is better. And the descent from there is cheap: the collapse
+ * path reaches the floor from anywhere in `COLLAPSE_DWELL`, 1.2 seconds and two
+ * delivered frames, and the prelude reaches it behind the front-end on a frame
+ * nobody is looking at. **One bad launch costs a player one race, not every
+ * race thereafter** — and a machine whose bad afternoon is over gets its
+ * picture back on the next launch without anybody having to know this file
+ * exists.
+ *
+ * A **pick** is not resumed through here at all. A person's decision is not
+ * evidence to be re-earned and the governor does not overrule it; see `init()`.
+ */
+const resumeRung = (remembered: number): number =>
+  (remembered <= 0 ? 0 : Math.ceil(remembered / 2));
 
 /**
  * ...and the way out of it, which for eleven rounds did not exist.
@@ -1727,6 +1831,22 @@ function writeMemory(key: string, rungIndex: number): void {
  *
  * `QualityPreference.forget()` is the door, and it is on `ctx` so that a
  * settings screen can reach it. See `ctx.qualityPref`.
+ *
+ * ── ...and the half of that fix which does not need a screen ───────────────
+ *
+ * A door nobody has built a room around is still a locked house. Round fifteen's
+ * reviewer checked and `qualityPref` is referenced by nothing outside this file
+ * and `types.ts`: the product's entire visible vocabulary is MACHINE / CUP /
+ * CIRCUIT / CLASS / CONTROLS, so `forget()` exists and no player can press it.
+ * The screen is a **cross-module request** on `ui/menus`, recorded in the round
+ * report, and this file cannot build it.
+ *
+ * What this file *can* do without anybody's screen is stop the answer being a
+ * standing one, and that is `resumeRung`: a remembered drop is restored by at
+ * most half and the governor re-earns the rest inside the first race. So the
+ * failure mode `forget()` was invented for — one bad afternoon, halved for ever
+ * — now costs one race and repairs itself on the next launch, whether or not a
+ * player ever learns that any of this exists.
  */
 function forgetMemory(): void {
   try {
@@ -2172,6 +2292,83 @@ const COLLAPSE_DWELL = 1.2;
 const FUTILE_LIMIT = 2;
 /** ...and how much worse the frame has to get before it tries again. */
 const RETRY_FACTOR = 1.4;
+
+/**
+ * ── The whole-ladder verdict, which for fifteen rounds could not be taken ───
+ *
+ * §8 says the governor stops cutting when cutting stops working, and it does —
+ * on the path where every rung is walked one at a time and each one is judged
+ * against the one above it. A reviewer measured what happens on the path the
+ * governor **actually takes** on a machine this file exists for: a hundred
+ * seconds of live play at thirty-one times the budget returned `verdicts: []`
+ * and `futile: 0`. Nothing was wrong with the futility machinery; it was never
+ * reached. The prelude had jumped six rungs on one frame behind the front-end,
+ * and one jump straight to the floor skips every pairwise comparison the check
+ * is made of — and the check's own floor test (`index < bottom`) then meant the
+ * largest move on the ladder was the one move it never judged.
+ *
+ * So there is a second verdict, taken on the shape that path leaves behind: the
+ * ladder is at its floor, it has been there long enough to have a window of its
+ * own, and the frame is *still* this far over the target. That is not "the last
+ * cut bought nothing", it is **the whole ladder does not reach this machine** —
+ * a 4K panel on integrated graphics, a software rasteriser, a browser without
+ * hardware acceleration — and the honest response is the same one §8 gives:
+ * hand the last rung back and stop spending the game's looks on a bill this
+ * ladder cannot pay.
+ *
+ * 1.43x of 16.7ms is 24ms — 42fps. The number is deliberately far below the
+ * machine this fires for (31x) and far above the band `DOWN_FACTOR` polices
+ * (1.22x), so it can only ever convict a machine that is *not close*: between
+ * 1.22 and 1.43 the ordinary ladder is still working and is left alone. A
+ * machine at 42fps at the bottom of the ladder is one the ladder helped; a
+ * machine at 500ms is one it did not, and the rung it is being charged for the
+ * privilege is worth giving back.
+ *
+ * ── ...and why the restitution is exactly one rung ─────────────────────────
+ *
+ * The obvious objection is that this convicts the *ladder* and then punishes
+ * the *last rung*, which it never measured on its own. That is true, and it is
+ * the point rather than a gap in it: one rung is the smallest restitution
+ * available and the only one whose loss is provably not what stands between
+ * this player and a playable frame. At 31x over budget nobody is one rung from
+ * 60fps — `RUNG_GAIN` says a rung is worth 1.2x — so the marginal rung is
+ * costing a real, visible amount of picture in exchange for a difference the
+ * player cannot feel. Handing it back is the one move that is defensible
+ * without a pairwise measurement, and handing back *two* would not be.
+ *
+ * **...and it overrules a `worked` on the rung it undoes, deliberately.**
+ * Measured on the bench that built this, 110 seconds of live play at 1600x900
+ * on a software rasteriser, both verdicts landing on the same frame:
+ *
+ *   {rung:6, call:'worked', beforeMs:1721.0, afterMs:1034.2, gain:0.399}
+ *   {rung:6, call:'futile', where:'floor', afterMs:1034.2, overBudget:62.1}
+ *
+ * The first is true: the bottom rung bought 40% of the frame. The second is
+ * also true and is the one that matters, because 40% of 62x is 41x. The
+ * *pairwise* question — did this cut do something — and the *whole-ladder*
+ * question — is this player any closer to a game — have different answers here
+ * and only one of them is about the player. A rung that takes 0.58fps to
+ * 0.97fps has not rescued anybody, and it is charging half the resolution and
+ * the antialiasing for the privilege. This is precisely the band `1.43x` exists
+ * to isolate: had the floor landed at 24ms, the same 40% would have been the
+ * difference between playable and not and the check would never have run.
+ */
+const FLOOR_FUTILE_FACTOR = 1.43;
+/**
+ * ...and how long the floor has to have held before the question is asked.
+ *
+ * §2's unit rule: a pair, because one of the two is meaningless on the machine
+ * this is for. The frames are `VERDICT_SAMPLES` — the same evidence bar every
+ * other verdict in this file has to clear, and no lower for being the biggest
+ * call — and the seconds are what a person waits, which at the frame rates this
+ * fires at is never the binding half.
+ */
+const FLOOR_DWELL_S = 4;
+/** ...and how often the two medians behind it may actually be computed. One
+ *  sorts 64 floats and the other 512, and this branch is live on every
+ *  delivered frame of a session that has reached the bottom of the ladder — so
+ *  the cheap mean is the doorbell and this is the lock on the door. */
+const FLOOR_ASK_S = 2;
 
 /** Frames of wall history. Emptied on every change, so it is never a mean
  *  across two different games. */
@@ -2893,6 +3090,28 @@ export interface QualityVerdict {
   bar: number;
   /** Delivered frames the verdict was taken over. */
   samples: number;
+  /**
+   * Which decision path took this, when it was not the in-race ladder's.
+   *
+   * `'prelude'` — measured behind an opaque front-end, on that renderer's own
+   * window, so `t` is `prelude.seconds` rather than `liveSeconds` (which is
+   * zero there by construction) and `samples` is the prelude window's.
+   * `'floor'` — the whole-ladder verdict below.
+   *
+   * Absent on the ordinary in-race verdict, which is the majority and the one
+   * every field above is denominated for.
+   */
+  where?: string;
+  /**
+   * How many times over the 60fps target the frame still is, for the `floor`
+   * verdict — which is the number that call is *decided* on, and it is not a
+   * fraction so it cannot live in `gain` or `bar`.
+   *
+   * Compare against `FLOOR_FUTILE_FACTOR`. `gain` and `bar` on a `floor` entry
+   * still mean what they mean everywhere else — what the descent bought against
+   * what a cut has to buy to count — they are simply not what decided it.
+   */
+  overBudget?: number;
 }
 
 export interface QualityProbe {
@@ -2960,10 +3179,27 @@ export interface QualityProbe {
   drawDistance: number;
   particles: number;
   shadowSize: number;
-  /** The rung stored for this machine, or -1 if nothing is stored, and whether
-   *  this session *started* from it. */
+  /**
+   * The rung stored for this machine, or -1 if nothing is stored, whether this
+   * session was seeded from it, whether the stored record is a **person's pick**
+   * rather than the governor's own note — and the rung the session actually
+   * booted on.
+   *
+   * `startRung` is the one to read, and the pair `remembered`/`startRung` is the
+   * round-fifteen fix stated as two numbers. A stored measurement is restored by
+   * half (`resumeRung`): `{remembered: 6, rememberedPick: false, startRung: 3}`
+   * is this file behaving, and the governor re-earns the other three rungs
+   * inside the first race if the machine still needs them. A stored *decision*
+   * is restored whole and held: `{remembered: 6, rememberedPick: true,
+   * startRung: 6, auto: false}`.
+   *
+   * `{remembered: 6, rememberedPick: false, startRung: 6}` is the defect this
+   * was written for, and it is checkable from outside the page.
+   */
   remembered: number;
   rememberedSeed: boolean;
+  rememberedPick: boolean;
+  startRung: number;
   /** The coarse hardware key the memory is filed under. Reported so a review
    *  can tell "this machine has no history" from "the memory is broken". */
   memoryKey: string;
@@ -3084,6 +3320,18 @@ export interface QualityProbe {
   /** Drops in a row that bought nothing, and whether it has given up. */
   futile: number;
   stalled: boolean;
+  /**
+   * ...and whether the **bottom rung** has been convicted and retired for the
+   * session. See `FLOOR_FUTILE_FACTOR`.
+   *
+   * Different from `stalled` in the one way that matters: `stalled` is about the
+   * last cut and is cleared at every race build, this is about the ladder and is
+   * never cleared. A probe reading `floorRefused: true` with `rung` one above
+   * the bottom is the whole-ladder verdict having fired — the entry is in
+   * `verdicts` with `where: 'floor'` and the multiple of the budget it was
+   * decided on.
+   */
+  floorRefused: boolean;
   /**
    * The climb, which is sized from measured headroom rather than hardcoded at
    * one rung. See `sizedClimb`.
@@ -3260,6 +3508,20 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    *  Reported: a governor that starts at rung 4 without saying why looks like a
    *  bug and is the fix. */
   let memorySeeded = false;
+  /** ...and is what is stored a person's decision or the governor's own note.
+   *  The two are restored by different rules and only one of them is halved on
+   *  the way in — see `resumeRung` and `init()`. */
+  let memoryPick = false;
+  /**
+   * The rung this session actually **booted on**, after the half-restore.
+   *
+   * Reported next to `remembered` because the pair is the whole of the
+   * round-fifteen fix and a probe that showed only one of them could not tell a
+   * governor that resumed politely from one that resumed verbatim. A door test
+   * reading `{remembered: 6, startRung: 3}` is this file working; `{6, 6}` on
+   * an unpicked record is the defect coming back.
+   */
+  let startRung = START_RUNG;
   /** The exact object we last wrote to `ctx.quality`, so a tier set by anyone
    *  else is recognisable by identity rather than by comparing fields. */
   let applied: QualitySettings | null = null;
@@ -3600,6 +3862,24 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    *  In *mean* units, because the retry test below reads the mean every frame
    *  and comparing a median against a mean is not a comparison. */
   let stalledAt = 0;
+  /**
+   * The bottom rung has been tried on this machine and measured not to reach it.
+   *
+   * Set once per session by the floor verdict (see `FLOOR_FUTILE_FACTOR`) and
+   * never cleared, which is the difference between it and `stalled`. `stalled`
+   * is a statement about the last cut and `flushSeam` clears it at every race
+   * build, deliberately, so a machine converges over a handful of races. This
+   * is a statement about the *ladder*, and a race build does not make the floor
+   * cheaper — so without a latch the ladder would walk back down to a rung it
+   * has already convicted at the start of every race, once per race, for ever.
+   *
+   * It retires exactly one rung. Everything above it is still the ladder's to
+   * spend.
+   */
+  let floorRefused = false;
+  /** `liveSeconds` the floor question was last actually measured at. See
+   *  `FLOOR_ASK_S`. */
+  let floorAskedAt = -Infinity;
 
   // ── the climb's own memory ───────────────────────────────────────────────
   /**
@@ -6105,7 +6385,37 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     // in-race path does when it convicts itself (`stalled`).
     if (preludeBefore > 0) {
       const gain = (preludeBefore - med) / preludeBefore;
+      const before = preludeBefore;
       preludeBefore = 0;
+      // ── ...and it goes in the book, which for two rounds it did not ────────
+      //
+      // The judgement was already being *taken* here and acted on; it was simply
+      // not written down, so a reviewer whose machine took the prelude path —
+      // which is every machine the prelude exists for — read `verdicts: []` and
+      // correctly concluded that the check had never run. A verdict that decides
+      // something and leaves no record is indistinguishable from one that was
+      // never reached, and §8 is a promise this file has to be able to evidence.
+      //
+      // `t` and `samples` are the prelude's own clock and window, named by
+      // `where`, because `liveSeconds` is zero behind a front-end by
+      // construction — see §7 — and reporting a front-end verdict against it
+      // would put every one of them at t: 0.
+      //
+      // It does **not** touch `futile`. The in-race counter is cleared on the
+      // `ui:menu` edge on purpose (a verdict belongs to the scene it was measured
+      // on), and leaking a title screen's answer past the curtain would undo that
+      // in the one direction that matters.
+      recordVerdict({
+        t: +preSessionSeconds.toFixed(2),
+        rung: index,
+        call: gain < FUTILE_GAIN ? 'futile' : 'worked',
+        beforeMs: +before.toFixed(1),
+        afterMs: +med.toFixed(1),
+        gain: +gain.toFixed(3),
+        bar: FUTILE_GAIN,
+        samples: preCount,
+        where: 'prelude',
+      });
       if (gain < FUTILE_GAIN) {
         preludeMoves = PRELUDE_LIMIT;
         if (preludeFrom >= 0 && preludeFrom < index) {
@@ -6128,14 +6438,14 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       }
       return 'undrawn (front-end does not hear the ladder)';
     }
-    if (index >= LADDER.length - 1) return 'undrawn (floor)';
+    if (index >= bottomRung()) return 'undrawn (floor)';
     const step = rungsOver(med);
     // Nothing to say. The window is left rolling rather than cleared, so a
     // front-end that gets slower later — a parade of seven machines on the
     // select screen — is still measured.
     if (step < 1) return 'undrawn (front-end in band)';
     let want = index + step;
-    if (want > LADDER.length - 1) want = LADDER.length - 1;
+    if (want > bottomRung()) want = bottomRung();
     if (want <= index) return 'undrawn (front-end in band)';
     const many = want - index > 1 ? ` x${want - index}` : '';
     installPrelude(want, med, `prelude (${(med / TARGET_MS).toFixed(0)}x budget)${many}`);
@@ -6173,14 +6483,14 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     const b = ctx.budget;
     if (!auto || !b || benched || harnessSince || b.benchSteps > 0) return;
     if (preludeMoves >= PRELUDE_LIMIT) return;
-    if (index >= LADDER.length - 1) return;
+    if (index >= bottomRung()) return;
     if (preSessionSeconds < PRELUDE_WARM_S) return;
     if (preCount < PRELUDE_BUILD_SAMPLES) return;
     if (preludeMoves > 0 && !frontEndHears()) return;
     const med = preludeMedian();
     if (med <= TARGET_MS * COLLAPSE_FACTOR) return;
     let want = index + rungsOver(med);
-    if (want > LADDER.length - 1) want = LADDER.length - 1;
+    if (want > bottomRung()) want = bottomRung();
     if (want <= index) return;
     const many = want - index > 1 ? ` x${want - index}` : '';
     installPrelude(want, med, `prelude (race build, ${(med / TARGET_MS).toFixed(0)}x budget)${many}`);
@@ -6255,6 +6565,26 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     return n < 1 ? 1 : n > UP_MAX_STEP ? UP_MAX_STEP : n;
   }
 
+  /**
+   * The lowest rung the ladder may reach, which is one above the floor once the
+   * floor has been convicted. See `floorRefused`.
+   *
+   * Every clamp in this file goes through here rather than through
+   * `LADDER.length - 1`, because a bottom that four call sites each compute for
+   * themselves is a bottom three of them will eventually forget about.
+   */
+  const bottomRung = (): number => LADDER.length - 1 - (floorRefused ? 1 : 0);
+
+  /** One judgement, in the book, oldest evicted. Every verdict in this file goes
+   *  through here — the in-race check, the prelude's and the floor's — so that
+   *  "is this recorded" is one question with one answer rather than three copies
+   *  of a `push` and a `shift`, one of which is how `verdicts: []` survived a
+   *  hundred seconds of a machine visibly failing. */
+  function recordVerdict(v: QualityVerdict): void {
+    if (verdicts.length >= 16) verdicts.shift();
+    verdicts.push(v);
+  }
+
   function markDrop(): void {
     measureWindow();
     wallBefore = wallMedian;
@@ -6270,8 +6600,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   function abandonVerdict(): void {
     if (!verdictPending) return;
     verdictPending = false;
-    if (verdicts.length >= 16) verdicts.shift();
-    verdicts.push({
+    recordVerdict({
       t: +liveSeconds.toFixed(2),
       rung: index,
       call: 'abandoned',
@@ -6744,6 +7073,8 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       shadowSize: q.shadows ? q.shadowSize : 0,
       remembered: memoryRung,
       rememberedSeed: memorySeeded,
+      rememberedPick: memoryPick,
+      startRung,
       memoryKey,
       content: {
         crowd: content.crowd, scatter: content.scatter,
@@ -6782,6 +7113,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       holding,
       futile,
       stalled,
+      floorRefused,
       // The climb's own state, so "why did it only take one rung back" is a
       // readable question rather than an inference off the log. See `sizedClimb`.
       climbStep: sizedClimb(),
@@ -7272,21 +7604,48 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // so that seeding is not logged as a change: it did not cost a frame,
       // nothing was on screen, and charging it to `changeWorstMs` would put a
       // boot-time reallocation on the governor's conduct record.
+      //
+      // ── ...and how much of it is restored, which is the round-fifteen fix ──
+      //
+      // Two records, two rules, and the difference between them is the whole
+      // point. `readMemory` reports whether the stored rung is a **decision** or
+      // a **measurement**:
+      //
+      //   a pick        restored whole, and *held* — `auto` goes false, because
+      //                 §6 says the governor never overrules a person and
+      //                 restoring only the number would be restoring the rung
+      //                 without the decision that set it.
+      //   the governor  restored by half (`resumeRung`), on automatic, and the
+      //                 rest is re-earned inside the first race.
+      //
+      // The old behaviour was the second case restored whole with `auto` left
+      // true, which is the worst of both: a rung nobody chose, standing for
+      // ever, on evidence one session old, in a product with no picture control
+      // for a player to answer it with.
       memoryKey = hardwareKey(ctx);
-      const remembered = readMemory(memoryKey);
-      if (remembered >= 0) {
-        memoryRung = remembered;
+      const mem = readMemory(memoryKey);
+      if (mem.rung >= 0) {
+        memoryRung = mem.rung;
+        memoryPick = mem.pick;
         memorySeeded = true;
-        index = remembered;
+        index = mem.pick ? mem.rung : resumeRung(mem.rung);
         // The seam follows by hand here rather than through `flushSeam`, for
         // the same reason `index` does: a remembered rung is where the session
         // *starts*, not somewhere it has travelled to, and a seam that had to
         // catch up would log the boot as a deferral.
-        seamIndex = remembered;
+        seamIndex = index;
+        // A decision, held. Set before `applyRung` so the boot entry is filed
+        // in `pins` — a person's hand, not the governor's — and so no branch
+        // below this line can act on a picture somebody chose.
+        if (mem.pick) auto = false;
       }
+      startRung = index;
       // Start from a known rung rather than inheriting whatever main.ts built,
       // so `index` and `ctx.quality` cannot disagree from the first frame.
-      applyRung(index, memorySeeded ? 'remembered' : 'settling');
+      applyRung(index, !memorySeeded ? 'settling'
+        : memoryPick ? 'remembered (a pick, held)'
+          : memoryRung > index ? `remembered ${memoryRung} (resumed at half)`
+            : 'remembered');
       // Seam one of four. Nothing has been drawn yet, so the drawing buffer,
       // the crowd and the verge can all be built at the remembered rung for
       // free — which is the entire point of remembering it. See `flushSeam`.
@@ -7493,9 +7852,22 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
          */
         set(next: number | null): void {
           if (next === null) {
-            // Back to the measurement. The stored rung is left alone — it is the
-            // governor's own note about this machine, and this verb is "you
-            // decide", not "forget what you know". `forget()` is that verb.
+            // Back to the measurement. The stored *rung* is left alone — it is
+            // still the best note anybody has about this machine, and this verb
+            // is "you decide", not "forget what you know". `forget()` is that
+            // verb.
+            //
+            // What is withdrawn is the **pick flag**, and it has to be: a record
+            // still marked as a decision would be restored whole and held on the
+            // next boot (see `init()`), so a player who handed the picture back
+            // to the governor would find it pinned again tomorrow to a rung they
+            // had explicitly stopped choosing. Demoting it to the governor's own
+            // note is what "you decide" means once the page reloads — and it
+            // also puts the rung back under `resumeRung`'s half.
+            if (memoryPick && memoryRung >= 0) {
+              memoryPick = false;
+              writeMemory(memoryKey, memoryRung, false);
+            }
             auto = true;
             overFor = 0; underFor = 0; panicFor = 0; settleFor = 0;
             settleFrames = 0;
@@ -7514,13 +7886,19 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
           // rather than through the settle path above, which exists to stop a
           // rung the ladder merely passed through being recorded — a decision is
           // not passed through.
+          //
+          // ...and written as a **pick**, which is the flag `init()` restores
+          // whole. A player's choice is not evidence the governor has to
+          // re-earn, so it is the one record `resumeRung`'s half does not touch.
           memoryRung = i;
-          writeMemory(memoryKey, i);
+          memoryPick = true;
+          writeMemory(memoryKey, i, true);
         },
         /** ...and the way out of the one-way door. */
         forget(): void {
           forgetMemory();
           memoryRung = -1;
+          memoryPick = false;
           memorySeeded = false;
           // Back to the top of the ladder, because that is what a machine with
           // no history gets (`START_RUNG`), and a "clear this and start again"
@@ -8374,7 +8752,11 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         && wallCount >= MIN_SAMPLES
         && settleFor >= MEMORY_SETTLE_S && settleFrames >= MEMORY_SETTLE_FRAMES) {
         memoryRung = index;
-        writeMemory(memoryKey, index);
+        // The governor's own note, never a pick — the flag is what `init()`
+        // reads to decide whether the rung is restored whole or halved, and a
+        // measurement filed as a decision would come back as a pin.
+        memoryPick = false;
+        writeMemory(memoryKey, index, false);
       }
 
       // ── the collapse path ────────────────────────────────────────────────
@@ -8413,7 +8795,8 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // not drawn at all, so a frame measured there is somebody else's — and
       // since round eight those frames are discarded outright, so this is
       // belt and braces for a front-end that is up but not covering.
-      const collapseBottom = frontEndOpen ? FRONT_END_FLOOR : LADDER.length - 1;
+      const collapseBottom = Math.min(
+        frontEndOpen ? FRONT_END_FLOOR : LADDER.length - 1, bottomRung());
       if (collapsing && index < collapseBottom && !stalled && !paused
         && wallCount >= COLLAPSE_SAMPLES
         && collapseFor >= COLLAPSE_DWELL && collapseFrames >= COLLAPSE_FRAMES) {
@@ -8511,8 +8894,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
             // the bar it could not clear next to it.
             call = 'unresolved';
           }
-          if (verdicts.length >= 16) verdicts.shift();
-          verdicts.push({
+          recordVerdict({
             t: +liveSeconds.toFixed(2),
             rung: index,
             call,
@@ -8555,6 +8937,13 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
             stalled = true;
             stalledAt = wallMean;
             futile = 0;
+            // ...and if the rung being handed back is the **bottom** one, the
+            // thing convicted is the ladder rather than the cut, so it latches
+            // for the session exactly as the floor verdict below does. Without
+            // this the pairwise route to the same conclusion would be undone by
+            // the next `flushSeam` and walked again once a race. See
+            // `floorRefused` and `bottomRung`.
+            if (index >= LADDER.length - 1) floorRefused = true;
             applyRung(index - 1, call === 'worse'
               ? 'stalled (that drop cost more than it bought)'
               : 'stalled (drops buy nothing)');
@@ -8569,6 +8958,85 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
           // believes. Counted in frames precisely so that a slow machine is not
           // the thing that trips it; see `VERDICT_ABANDON_FRAMES`.
           abandonVerdict();
+        }
+      }
+
+      // ── ...and the verdict on the ladder itself ──────────────────────────
+      //
+      // See `FLOOR_FUTILE_FACTOR`. The block above judges one cut against the
+      // one before it, which is the right question on the path where rungs are
+      // walked — and is unaskable on the path a genuinely slow machine takes,
+      // where the prelude installs the whole ladder in one move on a frame
+      // behind the front-end and the in-race check arrives to find nothing left
+      // to compare. This asks the only question still available at the bottom of
+      // the ladder: after everything, is the frame still nowhere near.
+      //
+      // Both instruments have to agree, and they are deliberately different
+      // shapes. `wallMedian` is the window taken *at the floor* — the picture
+      // the player is actually being charged for — and `sessionMedian()` spans
+      // the whole session including every rung above it, so it cannot be moved
+      // by one bad stretch at the bottom. A machine that only fails on this
+      // corner fails the second test and is left alone.
+      //
+      // The two medians are the decision and the **mean is the doorbell**, in
+      // that order and for one reason: `measureWindow()` sorts 64 floats and
+      // `sessionMedian()` sorts 512, and a branch that runs on every delivered
+      // frame for the rest of the session may not do either. `wallMean` is
+      // maintained every frame anyway, it can only be wrong about a distribution
+      // in the direction of *asking*, and `floorAskedAt` holds the real
+      // instruments to once every `FLOOR_ASK_S` on top.
+      const floorBarMs = TARGET_MS * FLOOR_FUTILE_FACTOR;
+      if (!floorRefused && index >= LADDER.length - 1 && !stalled && !verdictPending
+        && wallCount >= VERDICT_SAMPLES && settleFor >= FLOOR_DWELL_S
+        && wallMean > floorBarMs && liveSeconds - floorAskedAt >= FLOOR_ASK_S) {
+        floorAskedAt = liveSeconds;
+        measureWindow();
+        const floorMs = wallMedian;
+        const sessionMs = sessionMedian();
+        const barMs = floorBarMs;
+        if (floorMs > barMs && sessionMs > barMs) {
+          // ── the strictest moment gate in the file, and it can afford it ────
+          //
+          // Handing a rung back is a change to a picture like any other and this
+          // one is **not an emergency**: the machine has been at the floor for
+          // `FLOOR_DWELL_S`, it will still be there in another second, and what
+          // is waiting is a picture getting *better*. Nothing on the ladder is
+          // cheaper to postpone, so it takes both gates — `pictureLocked()` for
+          // the ordinary refusals with their valves, and `watchedBeat()`, which
+          // has no door at all.
+          //
+          // The second is not belt-and-braces. `sealedBeat`'s countdown door is
+          // `ceremonyFrames < SEAL_FRAMES`, and `SEAL_FRAMES` is derived from
+          // `MAX_STEPS_PER_FRAME` — the *fastest* the simulation can advance per
+          // drawn frame — so it is the **minimum** length of a countdown in
+          // delivered frames, not the maximum. A machine drawing 40fps steps the
+          // sim three times a frame and takes 160 delivered frames over a beat
+          // the seal stops protecting at 120. That machine is exactly the one
+          // this branch fires on: over budget, at the floor, and fast enough to
+          // out-run the seal. `watchedBeat()` is doorless and does not care.
+          if (pictureLocked() || watchedBeat()) return hold('floor (waiting for a moment)');
+          floorRefused = true;
+          stalled = true;
+          stalledAt = wallMean;
+          futile = 0;
+          recordVerdict({
+            t: +liveSeconds.toFixed(2),
+            rung: index,
+            call: 'futile',
+            beforeMs: +sessionMs.toFixed(1),
+            afterMs: +floorMs.toFixed(1),
+            // What the whole session's descent is worth, measured at the bottom
+            // of it against a typical frame of the session — the honest reading
+            // of `gain` here, and not what the call was decided on.
+            gain: sessionMs > 0 ? +((sessionMs - floorMs) / sessionMs).toFixed(3) : 0,
+            bar: FUTILE_GAIN,
+            samples: wallCount,
+            where: 'floor',
+            overBudget: +(floorMs / TARGET_MS).toFixed(1),
+          });
+          applyRung(index - 1,
+            `stalled (the floor is still ${(floorMs / TARGET_MS).toFixed(0)}x budget)`);
+          return;
         }
       }
 
@@ -8595,7 +9063,8 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // Behind the front-end the ladder stops at `FRONT_END_FLOOR`: the
       // evidence there is about a frame this file only half owns, and it buys
       // the top of the ladder rather than the whole of it.
-      const bottom = frontEndOpen ? FRONT_END_FLOOR : LADDER.length - 1;
+      const bottom = Math.min(
+        frontEndOpen ? FRONT_END_FLOOR : LADDER.length - 1, bottomRung());
       const canDrop = index < bottom && !stalled && !verdictPending;
       if (panic && canDrop && liveSeconds >= PANIC_ARM_S
         && settleFor >= PANIC_SETTLE && settleFrames >= PANIC_SETTLE_FRAMES) {
@@ -8683,7 +9152,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // next. Climbing is unaffected — a climb clears the pending verdict
       // because the thing it was judging has been undone.
       const wantDown = overFor >= DOWN_DWELL && overFrames >= DOWN_DWELL_FRAMES
-        && index < LADDER.length - 1 && !stalled && !verdictPending;
+        && index < bottomRung() && !stalled && !verdictPending;
       const wantUp = underFor >= UP_DWELL && index > 0;
       if (!wantDown && !wantUp) {
         return hold(over

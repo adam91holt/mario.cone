@@ -623,6 +623,67 @@ export interface EnclosureDef {
   lamp?: number;
 }
 
+/**
+ * ── a belt of standing vegetation, close in ────────────────────────────────
+ *
+ * **The finding.** *"Switchback Summit is a 102m alpine mountain with no trees,
+ * bushes or vegetation of any kind — five metres past the kerb the world
+ * becomes a flat desaturated olive plane with a handful of tiny scatter props,
+ * and Mount Wario's equivalent moment is a dense pine forest."*
+ *
+ * `world/index.ts` does honour `theme.props.pines` and does place conifers, and
+ * that is why the finding is subtle rather than obvious. What it places is a
+ * **landscape** layer: 190 stands scattered over an eighteen-to-two-hundred-
+ * metre band the whole way round the lap, thinned again by a `free()` claim
+ * radius and cut by a treeline test against the nearest road. Averaged over
+ * 2.7km of circuit and a 190-metre-wide band that is roughly one stand every
+ * 2,700 square metres — correct for a distant hillside, and invisible from a
+ * chase camera whose sight line past the barrier is mostly the first thirty
+ * metres. The band that decides whether a road runs *through* forest is the one
+ * band nothing was allowed to plant in, because `world/` reserves the
+ * shoulder for cones, drums and trestles.
+ *
+ * So a treeline is a **kit** noun, standing with the barrier rather than with
+ * the landscape: a dense belt planted from just outside the barrier footing out
+ * to `far`, along declared spans of the lap, on one flank or both. It is the
+ * difference between a mountain that has trees on it somewhere and a mountain
+ * road you cannot see out of.
+ *
+ * The stands themselves are `world/landprops.ts`'s `pineStandGeo` — imported,
+ * never copied. A second conifer drawn in this directory would be two kinds of
+ * tree on one hillside, which is the coherence fault this whole file exists to
+ * answer.
+ */
+export interface TreelineDef {
+  /** Lap fraction of the leading edge, measured from the start line. */
+  from: number;
+  /** Lap fraction of the trailing edge. */
+  to: number;
+  /**
+   * Which flank, in the spline's lateral frame — see `LATERAL FRAME` above
+   * `HazardDef`. Omitted plants both, which is what a road through a forest is.
+   */
+  side?: -1 | 1;
+  /** Metres beyond the shoulder the belt starts. Defaults to 3. */
+  near?: number;
+  /** Metres beyond the shoulder it ends. Defaults to 56. */
+  far?: number;
+  /**
+   * Stands per hundred metres of road, per flank. A stand is three or four
+   * trees, so the default of 18 is sixty-odd trunks in a hundred metres of
+   * verge — a forest rather than a scatter, which is the whole point.
+   */
+  density?: number;
+  /**
+   * Metres a stand may stand above the road beside it before it is dropped.
+   *
+   * A treeline is the cue that makes a mountain read as a mountain, and a
+   * forest growing up through the snowline destroys it. Defaults to 22, which
+   * is comfortably under `render/theme.ts`'s snow ramp.
+   */
+  ceiling?: number;
+}
+
 export interface KitDef {
   /** What stands over the start line. Defaults to the stock truss gantry. */
   arrival?: ArrivalKind;
@@ -651,6 +712,12 @@ export interface KitDef {
    * this here.
    */
   chapters?: ChapterDef[];
+  /**
+   * **What grows beside this road.** See `TreelineDef` — a dense belt in the
+   * band `world/` reserves for cones and drums, which is the band that decides
+   * whether a circuit runs *through* a landscape or merely past one.
+   */
+  treeline?: TreelineDef[];
 }
 
 /**

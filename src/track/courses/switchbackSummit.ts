@@ -592,6 +592,68 @@ export const switchbackSummit: CourseDefEx = {
       steel: 0xb7c0c9,
       accent: 0xe04a2b,
       banner: { field: '#123B52', ink: '#F2F7FB', strip: '#E04A2B' },
+
+      // ── THE FOREST ─────────────────────────────────────────────────────
+      //
+      // **The finding.** *"Switchback Summit is a 102m alpine mountain with no
+      // trees, bushes or vegetation of any kind — five metres past the kerb the
+      // world becomes a flat desaturated olive plane with a handful of tiny
+      // scatter props, and Mount Wario's equivalent moment is a dense pine
+      // forest."*
+      //
+      // `theme.props.pines` below has been `true` since the mountain was cut
+      // and `world/index.ts` does honour it, which is why this is subtle rather
+      // than obvious: what it plants is a *landscape* layer — 190 stands over
+      // an eighteen-to-two-hundred-metre band round a 2.68km lap, thinned again
+      // by a claim radius. That is one stand every couple of thousand square
+      // metres, correct for a hillside a kilometre off and invisible from a
+      // chase camera, whose sight line past the snow fence is mostly the first
+      // thirty metres. And the first thirty metres is the one band nothing was
+      // allowed to plant in, because `world/` reserves the shoulder for cones,
+      // drums and trestles.
+      //
+      // So the belts below are a **kit** noun and they stand with the barrier.
+      // See `TreelineDef` and `buildTreeline` in `kit.ts` — same conifer
+      // (`pineStandGeo`, imported, never redrawn), planted from just outside
+      // the fence out to fifty-odd metres, on the two thirds of the lap that
+      // are below the treeline.
+      //
+      // ── where they are, and why not everywhere ─────────────────────────
+      //
+      // A pass has a treeline and that is the single strongest statement of
+      // altitude a mountain course can make. The valley floor is forest; the
+      // climb thins out; the summit lobe, the Ledge and the Spur are bare rock
+      // and snow, and they have to *stay* bare or the hundred and two metres
+      // this course is built on stop reading as height. `ceiling` is the
+      // backstop rather than the design: anything that lands more than twenty
+      // metres above the road beside it is dropped, so a belt cannot climb the
+      // face of the Notch's cutting.
+      treeline: [
+        // ── the valley floor, and the first four hundred metres of the race ──
+        //
+        // Wraps the start line. `capture.mjs`'s `racing` shot autopilots nine
+        // seconds from the flag and photographs whatever is there — which on
+        // this circuit is m2, the Foot of the Climb and the mouth of the Notch,
+        // and which is the exact frame the finding was written off. Held off
+        // the shoulder by five metres so the cableway masts, the grid and the
+        // marshals' posts have their ground.
+        {
+          from: on('T11 SPILLWAY KINK', 0.4),
+          to: on('T3 FOOT OF THE CLIMB', 0.55),
+          near: 5, far: 62, density: 17,
+        },
+        // ── the flank under the Notch ───────────────────────────────────────
+        //
+        // The forest thinning as the road climbs out of it. It stops before the
+        // gallery, which is the point at which this mountain is above the trees
+        // and stays there for the rest of the lap.
+        {
+          from: on('T3 FOOT OF THE CLIMB', 0.55),
+          to: on('T4 THE NOTCH', 0.55),
+          near: 6, far: 58, density: 12, ceiling: 17,
+        },
+      ],
+
       // ── the Cutting Sweep, which had never been a cutting ────────────────
       //
       // The corner has been called this since the layout was cut and there has

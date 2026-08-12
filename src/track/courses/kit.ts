@@ -69,8 +69,14 @@ import * as THREE from 'three';
 import { MeshBuilder, fbm, noise2, smoothstep, surfacePoint, type Lane } from '../geom.ts';
 import { makeCheckerTexture, makeKerbTexture, makePaintTexture } from '../textures.ts';
 import { config } from '../../core/config.ts';
+import { resolveTheme } from '../../render/theme.ts';
+// Imported, never copied. See `buildTreeline` — a second conifer drawn in this
+// directory would be two kinds of tree on one hillside.
+import { pineStandGeo } from '../../world/landprops.ts';
+import { LAND_PALETTES, type LandPalette } from '../../world/themes.ts';
 import {
   features, type BarrierKind, type ChapterDef, type EnclosureDef, type KitDef,
+  type TreelineDef,
 } from './types.ts';
 import type { TrackSpline } from '../spline.ts';
 import type {
@@ -1811,6 +1817,140 @@ function buildChapters(c: ChapterCtx, chapters: ChapterDef[]): void {
   }
 }
 
+// ── the treeline ───────────────────────────────────────────────────────────
+//
+// **The finding.** *"Switchback Summit is a 102m alpine mountain with no trees,
+// bushes or vegetation of any kind — five metres past the kerb the world
+// becomes a flat desaturated olive plane with a handful of tiny scatter props,
+// and Mount Wario's equivalent moment is a dense pine forest."*
+//
+// See `TreelineDef` for why `world/`'s 190 stands are not the answer to that
+// and were never meant to be: they are a *landscape* layer, spread over a
+// 190-metre band round a 2.7km lap, and the band a chase camera actually looks
+// into — the first thirty metres past the barrier — is the one band `world/`
+// deliberately reserves for cones, drums and trestles.
+//
+// ── three things this is careful about ─────────────────────────────────────
+//
+//   1. **The geometry is not drawn here.** `pineStandGeo` is imported from
+//      `world/landprops.ts`. Two conifers on one hillside, drawn by two
+//      modules, is the exact coherence fault this file exists to answer.
+//   2. **It stands on the ground, not on the road.** Every stand is dropped by
+//      the same `terrainHeight()` the skirt is clamped against, queried at the
+//      *nearest* road rather than the one the belt is being walked along — so
+//      where the circuit folds back over itself, as the neck of the gorge does
+//      at 120 metres, a tree planted off the climb lands on the ground the
+//      plunge established and not forty metres in the air.
+//   3. **It stops below the snow.** A forest growing up through
+//      `render/theme.ts`'s snow ramp would undo the one cue that makes a
+//      mountain read as a mountain, so anything standing more than `ceiling`
+//      metres above the road beside it is dropped rather than drawn.
+//
+// Two instanced draws per flank per belt, no shadow casting — `world/index.ts`
+// makes the same call for the same reason: *"they are foliage — a shadow of
+// one is a mess of thin triangles"*.
+
+/**
+ * Metres past the shoulder at which a stand stops being drawn in full.
+ *
+ * The detailed build is a trunk, four skirts and two snow lines per tree and
+ * costs about three times the silhouette. `world/index.ts` splits at 48 metres
+ * because it is scattering over a two-hundred-metre band and most of its
+ * forest is a long way off; a belt planted from the barrier out is the other
+ * way round, so the split has to come in or the whole thing is detailed.
+ */
+const PINE_NEAR = 24;
+
+function buildTreeline(
+  c: ChapterCtx, belts: TreelineDef[], o: HeightOpts, tint: LandPalette,
+): void {
+  const near: THREE.Matrix4[] = [];
+  const far: THREE.Matrix4[] = [];
+  const s: SplineSample = c.spline.atDistance(0);
+  const probe = new THREE.Vector3();
+  const nearSample: SplineSample = c.spline.atDistance(0);
+  const at = new THREE.Vector3();
+  const q = new THREE.Quaternion();
+  const up = new THREE.Vector3(0, 1, 0);
+  const scale = new THREE.Vector3();
+
+  for (let bi = 0; bi < belts.length; bi++) {
+    const belt = belts[bi]!;
+    const [d0, span] = chapterSpan(c, belt);
+    const n0 = belt.near ?? 3;
+    const n1 = belt.far ?? 56;
+    const density = belt.density ?? 18;
+    const ceiling = belt.ceiling ?? 22;
+    const sides: (-1 | 1)[] = belt.side ? [belt.side] : [-1, 1];
+    // Deterministic, and decorrelated per belt: two belts on one course must
+    // not plant the same forest twice.
+    const rnd = rand(0x2f81b3 + bi * 9173);
+
+    for (const side of sides) {
+      const count = Math.max(1, Math.round((span / 100) * density));
+      for (let i = 0; i < count; i++) {
+        const d = d0 + span * ((i + rnd() * 0.9) / count);
+        c.spline.atDistance(d, s);
+        // Biased outward. A belt with a uniform offset puts as many trunks in
+        // the first four metres as in the last twenty, which walls the road in
+        // at the shoulder and leaves the depth behind it empty — the opposite
+        // of a forest, which is thin at its edge and solid behind.
+        const off = n0 + (n1 - n0) * Math.pow(rnd(), 0.62);
+        const lat = side * (s.width * 0.5 + c.verge + off);
+        at.copy(s.pos).addScaledVector(s.right, lat);
+
+        // Where is the ground *really*? Ask the nearest road, not this one.
+        probe.set(at.x, 0, at.z);
+        c.spline.nearest(probe, nearSample);
+        const dx = at.x - nearSample.pos.x;
+        const dz = at.z - nearSample.pos.z;
+        const beyond = Math.max(0, Math.hypot(dx, dz) - (nearSample.width * 0.5 + c.verge));
+        // Nothing plants on the tarmac, or in the two metres of run-off beside
+        // it: the barrier footing stands there.
+        if (beyond < 1.6) continue;
+        const y = terrainHeight(beyond, nearSample.pos.y, at.x, at.z, o);
+        if (y - nearSample.pos.y > ceiling) continue;
+
+        const h = 0.62 + rnd() * 0.62;
+        at.y = y - 0.4;
+        q.setFromAxisAngle(up, rnd() * Math.PI * 2);
+        scale.set(h, h * (0.86 + rnd() * 0.3), h);
+        const m = new THREE.Matrix4().compose(at, q, scale);
+        (beyond < PINE_NEAR ? near : far).push(m);
+      }
+    }
+  }
+
+  const stand = (list: THREE.Matrix4[], detail: boolean): void => {
+    if (!list.length) return;
+    // Three trees to a stand rather than four, near and far alike. The belt is
+    // dense by design, so the missing trunk is behind two others from every
+    // angle a player reaches — and it is a quarter of the triangle count of the
+    // most expensive object this file builds. Measured: the first cut of this
+    // belt put Switchback Summit at 1,008,922 triangles against a rung-0
+    // ceiling of a million.
+    const geo = pineStandGeo(detail ? 3 : 11, tint, detail ? { count: 3 } : { far: true });
+    const mat = new THREE.MeshStandardMaterial({
+      vertexColors: true, roughness: 0.72, metalness: 0,
+    });
+    mat.name = 'treeline';
+    c.materials.push(mat);
+    const mesh = new THREE.InstancedMesh(geo, mat, list.length);
+    mesh.name = detail ? 'treeline:near' : 'treeline:far';
+    for (let i = 0; i < list.length; i++) mesh.setMatrixAt(i, list[i]!);
+    mesh.instanceMatrix.needsUpdate = true;
+    // Foliage receives and does not cast, exactly as `world/index.ts` decides
+    // for the same object: a shadow map of a few hundred thin cones is noise.
+    mesh.receiveShadow = true;
+    mesh.castShadow = false;
+    mesh.frustumCulled = true;
+    mesh.computeBoundingSphere();
+    c.root.add(mesh);
+  };
+  stand(near, true);
+  stand(far, false);
+}
+
 // ── the enclosure: the one place in the cup with no sky in it ──────────────
 //
 // **The finding.** *"All four rounds are the same kind of place — a wide
@@ -2555,6 +2695,21 @@ export function createCourseKitSystem(ctx: GameContext): GameSystem {
     // Built before the arrival structure so that a chapter which runs over the
     // start line is under it rather than through it. See `ChapterDef`.
     if (kit.chapters?.length) buildChapters(chapterCtx, kit.chapters);
+
+    // ── what grows beside the road ──────────────────────────────────────────
+    //
+    // After the chapters, so a belt declared across a cutting plants on the
+    // ground behind the face rather than inside it. See `buildTreeline`.
+    if (kit.treeline?.length) {
+      const t = features(course).terrain ?? {};
+      buildTreeline(chapterCtx, kit.treeline, {
+        groundY: course.groundY ?? -8,
+        rimStart: t.rimStart ?? 260,
+        rimEnd: t.rimEnd ?? 560,
+        rimHeight: t.rimHeight ?? 42,
+        landmarks: t.landmarks ?? [],
+      }, LAND_PALETTES[resolveTheme(course.theme).land]);
+    }
 
     // ── the arrival ─────────────────────────────────────────────────────────
     const arrival = kit.arrival ?? 'gantry';
