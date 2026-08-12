@@ -262,7 +262,23 @@ export const switchbackSummit: CourseDefEx = {
   // thing the low datum bought was a kilometre of far field sitting five to
   // thirty metres under the nearest tarmac, which is the exact band
   // `alpine.paint` reads as tussock. That is where the pasture green came from.
-  groundY: 4,
+  //
+  // **And then it was 4, which is a metre and a half above the lowest road on
+  // the circuit, and that is the other wall of the same corridor.**
+  // `render/camera.ts` floors the chase lens at `Math.max(roadY, groundY)`, so
+  // a datum standing over the valley floor holds the camera up off it: measured
+  // over a lap, one sample in three hundred put the lens 37 degrees and 8.7
+  // metres above the kart, and on the quarry — where the same mistake was 32
+  // metres rather than 3.4 — it cost half the round. See
+  // `node tools/underground.mjs`, which now gates on it.
+  //
+  // -1 is the whole of the window: **below** the road (0.6 at its lowest, less
+  // the camber on the spillway sweeps) so the camera is never held up, and only
+  // just below it, because `alpine.paint`'s tussock ramp runs from `rel` -0.4 to
+  // -7 and every metre this drops is another percent of pasture green on the
+  // one band a chase camera can see. At -1.6 of separation the turf term is
+  // about 7%, which is a tint. At -35 it was the subject.
+  groundY: -1,
   startDistance: START,
   checkpoints: 36,
 
@@ -498,10 +514,24 @@ export const switchbackSummit: CourseDefEx = {
     // nearest road, which is *all* of the 26m embankment band and most of what
     // a chase camera can see. So what a player looks at is not this colour, it
     // is `0.55 * this + 0.45 * turf`, and the only way that mix comes back as
-    // dry alpine grey-green is if the declared colour leans the other way. At
-    // 0x9490a8 the mix lands on roughly rgb(126,128,121): neutral, with the
-    // green left in it as a tint rather than as the subject.
-    ground: 0x9490a8,
+    // dry alpine grey-green is if the declared colour leans the other way.
+    //
+    // **It was 0x9490a8, which solves that equation to rgb(126,128,121), and a
+    // critic photographed the result and called it olive mud.** Neutral was the
+    // wrong target: this is a snow mountain, the road is the palest in the game
+    // at #6B7383, and a ground that lands on the same value as the tarmac is
+    // also why the overhead card of this round and the quarry's are hard to
+    // tell apart. Cold and *pale* — the mix now lands near rgb(158,168,160),
+    // which is forty per cent lighter than the road instead of eight.
+    //
+    // This is as far as a course file can push it, and it is worth saying where
+    // the ceiling is: within thirty metres of the shoulder `alpine.paint`
+    // ignores this colour entirely and uses its own `ALPINE_SHOULDER`, and the
+    // snow ramp does not start until `rel` 62. **The one band a chase camera
+    // spends the whole race looking at cannot be made snow from here.** See the
+    // report on this round — it needs a `snow` value in `Surface` and a shoulder
+    // band in `alpine.paint`, and both of those live outside `track/courses`.
+    ground: 0xcbd6e6,
     // Altitude: the zenith goes almost navy and the horizon goes to a cold
     // white. Nothing else in the cup has a sky this dark at the top.
     sky: { top: 0x0a3a9a, bottom: 0xc6e2f8, horizon: 0xf2f9ff },

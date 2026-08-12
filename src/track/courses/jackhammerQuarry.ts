@@ -245,7 +245,37 @@ export const jackhammerQuarry: CourseDefEx = {
   // Cone Canyon's 24m, which is what lets the pit walls read as rock faces with
   // edges instead of dunes.
   groundSize: 3000,
-  groundY: -10,
+  // ── the datum, and why it is under the sump rather than under the rim ─────
+  //
+  // **`groundY` is not only scenery on this course — it is where the chase
+  // camera stands.** `render/camera.ts`'s `surfaceYAt` floors the lens at
+  // `Math.max(roadY, course.groundY)`, so every metre this datum sits *above*
+  // the road is a metre the camera is held up while the kart keeps descending.
+  //
+  // It was -10, and the pit bottoms out at -42. Measured over a full lap with
+  // every frame rendered (`node tools/underground.mjs`), that put the lens a
+  // median 36.7 degrees and a peak 74.3 above the racer — 31.86 metres of air
+  // over a kart at y=-40.6 — on 155 of 300 samples. A critic played it and
+  // described the result exactly: *"roughly half of round 2 of the cup is
+  // played from a near-top-down satellite view with no horizon, no sense of
+  // speed, and the next corner off the bottom of the frame."* Cone Canyon,
+  // whose datum is 20 metres under its lowest road, reads median 14.5.
+  //
+  // So the rule this course now states for the whole cup: **`groundY` must sit
+  // below the lowest tarmac on the circuit, with a few metres in hand for
+  // camber** — a banked corner's outer edge hangs below its centreline, and the
+  // ledger's `y` is the centreline. Three metres covers the 0.21 rad of bank
+  // this road carries over a 10.5m half-width.
+  //
+  // What it costs is honest and it is the smaller loss: the plain *outside* the
+  // circuit now settles level with the pit floor instead of level with the rim,
+  // so from a long way out the quarry reads as a stepped massif rather than as
+  // a hole in a plateau. The hole is still a hole from every camera a player
+  // ever uses — the benches are cut by the road's own skirt inside 70 metres,
+  // which is what makes a bench face — and the high wall is landmarks (see
+  // `terrain` below), which stand on the datum and are unaffected. A pit you
+  // can see from orbit and cannot drive is worth less than a pit you can drive.
+  groundY: -45,
   startDistance: START,
   checkpoints: 32,
 
@@ -436,20 +466,29 @@ export const jackhammerQuarry: CourseDefEx = {
     //
     // ── and it is also what buried the camera ─────────────────────────────
     //
-    // "The embankment either side is anchored to its own road" is the whole
-    // bug. `terrain.ts` sweeps that skirt **150 metres** either side without
-    // ever asking what else is nearby, so on a pit forty-two metres deep and
-    // two hundred wide the weighbridge's skirt is a shelf hanging in open air
-    // over the pit floor. `tools/underground.mjs` put the chase lens inside the
-    // landscape on 51 of 171 samples here, and a player reported it in their
-    // own words: *"the screen just went brown above the racer."*
+    // "The embankment either side is anchored to its own road" is one bug and
+    // it was the *first* one. `terrain.ts` sweeps that skirt **150 metres**
+    // either side without ever asking what else is nearby, so on a pit
+    // forty-two metres deep and two hundred wide the weighbridge's skirt is a
+    // shelf hanging in open air over the pit floor. `tools/underground.mjs` put
+    // the chase lens inside the landscape on 51 of 171 samples here, and a
+    // player reported it in their own words: *"the screen just went brown above
+    // the racer."* `unfoldSkirt` in `kit.ts` gives the skirt the answer the
+    // field mesh already has, and that failure has not come back.
     //
-    // It was tempting to answer it in this ledger — flatten the pit until the
-    // stack is inside the roughly nine metres a skirt clears — and that is
-    // measurably the wrong trade: it costs the quarry its staircase to work
-    // around a construction fault in the landscape builder. `unfoldSkirt` in
-    // `kit.ts` gives the skirt the answer the field mesh already has instead.
-    // The benches stay. See the comment there.
+    // **The second bug looked like the first one and was not.** With the lens
+    // certified out of the ground at 3.17m of clearance, a critic played the
+    // cup and found half of this round shot from a satellite. It is tempting —
+    // and it was tempted — to read that as the same shelf, and to go looking
+    // for more skirt to fold. It is not: **the chase camera never asks the
+    // terrain anything.** `render/camera.ts` computes its floor analytically in
+    // `surfaceYAt`, from the spline and one number off this file, and that
+    // number was `groundY`. See the note on `groundY` above. Thirty-two metres
+    // of it, on a course whose skirt was already correct.
+    //
+    // Both are the same *class* of mistake — a height derived from somewhere
+    // other than the road you are on — and neither is visible in a screenshot
+    // of the geometry. Both are now gated by `tools/underground.mjs`.
     //
     // ── and the round the pit had no walls ────────────────────────────────
     //

@@ -651,10 +651,29 @@ const BANNER_Y = 9.2;
  */
 function addBanner(a: BuildArgs, width: number, carriedAt: number): THREE.Object3D {
   const style = a.kit.banner ?? { field: '#1B2A4A', ink: '#FFC300', strip: '#FF6B1A' };
+  const map = bannerTexture(a.name, style);
   const mat = new THREE.MeshStandardMaterial({
-    map: bannerTexture(a.name, style),
+    map,
     roughness: 0.78,
     side: THREE.DoubleSide,
+    // **The name has to survive being lit from behind.**
+    //
+    // The grid shot stands the camera *under* the arrival structure looking up
+    // the road, which is the side of the banner the sun is not on — and this is
+    // a `DoubleSide` plane, so what a player sees on the establishing shot of
+    // three of the four rounds is the back face, keyed by nothing but ambient.
+    // A critic read Switchback Summit's plate as "grey type on a dark navy
+    // plate, close to illegible", and the texture under it is #F2F7FB on
+    // #123B52 — about as much contrast as two colours can carry. It was not the
+    // livery, it was the light.
+    //
+    // The map doubles as its own emissive, so the *ink* carries a floor of its
+    // own and the field does not: white text lifts, the navy plate stays navy,
+    // and the contrast goes up rather than the whole sign going flat. A third
+    // is a sign that is legible in shade, not a sign that glows.
+    emissive: 0xffffff,
+    emissiveMap: map,
+    emissiveIntensity: 0.34,
   });
   a.materials.push(mat);
 

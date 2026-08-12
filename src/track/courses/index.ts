@@ -219,6 +219,54 @@
 // the field mesh already has instead. See the comment there; it belongs in
 // `terrain.ts` and says so.
 //
+// ── ...and then the instrument certified a course nobody could play ────────
+//
+// That fix worked and `tools/underground.mjs` printed PASS on all four at
+// 3.6 / 5.3 / 3.2 / 2.9 metres of clearance. A critic then played the cup and
+// scored it 6/10 on this:
+//
+//   *"On Jackhammer Quarry the chase camera sits a median 24.9 degrees and a
+//   peak 73.6 above the kart for 26 of the lap's 57 seconds, so roughly half of
+//   round 2 is played from a near-top-down satellite view with no horizon, no
+//   sense of speed, and the next corner off the bottom of the frame."*
+//
+// Every frame of that was, strictly, above ground. **A test that asks only
+// whether the lens is outside the world will certify a lens in orbit**, and
+// that is the more expensive half of this story: the instrument was not silent,
+// it was confidently wrong, and it stayed confidently wrong for a whole round.
+//
+// The cause was not the skirt, and it is worth being exact about that because
+// the obvious reading — "same symptom, same shelf, fold more skirt" — is wrong
+// and would have cost another round. **The chase camera never asks the terrain
+// anything.** `render/camera.ts` derives its floor analytically in
+// `surfaceYAt`, from the spline and one number off a course file:
+//
+//     return Math.max(roadSurfaceY - 0.35, course.groundY);
+//
+// So every metre a circuit's road runs *below* its own `groundY` is a metre the
+// lens is held up while the kart keeps descending. The quarry's road bottoms
+// out at -42 against a datum of -10, and 32 metres is exactly the height the
+// critic measured. The mountain had the same mistake at 3.4 metres.
+//
+// **The rule that comes out of it, and it binds every course in this
+// directory: `groundY` must sit below the lowest tarmac on the circuit, with a
+// few metres in hand for camber.** It is not a scenery number. Cone Canyon has
+// always been the reference chase camera in this cup — median 14 degrees — for
+// no better reason than that its datum happens to be 20 metres under its road.
+//
+//                     lens elevation over a full lap, chase, autopilot, seed 1
+//                        before                    after
+//     Cone Canyon      med 14.5 / p95 26.9       unchanged
+//     Jackhammer       med 36.7 / p95 73.2       med 14.8 / p95 18.7
+//     Saltpan          med 15.2 / p95 20.0       unchanged
+//     Switchback       med 15.1 / p95 25.6       med 14.1 / p95 25.6
+//
+// `tools/underground.mjs` now gates on it — max degrees above a *grounded*
+// racer over a full lap, per course, failing above 35 — so this class cannot
+// pass again. It prints `groundY` against the lowest road on the circuit next
+// to the angles, because when that relationship is the cause it is the whole
+// cause and the repair is one line in a course file.
+//
 // ── what is honestly still short ───────────────────────────────────────────
 //
 //   * *`kart:launch` still fires four times a race, not once per ramp pass.*
