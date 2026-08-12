@@ -1,6 +1,6 @@
 {
-  "phase": "Wave 2 stopped by the weekly agent limit at round 1",
-  "phaseNote": "Both pieces took one round and came back 6.5, and the round-2 build and judge for each died on 'You have hit your weekly limit, resets 11am UTC' rather than on a container suspend. Both verdicts are earned and recorded. The perf result is the interesting one: the previous critic directed that the render scale be published to the HUD so the whole frame softens together, the builder did it, and a fresh critic marked it down for blurring the one layer Nintendo never degrades. Two critics, opposite directives, and the second is right — the instruments are what a player reads in peripheral vision when the game is running worst.",
+  "phase": "Wave 2 landed; the player report and its cause are both closed",
+  "phaseNote": "Eight agents, no errors, six verdicts, both pieces ending at 6.5 and every blind A/B still Mario Kart. The player-reported camera burial on Jackhammer Quarry is fixed and gated, and so is the cause underneath it: a critic measured the chase lens sitting a median 24.9 and a peak 73.6 degrees above the kart for 26 of a 57-second lap — half that course played from a satellite — and traced it to render/camera.ts flooring the lens at Math.max(roadY, course.groundY), a flat datum that pins the camera while a road descends below it. The quarry is a 40.5m pit; its groundY now sits at -45 against a road bottoming at -42. tools/underground.mjs grew a second gate for it, on the angle from racer to lens over a full lap, after the critic caught the first gate certifying a course that could not be played. npm test is green on all six: typecheck, smoke, countdown, phone, steer, underground.",
   "pieces": [
     {
       "id": "feel",
@@ -124,9 +124,9 @@
       "name": "Course roster",
       "scope": "src/track/courses",
       "state": "fail",
-      "rounds": 10,
-      "verdict": "6.5, down from 7.0. Wave 2 got one round before the weekly agent limit stopped it. The road-and-arrival kit landed but the critic judged the roster below the skyline and found it thinner than the shapes suggested.",
-      "gap": "Below the skyline the four circuits are one course in four paint jobs — the same dark-grey tarmac and identical #FFF8F0 centreline, the same mottled terrain plane with a visibly repeating hex micro-tile, the same single boulder prop scattered dozens of times, the same blue daylight sky on all four — and the road itself never does anything: three of the four have effectively no surface event on the racing line, with Cone Canyon measuring literally zero metres of anything but tarmac and boost strip across its whole 2.5 km."
+      "rounds": 12,
+      "verdict": "6.5. Wave 2 ran six verdicts across its rounds and this is the last: 6.5, 6.0 for the satellite camera, then 6.5 again once that was fixed. The road-and-arrival kit is real now — four different gantries, four barriers, four kerbs — and the four grid shots are genuinely four circuits.",
+      "gap": "Cone Canyon and Saltpan Bypass have no chapters: captured at 22%, 50% and 78% of the same lap they are the same picture — same tarmac, same verge, same barrier run, same horizon, same light — so a whole lap of the cup opener and of its longest course passes without the place ever changing. Switchback Summit does exactly this right (valley floor y=14.5, mid-mountain traverse with pines and a drop at y=68.2, summit works at y=114.2) and proves the roster knows how."
     },
     {
       "id": "themewire",
@@ -142,9 +142,9 @@
       "name": "Performance",
       "scope": "engine-wide",
       "state": "fail",
-      "rounds": 11,
-      "verdict": "6.5, down from 7.0. The builder did what the last directive asked and published the render scale to the HUD as a blur ramp; the next critic marked it down for exactly that. One round before the limit stopped the wave.",
-      "gap": "When the governor spends resolution it also blurs the instrument set — lap counter, race clock, place badge, coin readout, minimap and item socket all go through a CSS blur up to 1.0px — so the readouts a player parses in peripheral vision get harder to read at exactly the moment the game is running worst, which is the one layer Nintendo never degrades."
+      "rounds": 13,
+      "verdict": "6.5. Four verdicts this wave: 6.5, 7.0, then 6.5 again. The HUD blur the previous round directed was correctly reversed by the next critic, and the ladder got a measured cost table and a gate() front door on capture.mjs.",
+      "gap": "On a failing machine the emergency collapseSeam() path installs the seam-held content levers with no moment gate, so the start-line grandstands empty from packed to bare grey terracing under the 3 of the countdown — the exact regression the seam rule was written to forbid, on the one camera-locked frame in the game with nothing to hide it behind. The repo's own tools/perfgate.mjs already prints FAIL: 2 change(s) inside a sealed phase: countdown,countdown, and photographs it. Holding those levers through the countdown costs the failing machine 0.4% at the floor and 3.8% at the top, against 60.1% for the resolution lever they travel with."
     },
     {
       "id": "coherence",
