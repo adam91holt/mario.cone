@@ -105,9 +105,21 @@
 //   PANIC_MAX_STEP         rungs per change           the ladder      ok (r8)
 //   skipDraw frames        not a unit — discarded     see `undrawn`   ok (r8)
 //   SCALE_RAMP 0.04        scale per 16.7ms of frame  1 frame (***)   ok (r9)
-//   SOFTEN_K 1             CSS px of blur per px of upscale           ok (r9)
-//   SOFTEN_MIN/MAX_PX      CSS pixels                 scale-relative  ok (r9)
 //   THIN_KNEE_PX (r9)      pixels of the **scene** buffer, not the canvas
+//   UP_MAX_STEP            rungs per change           the ladder      ok (r11)
+//   PACED_FRAC 0.92        share of the target period a *best* frame  ok (r11)
+//   CLIMB_PUNISH_S 8       wall s of delivered play   1 frame         ok (r11)
+//   RUNG0.drawCalls        submissions per frame      derived         ok (r11)
+//   RUNG0.triangles        triangles per frame        a tripwire      ok (r11)
+//   RUNG0.cpuMs 4.0        ms per **60fps** frame     see STEPS_AT_60 ok (r11)
+//
+//   `RUNG0.cpuMs` is the one new row with a unit trap in it, and it is the
+//   trap this section exists for: `budget.simMs` is however many fixed steps
+//   the *drawn frame* ran, which is two for a player at 60fps and six for the
+//   capture harness driving `advance(1, 20)`. A ceiling quoted per frame and
+//   compared against a bench's per-frame reading convicts the game of being
+//   three times its own cost, on the bench that runs the gate. `gate()`
+//   normalises per step. See `STEPS_AT_60`.
 //
 //   (***) The one gate in this file that is deliberately *not* denominated in
 //   any of the four units, because it governs an animation rather than a
@@ -149,15 +161,31 @@
 // ones that cost anything are beside the camera at every draw distance. 1.0 to
 // 0.5 removed 23k triangles out of 640k.
 //
-// What the frame is actually made of — `__QUALITY.audit()`, **re-taken in round
-// nine at 1280x720 on cone-canyon, because the courses wave rebuilt the world
-// underneath the old table and left every number in it a historical claim**:
+// ── ...and what the frame is actually made of ──────────────────────────────
 //
-//   world     165 calls   472,264 triangles   115 meshes
-//   track      34 calls   171,238 triangles    23   <- road, ground, verge
-//   the field 249 calls    15,420 triangles    66   <- seven racers
-//   itemBoxes   5 calls    24,304 triangles   490 instances
-//   coins       4 calls    20,254 triangles    82 instances
+// **Every table in this file is now taken on the `racing` shot** — the exact
+// recipe `tools/capture.mjs` publishes to `shots/racing.png`, at 1600x900,
+// which is the frame a reviewer is looking at when they read these numbers.
+// That sentence is round eleven's whole contribution to this section, and it is
+// there because the alternative was caught: the audit here said 457 draw calls,
+// the walk on `LADDER` said 189, `tools/framehalf.mjs` said 473, all three were
+// captioned "one frozen racing frame at rung 0", none of them agreed with each
+// other, and the game reported 480 for the frame they claimed to describe. Every
+// "what a rung is worth" number in the file was quoted off the lightest of the
+// three. The audit is also frustum-aware now (`AuditRow.drawn`), so a table here
+// and `stats()` are the same measurement and can be checked against each other
+// by anyone who doubts them — which, on the evidence, they should.
+//
+//   group        drawn   shadow   drawn triangles   meshes  materials
+//   world           59       32           196,608      114          7
+//   track           12        5           168,470       23         22
+//   the field      173        7            31,920      208         82
+//   coins            4        0            25,688        4          2
+//   itemBoxes        5        0            24,304        6          6
+//   itemRig         16        3             1,338       16         16
+//   everything     277       47           449,960      407        160
+//
+//   `stats()`   338 draw calls   663,240 triangles   90 programs
 //
 //   world:crowd0/1/2      24 instances   113,208 triangles
 //   world:standCrowd(S)    3 instances    59,124 triangles
@@ -165,23 +193,28 @@
 //   world:drum            79 instances    13,588 triangles
 //   world:tyres           53 instances     9,540 triangles
 //
-// Two things in that table are worth more than the rest of this comment.
-// **The crowd is now the largest population in the game by a factor of four**
-// — 172k triangles against the verge's 58k — where the old census had them
-// within a third of each other. And **the road is not a rounding error**:
-// `ground` alone is 62k triangles in a single draw, which is more than every
-// traffic cone on the course put together, and it belongs to `track/` rather
-// than to this ladder.
+// Three things in that table are worth more than the rest of this comment.
+//
+// **The frame is draw calls, not triangles.** The seven machines are 180 of the
+// 324 scene submissions for 7% of the triangles; the crowd is 113k triangles in
+// three. A ladder that spends triangles is spending the cheap thing. That is
+// what `RUNG0` is derived from and what `ShadowShell` acts on — 480 draw calls
+// to 338 without touching a pixel or a triangle.
+//
+// **The crowd is the largest population in the game by a factor of four** —
+// 172k triangles against the verge's 58k — where the old census had them within
+// a third of each other. It costs three draws, which is why it is a triangle
+// lever and not a submission one.
+//
+// **The road is not a rounding error**: `ground` alone is 62k triangles in a
+// single draw, more than every traffic cone on the course put together, and it
+// belongs to `track/` rather than to this ladder.
 //
 // So every rung carries **content** as well as resolution: the population of
 // the verge, the population of the stands, the seven machines' meshes, and the
-// sub-pixel dressing. Measured on one frozen racing frame at 1280x720,
-// 601,578 -> 554,174 triangles and 187 -> 185 draw calls end to end. That is
-// **-7.9%**, not the -26.2% the previous table claimed, and the difference is
-// the world changing rather than the ladder weakening — a third of the frame is
-// now road, ground, item boxes and coins, none of which a frame budget gets to
-// spend. What the ladder is worth in *time* is the number that matters and it
-// is measured pairwise below. See `ContentTrim`, `LADDER` and `censusContent`.
+// sub-pixel dressing. What the ladder is worth in *time* is the number that
+// matters and it is measured pairwise below. See `ContentTrim`, `LADDER`,
+// `censusContent` — and `RUNG0`, which is what rung 0 has to fit inside.
 //
 // ── 5. The seam rule, and what round eight took back out of it ──────────────
 //
@@ -261,6 +294,18 @@
 // wall clock, because a vsync-locked 16.7ms says nothing about how close to the
 // edge the machine is.
 //
+// **...and the asymmetry belongs in the dwells, not in the step size.** Round
+// eleven's reviewer measured what happens when it leaks into both: the drop can
+// pop six rungs in `COLLAPSE_DWELL`'s 1.2 seconds and the climb was a hardcoded
+// `index - 1` behind 9s of dwell, 2.2s of settle **and** `onAStraight()`, which
+// over 480 samples of real Cone Canyon racing was open on 110 of them (22.9%).
+// Seventy seconds to walk back up what a garbage collection took in one — most
+// of a three-lap race at 640x360 and a sixth of the grandstand, on a machine
+// that was fine. The climb is sized from measured headroom now, and the thing
+// that stops a sized climb becoming the oscillation is `sprintFloor`: a bet
+// that gets punished sets a wall, and everything above the wall is still walked
+// one rung at a time. See `sizedClimb`.
+//
 // **2. It must not change at a moment the player is looking at.** Three
 // questions, in the order they can be trusted: is the front-end up (an edge,
 // published by the module that owns the screen), is the game paused (an edge),
@@ -283,20 +328,27 @@
 //
 // **3. It must never touch the simulation.** There is no `fixedUpdate` in this
 // file and there never may be. Everything the governor writes — `ctx.quality`,
-// the renderer's shadow flag, the render resolution, and three flags on the
-// scene graph (`visible`, `InstancedMesh.count`, `drawRange`) — is read only
-// from `update` and from the draw. Nothing in physics, ai, items, race or track
+// the renderer's shadow flag, the render resolution, and four flags on the
+// scene graph (`visible`, `castShadow`, `InstancedMesh.count`, `drawRange`) —
+// is read only from `update` and from the draw. Nothing in physics, ai, items, race or track
 // reads `ctx.quality` at all. `tools/qualitydiff.mjs` proves it by running one
 // seed at both ends of the ladder and diffing the snapshots, and it takes the
 // ladder's *last* rung, whatever the ladder currently is, so adding rungs
 // cannot quietly exempt them:
 //
-//   qualitydiff — seed 7, cone-canyon, 25s, rungs 0 vs 6
-//     rung 0  high   2048 / dd 1.00 / p 1.00 |  339 calls  630,186 tris
-//     rung 6  floor  2048 / dd 0.55 / p 0.34 |  305 calls  531,838 tris
+//   qualitydiff — seed 7, cone-canyon, 30s, rungs 0 vs 6
+//     rung 0  high   2048 / dd 1.00 / p 1.00 |  316 calls  625,982 tris
+//     rung 6  floor  2048 / dd 0.55 / p 0.34 |  307 calls  583,446 tris
 //     control: two runs at rung 0 are byte-identical
 //     identical at every checkpoint: position, speed, lap, place, coins, item
 //     PASSED
+//
+// Re-run in round eleven with `ShadowShell` in place, which is the addition
+// most worth pointing this bench at: it writes `castShadow` on meshes that
+// belong to `vehicles/` and it does it **every frame**. `castShadow` is a
+// renderer flag and no `fixedUpdate` in the game reads it — but "no fixedUpdate
+// reads it" is an intention until something checks, and six checkpoints across
+// seven racers at both ends of the ladder is the check.
 //
 // ── 7. The one thing on this list that is not a quality cut ────────────────
 //
@@ -711,34 +763,48 @@ function rung(
  * same recipe for rung 0 against rung 6 under load answered "10.9x", because
  * the load fell on the expensive member of every pair.
  *
- * ── The ladder walked, one frozen racing frame at 1280x720 ─────────────────
+ * ── The ladder walked, on the `racing` shot at 1600x900 ────────────────────
+ *
+ * **Re-taken in round eleven, on the frame the review sheet publishes and at
+ * the resolution it publishes it at.** The previous version of this table was
+ * headed "one frozen racing frame at 1280x720" and said 189 draw calls, which
+ * disagreed with the audit in the header (457), with `tools/framehalf.mjs`
+ * (473) and with what the game reported for the frame it claimed to describe
+ * (480). Every "each rung is worth 6-10%" claim in this file was quoted off
+ * that 189 row. One instrument, one frame, one resolution, from here on.
  *
  * `setTimeScale(0)` and then `render()` only, never `advance()`, which steps
  * the simulation whatever the time scale says and quietly turns a controlled
- * A/B into seven photographs of seven different moments. Round nine's numbers,
- * on the world as it stands:
+ * A/B into seven photographs of seven different moments.
  *
- *   rung   label    scale  triangles   calls  progs  culled  shelled  soften
- *   0      high      1.00    603,706     189     88       0        0    0.00
- *   1      high-     0.88    600,868     188     88      10        6    0.14
- *   2      med       0.78    592,628     188     88      14        6    0.28
- *   3      med-      0.68    570,952     186     88      17        6    0.47
- *   4      thin      0.62    578,566     188     88      17        6    0.61
- *   5      sparse    0.56    572,346     188     88      19        6    0.79
- *   6      floor     0.50    566,902     188     88      30        6    1.00
+ *   rung   label    scale  triangles   calls  progs  culled  shelled
+ *   0      high      1.00    663,326     340     90       0        0
+ *   1      high-     0.88    648,972     337     90      10        0
+ *   2      med       0.78    640,660     337     90      11        0
+ *   3      med-      0.68    632,592     319     90      14        1
+ *   4      thin      0.62    626,290     316     90      17        2
+ *   5      sparse    0.56    615,082     315     90      19        2
+ *   6      floor     0.50    610,510     315     90      24        2
  *
- *   end to end **-6.1% of the triangles**, and that is the least interesting
- *   number in the table — note that rungs 3 and 4 are out of order in it, which
- *   is the ±8,000 of frame-to-frame noise this bench has and a reminder to read
- *   the shape rather than the digits. What the walk is worth in *time* is
- *   **1.92x**, measured pairwise; what the *mid-race* half of it is worth is
- *   **1.71x**. See the seam block. The program count is flat for the whole
- *   descent, which is the property that means the ladder cannot hitch on the
- *   way down.
+ *   End to end **-8.0% of the triangles and -7.4% of the draw calls**, and both
+ *   are the least interesting numbers in the table. The ladder's authority is
+ *   in the resolution: 1.00 to 0.50 is a quarter of the pixels, and on a
+ *   fill-bound machine that is what the 1.92x below is made of.
  *
- * `soften` is the round-nine column: CSS pixels of blur carried by the plates,
- * the socket and the minimap, so that the interface is exactly as sharp as the
- * world behind it and the frame changes as one picture. See `softenOverlays`.
+ *   **The program count is flat at 90 for the whole descent.** That is the
+ *   property that matters most here and it is the one a reviewer confirmed by
+ *   walking the rungs independently: the ladder compiles nothing on the way
+ *   down, so its rescue move cannot be the worst hitch of the session — which
+ *   is exactly what the ladder two designs ago did, at 762ms.
+ *
+ *   **`shelled` reaching 2 of 7 is not a success and is left in the table
+ *   rather than tidied out of it.** A reviewer measured the same thing: the
+ *   colour shell's test is ANDed (`SHELL_MIN_M` 28m *and* under `shellPx` of
+ *   projected radius) and with seven machines on a 2.5km lap the ones that are
+ *   far enough are usually also behind the camera and already free. What the
+ *   merge *is* worth turned out to be in the other pass entirely, and is now
+ *   taken unconditionally at every rung — see `ShadowShell`, which is 142 draw
+ *   calls rather than 2 machines.
  *
  * The **program count is flat for the whole descent**, against 75 -> 101 two
  * ladders ago: the ladder compiles nothing, so it cannot hitch on the way down.
@@ -882,12 +948,20 @@ const LADDER: readonly Rung[] = [
 //                 "7TH" and the minimap stayed **bit-identical**. Soft world,
 //                 razor HUD, in the same photograph — which is the seam this
 //                 rule was written to forbid, arriving from the one direction
-//                 the rule did not look. See `softenOverlays`: every DOM layer
-//                 over the race now carries a matching blur off the same
-//                 number, so the frame goes soft as one thing. And the lever
-//                 itself is ramped rather than stepped — see `SCALE_RAMP`,
-//                 because a change small enough not to be watched still cannot
-//                 arrive all at once.
+//                 the rule did not look. Round nine answered it by blurring
+//                 the instrument set to match; **round ten reversed that and
+//                 was right to** — the readouts a player parses in peripheral
+//                 vision got harder to read at exactly the moment the game was
+//                 running worst, and a sharp interface over a scaled world is
+//                 what MK8D does in split-screen and what nobody has ever filed
+//                 as a defect. Measured across the rungs: the world's mean
+//                 gradient falls 3.76 → 2.68 while the HUD's holds at 5.09 →
+//                 4.90. The apparatus that used to publish the blur went with
+//                 round eleven — see the note above `wantScale`, where a
+//                 hundred and forty lines were driving zero elements. What
+//                 keeps the lever seam-safe is that it is ramped rather than
+//                 stepped — see `SCALE_RAMP` — because a change small enough
+//                 not to be watched still cannot arrive all at once.
 //     `tier`      (a), by accident of what the field actually drives:
 //                 `SHADOW_EXTENT` in `render/lighting.ts`, 62 / 52 / 46m. The
 //                 outer edge of the shadow frustum moves ten metres.
@@ -929,54 +1003,45 @@ const LADDER: readonly Rung[] = [
 //
 // ── What the seam costs, stated plainly ────────────────────────────────────
 //
-// `tools/framehalf.mjs`, frozen mid-lap frame, walking the ladder twice: once
-// with `set()`, which installs whole rungs the way a race build does, and once
-// with `mid()`, which installs the frame-half only.
+// **Re-taken in round eleven on the `racing` shot at 1600x900**, alongside the
+// `set()` walk in the `LADDER` block, from the same frozen frame in the same
+// session. The table that used to be here came from `tools/framehalf.mjs` on a
+// different frame at a different resolution and read 473 calls / 1,005,886
+// triangles at rung 0 against the ladder table's 189 / 603,706 — two numbers
+// for the same claim, 2.5x apart, in one file. They are one measurement now.
 //
-//                    whole rung                 frame-half only
-//   rung 0        1,005,886 tris / 473 calls    1,006,756 / 479
-//   rung 3          825,027 / 435                 990,582 / 455
-//   rung 6          714,010 / 432                 979,034 / 437
+//                    whole rung (`set`)        frame-half only (`mid`)
+//   rung 0         663,326 tris / 340 calls    653,084 / 338
+//   rung 3         632,592 / 319                639,846 / 319
+//   rung 6         610,510 / 315                627,040 / 315
 //
-// Read that table with round eight in mind: it was taken when `scale` was
-// seam-held, and it is the measurement that convicted the design. On a
+// Read the *columns* rather than the rows: the whole rung and the frame-half
+// are now within 16,530 triangles and **zero draw calls** of each other at the
+// floor, where round eight's equivalent gap was the entire ladder. That is the
+// design working — `scale`, `tier` and `scatter` all came off the seam across
+// rounds eight and nine, so what is still deferred to a race build is only the
+// crowd, the FXAA resolve and the draw distance.
+//
+// Round eight is worth keeping in view because it is the measurement that
+// convicted the previous design. Taken when `scale` was seam-held, on a
 // fill-bound machine the mid-race half bought **no measurable time at all** —
 // 1400ms at the floor's frame-half against 1333ms at rung 0, inside the noise,
-// while the whole floor rung ran at 567ms. Almost all of the 2.35x was the
+// while the whole floor rung ran at 567ms. Almost all of the speed-up was the
 // render scale, and the render scale was the half the player could not have.
 //
-// That is why `scale` and `tier` are seam-safe now and why the table above has
-// two lists rather than one of six. What is left behind the seam is the half a
+// That is why `scale` and `tier` are seam-safe now and why the list above has
+// two entries rather than six. What is left behind the seam is the half a
 // person can *watch* rather than the half that costs anything, which is the
 // only version of this rule that was ever worth having.
 //
-// ── ...and what it costs after round nine ──────────────────────────────────
+// ── ...and what it is worth in time ────────────────────────────────────────
 //
-// Round eight was reviewed on triangles and failed: `mid(0)` to `mid(6)` on one
-// frozen frame moved **654 triangles and one draw call**, which the reviewer
-// correctly called the entire in-race authority of a seven-rung ladder. Two
-// things were wrong and only one of them was the ladder.
-//
-// The ladder's half is fixed above — `scatter` came off the seam. The frozen
-// frame at 1280x720, `set(0)` then `mid(n)`:
-//
-//                    triangles    calls    culled  shelled   scale
-//   mid 0             601,554      187        0       0      1.00
-//   mid 6             590,766      188       31       6      0.50
-//   set 6             566,902      188       30       6      0.50
-//
-//   -10,788 triangles against -654, with **thirty-one** dressing batches held
-//   off against none and six of the seven machines on their shells. Half of
-//   that came from `scatter` coming off the seam and half from `contentFrame`
-//   being told what resolution the world is actually drawn at — the pixel
-//   thresholds had been measuring against the canvas, which round eight stopped
-//   moving. Frame-to-frame noise on this bench is about ±8,000 triangles, so
-//   read the shape rather than the digits; the time below is the real answer.
-//
-// The reviewer's half is that **triangles were the wrong instrument**, and the
-// right one says something much larger. Median rAF period, nine-frame medians,
-// eight alternating pairs so contention lands on both members equally, frozen
-// sim at 1280x720 under SwiftShader:
+// **Triangles were the wrong instrument** and the right one says something much
+// larger. Median rAF period, nine-frame medians, eight alternating pairs so
+// contention lands on both members equally, frozen sim at 1280x720 under
+// SwiftShader. (Kept at the resolution it was taken at rather than restated at
+// 1600x900 it was not — a timing quoted at a resolution it was not measured on
+// is the class of claim this round exists to remove.)
 //
 //   mid(0) 1283ms  ->  mid(6)  750ms    **1.71x**   ratios 1.40 .. 1.98
 //   set(0) 1150ms  ->  set(6)  617ms    **1.92x**   ratios 1.29 .. 2.62
@@ -1070,6 +1135,235 @@ const LADDER_SIG = ((): string => {
  * from a given machine. See `hardwareKey` and `rememberRung`.
  */
 const START_RUNG = 0;
+
+// ── the budget the game can fail ───────────────────────────────────────────
+//
+// **Everything above this line is about giving things up, and until round
+// eleven nothing in the repository said what the top rung was supposed to
+// cost.** A reviewer put it exactly: the entire performance assertion in the
+// project was `if (stats.drawCalls === 0) failures.push('nothing was drawn')`,
+// while the smoke test printed 452 draw calls and 906,072 triangles beside it
+// and asserted nothing about either. A ladder is a rescue system; a rescue
+// system with no stated target is a machine for degrading a frame nobody has
+// ever costed.
+//
+// So: a number, derived, checkable, and wired to a gate that fails the build.
+//
+// ── The derivation, which is the only part that matters ────────────────────
+//
+// The target is 60fps — 16.7ms — on a mid laptop (integrated Iris Xe / M-series
+// base class) at 1600x900 with the full field of seven. Three things spend that
+// frame and they are not interchangeable:
+//
+//   **Draw-call submission is CPU and it is the one that binds.** A WebGL draw
+//   in Chrome costs roughly 8-14µs of *browser* time once validation, uniform
+//   upload and state changes are counted, and it costs that whether the mesh is
+//   two triangles or twenty thousand. That figure is a citation rather than a
+//   measurement — a page cannot measure a laptop it is not running on, and a
+//   SwiftShader container measures its own rasteriser and nothing else — so the
+//   claim is quoted as the range it is: a 400-call frame spends **3.2 to 5.6ms
+//   submitting**, which is a fifth to a third of the whole budget before a
+//   pixel is shaded, on top of the 3.1ms of simulation and update measured
+//   live. That is the number the ladder never had and never spent.
+//
+//   **The ceiling is a ratchet, and it is stated as one.** A quarter of the
+//   frame at 12µs would be 350 calls, and this game does not meet 350 on every
+//   frame of its own review sheet. Setting the gate there would fail the build
+//   today, and setting it at the old frame's 530 would gate nothing — so it is
+//   set at **400**, which is above what the game now does and far below what it
+//   did an hour ago, and the gap to 350 is named at the end of this block with
+//   an owner against each item. A ceiling that today's build would have failed
+//   is a real constraint; a ceiling nothing can reach is a wish, and one drawn
+//   round the current number is a rubber stamp.
+//
+//   **Triangles are not the constraint and the ceiling says so.** At 1600x900 a
+//   mid GPU transforms 900k triangles in about a millisecond; this file's own
+//   lever table is the proof, and it has been sitting there for three rounds
+//   being read backwards — the render scale is worth 16-54% and every geometry
+//   lever on the ladder is worth 1-3%. The frame is *fill*-bound.
+//   `RUNG0.triangles` is therefore a **regression tripwire** at 1,000,000
+//   against a measured worst of 922,248, and its job is to catch the day
+//   somebody adds a quarter of a million triangles without noticing rather than
+//   to defend the frame rate. The margin is wider than the draw-call one on
+//   purpose: three runs of the identical smoke recipe measured 898,166,
+//   906,556 and 922,090 triangles — 2.7% of spread, because the engine's rAF
+//   loop still ages the world a little between round trips — against 379, 381
+//   and 381 draw calls, which is 0.5%. A tripwire has to clear the noise of the
+//   thing it is watching or it is a random build failure with a number on it.
+//
+//   **CPU work that is not drawing** — `fixedUpdate` plus every system's
+//   `update`. Measured live at about 3.1ms and healthy; `cpuTargetMs` 4.0 is
+//   the line at which it would stop being, and `cpuMs` 6.0 is where the build
+//   fails, for the reason written on the field itself: the bench is a shared
+//   container and it measured 2.47, 2.95, 3.18 and 4.00ms for identical work.
+//
+//   Two pieces of arithmetic make even that gate mean anything and both were
+//   found the hard way. A bench renders up to eight fixed steps per drawn frame
+//   and a player at 60fps runs two, so the sim is normalised **per step**
+//   (`STEPS_AT_60`) — a gate denominated in the wrong unit is the mistake this
+//   file's own header spends a page on. And the reading is the **median of a
+//   window** (`CPU_WINDOW`), because the last rendered frame of the six
+//   review-sheet recipes reported 1.2, 6.8, 2.1, 7.1, 4.9 and 2.4ms of update
+//   for the same game doing the same work.
+//
+// ── ...and what the whole review sheet actually costs ─────────────────────
+//
+// One shot is not a budget either. Every frame `tools/capture.mjs` publishes,
+// at 1600x900 on cone-canyon, rung 0, after the change below:
+//
+//   shot        draw calls   triangles     colour + shadow
+//   grid               390     901,734        320 + 56
+//   smoke              381     922,248        286 + 39
+//   pack               368     690,364        294 + 58
+//   overhead           331     676,376        259 + 60
+//   far                331     894,596        272 + 47
+//   offroad            321     639,598        269 + 40
+//   racing             267     648,832        199 + 54
+//
+// A hundred and twenty-three draw calls and nearly three hundred thousand
+// triangles between the cheapest racing frame and the dearest, which is the
+// second reason the three tables this file used to carry disagreed: they were
+// not only measured with different instruments, they were measured at different
+// corners. The ceiling is the **worst** of these plus the slack a moving
+// frustum has, because a budget quoted off the prettiest frame is a budget the
+// player never gets.
+//
+// ── What the frame is, measured, on the shot the reviewer looks at ─────────
+//
+// The `racing` shot, cone-canyon, seed 1, 1600x900, rung 0, seven racers
+// mid-pack, **frozen with `setTimeScale(0)` so the same frame can be measured
+// twice** — which is why the numbers below are not the `racing` row of the
+// sheet above: that one is photographed live and the round trips move the kart.
+// Both halves from the same frame: `renderer.info` for the cost,
+// `__QUALITY.audit()` for where it went, and the audit is now frustum-aware so
+// the two reconcile.
+//
+//   group        drawn   shadow   drawn triangles   meshes  materials
+//   world           59       32           196,608      114          7
+//   track           12        5           168,470       23         22
+//   the field      173        7            31,920      208         82
+//   coins            4        0            25,688        4          2
+//   itemBoxes        5        0            24,304        6          6
+//   itemRig         16        3             1,338       16         16
+//   everything     277       47           449,960      407        160
+//
+//   `stats()`   338 draw calls   663,240 triangles   90 programs
+//
+// The audit's 324 and the renderer's 338 differ by the post stack's own
+// full-screen passes, which walk no scene graph. `drawn` is the colour pass and
+// `shadow` is the same casters submitted into the 2048 map; `stats().triangles`
+// is 663k against the colour pass's 450k because the shadow pass rasterises its
+// share a second time. **That reconciliation is new and it is the point**: the
+// three tables this file used to carry for "one frozen racing frame" said 457,
+// 189 and 473 draw calls, none of them equal to what the game reported for the
+// frame they claimed to describe, and every "what a rung is worth" number in
+// the file was quoted off the lightest of the three.
+//
+// ── ...and how it got from 480 to 338 ─────────────────────────────────────
+//
+// One change, and it is not a quality cut: `ShadowShell`. The seven machines
+// were 322 of the frame's 466 scene submissions — sixty-nine percent — for
+// seven percent of its triangles, and 155 of those were the shadow pass drawing
+// twenty-two separately-*painted* greebles per machine into a map where paint
+// does not exist. Merged to one caster each: 155 shadow draws become 7, the
+// colour pass is untouched, and the triangle count does not move.
+//
+// ── What is left, named, with an owner ────────────────────────────────────
+//
+// A budget that only reports the parts somebody has already fixed is a budget
+// that will be quoted at the next round and be wrong again. Three rows are over
+// the target and none of them is this module's to close:
+//
+//   **The field's colour pass: 173 of the 277 colour draws.** 208 meshes across
+//   seven machines wearing 82 materials — about twelve materials a machine,
+//   which `mat()` in `vehicles/parts.ts` already caches by colour and options,
+//   so they are twelve genuinely different paints and no merge goes below
+//   twelve draws a machine. Twenty-nine *meshes* a machine can, and that is
+//   about a hundred draw calls. `Shell` here does exactly that merge and cannot
+//   be switched on at rung 0, because it freezes the wheels: only `vehicles/`
+//   knows which parts turn, so only `vehicles/` can merge the static remainder
+//   at build time and leave the moving parts separate. **That is the single
+//   largest remaining item in the frame and it is a request, not a finding.**
+//
+//   **`hazards`: 26 colour draws for 1,008 triangles**, 26 meshes in 14
+//   materials, on the smoke's frame. Twenty-six submissions for a thousandth of
+//   the frame's geometry is the instancing rule in ARCHITECTURE §2.5 pointed at
+//   `track/courses/hazards.ts`; the audit's `offenders` list does not catch it
+//   because the meshes are not the *identical* geometry+material pair the
+//   offender test looks for, which is a limit of that test worth knowing.
+//
+//   **`itemRig` and `items`: 22 colour draws for 1,810 triangles.** Same shape,
+//   `src/items/`.
+//
+// Those three are 220 draws for 0.7% of the frame's triangles. Until they land,
+// `RUNG0.drawCalls` is 400 rather than the 350 the derivation asks for, and the
+// fifty calls between them are the three items above. They are worth about a
+// hundred and fifty between them, so the derived number is reachable and the
+// only reason it is not the gate today is that this module cannot reach it.
+export interface FrameCeiling {
+  /** `renderer.info.render.calls` on a rung-0 racing frame. */
+  drawCalls: number;
+  /** ...and `.triangles`, colour pass and shadow pass together. */
+  triangles: number;
+  /**
+   * Simulation + update, normalised to one 60fps frame. See `gate()`.
+   *
+   * **Two numbers, and the gap between them is the instrument rather than the
+   * game.** `cpuTargetMs` is what the work is supposed to cost — a quarter of a
+   * 60fps frame, against 3.1ms measured live — and `cpuMs` is what the build
+   * fails at. They differ because the only bench that runs this gate is a
+   * shared software-rasteriser container, and four consecutive runs of the
+   * identical smoke recipe measured 2.47, 2.95, 3.18 and 4.00ms of median CPU
+   * for byte-identical work. That is the box being busy, not the game changing,
+   * and a ceiling drawn inside it fails the build at random — which teaches
+   * everybody to re-run rather than to look. The enforced line clears the
+   * observed spread; the target is stated beside it and is what a live
+   * measurement should be held to.
+   */
+  cpuMs: number;
+  cpuTargetMs: number;
+  /** What the ceilings were derived at. A budget with no viewport in it is a
+   *  budget about no machine — the frame is fill-bound, so 1600x900 is part of
+   *  the claim and not a footnote to it. */
+  at: string;
+}
+const RUNG0: FrameCeiling = {
+  drawCalls: 400,
+  triangles: 1_000_000,
+  cpuMs: 6.0,
+  cpuTargetMs: 4.0,
+  at: '1600x900, 7 racers, cone-canyon, rung 0',
+};
+/**
+ * Fixed steps a 60fps frame runs, which is the denominator the CPU ceiling is
+ * quoted against.
+ *
+ * `FIXED_DT` is 1/120, so a player at 60fps steps the simulation twice per
+ * drawn frame. A capture harness driving `advance(1, 20)` steps it *six* times
+ * per drawn frame and charges all six to that frame, so a gate comparing
+ * `budget.simMs` against a per-frame ceiling would convict the game of being
+ * three times more expensive than it is on exactly the bench that runs the
+ * gate. See `gate()`.
+ */
+const STEPS_AT_60 = 2;
+/**
+ * Delivered frames the CPU reading is taken over, as a **median**.
+ *
+ * `budget.updateMs` is one frame, and one frame is not a measurement. Read off
+ * the six shots of the review sheet in the round this gate was built, the last
+ * rendered frame of each recipe reported 1.2, 6.8, 2.1, 7.1, 4.9 and 2.4ms of
+ * update for what is the same game doing the same work — a lone frame after a
+ * screenshot, a garbage collection, a deoptimised path taken once. A ceiling
+ * enforced against that would fail at random, and a gate that fails at random
+ * is worse than no gate at all: it teaches everybody to re-run the build.
+ *
+ * Thirty-two frames and the median rather than the mean, for the same reason
+ * `wallMedian` exists twenty lines further down — a mean is one hitch away from
+ * being a number about the hitch. A capture's `advance(1, 20)` fills two thirds
+ * of this with homogeneous frames, and a live session fills it in half a
+ * second.
+ */
+const CPU_WINDOW = 32;
 
 /** Where the settled rung is written. Versioned, because the shape of the
  *  stored record is this file's business and nobody else's. */
@@ -1501,6 +1795,38 @@ const RUNG_GAIN = 1.2;
  * to buy nothing, `worse`/`futile` puts a rung back and stands the ladder down.
  */
 const PANIC_MAX_STEP = LADDER.length - 1;
+/**
+ * ...and the most rungs one **climb** may move. See `sizedClimb`.
+ *
+ * The same number, and the asymmetry between the two directions lives in the
+ * dwells and in `sprintFloor` rather than here. A machine that has just been
+ * collapsed six rungs by a garbage collection it has already finished is six
+ * rungs from where it belongs, and capping the way back at three would put the
+ * player through two nine-second dwells and two straights to say so.
+ */
+const UP_MAX_STEP = LADDER.length - 1;
+/**
+ * Below this share of the target frame period, the wall clock is measuring the
+ * machine rather than the display, and `sizedClimb` may believe it.
+ *
+ * 0.92 of 16.7ms is 15.3ms. A vsync-paced window's *best* frame sits on the
+ * period with a little jitter under it; a machine with real headroom that is
+ * not being paced — a browser running rAF off a 120Hz panel, a page whose
+ * compositor is not blocking — puts frames well under it. This is the only
+ * question `wallBest` is asked and it is the reason the field is kept.
+ */
+const PACED_FRAC = 0.92;
+/**
+ * Wall seconds of delivered play after a climb within which a drop is that
+ * climb's fault. See `sizedClimb` and `sprintFloor`.
+ *
+ * Eight, against a floor of `SETTLE` 2.2 + `DOWN_DWELL` 1.2 = 3.4s for the
+ * fastest possible punishment and `UP_DWELL` 9s before the next climb can be
+ * asked for. So the window covers every drop that is a consequence of the climb
+ * and closes before the next climb decision can be taken, which is what stops
+ * one bad bet being blamed on the bet before it.
+ */
+const CLIMB_PUNISH_S = 8;
 /**
  * A frame this many times the budget is not a hitch, it is the machine.
  *
@@ -2205,19 +2531,6 @@ export interface QualityProbe {
   scaleRamping: boolean;
   scaleRampFrames: number;
   /**
-   * CSS pixels of blur published to `[data-soften]`, which is the door for a
-   * DOM layer that is **a picture of the world** rather than an instrument.
-   *
-   * **The instrument set is never in that list and reads 0 at every rung** —
-   * see `softenOverlays`. Read `softenLayers` beside this: it is how many
-   * elements have actually opted in, so `soften: 1.00, softenLayers: 0` says
-   * plainly that the number is published and nothing in the product has asked
-   * for it, which is the state round ten left the game in.
-   */
-  soften: number;
-  /** How many elements match `[data-soften]` right now. See `soften`. */
-  softenLayers: number;
-  /**
    * The pixels the world is actually drawn into, as `WxH`, and the canvas it is
    * resolved onto beside it.
    *
@@ -2359,6 +2672,19 @@ export interface QualityProbe {
   /** Drops in a row that bought nothing, and whether it has given up. */
   futile: number;
   stalled: boolean;
+  /**
+   * The climb, which is sized from measured headroom rather than hardcoded at
+   * one rung. See `sizedClimb`.
+   *
+   * `climbStep` is what a climb *would* ask for right now, `lastClimbStep` what
+   * the last one did, `sprintFloor` the best rung a multi-rung climb is allowed
+   * to reach (0 = the whole ladder), and `climbOnTrial` whether the last climb
+   * is still inside the window in which a drop would convict it.
+   */
+  climbStep: number;
+  lastClimbStep: number;
+  sprintFloor: number;
+  climbOnTrial: boolean;
   /**
    * Frames thrown away because the page was suspended through them, and frames
    * thrown away because the harness stepped the simulation inside them.
@@ -2525,6 +2851,55 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   let workMean = 0;
   let lateFrac = 0;
 
+  // ── the CPU half of the frame, for the budget gate ────────────────────────
+  //
+  // Separate from `work` above, and deliberately: that ring is the *governor's*
+  // evidence and it discards every frame the harness drove, which is every
+  // frame a capture ever produces. This one takes every rendered frame there
+  // is, because the question it answers — "does the simulation plus the visual
+  // update fit inside a 60fps frame" — is a question about the game rather than
+  // about the machine's frame rate, and a bench is exactly where it gets asked.
+  //
+  // Normalised per fixed step. See `STEPS_AT_60` and `CPU_WINDOW`.
+  const cpuRing = new Float64Array(CPU_WINDOW);
+  const cpuSorted = new Float64Array(CPU_WINDOW);
+  let cpuIdx = 0;
+  let cpuCount = 0;
+  let cpuSimRing = 0;
+  let cpuUpdRing = 0;
+
+  /** One sample, from the frame that has just been drawn. Allocation-free. */
+  function sampleCpu(): void {
+    const b = ctx.budget;
+    if (!b) return;
+    // `engine.ts` caps the accumulator at eight steps per frame, so on a
+    // machine in slow motion this is 8 and the division is what makes the
+    // reading mean the same thing there as it does at 60fps.
+    const steps = b.steps > 0 ? b.steps : 1;
+    const sim = (b.simMs / steps) * STEPS_AT_60;
+    cpuSimRing = sim;
+    cpuUpdRing = b.updateMs;
+    cpuRing[cpuIdx] = sim + b.updateMs;
+    cpuIdx = (cpuIdx + 1) % CPU_WINDOW;
+    if (cpuCount < CPU_WINDOW) cpuCount++;
+  }
+
+  /** Median of the CPU ring. Hand-called from `gate()`/`probe()` only, so the
+   *  sort is free; the scratch is owned so it allocates nothing anyway. */
+  function cpuMedian(): number {
+    const n = cpuCount;
+    if (n === 0) return 0;
+    for (let i = 0; i < n; i++) cpuSorted[i] = cpuRing[i]!;
+    for (let i = 1; i < n; i++) {
+      const v = cpuSorted[i]!;
+      let j = i - 1;
+      while (j >= 0 && cpuSorted[j]! > v) { cpuSorted[j + 1] = cpuSorted[j]!; j--; }
+      cpuSorted[j + 1] = v;
+    }
+    const h = n >> 1;
+    return (n & 1) === 1 ? cpuSorted[h]! : (cpuSorted[h - 1]! + cpuSorted[h]!) / 2;
+  }
+
   // ── the robust statistic, for the one comparison that needs one ───────────
   //
   // Only the futility verdict reads these, and only at the two moments it takes
@@ -2651,6 +3026,25 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    *  In *mean* units, because the retry test below reads the mean every frame
    *  and comparing a median against a mean is not a comparison. */
   let stalledAt = 0;
+
+  // ── the climb's own memory ───────────────────────────────────────────────
+  /**
+   * The best rung a **multi-rung** climb may reach. See `sizedClimb`.
+   *
+   * Zero means nothing has been disproved and the whole ladder is available in
+   * one change; anything above it is a rung a climb was punished at, and above
+   * *that* the ladder is walked one rung at a time exactly as it always was.
+   * Kept across `reset()` for the same reason `index` is: a machine did not
+   * become faster because a race restarted.
+   */
+  let sprintFloor = 0;
+  /** `liveSeconds` at the last climb, and whether that climb is still on trial.
+   *  A drop inside `CLIMB_PUNISH_S` convicts it; surviving the window acquits
+   *  it and relaxes `sprintFloor` by one. */
+  let climbAt = -Infinity;
+  let climbOnTrial = false;
+  /** How many rungs the last climb asked for, for the log and the probe. */
+  let lastClimbStep = 0;
 
   // ── the moment gate ──────────────────────────────────────────────────────
   /**
@@ -3017,146 +3411,32 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     return c && typeof c.setRenderScale === 'function' ? c : null;
   }
 
-  // ── the other half of the frame ───────────────────────────────────────────
+  // ── the other half of the frame, and what round eleven took out of it ───
   //
-  // Everything below this comment exists because the render scale governs the
-  // *3D* and the 3D is not the whole picture. The HUD, the race's plates, the
-  // coach card and the item socket are DOM, drawn by the browser at the
-  // display's own resolution, and they do not move when the world does.
+  // The render scale governs the *3D* and the 3D is not the whole picture: the
+  // HUD, the race's plates, the coach card and the item socket are DOM, drawn
+  // by the browser at the display's own resolution, and they do not move when
+  // the world does. Round nine closed that seam by publishing the upscale as a
+  // CSS blur on the instrument set. Round ten reversed it — correctly, and it
+  // is visible in the frames: the world's mean gradient falls monotonically
+  // across the rungs while the HUD's holds at 5.09 → 4.90, which is what every
+  // shipping game with dynamic resolution does and what MK8D does in
+  // split-screen.
   //
-  // Round eight made resolution the ladder's one live lever and round nine's
-  // reviewer photographed the result: at `mid(6)` the crowd was a smear, the
-  // barrier stripes had lost their edges and the ridge line was stair-stepped,
-  // while "1/3", "0:13.9", "7TH" and the minimap were pixel-for-pixel identical
-  // to the rung-0 frame. Two products in one photograph.
+  // What round ten left behind was the apparatus: a stylesheet injection, an
+  // `mc-soft` body class, a `--mc-soften` custom property, a `[data-soften]`
+  // opt-in door and a call on every ramp step and every seam — about a hundred
+  // and forty lines driving, as `probe()` said out loud, `soften: 1.00,
+  // softenLayers: 0`. **Nothing in the product had ever marked an element.**
+  // ARCHITECTURE §7 is unambiguous about the shape of that bug in the other
+  // direction ("an event with no listener is a bug, not a feature") and it does
+  // not stop being one because the channel is a stylesheet rather than a bus.
   //
-  // The fix is one number published two ways. `setRenderScale` softens the
-  // world by drawing it smaller and resolving it back up; this softens the DOM
-  // by the amount that upscale costs, so the two halves of the frame arrive at
-  // the same sharpness and the *change* between two rungs is uniform across the
-  // picture — which is criterion (c) of the seam rule, and the criterion the
-  // `scale` lever was claiming without paying for.
-
-  /**
-   * How many pixels of blur one pixel of upscale is worth.
-   *
-   * A bilinear resolve from `s` of the buffer spreads a texel over `1/s - 1`
-   * extra pixels of the target, so that is the ramp: 0 at full resolution,
-   * 1.0 buffer-pixels at the ladder's floor, and *nothing at all* until the
-   * ladder has actually spent something. Divided by the device pixel ratio
-   * because CSS blur is quoted in CSS pixels and the upscale happens in the
-   * drawing buffer — on a 2x display half a CSS pixel of blur is one buffer
-   * pixel of it, which is exactly what the world lost.
-   */
-  const SOFTEN_K = 1;
-  /** Below this the blur is not a picture, it is a compositing layer for
-   *  nothing. Under it the softener switches off entirely rather than asking
-   *  the browser to filter a full-screen layer by a twentieth of a pixel. */
-  const SOFTEN_MIN_PX = 0.1;
-  /** ...and a ceiling, so a composer with a lower floor than this ladder's can
-   *  never turn the instrument set into fog. */
-  const SOFTEN_MAX_PX = 1.6;
-
-  /**
-   * What softens — and after round ten, **the instrument set never does.**
-   *
-   * Round nine's rule named the shared vocabulary of ARCHITECTURE §11a:
-   * `#hud .corner`, `#hud .stage > *`, `#race .plate` and `#coach .plate`. That
-   * is the lap counter, the race clock, the place badge, the coin readout, the
-   * minimap and the item socket, and it put up to 1.0 CSS pixels of blur on all
-   * six of them. Photographed at 1280x720, rung 0 against rung 6: the place
-   * badge's "7" lost its edge, the "TH" went mushy, the plate's gold top rail
-   * smeared from a hairline into a band and the carbon weave inside it flattened
-   * to grey. "1 / 3" and "0:13.9" both visibly softened.
-   *
-   * The rule was written to close a real seam — a razor HUD photographed over a
-   * world the ladder had spent — and it closed it from the wrong side. The
-   * readouts a player parses in **peripheral vision** got harder to read at
-   * exactly the moment the game was running worst, which is the one layer
-   * Nintendo never degrades. A sharp interface over a scaled world is what every
-   * shipping game with dynamic resolution does and what MK8D does in
-   * split-screen: nobody has ever filed it as a defect. A blurred lap timer is
-   * not in that category.
-   *
-   * So the seam is spent the other way. The instrument set holds at **0px of
-   * blur on every rung**, and what is left here is one door:
-   *
-   *   `[data-soften]`  for a DOM layer that is genuinely *a picture of the
-   *                    world* — a rear-view inset, a photo-mode frame, a
-   *                    replay wipe. Any module can join by marking it, with no
-   *                    edit here. Nothing in the product uses it today, which
-   *                    `probe().softenLayers` reports rather than hides.
-   *
-   * Three surfaces were already deliberately outside the list and still are: the
-   * canvas, which is the thing that has already softened; the front-end, behind
-   * which the race is not drawn at all (see `skipDraw`); and the full-screen
-   * washes in `fx/screen.ts`, which are gradients with no edge in them for a
-   * blur to find.
-   *
-   * The cost note is kept because it is what any future version of this rule has
-   * to answer. Measured pairwise on a frozen mid-race frame at 800x450, sixteen
-   * alternating pairs: filtering each full-screen overlay **root** cost +133ms
-   * on an 800ms frame, filtering the small boxes inside them cost nothing at
-   * all. A blur costs its *surface*, not its content, and `#hud` and `#race` are
-   * `position: fixed; inset: 0`. So a `[data-soften]` layer should be the box,
-   * not the root it lives in.
-   *
-   * Written as one rule with a custom property in it so that changing the amount
-   * is a variable write on `<body>` and never a re-parse of a stylesheet.
-   */
-  const SOFTEN_CSS = `
-body.mc-soft [data-soften] {
-  filter: blur(var(--mc-soften, 0px));
-}
-`;
-
-  let softenStyle: HTMLStyleElement | null = null;
-  /** The blur currently installed, in CSS pixels. -1 until the first write, so
-   *  boot always publishes once. */
-  let softenPx = -1;
-
-  function installSoftener(): void {
-    if (softenStyle || typeof document === 'undefined' || !document.head) return;
-    const el = document.createElement('style');
-    el.id = 'mc-quality-soften';
-    el.textContent = SOFTEN_CSS;
-    document.head.appendChild(el);
-    softenStyle = el;
-  }
-
-  /**
-   * Publish how soft the *world* currently is, for any layer that is a picture
-   * of it. See `SOFTEN_CSS` — the instrument set is not one of those and never
-   * carries this.
-   *
-   * Called from wherever `liveScale` moves, including every step of the ramp, so
-   * a layer that has opted in dissolves with the world rather than snapping at
-   * the end. Costs one class toggle and one custom-property write on the frames
-   * where the number actually changes, and nothing at all on the frames where it
-   * does not, which is almost all of them.
-   */
-  function softenOverlays(scale: number): void {
-    if (typeof document === 'undefined') return;
-    const body = document.body;
-    if (!body) return;
-    const want = scale >= 1 - SCALE_EPS
-      ? 0
-      : Math.min(SOFTEN_MAX_PX, (SOFTEN_K * (1 / scale - 1)) / baseRatio());
-    // Hundredths: finer than the browser will resolve into a different blur and
-    // coarse enough that a ramp step is a handful of writes rather than one per
-    // frame for ever.
-    const q = Math.round(want * 100) / 100;
-    if (q === softenPx) return;
-    softenPx = q;
-    if (q < SOFTEN_MIN_PX) {
-      body.classList.remove('mc-soft');
-      body.style.removeProperty('--mc-soften');
-      return;
-    }
-    installSoftener();
-    body.style.setProperty('--mc-soften', `${q}px`);
-    body.classList.add('mc-soft');
-  }
+  // It is gone rather than kept warm for a rear-view inset that does not exist.
+  // The seam it was closing is closed the other way and the argument for that
+  // is in `SEAM_HELD` under `scale`; whoever builds a DOM layer that is
+  // genuinely a picture of the world can publish `liveScale` to it in ten lines
+  // and will want them written against whatever that layer turns out to be.
 
   /** What the ladder wants the 3D drawn at. */
   let wantScale = 1;
@@ -3267,7 +3547,6 @@ body.mc-soft [data-soften] {
     rampFrames++;
     // The DOM travels with it, every step, or the world dissolves under a HUD
     // that snaps at the end — which is the same seam one frame wide.
-    softenOverlays(liveScale);
     if (Math.abs(liveScale - wantScale) < SCALE_EPS) {
       // Arrived. Everything a landing owes the rest of the file is owed once,
       // at the end, rather than thirteen times on the way: one `quality:changed`
@@ -3329,18 +3608,12 @@ body.mc-soft [data-soften] {
   function flushScale(why: string): boolean {
     if (liveScale > wantScale - SCALE_EPS && liveScale < wantScale + SCALE_EPS) {
       ramping = false;
-      // Nothing moved, but a *resize* reaches here too and the amount of blur
-      // that matches a given scale is a function of the device pixel ratio. A
-      // window dragged to a display with a different one would otherwise keep
-      // the old softening for ever, at no cost to notice it by.
-      softenOverlays(liveScale);
       return false;
     }
     const free = freeScalePath();
     if (free) {
       free.setRenderScale!(wantScale);
       liveScale = wantScale;
-      softenOverlays(liveScale);
       // Everything the fallback path says below applies here too — the only
       // difference is the cost of the frame that does it.
       landScale(why, false);
@@ -3356,10 +3629,6 @@ body.mc-soft [data-soften] {
     ctx.renderer.setPixelRatio(want);
     liveScale = wantScale;
     scaleFlushes++;
-    // On this path the canvas itself moved, so the DOM over it is the one thing
-    // that did *not* — exactly the seam `softenOverlays` exists for, and more
-    // acute here than on the free path.
-    softenOverlays(liveScale);
     // Everything in the window was measured at a different resolution, and the
     // frames immediately after this one are the reallocation rather than the
     // game. This path is a *seam* flush — a bench, a pin, a resize, a race
@@ -3717,6 +3986,10 @@ body.mc-soft [data-soften] {
       if (!mesh.isMesh || !mesh.visible || !mesh.geometry) return;
       // The contact pass owns this one and moves it every frame.
       if (o.name === 'shadowBlob') return;
+      // ...and the shadow shell is this file's own, built one line earlier and
+      // standing in for the whole machine in the shadow pass. Merging it into
+      // the colour shell would draw the silhouette a second time in paint.
+      if (o.name === SHADOW_SHELL) return;
       // A multi-material mesh has per-group index ranges that a flat merge
       // would lose. None exist on any machine today; skip rather than corrupt.
       if (Array.isArray(mesh.material)) return;
@@ -3753,18 +4026,192 @@ body.mc-soft [data-soften] {
       });
     }
     if (!built.length) return null;
-    // One caster: the biggest bucket, which is the body. See `Shell`.
-    built.sort((a, b) => b.tris - a.tris);
-    built[0]!.mesh.castShadow = true;
+    // **No caster at all.** The shadow shell below is the machine's one caster
+    // at every rung and whether the colour shell is standing in or not, so the
+    // old "one caster: the biggest bucket" line would put a second, coarser
+    // silhouette into the map the moment a machine shelled. See `ShadowShell`.
     group.visible = false;
     root.add(group);
 
     const hides: THREE.Object3D[] = [];
     for (const child of root.children) {
       if (child === group || child.name === 'shadowBlob') continue;
+      // The shadow shell is not something the colour shell stands in for: the
+      // machine's silhouette has to keep reaching the shadow map at every
+      // distance, and it is drawing nothing in paint to be stood in for.
+      if (child.name === SHADOW_SHELL) continue;
       hides.push(child);
     }
     return { group, hides, was: hides.map(() => true), on: false };
+  }
+
+  /**
+   * ── The shadow shell: seven casters where there were a hundred and fifty ───
+   *
+   * The single largest thing in this frame, and it is not a quality cut — it is
+   * the same silhouette drawn once instead of twenty-two times.
+   *
+   * Measured on the `racing` shot at 1600x900, rung 0, with the audit's
+   * frustum-aware columns (see `AuditRow.drawn`):
+   *
+   *   group      drawn   shadow   drawn triangles
+   *   the field    167      155            31,920
+   *   world         59       32           196,608
+   *   track         12        5           168,470
+   *   everything   271      195           449,960     `stats()` 480 / 662,900
+   *
+   * **The seven machines are 322 of the frame's 466 scene submissions — 69% —
+   * for 7% of its triangles**, and 155 of those are the shadow pass drawing
+   * twenty-two separate greebles per machine into a 2048 map. `vehicles/`
+   * already has a shadow ladder of its own (`SHADOW_MIN_PX`, `SHADOW_KEEP`) and
+   * it is doing its job: what it cannot do is make one draw out of parts that
+   * are separate meshes because they are separately *painted*. In the shadow
+   * pass the paint is irrelevant — every caster resolves to the same depth
+   * material — so the whole machine merges into one buffer regardless of how
+   * many materials it wears.
+   *
+   * ── What it gives up ──────────────────────────────────────────────────────
+   *
+   * The merge is taken at the transforms the parts sit at when the model is
+   * built, so inside the shadow map the wheels stop turning and the body stops
+   * leaning. The machine's *own* transform still applies — the shell is a child
+   * of the racer's root — so the shadow moves, rotates, banks and jumps with the
+   * kart exactly as it did. What is frozen is sub-part motion, in a soft 2048
+   * map, under a kart that is thirty pixels of shadow at racing distance.
+   * Photographed at 1600x900 against the same frame with the old caster set:
+   * no pixel of the shot moved by more than the map's own filtering.
+   *
+   * ── ...and how it costs nothing in the colour pass ────────────────────────
+   *
+   * A mesh cannot be shadow-only in three: `WebGLRenderer.projectObject` and
+   * `WebGLShadowMap.renderObject` both gate on the same `material.visible`, and
+   * the colour list is built *before* the shadow pass runs, so there is no
+   * frame in which the two can disagree. The geometry instead ships with its
+   * draw range closed, and `onBeforeShadow`/`onAfterShadow` — which fire either
+   * side of the shadow draw and nowhere else — open it for exactly that
+   * submission. The colour pass therefore gets one draw call of **zero
+   * triangles** per machine, which is the whole of the price: 155 shadow draws
+   * become 7, plus 7 empty colour draws. Net **-141 draw calls and no change to
+   * the triangle count at all.**
+   */
+  const SHADOW_SHELL = 'lodShadow';
+  interface ShadowShell {
+    mesh: THREE.Mesh;
+    /** The machine's own casters, which this stands in for. Their `castShadow`
+     *  is held down every frame — see `holdShadowShells`. */
+    muted: THREE.Mesh[];
+  }
+  const shadowShells = new Map<number, ShadowShell>();
+  /**
+   * ...and the same set as a flat array, because `holdShadowShells` runs every
+   * rendered frame and `Map.prototype.values()` allocates an iterator.
+   *
+   * The map is the identity index (a racer id is how `reset` finds one to throw
+   * away); this is the thing the hot path walks. Kept in step in exactly two
+   * places, `buildShells` and `clearShadowShells`, both of which are load
+   * moments. See the same argument on the racer loop in `contentFrame`.
+   */
+  const shadowShellList: ShadowShell[] = [];
+  /**
+   * One material for every shadow shell in the game.
+   *
+   * It is never seen: the draw range is closed for the colour pass. It exists
+   * because `WebGLShadowMap` derives the depth material from the mesh's own
+   * material, and the derivation reads `side`, `alphaTest`, `map` and
+   * `clipShadows` — so a plain opaque front-sided material is what makes the
+   * depth material the *shared* one every other caster in the scene already
+   * uses, rather than a new program. The ladder compiles one program set and
+   * this must not be the thing that breaks it.
+   */
+  let shadowShellMat: THREE.Material | null = null;
+
+  function buildShadowShell(root: THREE.Object3D): ShadowShell | null {
+    const T = ctx.THREE;
+    const inv = new T.Matrix4();
+    const local = new T.Matrix4();
+    root.updateMatrixWorld(true);
+    inv.copy(root.matrixWorld).invert();
+    const parts: THREE.BufferGeometry[] = [];
+    const muted: THREE.Mesh[] = [];
+
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.visible || !mesh.castShadow || !mesh.geometry) return;
+      if (o.name === 'shadowBlob' || o.name === SHADOW_SHELL) return;
+      if (!mesh.geometry.getAttribute('position')) return;
+      const src = mesh.geometry;
+      const g = src.index ? src.toNonIndexed() : src.clone();
+      local.multiplyMatrices(inv, mesh.matrixWorld);
+      g.applyMatrix4(local);
+      parts.push(g);
+      muted.push(mesh);
+    });
+    // Two casters are already one draw each way round; the machinery is only
+    // worth its bookkeeping when it is removing submissions.
+    if (parts.length < 3) {
+      for (const g of parts) g.dispose();
+      return null;
+    }
+    const merged = mergeParts(parts);
+    for (const g of parts) g.dispose();
+    if (!merged) return null;
+
+    if (!shadowShellMat) {
+      shadowShellMat = new T.MeshBasicMaterial({ side: T.FrontSide });
+      shadowShellMat.name = 'mc.shadowShell';
+    }
+    const mesh = new T.Mesh(merged, shadowShellMat);
+    mesh.name = SHADOW_SHELL;
+    mesh.castShadow = true;
+    mesh.receiveShadow = false;
+    mesh.frustumCulled = true;
+    // Shut for the colour pass, opened for the shadow draw and shut again
+    // immediately. See the block above; these two hooks fire nowhere else.
+    merged.setDrawRange(0, 0);
+    const count = merged.getAttribute('position')?.count ?? 0;
+    mesh.onBeforeShadow = (): void => { merged.setDrawRange(0, count); };
+    mesh.onAfterShadow = (): void => { merged.setDrawRange(0, 0); };
+    root.add(mesh);
+
+    for (const m of muted) m.castShadow = false;
+    return { mesh, muted };
+  }
+
+  /**
+   * Hold the machines' own casters off, every frame.
+   *
+   * Two modules write `castShadow` on these nodes and this is the resolution of
+   * that, stated rather than left to be discovered. `vehicles/index.ts` runs its
+   * own shadow ladder at order 85 and *restores* `parts[i].casts` whenever a
+   * machine comes back towards the camera, so a one-shot write here would be
+   * undone the first time a rival closed up. This file runs at order 95 — after
+   * the rig, after the part ladder, before the draw — and writes the same value
+   * every frame, so there is exactly one effective owner and nothing can
+   * flicker. It is the same idiom `vehicles/` uses for its own detail gate,
+   * pointed one layer up.
+   *
+   * Flat arrays captured at build time, so this is a few hundred boolean writes
+   * and no traversal, no closure and no allocation.
+   */
+  function holdShadowShells(): void {
+    for (let i = 0; i < shadowShellList.length; i++) {
+      const muted = shadowShellList[i]!.muted;
+      for (let j = 0; j < muted.length; j++) muted[j]!.castShadow = false;
+    }
+  }
+
+  /** Give every machine its own casters back, and drop the merged one. */
+  function clearShadowShells(): void {
+    for (let i = 0; i < shadowShellList.length; i++) {
+      const s = shadowShellList[i]!;
+      for (const m of s.muted) m.castShadow = true;
+      s.mesh.parent?.remove(s.mesh);
+      s.mesh.onBeforeShadow = (): void => {};
+      s.mesh.onAfterShadow = (): void => {};
+      s.mesh.geometry?.dispose();
+    }
+    shadowShells.clear();
+    shadowShellList.length = 0;
   }
 
   /**
@@ -3846,9 +4293,15 @@ body.mc-soft [data-soften] {
 
   function buildShells(): void {
     clearShells();
+    clearShadowShells();
     for (const racer of ctx.racers) {
       const root = racer.model?.root ?? racer.visual;
       if (!root) continue;
+      // The shadow shell first: it takes `castShadow` off the machine's own
+      // meshes, and the colour shell below reads that when it decides what its
+      // own buckets are allowed to cast. See `ShadowShell`.
+      const dark = buildShadowShell(root);
+      if (dark) { shadowShells.set(racer.id, dark); shadowShellList.push(dark); }
       const shell = buildShell(root);
       if (shell) shells.set(racer.id, shell);
     }
@@ -4025,6 +4478,11 @@ body.mc-soft [data-soften] {
     thinnedNow = thinned;
 
     // ── the field ─────────────────────────────────────────────────────────
+    //
+    // Unconditional and above the rung's own tests: the shadow shell is not a
+    // quality cut and does not belong to a rung. It is on at rung 0 and it is
+    // the reason rung 0 fits the ceiling. See `ShadowShell` and `RUNG0`.
+    holdShadowShells();
     //
     // The priming frame draws every shell next to every machine, once, so the
     // buffer upload lands on a load rather than on a rescue. See `primeShells`.
@@ -4336,6 +4794,33 @@ body.mc-soft [data-soften] {
     applyScale(r.scale);
     applyFrameContent(r.content);
 
+    // ── the climb's trial, settled here because both verdicts are rung moves ──
+    //
+    // In `applyRung` rather than at the three drop sites, because "was this drop
+    // the last climb's fault" is a question about the *pair* and the pair is
+    // only visible from here. `auto` gates it: a bench pinning a rung is not
+    // evidence about a machine, and `set()`/`try()`/`mid()` all clear it first.
+    if (auto && from !== index) {
+      if (index > from) {
+        // A drop. If a climb is still on trial and inside its window, the rung
+        // that climb reached is the one that failed — sprints stop under it.
+        if (climbOnTrial && liveSeconds - climbAt <= CLIMB_PUNISH_S) {
+          const failed = from + 1;
+          if (failed > sprintFloor) sprintFloor = failed;
+          if (sprintFloor > LADDER.length - 1) sprintFloor = LADDER.length - 1;
+          climbOnTrial = false;
+        }
+      } else {
+        // A climb. Acquit the previous one first — it held for its whole window
+        // — and give a rung of the wall back for it.
+        if (climbOnTrial && liveSeconds - climbAt > CLIMB_PUNISH_S && sprintFloor > 0) {
+          sprintFloor--;
+        }
+        climbAt = liveSeconds;
+        climbOnTrial = true;
+      }
+    }
+
     let entry: QualityChange | null = null;
     if (from !== index) {
       const b = ctx.budget;
@@ -4449,6 +4934,74 @@ body.mc-soft [data-soften] {
     if (over <= 1) return 1;
     const n = Math.round(Math.log(over) / Math.log(RUNG_GAIN));
     return n < 1 ? 1 : n > PANIC_MAX_STEP ? PANIC_MAX_STEP : n;
+  }
+
+  /**
+   * ── ...and the same question pointed the other way ─────────────────────────
+   *
+   * The fall was sized in round eight and the climb was not, and a reviewer
+   * measured what that asymmetry is worth on a real circuit: the drop path can
+   * pop six rungs in `COLLAPSE_DWELL` — 1.2 seconds — and the climb was a
+   * hardcoded `index - 1` behind `UP_DWELL` 9s, `SETTLE` 2.2s **and**
+   * `onAStraight()`, which over 480 samples spanning 120 seconds of Cone Canyon
+   * was open on 110 of them (22.9%). Walking back up what one GC pause took
+   * cost about seventy seconds — most of a three-lap race spent at 640x360 and
+   * a sixth of the grandstand, on a machine that was fine.
+   *
+   * An asymmetry between the two directions is correct and stays: a hitch may
+   * cost a rung, nothing wins one back by accident, and the *dwells* are where
+   * that caution belongs (1.2s down against 9s up, plus the straight). What is
+   * not correct is that the caution was also spent on the **size**, so a machine
+   * that had proved nine seconds of headroom was handed one rung for it.
+   *
+   * ── What "how far under" means when the display is pacing you ──────────────
+   *
+   * `sizedStep` reads the gap in wall time, which is the honest instrument on
+   * the way down because a machine that is missing is *visibly* missing. On the
+   * way up it is nearly useless and this file already says why (`UP_WORK_MS`): a
+   * vsync-locked 16.7ms is the same reading on a machine with 60% headroom and
+   * on one with none, so `TARGET_MS / wallMean` saturates at 1.0 and would
+   * answer "one rung" for every healthy machine there is — which is exactly the
+   * behaviour being fixed.
+   *
+   * So the size comes off the **work**, which is the measure that can still see
+   * headroom under a paced frame, and the wall is consulted only when it is not
+   * saturated (`wallBest` — even the *best* frame in the window sitting on the
+   * vsync period is the tell). Both are converted through `RUNG_GAIN`, the same
+   * ratio `sizedStep` uses, so "three rungs of room" means the same thing in
+   * both directions.
+   *
+   * ── ...and the damper, because a sized climb can be wrong ──────────────────
+   *
+   * CPU headroom is not proof of fill headroom, and the ladder's largest lever
+   * is resolution. A sized climb is therefore a *bet*, and an unbounded bet that
+   * is repeatedly wrong is the oscillation this whole file exists to avoid — six
+   * up, six down, every thirteen seconds, which would be worse than the seventy
+   * seconds it replaces.
+   *
+   * `sprintFloor` is the bound. It is the best rung a **multi-rung** climb is
+   * allowed to reach, and it is set by evidence rather than by a constant: climb,
+   * get dropped inside `CLIMB_PUNISH_S`, and the rung that failed becomes the
+   * wall — sprints stop one rung short of it and everything above it is explored
+   * a single rung at a time, which is exactly today's behaviour. A climb that
+   * survives its window relaxes the wall by one, so a machine whose conditions
+   * genuinely improved is not capped for the session. The amplitude of any
+   * oscillation therefore *decays*: the first wrong bet is the last big one.
+   */
+  const rungsOfRoom = (ceiling: number, have: number): number =>
+    (have <= 0 ? 1 : Math.floor(Math.log(ceiling / have) / Math.log(RUNG_GAIN)));
+
+  function sizedClimb(): number {
+    if (workMean <= 0) return 1;
+    let n = rungsOfRoom(UP_WORK_MS, workMean);
+    // The wall clock only gets an opinion when something other than the display
+    // is setting the frame period. `wallBest` is the whole window's best frame;
+    // if even that is a vsync period, the mean cannot be evidence of headroom.
+    if (wallBest > 0 && wallBest < TARGET_MS * PACED_FRAC) {
+      const byWall = rungsOfRoom(TARGET_MS, wallMean);
+      if (byWall < n) n = byWall;
+    }
+    return n < 1 ? 1 : n > UP_MAX_STEP ? UP_MAX_STEP : n;
   }
 
   function markDrop(): void {
@@ -4777,15 +5330,6 @@ body.mc-soft [data-soften] {
       scaleFlushWhy: lastFlushWhy,
       scaleRamping: ramping,
       scaleRampFrames: rampFrames,
-      soften: softenPx < 0 ? 0 : softenPx,
-      // Counted rather than assumed: the whole point of round ten is that this
-      // number is published to a door nothing in the product walks through, and
-      // a probe that reported the blur without reporting who is wearing it is
-      // how the last round's HUD got soft without anybody noticing. `probe()` is
-      // a hand call, never a per-frame one, so a query costs nothing that
-      // matters.
-      softenLayers: typeof document === 'undefined'
-        ? 0 : document.querySelectorAll('[data-soften]').length,
       scenePx: `${Math.max(2, Math.round(bufW() * liveScale))}x${Math.max(2, Math.round(bufH() * liveScale))}`,
       canvasPx: `${bufW()}x${bufH()}`,
       seamRung: seamIndex,
@@ -4830,6 +5374,12 @@ body.mc-soft [data-soften] {
       holding,
       futile,
       stalled,
+      // The climb's own state, so "why did it only take one rung back" is a
+      // readable question rather than an inference off the log. See `sizedClimb`.
+      climbStep: sizedClimb(),
+      lastClimbStep,
+      sprintFloor,
+      climbOnTrial,
       suspended,
       hijacked,
       undrawn,
@@ -4975,6 +5525,38 @@ body.mc-soft [data-soften] {
      *  `mat()` are two materials and therefore two draws, however identical
      *  they look — so this is the number a merge has to bring down. */
     materials: number;
+    /**
+     * ── The half that reconciles with `stats()` ──────────────────────────────
+     *
+     * `calls` above is what the scene graph *holds*: every visible drawable,
+     * plus a second draw for every caster. It is the right number for "what is
+     * this world made of" and it is not the number the frame cost — the
+     * renderer culls against the view frustum on top of `visible`, and on a
+     * racing frame at 1600x900 that gap is 1135 against 479.
+     *
+     * Three rounds of this file's own header quoted the first number in tables
+     * captioned with the second, and a reviewer correctly convicted it: an
+     * audit at 457, a ladder table at 189 and a `framehalf` table at 473, all
+     * claiming to be one frozen racing frame, none of them equal to what
+     * `renderer.info` said about that frame. So the walk now culls the way the
+     * renderer does and reports both.
+     *
+     *   `drawn`   colour-pass draws that survive the camera frustum
+     *   `shadow`  caster draws that survive the *shadow* camera's frustum
+     *
+     * `drawn + shadow` summed over the groups is the frame the renderer
+     * submits, short only of the post stack's own full-screen passes (a fixed
+     * cost this walk cannot see and `stats().drawCalls` includes). Measured on
+     * the `racing` shot it lands inside a handful of calls of `stats()`, which
+     * is what makes the tables in this file checkable rather than quotable.
+     */
+    drawn: number;
+    shadow: number;
+    /** ...and the triangles behind `drawn`. The shadow pass rasterises the
+     *  caster's triangles a second time, which is why `stats().triangles` is
+     *  larger than any colour-pass count and why a triangle ceiling has to say
+     *  which of the two it means. */
+    drawnTriangles: number;
   }
   /** Separate meshes of the same geometry+material above which the pair should
    *  have been one instanced draw. ARCHITECTURE §2.5 says ~20; eight is the
@@ -5008,6 +5590,10 @@ body.mc-soft [data-soften] {
     triangles: number;
     meshes: number;
     instances: number;
+    /** Of `calls`, the ones this frame's frustums actually submitted. See
+     *  `AuditRow.drawn` — the whole reason this file's old tables disagreed. */
+    drawn: number;
+    shadow: number;
     /** Mean world-space bounding radius of the meshes in this row, metres. */
     radius: number;
     /** ...and the mean distance from the camera at the moment of the audit. */
@@ -5021,6 +5607,7 @@ body.mc-soft [data-soften] {
     const blank = (name: string): AuditRow => ({
       group: name, calls: 0, triangles: 0, instances: 0, meshes: 0, nodes: 0,
       casts: 0, matGroups: 0, materials: 0,
+      drawn: 0, shadow: 0, drawnTriangles: 0,
     });
     const total = blank('all');
     const mats = new Map<string, Set<unknown>>();
@@ -5055,6 +5642,63 @@ body.mc-soft [data-soften] {
     const named = new Map<string, AuditItem>();
     const _c = new ctx.THREE.Vector3();
 
+    // ── the two frustums the renderer actually culls against ────────────────
+    //
+    // Rebuilt here rather than cached, because `audit()` is a bench call that
+    // allocates freely by contract and a cached frustum would be a frame old.
+    // The shadow camera is found by walking for the first light that casts;
+    // `shadow.updateMatrices` is what the renderer itself calls before the
+    // shadow pass, so asking for it here means the test matches the pass even
+    // when the audit is taken between renders.
+    const T = ctx.THREE;
+    const _m4 = new T.Matrix4();
+    const viewFrustum = new T.Frustum();
+    _m4.multiplyMatrices(ctx.camera.projectionMatrix, ctx.camera.matrixWorldInverse);
+    viewFrustum.setFromProjectionMatrix(_m4);
+    let shadowFrustum: THREE.Frustum | null = null;
+    if (ctx.quality.shadows) {
+      ctx.scene.traverse((o) => {
+        if (shadowFrustum) return;
+        const light = o as unknown as {
+          isLight?: boolean; castShadow?: boolean;
+          shadow?: {
+            camera?: THREE.Camera;
+            updateMatrices?(light: unknown): void;
+          };
+        };
+        if (!light.isLight || !light.castShadow || !light.shadow?.camera) return;
+        light.shadow.updateMatrices?.(o);
+        const cam = light.shadow.camera;
+        const f = new T.Frustum();
+        _m4.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+        f.setFromProjectionMatrix(_m4);
+        shadowFrustum = f;
+      });
+    }
+    const _sphere = new T.Sphere();
+    /** Does the renderer submit this node, or does the frustum eat it? */
+    const inView = (o: THREE.Object3D, f: THREE.Frustum | null): boolean => {
+      if (!f) return false;
+      if (o.frustumCulled === false) return true;
+      const m = o as unknown as {
+        boundingSphere?: THREE.Sphere | null;
+        computeBoundingSphere?(): void;
+        geometry?: { boundingSphere?: THREE.Sphere | null; computeBoundingSphere?(): void };
+      };
+      // InstancedMesh carries its own sphere over the whole population; a plain
+      // mesh's lives on the geometry. Same order the renderer reads them in.
+      let bs = m.boundingSphere;
+      if (bs === null && m.computeBoundingSphere) { m.computeBoundingSphere(); bs = m.boundingSphere; }
+      if (!bs) {
+        const g = m.geometry;
+        if (g && !g.boundingSphere) g.computeBoundingSphere?.();
+        bs = g?.boundingSphere ?? null;
+      }
+      if (!bs) return true;
+      _sphere.copy(bs).applyMatrix4(o.matrixWorld);
+      return f.intersectsSphere(_sphere);
+    };
+
     for (const top of ctx.scene.children) {
       const name = top.name || top.type;
       const r = row(name);
@@ -5084,6 +5728,13 @@ body.mc-soft [data-soften] {
         const tris = ((verts / 3) | 0) * n;
         r.triangles += tris;
         if (mesh.castShadow && n > 0) r.casts += groups;
+        if (n > 0 && inView(o, viewFrustum)) {
+          r.drawn += groups;
+          r.drawnTriangles += tris;
+        }
+        if (mesh.castShadow && n > 0 && shadowFrustum && inView(o, shadowFrustum)) {
+          r.shadow += groups;
+        }
 
         // The named bucket — the one a cut can be aimed at. Radius and
         // distance come off the geometry's own bounding sphere pushed through
@@ -5094,7 +5745,8 @@ body.mc-soft [data-soften] {
           if (!it) {
             it = {
               group: name, name: mesh.name || o.type,
-              calls: 0, triangles: 0, meshes: 0, instances: 0, radius: 0, dist: 0,
+              calls: 0, triangles: 0, meshes: 0, instances: 0,
+              drawn: 0, shadow: 0, radius: 0, dist: 0,
             };
             named.set(key, it);
           }
@@ -5102,6 +5754,10 @@ body.mc-soft [data-soften] {
           it.instances += n;
           if (n > 0) it.calls += groups;
           it.triangles += tris;
+          if (n > 0 && inView(o, viewFrustum)) it.drawn += groups;
+          if (mesh.castShadow && n > 0 && shadowFrustum && inView(o, shadowFrustum)) {
+            it.shadow += groups;
+          }
           const node = o as unknown as {
             geometry?: { boundingSphere?: { radius: number; center: THREE.Vector3 } | null;
               computeBoundingSphere?(): void };
@@ -5156,6 +5812,9 @@ body.mc-soft [data-soften] {
       total.casts += r.casts;
       total.matGroups += r.matGroups;
       total.materials += r.materials;
+      total.drawn += r.drawn;
+      total.shadow += r.shadow;
+      total.drawnTriangles += r.drawnTriangles;
     }
     const groups = [...rows.values()].sort((a, b) => b.triangles - a.triangles);
     const offenders = [...pairs.values()]
@@ -5491,6 +6150,103 @@ body.mc-soft [data-soften] {
         /** What the frame is made of, by scene group. See `audit`. */
         audit,
         /**
+         * Judge the last drawn frame against the stated ceilings. See `RUNG0`.
+         *
+         * The gate lives here rather than in `tools/capture.mjs` for one
+         * reason: this file already carried three tables of "one frozen racing
+         * frame" that disagreed with each other and with the game, and a gate
+         * holding a fourth copy of the numbers would have been a fourth thing
+         * to keep in step. The ceiling a reviewer reads in `RUNG0` is the
+         * ceiling the build fails on, because it is the same object.
+         *
+         * `cpuMs` is normalised: `budget.simMs` is however many fixed steps
+         * that frame ran, and a bench runs three times as many as a player. See
+         * `STEPS_AT_60` — without it the smoke test would convict the game on
+         * the arithmetic of the harness driving it.
+         *
+         * Reports rather than refuses when the frame is not the one the
+         * ceilings describe. A rung-4 frame is *supposed* to be cheaper and a
+         * frame drawn at 640x360 proves nothing about the top of the ladder, so
+         * `applies` says whether this reading is the one the budget is about
+         * and the caller decides what to do with a `false`.
+         */
+        gate(): {
+          target: FrameCeiling;
+          frame: {
+            drawCalls: number; triangles: number; cpuMs: number; cpuSamples: number;
+            simMs: number; updateMs: number; steps: number;
+            drawn: number; shadow: number; drawnTriangles: number;
+          };
+          rung: number;
+          scenePx: string;
+          applies: boolean;
+          pass: boolean;
+          failures: string[];
+          /** Where the draws went, worst first — so a failure names a culprit
+           *  instead of a number. */
+          groups: Array<{ group: string; drawn: number; shadow: number; triangles: number }>;
+        } {
+          const b = ctx.budget;
+          const info = ctx.renderer.info;
+          const steps = b && b.steps > 0 ? b.steps : 1;
+          // The median of the window, not the last frame. See `CPU_WINDOW` —
+          // the six shots of one review sheet reported 1.2 to 7.1ms of update
+          // for the same game, and a ceiling enforced against the last frame
+          // would be a coin toss.
+          const cpuMs = cpuMedian();
+          const simPerFrame = cpuSimRing;
+          const updateMs = cpuUpdRing;
+          const a = audit();
+          const drawCalls = info.render.calls;
+          const triangles = info.render.triangles;
+          const applies = index === 0 && liveScale > 0.999;
+          const failures: string[] = [];
+          if (drawCalls > RUNG0.drawCalls) {
+            failures.push(`draw calls ${drawCalls} over the rung-0 ceiling of `
+              + `${RUNG0.drawCalls} (${RUNG0.at})`);
+          }
+          if (triangles > RUNG0.triangles) {
+            failures.push(`triangles ${triangles} over the rung-0 ceiling of `
+              + `${RUNG0.triangles} (${RUNG0.at})`);
+          }
+          // Against `cpuMs`, not `cpuTargetMs`. The target is a statement and
+          // this is a gate; see the field's own note on why they differ.
+          if (cpuMs > RUNG0.cpuMs) {
+            failures.push(`sim+update ${cpuMs.toFixed(2)}ms over the ceiling of `
+              + `${RUNG0.cpuMs}ms — median of ${cpuCount} frames, sim normalised `
+              + `to ${STEPS_AT_60} steps (last frame: sim ${simPerFrame.toFixed(2)} `
+              + `+ update ${updateMs.toFixed(2)})`);
+          }
+          return {
+            target: RUNG0,
+            frame: {
+              drawCalls,
+              triangles,
+              cpuMs: +cpuMs.toFixed(3),
+              cpuSamples: cpuCount,
+              simMs: +simPerFrame.toFixed(3),
+              updateMs: +updateMs.toFixed(3),
+              steps,
+              drawn: a.total.drawn,
+              shadow: a.total.shadow,
+              drawnTriangles: a.total.drawnTriangles,
+            },
+            rung: index,
+            scenePx: `${Math.max(2, Math.round(bufW() * liveScale))}x`
+              + `${Math.max(2, Math.round(bufH() * liveScale))}`,
+            applies,
+            pass: failures.length === 0,
+            failures,
+            groups: a.groups
+              .filter((g) => g.drawn + g.shadow > 0)
+              .sort((x, y) => (y.drawn + y.shadow) - (x.drawn + x.shadow))
+              .map((g) => ({
+                group: g.group, drawn: g.drawn, shadow: g.shadow,
+                triangles: g.drawnTriangles,
+              })),
+          };
+        },
+        /**
          * Apply a content trim on its own, for the cost bench.
          *
          * The other half of `try()`. A rung moves five settings, a render scale
@@ -5674,6 +6430,17 @@ body.mc-soft [data-soften] {
     update(): void {
       const b = ctx.budget;
       if (!b) return;
+
+      // ── the CPU reading, above every early return and every gate ─────────
+      //
+      // Unconditional, and it is the one measurement in this file that is
+      // *supposed* to include the frames the governor throws away. Everything
+      // below this line is the governor asking "is this machine keeping up",
+      // which is a question a bench cannot answer and a benched page must not
+      // be asked. `RUNG0.cpuMs` asks a different question — "does the game's
+      // own work fit in a frame" — and a bench is precisely where that one gets
+      // asked, because `tools/capture.mjs` is the thing that runs the gate.
+      sampleCpu();
 
       // ── sample the frame ─────────────────────────────────────────────────
       //
@@ -5921,7 +6688,9 @@ body.mc-soft [data-soften] {
       //
       // It is skipped only when there is nothing to draw: no census, no shells
       // and no cover to compute against.
-      if (cullables.length || scatter.length || shells.size) contentFrame();
+      if (cullables.length || scatter.length || shells.size || shadowShellList.length) {
+        contentFrame();
+      }
 
       // ── land any resolution the ladder has earned and not yet been given ──
       //
@@ -6293,7 +7062,16 @@ body.mc-soft [data-soften] {
         applyRung(index + 1, 'dropped');
       } else {
         verdictPending = false;
-        applyRung(index - 1, 'raised');
+        const step = sizedClimb();
+        lastClimbStep = step;
+        let want = index - step;
+        // Above the best rung a climb has been punished at, one rung at a time.
+        // See `sprintFloor`: a sprint may take back ground already proved and
+        // must not sprint into ground that has not been.
+        if (want < sprintFloor) want = Math.min(sprintFloor, index - 1);
+        if (want < 0) want = 0;
+        const many = index - want > 1 ? ` x${index - want}` : '';
+        applyRung(want, `raised${many}`);
       }
     },
 
@@ -6316,16 +7094,14 @@ body.mc-soft [data-soften] {
       // left to put it back. Same argument as `skipDraw` below.
       wantScale = 1;
       flushScale('dispose');
-      // ...and the softening that matched it, including the stylesheet. Same
-      // argument one layer up: this file is the only thing that ever blurs the
-      // interface, so a governor that is disposed at the floor would leave a
-      // permanently soft HUD with nobody left to sharpen it. `flushScale` above
-      // has already put `softenPx` back to 0 through `softenOverlays`; what is
-      // left is the rule itself.
-      softenOverlays(1);
-      softenStyle?.parentNode?.removeChild(softenStyle);
-      softenStyle = null;
       clearShells();
+      // ...and every machine gets its own casters back. Same argument as the
+      // content pass above: this is a switch held down rather than a thing
+      // done once, so a governor that goes away without letting go would leave
+      // the field casting from a frozen merge for ever.
+      clearShadowShells();
+      shadowShellMat?.dispose();
+      shadowShellMat = null;
       crowdGeos.length = 0;
       scatter.length = 0;
       cullables.length = 0;

@@ -417,6 +417,18 @@ function makeGameProxy(page) {
     seek: (p) => call('seek', p),
     stats: () => call('stats'),
     snapshot: () => call('snapshot'),
+    /**
+     * The frame budget, judged.
+     *
+     * `stats()` says what a frame cost; this says what it was *allowed* to
+     * cost and whether it did. The ceilings live in `src/core/quality.ts`
+     * beside the ladder that spends against them rather than here, so the
+     * number a reviewer reads in the file is the number the gate applies —
+     * three tables in that file once disagreed with each other and with the
+     * game, and a gate with a fourth copy of the numbers would have been a
+     * fourth thing to keep in step.
+     */
+    gate: () => page.evaluate(() => globalThis.__QUALITY?.gate?.() ?? null),
     /** Run a function in the page. For the reviewer's-bench front doors —
      *  `__RACE.flag()` and friends — which reach states no amount of driving
      *  can. Everything a *player* can do goes through the harness above. */
@@ -487,7 +499,26 @@ async function runSmoke() {
     // than that it can accelerate into the first barrier. Same step-then-settle
     // shape as the shots: rendering all twelve seconds costs more than the whole
     // rest of the suite and proves nothing extra.
+    //
+    // **The page's own clock is stopped first**, for the reason the `finish`
+    // recipe spells out at length: the engine's rAF loop keeps stepping the
+    // simulation off the wall clock between round trips, and under software GL
+    // a round trip is most of a second of race. That was tolerable while this
+    // function only asserted "the kart is moving"; it is not tolerable now that
+    // it enforces a frame budget, because the frame the budget is judged on has
+    // to be the *same frame* every run. Measured before this line existed: two
+    // consecutive smokes of this identical recipe photographed 542m and 614m of
+    // progress and **381 and 323 draw calls** — a 15% spread on the number the
+    // gate fails the build over. With it, three runs measured 379, 381 and 381.
+    // `step()` and `advance()` drive the simulation directly and ignore the
+    // scale, so the ride itself is unchanged.
+    //
+    // It does not make the frame *identical* — progress still lands anywhere in
+    // a fifty-metre band, so something in the loop is still ageing the world
+    // between round trips — and the remaining 2.7% of spread in the triangle
+    // count is carried by the ceiling rather than papered over. See `RUNG0`.
     await game.reset({ instant: true });
+    await game.setTimeScale(0);
     await game.setAutopilot(true);
     await game.step(11);
     await game.advance(1);
@@ -508,6 +539,44 @@ async function runSmoke() {
     if (snap.race?.phase !== 'racing') failures.push(`expected phase "racing", got "${snap.race?.phase}"`);
     if (stats.drawCalls === 0) failures.push('nothing was drawn (0 draw calls)');
 
+    // ── the frame budget ──────────────────────────────────────────────────
+    //
+    // For a long time the line above was the *entire* performance assertion in
+    // this project. The smoke printed 452 draw calls and 906,072 triangles two
+    // lines further down and asserted nothing about either, so the top rung —
+    // the picture every player who is not struggling actually gets — had never
+    // had a stated cost, let alone a checked one, while `src/core/quality.ts`
+    // grew seven rungs of machinery for degrading it.
+    //
+    // The ceilings are in `quality.ts` beside the ladder rather than here, and
+    // the derivation is with them: 60fps on a mid laptop at 1600x900, a quarter
+    // of the frame budgeted for draw-call submission, and a triangle count that
+    // is a regression tripwire rather than a limit. This reads them off the
+    // game so there is one copy of the numbers.
+    //
+    // Only enforced on the course and viewport the ceilings were derived on,
+    // and only at rung 0 — a governor that has walked down is *supposed* to
+    // draw a cheaper frame, and failing a build for that would be reading the
+    // instrument upside down. Everywhere else the reading is printed.
+    const gate = await game.gate();
+    const budgetCourse = OPTIONS.course === 'cone-canyon'
+      && OPTIONS.width === 1600 && OPTIONS.height === 900;
+    if (!gate) {
+      failures.push('__QUALITY.gate() missing — the frame budget cannot be checked');
+    } else if (!gate.applies) {
+      console.log(`\n  (budget not checked: rung ${gate.rung} at ${gate.scenePx})`);
+    } else if (budgetCourse) {
+      for (const f of gate.failures) failures.push(`frame budget: ${f}`);
+    } else {
+      // Said out loud rather than skipped in silence. A gate that quietly does
+      // not run reads exactly like a gate that passed, and this one is meant to
+      // be the answer to "has anybody costed the frame".
+      console.log(`\n  (budget reported, not enforced: ${OPTIONS.course} at `
+        + `${OPTIONS.width}x${OPTIONS.height}; the ceilings are stated for `
+        + `${gate.target.at})`);
+      for (const f of gate.failures) console.log(`    over: ${f}`);
+    }
+
     // Any racer leaving the world means physics or the track query is broken.
     for (const r of snap.racers) {
       if (!Number.isFinite(r.pos[0]) || Math.abs(r.pos[1]) > 500) {
@@ -518,13 +587,31 @@ async function runSmoke() {
     const pageErrors = [...consoleErrors, ...(await game.errors())];
     if (pageErrors.length) failures.push(`console errors:\n    ${pageErrors.slice(0, 8).join('\n    ')}`);
 
+    const bar = (have, ceiling) => {
+      const pct = ceiling > 0 ? Math.round((have / ceiling) * 100) : 0;
+      return `${String(have).padStart(9)} / ${String(ceiling).padEnd(8)} ${pct}%`;
+    };
     console.log('\n── smoke ──────────────────────────────────────────');
     console.log(`  phase        ${snap.race?.phase}`);
     console.log(`  racers       ${snap.racers.length}`);
     console.log(`  player speed ${player?.speed} m/s`);
     console.log(`  progress     ${player?.progress} m`);
-    console.log(`  draw calls   ${stats.drawCalls}`);
-    console.log(`  triangles    ${stats.triangles}`);
+    if (gate) {
+      console.log(`\n  frame budget — ${gate.target.at}`);
+      console.log(`    draw calls ${bar(gate.frame.drawCalls, gate.target.drawCalls)}`);
+      console.log(`    triangles  ${bar(gate.frame.triangles, gate.target.triangles)}`);
+      console.log(`    sim+update ${bar(gate.frame.cpuMs.toFixed(2), gate.target.cpuMs)}`
+        + `   (target ${gate.target.cpuTargetMs})`);
+      console.log(`    at rung ${gate.rung}, scene ${gate.scenePx}`);
+      console.log('    where the draws went   colour  shadow   triangles');
+      for (const g of gate.groups.slice(0, 6)) {
+        console.log(`      ${g.group.padEnd(18)}${String(g.drawn).padStart(6)}`
+          + `${String(g.shadow).padStart(8)}${String(g.triangles).padStart(12)}`);
+      }
+    } else {
+      console.log(`  draw calls   ${stats.drawCalls}`);
+      console.log(`  triangles    ${stats.triangles}`);
+    }
     console.log('───────────────────────────────────────────────────');
 
     if (failures.length) {
@@ -568,6 +655,7 @@ async function runShots() {
 
       const snap = await game.snapshot();
       const stats = await game.stats();
+      const gate = await game.gate();
       const player = snap.racers.find((r) => r.isPlayer);
 
       index.push({
@@ -585,6 +673,39 @@ async function runShots() {
         boosting: (player?.boost?.time ?? 0) > 0,
         drawCalls: stats.drawCalls,
         triangles: stats.triangles,
+        // ── what the frame cost, and what it was allowed to cost ───────────
+        //
+        // `drawCalls` and `triangles` above have been on this sheet for
+        // several rounds with nothing to compare them against — a reviewer
+        // could read "422 calls" and had no way to know whether that was fine.
+        // The budget is the missing half and it comes off the game rather than
+        // out of this file; see `RUNG0` in src/core/quality.ts.
+        budget: gate && {
+          pass: gate.pass,
+          applies: gate.applies,
+          rung: gate.rung,
+          scenePx: gate.scenePx,
+          target: gate.target,
+          frame: gate.frame,
+          failures: gate.failures,
+          groups: gate.groups,
+        },
+        // ── and which system spent the CPU half of it ──────────────────────
+        //
+        // `stats()` has carried per-system sim and update costs for rounds and
+        // nothing published them, so every question of the form "what got
+        // slower between these two sheets" was answerable only by rebuilding
+        // the old commit. Cheap to record — it is one array of small numbers —
+        // and it is the difference between "the frame got slower" and "`fx`
+        // got slower".
+        systems: stats.systems,
+        cpu: {
+          meanMs: stats.ms,
+          worstMs: stats.worstMs,
+          simMs: stats.meanSimMs,
+          drawMs: stats.meanDrawMs,
+          steps: stats.steps,
+        },
       });
 
       log(`  ✓ ${shot.name.padEnd(10)} ${String(Date.now() - started).padStart(5)}ms  ${path.relative(ROOT, file)}`);

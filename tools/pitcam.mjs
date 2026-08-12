@@ -37,10 +37,10 @@ for (const course of COURSES) {
   await call('reset', { courseId: course, vehicleId: 'cone', seed: 1, instant: true });
   await call('setAutopilot', true);
   await call('setCamera', 'chase');
-  await call('advance', 1.5, 30);
+  await call('advance', 1.5, 12);
   const rows = [];
   for (let i = 0; i < SECONDS * 2; i++) {
-    await call('advance', 0.5, 24);
+    await call('advance', 0.5, 8);
     const m = await page.evaluate(() => {
       const s = window.__GAME.snapshot();
       const p = s.racers.find((r) => r.isPlayer);
@@ -55,6 +55,10 @@ for (const course of COURSES) {
       };
     });
     rows.push(m);
+    if (m.elev > 30) {
+      const buf = await page.screenshot({ type: 'png', timeout: 90000 });
+      await writeFile(path.join(OUT, course + '-hi-' + Math.round(m.t) + 's-' + Math.round(m.elev) + 'deg.png'), buf);
+    }
     if (m.t > SECONDS) break;
   }
   const worst = rows.slice().sort((a, b) => b.elev - a.elev).slice(0, 3);
