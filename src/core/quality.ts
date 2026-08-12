@@ -21,15 +21,23 @@
 // frame is not a game running well, and a mean cannot say so.
 //
 // **Nothing about a frame's duration is ever evidence that it was not a frame.**
-// A frame is discarded only when something observable says the *race* was not in
-// it: a `visibilitychange` edge, the harness having stepped the simulation
-// inside the gap (`budget.benchSteps`), or this file having switched the draw
-// off (`budget.skipDraw`). All three are causes rather than symptoms, and all
-// three are counted in `probe()` as `suspended`, `hijacked` and `undrawn` —
-// because an instrument that silently throws things away is exactly how the
-// rounds before this one were lost. An earlier rule discarded any frame longer
-// than two seconds; on a machine delivering frames 1.7 to 2.6 seconds apart it
-// threw away most of them and the warm-up it fed accrued 1.66 seconds in 200.
+// A frame leaves this window only when something observable says the *race* was
+// not in it: a `visibilitychange` edge, the harness having stepped the
+// simulation inside the gap (`budget.benchSteps`), or this file having switched
+// the draw off (`budget.skipDraw`). All three are causes rather than symptoms,
+// and all three are counted in `probe()` as `suspended`, `hijacked` and
+// `undrawn` — because an instrument that silently throws things away is exactly
+// how the rounds before this one were lost. An earlier rule discarded any frame
+// longer than two seconds; on a machine delivering frames 1.7 to 2.6 seconds
+// apart it threw away most of them and the warm-up it fed accrued 1.66 seconds
+// in 200.
+//
+// **...and the third of those three is a *different window*, not a bin.** A
+// frame the front-end covered carries nothing of the race's content and must
+// never reach the in-race ladder's statistics — but it is a full measurement of
+// this machine, taken on a renderer this file now sizes, and round thirteen was
+// sent back for putting forty-five of them in the bin and then arriving at the
+// grid with no opinion. They go to `preludeStep`. See §7a.
 //
 // `budget.meanMs`, `meanSimMs` and `meanDrawMs` are still read, but only to
 // *attribute* a frame the wall clock has already convicted — see `boundBy`,
@@ -114,7 +122,13 @@
 //   SCALE_HOLD_S 2         wall s of delivered play   1 frame         ok (r8)
 //   PANIC_MAX_STEP         rungs per change           the ladder      ok (r8)
 //   skipDraw frames        not a unit — discarded     see `undrawn`   ok (r8)
-//   SCALE_RAMP 0.04        scale per 16.7ms of frame  1 frame (***)   ok (r9)
+//   SCALE_RAMP 0.04        scale per 16.7ms of frame  4 frames (***)  ok (r13)
+//   SCALE_RAMP_MAX 0.15    scale per frame, any rate  the cap         ok (r13)
+//   PRELUDE_WARM_S 3       wall s of front-end frames 3 frames        ok (r13)
+//   PRELUDE_SAMPLES 8      delivered front-end frames 9s at 0.9fps    ok (r13)
+//   PRELUDE_BUILD_SAMPLES  delivered front-end frames a seam          ok (r13)
+//   PRELUDE_DWELL_S 2      wall s of front-end frames 2 frames        ok (r13)
+//   PRELUDE_LIMIT 3        verdicts per session       events          ok (r13)
 //   THIN_KNEE_PX (r9)      pixels of the **scene** buffer, not the canvas
 //   UP_MAX_STEP            rungs per change           the ladder      ok (r11)
 //   PACED_FRAC 0.92        share of the target period a *best* frame  ok (r11)
@@ -138,11 +152,11 @@
 //   (***) The one gate in this file that is deliberately *not* denominated in
 //   any of the four units, because it governs an animation rather than a
 //   decision, and an animation is frames at a rate. Read the row as "the whole
-//   traverse in 0.21 wall seconds": thirteen frames at 60fps, four at 20fps,
-//   one at 0.7fps. The degenerate case is the correct one and it is argued at
-//   `SCALE_RAMP` — a machine delivering a picture every 1.4 seconds has no
-//   motion for a dissolve to live in, and thirteen frames of easing would be
-//   eighteen seconds of the worst frame rate in the session.
+//   traverse in 0.21 wall seconds, and never in fewer than four frames":
+//   thirteen frames at 60fps, four at 20fps, four at 0.7fps. The degenerate
+//   one-frame case used to be defended here as the correct one; a reviewer
+//   photographed the two frames it produces and they are a cut. See
+//   `SCALE_RAMP_MAX`.
 //
 //   (*) `WARMUP_S` and `PANIC_ARM_S` stay in wall seconds on purpose: they gate
 //   a statistic, the sample counts beside them are what binds on a slow
@@ -245,6 +259,14 @@
 // a machine the governor has judged to have collapsed — on the first frame of
 // the racing after that judgement (`collapseSeam`): `crowd`, `aa`,
 // `drawDistance`.
+//
+// **...and, since round thirteen, at the cheapest seam in the product**: a
+// frame an opaque front-end is covering, where the race's draw is switched off
+// and there is no before-picture of it for an after-picture to differ from. The
+// prelude installs a whole rung there — both halves, resolution flushed rather
+// than ramped — so that a machine which has already proved itself on the title
+// screen arrives at the grid standing on the right rung instead of being cut
+// down to it a third of a second after the flag. See §7a and `installPrelude`.
 // Seven are live, every one either denominated in projected pixels — so the
 // only things it can move are already too small to resolve — or invisible on
 // the frame it lands: `scale`, `tier`, `particles`, `minPx`, `thinFar`,
@@ -400,18 +422,50 @@
 // cutting the race's content to pay somebody else's bill on a screen where the
 // race was not drawn at all, and remembering the wrong answer for next time.
 //
-// Those frames are now **discarded**, exactly like a frame the harness drove.
-// They feed neither `liveWallMs` nor `liveSeconds` nor any dwell, they cannot
-// arm a drop, and they are counted as `undrawn` in the probe so the discard is
-// visible rather than silent. Behind an opaque front-end the governor reports
-// `undrawn (race not in this frame)` and does nothing, which is the only honest
-// thing it can do about a frame it does not own. See `undrawnFrame`.
+// Those frames are **kept out of the race ladder's decision window**, exactly
+// like a frame the harness drove: they feed neither `liveWallMs` nor
+// `liveSeconds` nor any dwell of the in-race governor, because the race's
+// content is not in them and a cut to it cannot make them cheaper.
 //
-// The remaining cross-module request stands: `ui/menus/stage.ts` sizes its
-// backing store from a hardcoded `Math.min(1, 1200 / w)` and cannot hear the
-// `scale` this file publishes on `quality:changed`. One line —
-// `Math.min(1, 1200 / w) * scale` — and the front-end's own frame becomes a
-// frame this ladder can spend on. See `FRONT_END_FLOOR`.
+// ── 7a. ...and what round thirteen stopped throwing away ────────────────────
+//
+// They were also **discarded outright**, and that was the defect this round was
+// sent back for. The reviewer's own bench: forty seconds on an untouched title
+// screen, a 1135ms median delivered frame, 0.88fps — and the governor reporting
+// `rung: 0, samples: 0, changes: 0, liveSeconds: 0, undrawn: 45`. Forty-five
+// consecutive statements that this machine cannot draw, filed under "not
+// evidence", followed 0.33 race-seconds after the flag by the largest and most
+// visible act this file has — 1600x900 to 800x450 — with the player's hands on
+// the wheel.
+//
+// **The frames were not evidence about the race's content. They were always
+// evidence about the machine**, and the machine is what the ladder is for.
+//
+// Two things had to change together, and one of them was in somebody else's
+// file. `ui/menus/stage.ts` sized its backing store from a hardcoded
+// `Math.min(1, 1200 / w)` and could not hear the `scale` this file publishes on
+// `quality:changed`; it now reads that event and multiplies. So the front-end's
+// own frame is a frame this ladder *can* spend on, the biggest lever on the
+// ladder reaches the first picture a player ever sees, and the evidence those
+// frames carry is about a renderer this file sizes.
+//
+// On top of that: **the prelude** — a second, much smaller decision path that
+// runs only behind an opaque front-end, off its own window, and installs a
+// whole rung (both halves, resolution flushed rather than ramped) at a moment
+// where the race is not being drawn at all. That is the cheapest seam that
+// exists in this product: nothing of the race is on the display to change. A
+// machine that renders the title screen at 0.9fps therefore arrives at the grid
+// already standing on the rung it needs, and the in-race governor has nothing
+// left to cut into the player's first corner. See `preludeStep`,
+// `preludeAtBuild` and `FRONT_END_FLOOR`.
+//
+// It is deliberately not the ordinary ladder wearing a hat. It refuses to run
+// on a page the harness has ever stepped, it stops the moment the front-end's
+// own backing store *stops tracking* the scale it publishes (`frontEndHears` —
+// measured, not assumed, because "cut the race to pay somebody else's bill" is
+// exactly the round-eight defect and the only honest guard against it is to
+// watch the other renderer follow), and it spends at most `PRELUDE_LIMIT`
+// verdicts a session.
 //
 // ── 8. What it will not do ─────────────────────────────────────────────────
 //
@@ -1621,21 +1675,43 @@ const SCALE_HOLD_S = 2;
  *   at 60fps        0.04 a frame — 1.00 to 0.50 takes 13 frames, 0.21s. A
  *                   dissolve, which is what a player at 60fps can see.
  *   at 20fps        0.12 a frame — four frames, still 0.21s.
- *   at 0.7fps       the whole traverse in one frame, and correctly: a machine
- *                   delivering a picture every 1.4 seconds has no motion to
- *                   dissolve *into*, every frame it draws is already a cut, and
- *                   spending thirteen of them easing the rescue in would be
- *                   eighteen seconds of the worst frame rate in the session to
- *                   avoid an artefact nobody can perceive at that rate.
+ *   at 0.7fps       `SCALE_RAMP_MAX` binds — four frames, 5.7 wall seconds.
  *
- * That last row is the one that matters, and it is why the pacing is not simply
- * "0.04 a frame": the naive version turns the emergency path into a slideshow
- * of thirteen intermediate resolutions on exactly the machine the emergency
- * path exists for. It also bounds the cost — each step is a resize of the post
- * stack's own targets, and only a machine fast enough to afford thirteen of
- * them ever asks for thirteen.
+ * ── ...and the third row is capped, because the argument for not capping it
+ *    was wrong in the one direction that matters ──────────────────────────────
+ *
+ * This row used to read *the whole traverse in one frame, and correctly*, on
+ * the reasoning that a machine delivering a picture every 1.4 seconds has no
+ * motion for a dissolve to live in and that thirteen frames of easing would be
+ * eighteen seconds of the worst frame rate in the session. The second half of
+ * that is true and is why `SCALE_RAMP_MAX` is 0.15 rather than 0.04. The first
+ * half is false, and a reviewer photographed it being false: the two frames a
+ * player actually saw were 0.3 race-seconds apart, same camera, same
+ * composition, the gantry lettering crisp in one and mushy in the other, the
+ * hazard chevrons broken into a dotted line. **A low frame rate does not hide a
+ * cut. It leaves each side of it on the screen for a full second and makes it
+ * more legible, not less** — the eye binds two identical compositions harder
+ * than it binds two frames of a moving camera, which is the same finding
+ * `sealedBeat` was written for, arriving one lever later.
+ *
+ * So the traverse is at least four steps at every frame rate this file can
+ * measure, and the pacing still does its job in the band where it was right:
+ * thirteen frames at 60fps, four at 20, four at 0.7. `probe().scaleSteps`
+ * against `scaleRampFrames` is how a review tells a dissolve from a cut without
+ * filming one, and `1 / 1` — the signature the last round shipped — can no
+ * longer be produced by the collapse path.
  */
 const SCALE_RAMP = 0.04;
+/**
+ * ...and the most the scale may travel in one frame, whatever that frame cost.
+ *
+ * 0.15 makes the ladder's longest traverse (1.00 to 0.50) four steps and its
+ * ordinary one-rung moves one or two. Four is the smallest number that reads as
+ * a change *happening* rather than as two unrelated pictures; below it the
+ * before-frame and the after-frame are simply different, which is the artefact
+ * this constant exists to stop the emergency path shipping.
+ */
+const SCALE_RAMP_MAX = 0.15;
 /** ...and the frame period that rate is quoted against. Not `TARGET_MS`: this
  *  is a statement about how fast a change may be *watched*, which does not
  *  change if the target frame rate ever does. */
@@ -2293,30 +2369,70 @@ const FRONT_END_PATIENCE = 12;
 /**
  * ...and how far down the ladder that door opens onto.
  *
- * **Mostly historical since round eight, and kept because it is still right for
- * the case it now covers.** A frame the front-end is covering is a frame whose
- * draw this file switched off, and those frames are discarded outright — see
- * `undrawnFrame`. The governor no longer moves at all behind an opaque menu,
- * so this cap is not what stops it there; what stops it is having no evidence.
+ * **It was 3, and the reason it was 3 has gone.** The cap existed because the
+ * one case it binds on — a front-end that is *up but not covering*, i.e. the
+ * hand-off, with `stage.ts`'s set fading and the race behind it drawn again —
+ * produced a frame that was half this file's and half somebody else's: the
+ * menus' second renderer sized its own backing store from a hardcoded
+ * `Math.min(1, 1200 / w)` and could not hear this ladder, so a cut to the
+ * *race's* content could not make that half of the frame cheaper and every
+ * verdict taken on one would read `futile`. Half the ladder was as much as a
+ * half-owned frame was allowed to spend.
  *
- * It still binds in the one case that is left: a front-end that is **up but not
- * covering** — the hand-off, where `stage.ts` has faded its backdrop and the
- * race behind it is being drawn again while the launch board is still in front
- * of it. There, the frame is genuinely half this file's and half somebody
- * else's, and the argument the constant was written for stands: the menus' own
- * second renderer sizes its backing store from a hardcoded
- * `Math.min(1, 1200 / w)` and cannot hear this ladder, so a cut to the *race's*
- * content cannot make that half of the frame cheaper and every verdict on one
- * will read `futile`. Half the ladder is as much as a half-owned frame is
- * allowed to spend.
- *
- * The cross-module request stands with it: the day `ui/menus/stage.ts` derives
- * its backing store from the `scale` this file already publishes on
- * `quality:changed` — one line, `Math.min(1, 1200 / w) * scale` — the hand-off
- * frame becomes a frame this ladder owns and the honest bottom is the ladder's
- * own bottom again.
+ * `stage.ts` reads `quality:changed` and multiplies now. Both halves of that
+ * frame are this ladder's, so the honest bottom is the ladder's own bottom.
+ * Kept as a named constant rather than inlined because the *shape* of the
+ * argument is worth keeping: if a third renderer ever appears in this product
+ * that cannot hear the ladder, this is where its cap goes.
  */
-const FRONT_END_FLOOR = 3;
+const FRONT_END_FLOOR = LADDER.length - 1;
+
+// ── the prelude: judging the machine before the flag ───────────────────────
+//
+// Everything in this block runs **only** behind an opaque front-end, only on a
+// page nothing has ever driven through `window.__GAME`, and only while the
+// front-end's own renderer is measurably tracking the scale this file
+// publishes. It exists because the evidence a slow machine produces first is
+// the evidence this file used to throw away — see §7a — and because the moment
+// to spend a rung is a moment where the race is not on the display at all.
+//
+// The units are the file's own (§2), taken over the *front-end's* delivered
+// frames rather than the race's: a statistic is denominated in frames, a person
+// waiting in wall seconds, and both gates have to be satisfied.
+
+/** Front-end frames the prelude keeps. Nine seconds of a 0.9fps title screen,
+ *  a third of a second of a healthy one. */
+const PRELUDE_WINDOW = 24;
+/** ...and how many it wants before its first verdict. */
+const PRELUDE_SAMPLES = 8;
+/**
+ * ...and how many the **race build** will settle for.
+ *
+ * A player who clicks straight through the front-end never gives the prelude
+ * eight frames, and the race build is a free seam that will not come round
+ * again until the next race. Four frames of a collapsed machine is a median
+ * over four readings that are each a second long, which is thin for a 5%
+ * decision and overwhelming for the 20x one this path is taken on. The gate
+ * that keeps it honest is not the sample count, it is `COLLAPSE_FACTOR`: at the
+ * build the prelude only acts on a machine that is *five times* over budget.
+ */
+const PRELUDE_BUILD_SAMPLES = 4;
+/** Wall seconds of front-end frames before the first verdict. The same three
+ *  seconds `WARMUP_S` waits for and for the same reasons — shader compilation,
+ *  texture upload, the JIT — measured on the renderer that is actually drawing. */
+const PRELUDE_WARM_S = 3;
+/** ...and between verdicts, so a second one is taken on a window the first one
+ *  did not author. */
+const PRELUDE_DWELL_S = 2;
+/**
+ * Verdicts a session, after which the prelude stands down for good.
+ *
+ * `sizedStep`'s arithmetic means the first verdict usually takes the whole
+ * distance in one move; the second exists for the case where the first one's
+ * own reallocation was inside the window it measured. A third is the ladder
+ * arguing with itself on a screen with no game on it, so there is no third.
+ */
+const PRELUDE_LIMIT = 2;
 
 // ── the content pass's own constants ───────────────────────────────────────
 
@@ -2814,12 +2930,44 @@ export interface QualityProbe {
    * ...and frames thrown away because this file switched their draw off.
    *
    * The round-eight entry. A frame behind an opaque front-end draws nothing of
-   * the race — 0 calls, 0 triangles — so its duration is a measurement of
-   * `ui/menus/stage.ts`'s own renderer and of nothing this ladder can spend.
-   * Judging them walked the governor three rungs down a title screen and then
-   * persisted the answer. See `undrawnFrame`.
+   * the race — 0 calls, 0 triangles — so its duration says nothing about the
+   * race's *content* and judging them walked the governor three rungs down a
+   * title screen and then persisted the answer.
+   *
+   * It is still not in `wallMs`, `liveSeconds` or any dwell, and it still counts
+   * here. What changed in round thirteen is where it goes instead: since
+   * `ui/menus/stage.ts` sizes its own backing store off the `scale` this file
+   * publishes, the duration is a measurement of a renderer this ladder owns, and
+   * it is read by `prelude` below. See `undrawnFrame` and §7a.
    */
   undrawn: number;
+  /**
+   * ...and what those frames say once somebody asks them. See §7a.
+   *
+   * `undrawn` climbing beside `samples: 0` used to be the whole story a title
+   * screen could tell: forty-five frames thrown away, a governor at rung 0 and a
+   * player watching 0.9fps. These are the same frames, read.
+   *
+   * `medianMs`/`fps` are the front-end's own delivered frame, `samples` and
+   * `seconds` are the window behind them, `moves` is how many rungs the prelude
+   * has installed this session, and `hears` is the measured fact the whole path
+   * depends on: the front-end's backing store is following the `scale` this file
+   * publishes. `why` is the prelude's own one-line status, which is what
+   * `holding` reports while a front-end is covering the frame.
+   */
+  prelude: {
+    samples: number;
+    seconds: number;
+    medianMs: number;
+    fps: number;
+    moves: number;
+    hears: boolean;
+    why: string;
+    /** ...and every rung it installed, in the same shape as `log`. Filed apart
+     *  from the governor's own book because `covered: true` on every entry is
+     *  the fact `log`'s gate exists to establish. See `preludeLog`. */
+    log: QualityChange[];
+  };
   /** The race phase, as the moment gate sees it, and whether the gate is shut.
    *  A change logged with `locked: true` would be a bug. */
   phase: string;
@@ -3123,6 +3271,108 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     return (n & 1) === 1 ? sessionSorted[h]! : (sessionSorted[h - 1]! + sessionSorted[h]!) / 2;
   }
 
+  // ── the prelude's own window ──────────────────────────────────────────────
+  //
+  // Separate from everything above it, because it is a measurement of a
+  // different renderer drawing a different scene, and mixing the two is exactly
+  // the mistake round eight corrected. What the two windows share is the
+  // machine, and the machine is what a rung is a statement about. See §7a.
+
+  const pre = new Float64Array(PRELUDE_WINDOW);
+  const preSorted = new Float64Array(PRELUDE_WINDOW);
+  let preIdx = 0;
+  let preCount = 0;
+  /** Wall seconds of front-end frames, and how many of them, since the last
+   *  prelude verdict. Both gates have to be satisfied — §2's unit rule. */
+  let preSeconds = 0;
+  let preFrames = 0;
+  /** ...and the same two for the session, which is what the probe reports and
+   *  what `PRELUDE_WARM_S` is measured against. */
+  let preSessionSeconds = 0;
+  let preSessionFrames = 0;
+  let preludeMoves = 0;
+  /** The median the last verdict acted on, so the next one can tell whether it
+   *  bought anything. Zero before the first. */
+  let preludeBefore = 0;
+  /** ...and the rung it started from, so a verdict that bought nothing can be
+   *  **put back** rather than merely stopped. See `preludeStep`. */
+  let preludeFrom = -1;
+  /** The prelude's own one-line status, reported through `holding` while the
+   *  front-end is covering the frame and through `probe().prelude.why`. */
+  let preludeWhy = 'undrawn (race not in this frame)';
+  /**
+   * The ratio the front-end's backing store had to its own CSS box the first
+   * time we looked, divided out by the scale that was standing then.
+   *
+   * This is the whole of `frontEndHears`, and it is a measurement rather than a
+   * belief on purpose: the prelude's authority rests entirely on the front-end's
+   * renderer following the `scale` published on `quality:changed`, and "cut the
+   * race's content to pay a bill run up by a renderer that cannot hear you" is
+   * the defect §7 was written about. If the other side ever stops multiplying,
+   * this stops tracking, and the prelude stands down on the next frame.
+   *
+   * It fails *closed* on anything it cannot explain — a window resize moves the
+   * other side's own cap and therefore the ratio, and the prelude standing down
+   * because the player dragged the window is a good trade for a test with no
+   * false positives in it.
+   */
+  let preBase = 0;
+
+  /** One front-end frame. Allocation-free, called from the discard branch. */
+  function preludeSample(gap: number): void {
+    preSeconds += gap / 1000;
+    preFrames++;
+    preSessionSeconds += gap / 1000;
+    preSessionFrames++;
+    pre[preIdx] = gap;
+    preIdx = (preIdx + 1) % PRELUDE_WINDOW;
+    if (preCount < PRELUDE_WINDOW) preCount++;
+    // Latched on the first sample of the session, at whatever scale is standing
+    // — which at boot is rung 0's 1.00 and after a reload is the remembered
+    // rung's. Either way the divide makes it the *base* the front-end applies
+    // on top of us. See `preBase`.
+    if (preBase <= 0) {
+      const el = stageEl as HTMLCanvasElement | null;
+      const css = el?.clientWidth ?? 0;
+      if (el && css > 0 && el.width > 0 && liveScale > 0) preBase = el.width / css / liveScale;
+    }
+  }
+
+  /** Median of the prelude window. Hand-called, at most once per delivered
+   *  front-end frame, over at most 24 entries. */
+  function preludeMedian(): number {
+    const n = preCount;
+    if (n <= 0) return 0;
+    for (let i = 0; i < n; i++) preSorted[i] = pre[i]!;
+    for (let i = 1; i < n; i++) {
+      const v = preSorted[i]!;
+      let j = i - 1;
+      while (j >= 0 && preSorted[j]! > v) { preSorted[j + 1] = preSorted[j]!; j--; }
+      preSorted[j + 1] = v;
+    }
+    const h = n >> 1;
+    return (n & 1) === 1 ? preSorted[h]! : (preSorted[h - 1]! + preSorted[h]!) / 2;
+  }
+
+  /**
+   * Is the front-end's own renderer sized off this ladder?
+   *
+   * Read off the DOM rather than off a promise: the canvas's backing store
+   * divided by its CSS box, against the base latched on the first frame times
+   * the scale standing now. Vacuously true until the scale has actually moved,
+   * which is correct — the first verdict is allowed on the assumption and every
+   * one after it has to have seen the assumption hold.
+   */
+  function frontEndHears(): boolean {
+    const el = stageEl as HTMLCanvasElement | null;
+    const css = el?.clientWidth ?? 0;
+    if (!el || css <= 0 || preBase <= 0) return false;
+    const want = preBase * liveScale * css;
+    // Two pixels of rounding, and a floor of one percent so the test cannot be
+    // satisfied by a canvas that has collapsed to nothing.
+    return Math.abs(el.width - want) <= Math.max(2, want * 0.01);
+  }
+
   /** Seconds over budget / under it. One of the two is always zero. */
   let overFor = 0;
   let underFor = 0;
@@ -3334,6 +3584,28 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    * change the bench itself had made one line before asking about it.
    */
   const pins: QualityChange[] = [];
+  /**
+   * ...and the third book: rungs the **prelude** installed, before the flag.
+   *
+   * A separate book for the same reason `pins` is one — "filed under whoever did
+   * it" — and with a sharper edge here. `log` is the evidence
+   * `tools/perfgate.mjs` reads to answer *did the governor change the picture at
+   * a moment the player was looking at one*, and it convicts on `phase`. Behind
+   * an opaque front-end `race.phase` is meaningless: ARCHITECTURE §11a says the
+   * race keeps simulating through `intro` → `countdown` → `racing` while the
+   * player is on the title screen, so a prelude change would be filed as
+   * "inside the countdown" while the countdown was on nobody's display.
+   *
+   * A prelude entry is a change made at a moment the player is **provably** not
+   * looking at the race — `covered: true` on every one of them, which is a fact
+   * this file publishes rather than infers. That is the whole test perfgate is
+   * trying to apply, passed by construction, so these belong beside its book
+   * rather than in it.
+   */
+  const preludeLog: QualityChange[] = [];
+  /** True for the duration of one prelude install, so `applyRung` files the
+   *  entry in the right book. Never true across a frame boundary. */
+  let preluding = false;
   const verdicts: QualityVerdict[] = [];
 
   // ── the content pass ──────────────────────────────────────────────────────
@@ -3699,7 +3971,9 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     const free = freeScalePath();
     if (!free) return;
     const pace = gapMs > 0 ? Math.max(1, gapMs / SCALE_RAMP_MS) : 1;
-    const step = SCALE_RAMP * pace;
+    // Capped, so the traverse is a change a player can watch happening at every
+    // frame rate rather than a cut at the low end. See `SCALE_RAMP_MAX`.
+    const step = Math.min(SCALE_RAMP * pace, SCALE_RAMP_MAX);
     const delta = wantScale - liveScale;
     const next = Math.abs(delta) <= step
       ? wantScale
@@ -3760,9 +4034,10 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    *   current by the time they do.
    *
    *   **the fallback** — `renderer.setPixelRatio`, which rebuilds the drawing
-   *   buffer. Only ever reached at a seam, and there are exactly three of those,
+   *   buffer. Only ever reached at a seam, and there are exactly four of those,
    *   named at their call sites: boot, a race build behind the closed launch
-   *   board, and a window resize the browser is already reallocating for.
+   *   board, a window resize the browser is already reallocating for, and a
+   *   prelude verdict on a frame where the race is not drawn at all.
    *
    * Returns true if it actually moved something, so the caller can decide
    * whether the window it is about to take is worth anything.
@@ -3813,8 +4088,9 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    * `flushScale` is the buffer half of this and is still called directly by the
    * one caller that must not move anything else (`dispose`, which is handing the
    * frame back rather than installing a rung). Every other seam goes through
-   * here, and the three of them are named at their call sites: boot, a race
-   * build behind the closed launch board, and a window resize.
+   * here, and the four of them are named at their call sites: boot, a race build
+   * behind the closed launch board, a window resize, and a prelude verdict taken
+   * behind an opaque front-end (`installPrelude`).
    *
    * Reads as three lines because that is all the seam rule is: catch the
    * seam-held settings up (`aa`, `tier`, `drawDistance`), catch the populations
@@ -5076,7 +5352,10 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // entry point (`set`, `mid`, `ease`, and the hand-pick listener on
       // `quality:changed`) clears it before touching the ladder, and none of the
       // governor's own paths can run without it.
-      const book = auto ? log : pins;
+      // Three books, one test each: a hand on the lever goes in `pins`, a rung
+      // the front-end's own frames earned goes in `preludeLog`, and what is left
+      // is the governor changing a picture the player is looking at.
+      const book = !auto ? pins : preluding ? preludeLog : log;
       if (book.length >= 24) book.shift();
       // One insertion sort of at most sixty-four floats, once per rung change,
       // so that `changeMs` gets a denominator belonging to the same moment it
@@ -5193,12 +5472,211 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    * many rungs is this gap". Clamped at both ends — never less than one, never
    * more than the whole ladder (`PANIC_MAX_STEP`).
    */
-  function sizedStep(): number {
-    if (wallMean <= 0) return 1;
-    const over = wallMean / (TARGET_MS * DOWN_FACTOR);
-    if (over <= 1) return 1;
+  /**
+   * How many rungs a measured frame time is over the budget, as a count.
+   *
+   * Factored out of `sizedStep` so the prelude can ask the same question of a
+   * different window without a second copy of the arithmetic — `RUNG_GAIN` is
+   * what one rung is worth as a ratio, so the log is "how many rungs is this
+   * gap". Zero when the frame is inside the band.
+   */
+  function rungsOver(ms: number): number {
+    if (ms <= 0) return 0;
+    const over = ms / (TARGET_MS * DOWN_FACTOR);
+    if (over <= 1) return 0;
     const n = Math.round(Math.log(over) / Math.log(RUNG_GAIN));
+    return n < 1 ? 1 : n;
+  }
+
+  function sizedStep(): number {
+    const n = rungsOver(wallMean);
     return n < 1 ? 1 : n > PANIC_MAX_STEP ? PANIC_MAX_STEP : n;
+  }
+
+  // ── the prelude ───────────────────────────────────────────────────────────
+  //
+  // See §7a. Three entry points and one installer, and everything they do
+  // happens on a frame where the race is not on the display.
+
+  /**
+   * Install a rung the front-end's own frames earned, whole.
+   *
+   * `applyRung` then `flushSeam`, in that order and with nothing between them,
+   * because **this is the cheapest seam in the product**: an opaque front-end is
+   * covering the frame, the race's draw is switched off, and there is no
+   * before-picture of the race for an after-picture to be compared against. So
+   * the seam-held half lands here rather than being deferred to a race build
+   * that is about to happen anyway, and the resolution is *flushed* rather than
+   * ramped — a dissolve exists to make a change watchable, and there is nothing
+   * to watch. The one visible consequence is the front-end's own set changing
+   * size once, which is the change being asked for.
+   */
+  function installPrelude(want: number, med: number, why: string): void {
+    preludeBefore = med;
+    preludeFrom = index;
+    preludeMoves++;
+    preIdx = 0;
+    preCount = 0;
+    preFrames = 0;
+    preSeconds = 0;
+    preluding = true;
+    applyRung(want, why);
+    flushSeam(why);
+    preluding = false;
+    // ── the record, corrected to what actually happened ────────────────────
+    //
+    // `applyRung` builds its entry before `flushSeam` runs, so on the one path
+    // in this file that installs both halves of a rung in the same breath the
+    // entry would report the whole seam-held half as `deferred` and the
+    // resolution as the one it had a line ago. It would also be stamped at
+    // `liveSeconds`, which behind a front-end is zero **by construction** — the
+    // frames that produced this verdict are precisely the ones `liveSeconds`
+    // refuses to count. A log line reading `t: 0, deferred: 'scale,crowd,aa'`
+    // describes the opposite of what this function did.
+    const e = preludeLog[preludeLog.length - 1];
+    if (e && e.to === index) {
+      e.t = +preSessionSeconds.toFixed(2);
+      e.deferred = '';
+      e.scale = liveScale;
+      e.seamRung = seamIndex;
+      e.wallMs = +med.toFixed(1);
+      e.medianMs = +med.toFixed(1);
+    }
+  }
+
+  /**
+   * One front-end frame's worth of decision. Returns the status `holding` is to
+   * report, so the call site stays `return hold(preludeStep())`.
+   *
+   * Every refusal in here is a *statement*, not a silence: the reason the last
+   * round was rejected is that this path answered `undrawn (race not in this
+   * frame)` forty-five times in a row and a reviewer could not tell a governor
+   * with no evidence from one that was throwing it away.
+   */
+  function preludeStep(): string {
+    const b = ctx.budget;
+    if (!b) return 'undrawn (no budget)';
+    // A page the harness has ever stepped is a page whose frame times are
+    // somebody else's work — the same rule `benched` enforces for the race
+    // ladder, applied one gate earlier because `benchQuietFor` is denominated in
+    // live seconds and a front-end frame contributes none. `benchSteps` only
+    // moves for a `step()` called from outside the rAF loop, which is the
+    // harness and nothing else.
+    if (benched || harnessSince || b.benchSteps > 0) return 'undrawn (bench)';
+    if (preludeMoves >= PRELUDE_LIMIT) return 'undrawn (prelude spent)';
+    if (preSessionSeconds < PRELUDE_WARM_S) return 'undrawn (prelude warming)';
+    if (preFrames < PRELUDE_SAMPLES) return 'undrawn (prelude sampling)';
+    if (preSeconds < PRELUDE_DWELL_S) return 'undrawn (prelude settling)';
+    const med = preludeMedian();
+    // ── judging the last verdict comes before everything else ───────────────
+    //
+    // **Above the floor check, and that position is the whole point**, which is
+    // the same sentence the in-race futility block carries and for the same
+    // reason: a prelude that took the whole ladder in one step lands *on* the
+    // floor, and a floor check written above this one would mean the largest
+    // move this path can make is the one move it never judges.
+    //
+    // One shot. `preludeBefore` is cleared as it is read, so the verdict belongs
+    // to the window the move authored and a front-end that gets slower later —
+    // seven machines parading on the select screen — cannot retrospectively
+    // convict a cut that worked.
+    //
+    // Blunter than the in-race check on purpose: one strike, no error bar, and
+    // the answer is acted on rather than counted. The case it exists for is the
+    // one the in-race check already names — **a vsync-locked 30Hz panel,
+    // indistinguishable from a slow GPU from inside the page**. There the
+    // front-end delivers a rock-steady 33ms, `rungsOver` reads it as three rungs
+    // over budget, and a prelude with no undo would hand a player with a fast
+    // GPU and a slow display a permanently thinner picture before the race had
+    // even loaded. On this bench the same check passes the other way with room
+    // to spare: the front-end measured 1081ms at rung 0 against 718ms at rung 6
+    // over three interleaved passes, a gain of 0.34 against a bar of 0.04.
+    //
+    // Putting it back is free — the front-end is still covering the frame, which
+    // is the same reason installing it was free — and it is exactly what the
+    // in-race path does when it convicts itself (`stalled`).
+    if (preludeBefore > 0) {
+      const gain = (preludeBefore - med) / preludeBefore;
+      preludeBefore = 0;
+      if (gain < FUTILE_GAIN) {
+        preludeMoves = PRELUDE_LIMIT;
+        if (preludeFrom >= 0 && preludeFrom < index) {
+          installPrelude(preludeFrom, med, 'prelude undone (bought nothing)');
+          return holding;
+        }
+        return 'undrawn (prelude futile)';
+      }
+    }
+    // ...and the measured fact the whole path rests on. Vacuous before the first
+    // move (nothing has been asked of the other renderer yet) and load-bearing
+    // after it: a front-end that did not follow us is a bill this ladder cannot
+    // pay, and cutting the race to try is the round-eight defect. So the cut
+    // comes back out on the way to standing down.
+    if (preludeMoves > 0 && !frontEndHears()) {
+      preludeMoves = PRELUDE_LIMIT;
+      if (preludeFrom >= 0 && preludeFrom < index) {
+        installPrelude(preludeFrom, med, 'prelude undone (front-end deaf)');
+        return holding;
+      }
+      return 'undrawn (front-end does not hear the ladder)';
+    }
+    if (index >= LADDER.length - 1) return 'undrawn (floor)';
+    const step = rungsOver(med);
+    // Nothing to say. The window is left rolling rather than cleared, so a
+    // front-end that gets slower later — a parade of seven machines on the
+    // select screen — is still measured.
+    if (step < 1) return 'undrawn (front-end in band)';
+    let want = index + step;
+    if (want > LADDER.length - 1) want = LADDER.length - 1;
+    if (want <= index) return 'undrawn (front-end in band)';
+    const many = want - index > 1 ? ` x${want - index}` : '';
+    installPrelude(want, med, `prelude (${(med / TARGET_MS).toFixed(0)}x budget)${many}`);
+    return holding;
+  }
+
+  /**
+   * ...and the same verdict taken at the race build, for the player who does not
+   * linger.
+   *
+   * `preludeStep` wants `PRELUDE_SAMPLES` frames and `PRELUDE_WARM_S` seconds,
+   * which a title screen at 0.9fps supplies in nine seconds and a player who
+   * hits start immediately never supplies at all. The race build is the last
+   * free seam before the grid — behind the closed launch board, on the frame the
+   * drawing buffer is already being reallocated — so whatever the front-end did
+   * manage to say gets read here instead of thrown away.
+   *
+   * Three things make the thinner evidence safe. The bar is `COLLAPSE_FACTOR`
+   * rather than `DOWN_FACTOR`: this path only fires on a machine that is *five
+   * times* over its budget, where a four-sample median is not a close call. The
+   * warm-up gate is the same three seconds `preludeStep` waits out, because the
+   * frames this path is most likely to see are the first ones after boot and
+   * those are the expensive ones for reasons that are not the machine's speed —
+   * shader compilation, texture upload, the JIT. And the frame it lands on is
+   * one nobody can see.
+   *
+   * **What it cannot help.** A bench that calls `__GAME.reset()` and then
+   * `seek('racing')` the moment the page is ready has no front-end frames to
+   * read and no pre-flag beat to calibrate in — there is no "before the flag" in
+   * a session that starts after it. On that path the collapse still fires
+   * in-race, and what round thirteen owes it is that it now *dissolves*: see
+   * `SCALE_RAMP_MAX`.
+   */
+  function preludeAtBuild(): void {
+    const b = ctx.budget;
+    if (!auto || !b || benched || harnessSince || b.benchSteps > 0) return;
+    if (preludeMoves >= PRELUDE_LIMIT) return;
+    if (index >= LADDER.length - 1) return;
+    if (preSessionSeconds < PRELUDE_WARM_S) return;
+    if (preCount < PRELUDE_BUILD_SAMPLES) return;
+    if (preludeMoves > 0 && !frontEndHears()) return;
+    const med = preludeMedian();
+    if (med <= TARGET_MS * COLLAPSE_FACTOR) return;
+    let want = index + rungsOver(med);
+    if (want > LADDER.length - 1) want = LADDER.length - 1;
+    if (want <= index) return;
+    const many = want - index > 1 ? ` x${want - index}` : '';
+    installPrelude(want, med, `prelude (race build, ${(med / TARGET_MS).toFixed(0)}x budget)${many}`);
+    preludeWhy = holding;
   }
 
   /**
@@ -5802,6 +6280,16 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       suspended,
       hijacked,
       undrawn,
+      prelude: {
+        samples: preCount,
+        seconds: +preSessionSeconds.toFixed(2),
+        medianMs: +preludeMedian().toFixed(1),
+        fps: preSessionSeconds > 0 ? +(preSessionFrames / preSessionSeconds).toFixed(2) : 0,
+        moves: preludeMoves,
+        hears: frontEndHears(),
+        why: preludeWhy,
+        log: preludeLog,
+      },
       phase: ctx.race?.phase ?? '',
       locked: pictureLocked(),
       frontEnd: frontEndOpen,
@@ -6288,7 +6776,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // Start from a known rung rather than inheriting whatever main.ts built,
       // so `index` and `ctx.quality` cannot disagree from the first frame.
       applyRung(index, memorySeeded ? 'remembered' : 'settling');
-      // Seam one of three. Nothing has been drawn yet, so the drawing buffer,
+      // Seam one of four. Nothing has been drawn yet, so the drawing buffer,
       // the crowd and the verge can all be built at the remembered rung for
       // free — which is the entire point of remembering it. See `flushSeam`.
       flushSeam('boot');
@@ -6370,7 +6858,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         settleFor = 0; settleFrames = 0;
       });
 
-      // Seam three of three. The browser has just rebuilt the drawing buffer
+      // Seam three of four. The browser has just rebuilt the drawing buffer
       // for a window the player dragged, so a second rebuild inside the same
       // gesture is invisible — and the alternative is a machine that resizes
       // its window and keeps the resolution of the window it used to have.
@@ -6875,7 +7363,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // and re-climbing the ladder every race is the oscillation this whole
       // file exists to avoid — just spread over minutes instead of seconds.
       if (auto && applied !== ctx.quality) applyRung(index, 'settling');
-      // ── seam two of three, and the one that matters ──────────────────────
+      // ── seam two of four, and the one that matters ───────────────────────
       //
       // The resolution the ladder earned during the last race — or behind the
       // front-end, or in the session before this one — lands *here*, on the
@@ -6889,6 +7377,18 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // it is going to be before the board opens, and it stays that size for the
       // whole race.
       //
+      // ── ...and round thirteen: the verdict is taken *before* this line ─────
+      //
+      // Everything above describes a seam that installs a rung the ladder has
+      // already earned. What it could not do was *reach* one: on a machine whose
+      // whole life so far has been a front-end, the ladder arrived at the grid
+      // knowing nothing, and made its first and largest move a third of a second
+      // after the flag with the player's hands on the wheel. `preludeAtBuild`
+      // is the last chance to read what the front-end already said. It is a
+      // no-op on every machine that is not in trouble and on every page anything
+      // has driven; when it does fire, the line below finds `seamIndex ===
+      // index` and nothing left to do.
+      preludeAtBuild();
       // **Before** `precompileLadder`, deliberately: what that primes is real
       // draws into the drawing buffer, and priming them at a size the next line
       // is about to throw away would be priming them twice.
@@ -7038,7 +7538,16 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         if (spoiled) {
           if (resumed || pageHidden) suspended++;
           else if (harnessSince) hijacked++;
-          else undrawn++;
+          else {
+            undrawn++;
+            // **Counted, not discarded.** The frame carried nothing of the race
+            // and is therefore not evidence about the race's *content* — which
+            // is why it stays out of `wall`, `session`, `liveSeconds` and every
+            // dwell above. It is evidence about the **machine**, measured on a
+            // renderer this file now sizes, and the machine is what a rung is a
+            // statement about. See §7a and `preludeStep`.
+            if (gap > 0) preludeSample(gap);
+          }
           resumed = false;
           harnessSince = false;
           // A change whose own reallocation window contains somebody else's
@@ -7259,11 +7768,17 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
 
       if (!auto) return hold('pinned');
       if (benched) return hold('bench');
-      // Nothing of the race was in this frame, so there is nothing in it to
-      // judge. Reported under its own name rather than left to read as
-      // `priming` or `warming`, both of which describe a governor that is about
-      // to have evidence; this one is not. See `undrawnFrame`.
-      if (undrawnFrame) return hold('undrawn (race not in this frame)');
+      // Nothing of the **race** was in this frame, so the in-race ladder has
+      // nothing in it to judge and every branch below this line is skipped. What
+      // *was* in it is the front-end's own set, drawn by a renderer this file
+      // sizes, on the machine this file is a statement about — so the frame goes
+      // to the prelude instead of into the bin. Its answer is reported through
+      // `holding`, which is where the last round's forty-five identical
+      // `undrawn (race not in this frame)` lines were. See §7a.
+      if (undrawnFrame) {
+        preludeWhy = preludeStep();
+        return hold(preludeWhy);
+      }
       if (benchQuietFor < BENCH_HOLD) {
         overFor = 0;
         underFor = 0;

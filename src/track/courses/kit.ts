@@ -1134,10 +1134,13 @@ function rockFaceTexture(tint: number): THREE.CanvasTexture {
     g.fillRect(0, 0, W, H);
     // Strata. x is height up the face, so a bed is a band in x — and it wobbles
     // along the track, because a bed that is a ruled line is a painted wall.
+    // The range is deliberately wide: photographed at 15 metres tall against a
+    // desert sky, a face whose beds are all within ten per cent of each other
+    // reads as one sheet of corrugated card.
     let x = 0;
     while (x < W) {
       const band = 6 + rnd() * 26;
-      const f = 0.72 + rnd() * 0.5;
+      const f = 0.62 + rnd() * 0.72;
       g.fillStyle = hex(base, f);
       g.beginPath();
       g.moveTo(x, 0);
@@ -1149,8 +1152,27 @@ function rockFaceTexture(tint: number): THREE.CanvasTexture {
       }
       g.closePath();
       g.fill();
+      // The parting between two beds, which is where a face weathers first.
+      g.fillStyle = 'rgba(26,14,8,0.30)';
+      g.beginPath();
+      g.moveTo(x, 0);
+      for (let y = 0; y <= H; y += 16) g.lineTo(x + Math.sin(y * 0.035 + x) * 3.5, y);
+      for (let y = H; y >= 0; y -= 16) {
+        g.lineTo(x + 2.5 + Math.sin(y * 0.035 + x) * 3.5, y);
+      }
+      g.closePath();
+      g.fill();
       x += band;
     }
+    // The toe goes into shade and the crest catches the sky. Without this the
+    // wall has no foot: a face lit dead flat looks pasted onto the verge.
+    const shadeGrad = g.createLinearGradient(0, 0, W, 0);
+    shadeGrad.addColorStop(0, 'rgba(18,8,4,0.55)');
+    shadeGrad.addColorStop(0.22, 'rgba(18,8,4,0.16)');
+    shadeGrad.addColorStop(0.80, 'rgba(255,240,214,0.00)');
+    shadeGrad.addColorStop(1, 'rgba(255,240,214,0.16)');
+    g.fillStyle = shadeGrad;
+    g.fillRect(0, 0, W, H);
     // Fractures: a joint runs *up* the face, so it is a line at constant v.
     for (let i = 0; i < 26; i++) {
       const y = rnd() * H;
@@ -1278,8 +1300,13 @@ function buildCutting(c: ChapterCtx, ch: ChapterDef): void {
     // The crest, in metres above the road. Rock breaks; a works wall is built,
     // so it only breathes a few per cent.
     const crest = (s: SplineSample, f: number): number => {
+      // Two wavelengths on a rock crest, and the short one is the reason: at a
+      // single 27-metre period the skyline came back as a smooth curve — a wall
+      // — and what separates a cliff from a wall at a hundred metres is that
+      // its top edge breaks. A works wall is built, so it only breathes.
       const n = isRock
-        ? 0.72 + 0.56 * noise2(s.distance / 27 + side * 4.5, side * 2.3)
+        ? 0.62 + 0.52 * noise2(s.distance / 26 + side * 4.5, side * 2.3)
+          + 0.30 * noise2(s.distance / 9.5 - side * 2.1, side * 5.7)
         : 0.96 + 0.08 * noise2(s.distance / 40, side);
       return h * ramp(f) * n;
     };

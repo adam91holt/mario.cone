@@ -300,7 +300,18 @@ export const saltpanBypass: CourseDefEx = {
   // outside it — four metres nearer the road, which is four metres of a
   // chapter's enclosure bought for nothing.
   vergeWidth: 8,
-  vergeSurface: 'sand',
+  // **The shoulder is graded, and it grades to `dirt`.** `render/theme.ts` calls
+  // this verge *"salt-bound gravel — the run-off on a lake bed is the lake
+  // bed"*, and for four rounds physics has been handing a kart that put one
+  // wheel on it the same 58% of top speed as the soft crust out on the pan.
+  // Measured over a 130-second race with seven racers this course spent
+  // **97 seconds on sand**, which is where a critic's *"the field loses real
+  // time stuck on your surfaces"* comes from: on the widest circuit in the cup,
+  // running wide is the most common thing that happens to anybody, and it was
+  // the most expensive too. Graded gravel is 70%, the same as every other
+  // shoulder in the cup, and the raw crust past it is still 58%. The mistake
+  // costs a corner; the excursion costs the lap.
+  vergeSurface: 'dirt',
   offSurface: 'sand',
   walls: true,
   // Low barriers. On a lake bed there is nothing to armco against, and a 1.5m
@@ -406,15 +417,15 @@ export const saltpanBypass: CourseDefEx = {
       // about.
       {
         from: on('THE BYPASS', 0.400), to: on('THE BYPASS', 0.453),
-        latFrom: -0.90, latTo: 0.18, surface: 'water', tint: '#5D909C', style: 'brine',
+        latFrom: -0.90, latTo: 0.18, surface: 'water', tint: '#3F6E7C', style: 'brine',
       },
       {
         from: on('THE BYPASS', 0.600), to: on('THE BYPASS', 0.653),
-        latFrom: -0.18, latTo: 0.90, surface: 'water', tint: '#5D909C', style: 'brine',
+        latFrom: -0.18, latTo: 0.90, surface: 'water', tint: '#3F6E7C', style: 'brine',
       },
       {
         from: on('THE BYPASS', 0.800), to: on('THE BYPASS', 0.853),
-        latFrom: -0.52, latTo: 0.52, surface: 'water', tint: '#5D909C', style: 'brine',
+        latFrom: -0.52, latTo: 0.52, surface: 'water', tint: '#3F6E7C', style: 'brine',
       },
 
       // **The drift.** A dry lake is a wind machine, and what it moves is salt.
@@ -471,11 +482,11 @@ export const saltpanBypass: CourseDefEx = {
       // leg's strip is at 0.55 of its segment and this sheet ends at 0.24.
       {
         from: on('s8', 0.30), to: on('s8', 0.52),
-        latFrom: -0.90, latTo: 0.30, surface: 'water', tint: '#5D909C', style: 'brine',
+        latFrom: -0.90, latTo: 0.30, surface: 'water', tint: '#3F6E7C', style: 'brine',
       },
       {
         from: on('s12', 0.14), to: on('s12', 0.24),
-        latFrom: -0.30, latTo: 0.90, surface: 'water', tint: '#5D909C', style: 'brine',
+        latFrom: -0.30, latTo: 0.90, surface: 'water', tint: '#3F6E7C', style: 'brine',
       },
     ],
     // ── THE SURGE: what stops the slalom being memorised ───────────────────

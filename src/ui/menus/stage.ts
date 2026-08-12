@@ -1063,14 +1063,37 @@ export function createStage(ctx: GameContext): Stage | null {
     }
   }
 
+  /**
+   * The render scale `src/core/quality.ts` has this machine on, 0..1.
+   *
+   * This set has its own renderer, so for eleven rounds it was the one surface
+   * in the product the performance ladder could not size — and it is the *first*
+   * surface a player ever sees. Measured on the untouched title screen under a
+   * software rasteriser: a 1135ms median delivered frame, 0.88fps, with the
+   * governor reporting `undrawn (race not in this frame)` and standing still,
+   * because every frame here was somebody else's work. It is this ladder's work
+   * now: the cap below is what this set costs *at rung 0*, and the rung scales
+   * it like everything else.
+   */
+  let ladderScale = 1;
+  const offQuality = ctx.bus.on<{ scale?: number }>('quality:changed', (e) => {
+    const s = typeof e?.scale === 'number' ? e.scale : 1;
+    // Clamped rather than trusted: a backing store of nought pixels is a lost
+    // context, and this renderer is the one the player is looking at.
+    ladderScale = s > 0.2 && s <= 1 ? s : 1;
+  });
+
   function resize(): void {
     const w = Math.max(2, canvas.clientWidth || 1280);
     const h = Math.max(2, canvas.clientHeight || 720);
     // Capped, because this set is drawn *on top of* a game that is already
     // paying for a full frame, and the reviewers' rasteriser is software.
-    const scale = Math.min(1, 1200 / w);
-    const bw = Math.round(w * scale);
-    const bh = Math.round(h * scale);
+    // ...and then scaled by the ladder, so that a machine the governor has
+    // taken to half resolution gets a half-resolution front-end too instead of
+    // a title screen that is the most expensive picture in the product.
+    const scale = Math.min(1, 1200 / w) * ladderScale;
+    const bw = Math.max(2, Math.round(w * scale));
+    const bh = Math.max(2, Math.round(h * scale));
     if (canvas.width === bw && canvas.height === bh) return;
     renderer.setSize(bw, bh, false);
     camera.aspect = w / h;
@@ -1419,6 +1442,7 @@ export function createStage(ctx: GameContext): Stage | null {
     },
 
     dispose(): void {
+      offQuality();
       clearParade();
       releaseMascot();
       for (const d of built.values()) {
