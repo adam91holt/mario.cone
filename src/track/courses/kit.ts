@@ -69,7 +69,9 @@ import * as THREE from 'three';
 import { MeshBuilder, fbm, noise2, smoothstep, surfacePoint, type Lane } from '../geom.ts';
 import { makeCheckerTexture, makeKerbTexture, makePaintTexture } from '../textures.ts';
 import { config } from '../../core/config.ts';
-import { features, type BarrierKind, type ChapterDef, type KitDef } from './types.ts';
+import {
+  features, type BarrierKind, type ChapterDef, type EnclosureDef, type KitDef,
+} from './types.ts';
 import type { TrackSpline } from '../spline.ts';
 import type {
   CourseDef, GameContext, GameSystem, SplineSample, Track,
@@ -1242,8 +1244,8 @@ interface ChapterCtx {
   L: number;
 }
 
-/** A chapter's span resolved to an absolute distance and a length in metres. */
-function chapterSpan(c: ChapterCtx, ch: ChapterDef): [number, number] {
+/** A span of lap fractions resolved to an absolute distance and a length. */
+function chapterSpan(c: ChapterCtx, ch: { from: number; to: number }): [number, number] {
   const d0 = (((c.start + ch.from * c.L) % c.L) + c.L) % c.L;
   let span = (ch.to - ch.from) * c.L;
   if (span < 0) span += c.L;
@@ -1631,6 +1633,420 @@ function buildChapters(c: ChapterCtx, chapters: ChapterDef[]): void {
   }
 }
 
+// ── the enclosure: the one place in the cup with no sky in it ──────────────
+//
+// **The finding.** *"All four rounds are the same kind of place — a wide
+// asphalt ribbon on open ground under the same midday blue sky. B is Mount
+// Wario section three, and B wins because B changes what kind of place you are
+// in mid-course and A does not change it across four whole courses."*
+//
+// Everything above this line is an **outdoor** noun. A cutting narrows the sky
+// to a strip, a viaduct puts the ground a long way down, a portal is one arch
+// you are through in half a second. None of them takes the key light off the
+// road, and taking the key light off the road is the only thing that changes
+// what kind of place a player is in without moving them somewhere else.
+//
+// ── what it is made of, and the one number that decides all of it ──────────
+//
+// A gallery is a shed roof standing on a wall and a row of piers, and the
+// number is **the pitch of the piers**. At 9 metres and 50 m/s that is five and
+// a half bars of sun across the bonnet every second, which is fast enough to
+// read as speed and slow enough that each one is a separate event. Everything
+// else follows from it: the ribs sit on the pier stations so the soffit has the
+// same rhythm as the floor, and the lamps sit on the half-stations so the two
+// runs beat against each other instead of marching in step.
+//
+// The bars are **real shadows**, not painted ones. `render/lighting.ts` gives
+// the key a 62-metre shadow extent around the player, so the deck and the piers
+// cast onto a road that already declares `receiveShadow` in `track/road.ts`, and
+// the strobe therefore tracks the actual sun the course declared rather than a
+// texture that would be wrong the moment anybody changed the azimuth.
+//
+// ── and why the roof falls toward the valley ───────────────────────────────
+//
+// Because that is what makes the frame asymmetric, which is the whole trick.
+// A tube is dark on both sides and is the same picture as a cutting with the
+// lights off. A shed has a black wall and a lamp run to one hand and a row of
+// hot slots onto a hundred-metre drop to the other, and no other frame in this
+// game is lit from one side only.
+//
+// Cost: six draw calls for two hundred metres of road — body, soffit, deck and
+// mouths as four merged meshes, plus one InstancedMesh of ribs and one of
+// lamps. Nothing here runs after `init`.
+
+/**
+ * Shuttered concrete. `u` runs **up** the wall and `v` along the road in metres,
+ * the same convention `rockFaceTexture` uses, so canvas x is height and canvas
+ * y is along-track.
+ */
+function galleryConcreteTexture(tint: number): THREE.CanvasTexture {
+  const key = `kit:gallery:${tint.toString(16)}`;
+  return tex(key, 256, 256, (g, W, H) => {
+    const rnd = rand(0x51c0de ^ tint);
+    const base = new THREE.Color(tint);
+    const hex = (f: number): string => `#${_shade.copy(base).multiplyScalar(f).getHexString()}`;
+    g.fillStyle = hex(1);
+    g.fillRect(0, 0, W, H);
+    // Lift joints: concrete goes in horizontal pours, so a joint is a line at
+    // constant height — constant x — and the pour above it is a shade off the
+    // pour below. Wide bands, because a wall whose every board reads separately
+    // photographs as corrugation.
+    let x = 0;
+    while (x < W) {
+      const lift = 26 + rnd() * 34;
+      g.fillStyle = hex(0.86 + rnd() * 0.26);
+      g.fillRect(x, 0, lift, H);
+      g.fillStyle = 'rgba(16,18,24,0.34)';
+      g.fillRect(x, 0, 2, H);
+      // Form-board grain inside the lift.
+      for (let k = x + 4; k < x + lift; k += 5 + rnd() * 3) {
+        g.fillStyle = `rgba(255,255,255,${(rnd() * 0.05).toFixed(3)})`;
+        g.fillRect(k, 0, 1.5, H);
+      }
+      x += lift;
+    }
+    // Panel joints across the wall: constant along-track distance, so a line at
+    // constant y. This is the only thing in the texture that tells a driver how
+    // fast the wall is going past.
+    for (let y = 0; y < H; y += 32) {
+      g.fillStyle = 'rgba(14,16,22,0.30)';
+      g.fillRect(0, y, W, 1.5);
+      // Tie-rod plugs, two per panel.
+      for (let i = 0; i < 2; i++) {
+        g.fillStyle = 'rgba(20,22,28,0.26)';
+        g.fillRect(W * (0.28 + i * 0.34), y + 12, 4, 4);
+      }
+    }
+    // Water staining runs *down* the wall, so it is a streak along x, heaviest
+    // under the joints. A grey wall with no streaks is a grey card.
+    for (let i = 0; i < 260; i++) {
+      const y = rnd() * H;
+      const x0 = rnd() * W * 0.7;
+      g.fillStyle = `rgba(28,30,38,${(0.05 + rnd() * 0.14).toFixed(3)})`;
+      g.fillRect(x0, y, 6 + rnd() * 52, 1 + rnd() * 2);
+    }
+    // Snow and salt bloom along the top of the wall and grime at the toe: the
+    // two ends of a wall on a mountain pass are never the same colour.
+    const grad = g.createLinearGradient(0, 0, W, 0);
+    grad.addColorStop(0, 'rgba(14,16,22,0.46)');
+    grad.addColorStop(0.30, 'rgba(14,16,22,0.06)');
+    grad.addColorStop(0.86, 'rgba(238,246,252,0.00)');
+    grad.addColorStop(1, 'rgba(238,246,252,0.24)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, W, H);
+  });
+}
+
+/** The deck: old snow lying on concrete, drifted along the road. */
+function galleryDeckTexture(): THREE.CanvasTexture {
+  return tex('kit:gallerydeck', 256, 256, (g, W, H) => {
+    const rnd = rand(0x2ad51f);
+    g.fillStyle = '#E8EFF6';
+    g.fillRect(0, 0, W, H);
+    // Drift ridges run along the road, so they are bands at constant u.
+    for (let i = 0; i < 26; i++) {
+      const x = rnd() * W;
+      g.fillStyle = `rgba(168,190,212,${(0.10 + rnd() * 0.22).toFixed(3)})`;
+      g.fillRect(x, 0, 3 + rnd() * 16, H);
+    }
+    for (let i = 0; i < 340; i++) {
+      g.fillStyle = `rgba(255,255,255,${(rnd() * 0.5).toFixed(3)})`;
+      g.fillRect(rnd() * W, rnd() * H, 2 + rnd() * 8, 2 + rnd() * 5);
+    }
+    // Blown-clear concrete along both edges, where the wind scours it.
+    const grad = g.createLinearGradient(0, 0, W, 0);
+    grad.addColorStop(0, 'rgba(120,126,138,0.62)');
+    grad.addColorStop(0.16, 'rgba(120,126,138,0.00)');
+    grad.addColorStop(0.86, 'rgba(120,126,138,0.00)');
+    grad.addColorStop(1, 'rgba(120,126,138,0.55)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, W, H);
+  });
+}
+
+/** The mouth: hazard chevrons round a black hole, readable at 200 metres. */
+function galleryMouthTexture(accent: number): THREE.CanvasTexture {
+  const key = `kit:gallerymouth:${accent.toString(16)}`;
+  return tex(key, 256, 64, (g, W, H) => {
+    g.fillStyle = '#20242C';
+    g.fillRect(0, 0, W, H);
+    g.fillStyle = `#${new THREE.Color(accent).getHexString()}`;
+    for (let x = -H; x < W + H; x += H * 1.6) {
+      g.beginPath();
+      g.moveTo(x, H);
+      g.lineTo(x + H * 0.8, 0);
+      g.lineTo(x + H * 1.6, 0);
+      g.lineTo(x + H * 0.8, H);
+      g.closePath();
+      g.fill();
+    }
+    // A white lip along the bottom edge — the line the driver actually aims
+    // under, and the thing that stops the mouth reading as a flat sticker.
+    g.fillStyle = '#F2F7FB';
+    g.fillRect(0, H - 7, W, 7);
+    g.fillStyle = 'rgba(10,12,16,0.55)';
+    g.fillRect(0, 0, W, 5);
+  });
+}
+
+const _fwd = new THREE.Vector3();
+const _pos = new THREE.Vector3();
+const _basis = new THREE.Matrix4();
+const _size = new THREE.Vector3();
+
+/**
+ * An oriented box on the road frame: `size` is (across, up, along) in metres.
+ *
+ * `makeBasis` gives the rotation, `setPosition` the translation and `scale`
+ * multiplies the basis columns — which applies the scale *inside* the rotation,
+ * which is the only order that leaves a pier square to the road on a banked
+ * corner.
+ */
+function boxAt(
+  s: SplineSample, lat: number, verge: number, lift: number,
+  ax: number, ay: number, az: number, out: THREE.Matrix4,
+): THREE.Matrix4 {
+  _fwd.crossVectors(s.right, s.up).normalize();
+  surfacePoint(s, lat, verge, lift, _pos);
+  out.copy(_basis.makeBasis(s.right, s.up, _fwd)).setPosition(_pos);
+  return out.scale(_size.set(ax, ay, az));
+}
+
+function buildEnclosure(c: ChapterCtx, e: EnclosureDef): void {
+  const clear = e.height ?? 8.2;
+  const fall = e.fall ?? 2.3;
+  const pitch = e.pitch ?? 9;
+  const wallSide: -1 | 1 = e.side ?? -1;
+  const openSide: -1 | 1 = wallSide === 1 ? -1 : 1;
+  const tint = e.tint ?? 0x8f96a2;
+  const accent = e.accent ?? 0xe04a2b;
+  const lampColor = e.lamp ?? 0xffcf86;
+  /** Roof slab thickness, and the depth of the transverse ribs under it. */
+  const SLAB = 0.85;
+  const RIB = 0.62;
+  /** Half-width and half-depth of a pier. */
+  const PW = 0.85;
+  const PD = 1.55;
+  /** How far the deck oversails the pier line. */
+  const OVER = 1.9;
+
+  const [d0, span] = chapterSpan(c, e);
+  const edge = edgeOf(c.verge);
+  const map = galleryConcreteTexture(tint);
+
+  // Two thirds of the declared value. A wall facing sideways under a bright
+  // sky picks up half the hemisphere fill whatever colour it is painted, and
+  // the inside of a gallery is not a place that is the same value as the snow
+  // outside it.
+  const bodyMat = new THREE.MeshLambertMaterial({
+    map, color: 0xa9aeb6, side: THREE.DoubleSide,
+  });
+  // The same texture at four tenths of the value. A soffit is the one surface
+  // in the game the key light never reaches, so it has to be dark *as
+  // authored* — waiting for the shadow map to do it leaves the far half of the
+  // gallery lit, because the map only covers 62 metres round the player.
+  const soffitMat = new THREE.MeshLambertMaterial({
+    map, color: 0x5a6068, side: THREE.DoubleSide,
+  });
+  const deckMat = new THREE.MeshLambertMaterial({
+    map: galleryDeckTexture(), side: THREE.DoubleSide,
+  });
+  const mouthMat = new THREE.MeshLambertMaterial({
+    map: galleryMouthTexture(accent), side: THREE.DoubleSide,
+  });
+  c.materials.push(bodyMat, soffitMat, deckMat, mouthMat);
+
+  const body = new MeshBuilder();
+  const soffit = new MeshBuilder();
+  const deck = new MeshBuilder();
+  const mouth = new MeshBuilder();
+
+  // Height of the soffit at a lateral offset: level at the wall, `fall` lower
+  // at the pier line, carried on out to the oversail.
+  const reach = (s: SplineSample): number => edge(s) + OVER;
+  const soffitY = (s: SplineSample, lat: number): number => {
+    const t = Math.min(1, Math.max(0, (lat * openSide + reach(s)) / (2 * reach(s))));
+    return clear - fall * t;
+  };
+
+  const opts = { verge: c.verge, from: d0, to: d0 + span, step: 3.0, vScale: 9 };
+  const wallAt = (off: number) => (s: SplineSample): number =>
+    offsetAt(s, edge(s), off, wallSide);
+  const openAt = (off: number) => (s: SplineSample): number =>
+    offsetAt(s, edge(s), off, openSide);
+
+  // ── the wall ────────────────────────────────────────────────────────────
+  // One double-sided plane on the barrier line, driven well under the road so
+  // there is no gap where the camber falls away from it. Four lanes rather
+  // than two so the concrete tiles up the wall instead of being stretched.
+  //
+  // **`u` runs 0..1 over the wall's whole height, not per metre**, and that is
+  // the one thing in here that had to be photographed to get right. The
+  // concrete texture carries its own tonal ramp — grime at the toe, salt bloom
+  // at the crest — which is what gives a flat wall a foot and a top. Tiled by
+  // the metre that ramp repeats two and a half times up an eight-metre wall,
+  // every band of it reads as a highlight, and the gallery's mountain flank
+  // photographed as the *brightest* object in a set piece whose whole job is to
+  // be dark. One tile from toe to crest, and the ramp means what it says.
+  const wallTop = (s: SplineSample): number => soffitY(s, wallSide * edge(s)) + SLAB;
+  const wallH = (s: SplineSample, t: number): number => -2.2 + (wallTop(s) + 2.2) * t;
+  const wall: Lane[] = [
+    ...[0, 0.34, 0.68, 1].map((t) => ({
+      lat: wallAt(0.05),
+      lift: (s2: SplineSample) => wallH(s2, t),
+      u: t,
+    })),
+    // A capping shelf and a short back face, so the wall has a *thickness*.
+    // Without them it is one plane: from outside the up-course mouth — which is
+    // the establishing shot of this whole set piece, taken from the corner
+    // before it — an eight-metre wall photographed as a piece of card with a
+    // hairline top edge.
+    { lat: wallAt(1.35), lift: (s2: SplineSample) => wallH(s2, 1), u: 1.13 },
+    { lat: wallAt(1.35), lift: (s2: SplineSample) => wallH(s2, 1) - 3, u: 1.45 },
+  ];
+  if (wallSide < 0) wall.reverse();
+  body.addRibbon(c.spline, wall, { ...opts, vScale: 18 });
+
+  // ── the piers ───────────────────────────────────────────────────────────
+  //
+  // On the valley side, and they are the clock this whole set piece runs on.
+  // Between them is the only daylight in two hundred metres of road.
+  const s: SplineSample = c.spline.atDistance(d0);
+  const bays = Math.max(3, Math.round(span / pitch));
+  const m = new THREE.Matrix4();
+  const ribs = new Struts();
+  const lampMats: THREE.Matrix4[] = [];
+  const a = new THREE.Vector3();
+  const b2 = new THREE.Vector3();
+
+  for (let i = 0; i <= bays; i++) {
+    const f = i / bays;
+    c.spline.atDistance(d0 + span * f, s);
+    const lat = openAt(0.05)(s);
+    const top = soffitY(s, lat);
+    // A pier is four quads round an oriented box; the box helper gives the
+    // frame and `addQuad` gives it the same concrete as the wall. It is driven
+    // 2.4m under the road plane, because on the valley side of a mountain road
+    // the ground beside the tarmac is on its way somewhere else.
+    boxAt(s, lat, c.verge, (top - 2.4) * 0.5, PW * 2, top + 2.4, PD * 2, m);
+    const p: THREE.Vector3[] = [];
+    for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+      for (const sy of [-1, 1] as const) {
+        p.push(new THREE.Vector3(sx * 0.5, sy * 0.5, sz * 0.5).applyMatrix4(m));
+      }
+    }
+    for (let k = 0; k < 4; k++) {
+      const k2 = (k + 1) % 4;
+      body.addQuad(p[k * 2]!, p[k2 * 2]!, p[k * 2 + 1]!, p[k2 * 2 + 1]!, [0, 0, 0.5, 1.4]);
+    }
+
+    // A transverse rib on the same station, hard under the soffit. This is what
+    // gives the ceiling the floor's rhythm.
+    surfacePoint(s, wallSide * (edge(s) - 0.2), c.verge, soffitY(s, wallSide * edge(s)) - RIB * 0.5, a);
+    surfacePoint(s, lat, c.verge, top - RIB * 0.5, b2);
+    ribs.add(a.x, a.y, a.z, b2.x, b2.y, b2.z, RIB);
+
+    // Lamps on the half-stations, so the two runs beat against each other.
+    if (i < bays) {
+      c.spline.atDistance(d0 + span * ((i + 0.5) / bays), s);
+      const ly = soffitY(s, wallSide * edge(s)) - 0.55;
+      lampMats.push(boxAt(
+        s, wallSide * (edge(s) - 2.1), c.verge, ly, 2.6, 0.30, 0.62, new THREE.Matrix4(),
+      ));
+    }
+  }
+
+  // ── the roof ────────────────────────────────────────────────────────────
+  //
+  // Three ribbons and no more: the soffit a driver is under, the deck an
+  // avalanche crosses, and the fascia joining them at the valley edge, which is
+  // the only part of it visible from the other side of the gorge.
+  //
+  // Five lanes across, and the `u` on each is *metres from the wall over 4.6*,
+  // so the concrete on the ceiling tiles at exactly the pitch it does on the
+  // wall it grows out of. A roof whose texture is stretched to fit reads as a
+  // painted plane the first time the camera gets under it.
+  const roofLats: Array<(s: SplineSample) => number> = [
+    wallAt(0.05),
+    (s2) => wallSide * edge(s2) * 0.5,
+    () => 0,
+    (s2) => openSide * edge(s2) * 0.5,
+    openAt(OVER),
+  ];
+  const soffitLanes: Lane[] = roofLats.map((lat) => ({
+    lat,
+    lift: (s2: SplineSample) => soffitY(s2, lat(s2)),
+    u: (s2: SplineSample) => (lat(s2) * openSide + edge(s2)) / 12,
+  }));
+  const deckLanes: Lane[] = roofLats.map((lat) => ({
+    lat,
+    lift: (s2: SplineSample) => soffitY(s2, lat(s2)) + SLAB,
+    u: (s2: SplineSample) => (lat(s2) * openSide + edge(s2)) / 9,
+  }));
+  // The edge beam, and it is not trim. It hangs 1.25m *below* the soffit along
+  // the valley side, which takes that much off the height of every opening
+  // between the piers: without it a 26-metre gallery has a six-metre-tall slot
+  // down one flank and photographs as a carport. With it the slot is under five
+  // and the frame is a corridor.
+  const fascia: Lane[] = [
+    { lat: openAt(OVER), lift: (s2) => soffitY(s2, openSide * reach(s2)) + SLAB + 0.75, u: 0 },
+    { lat: openAt(OVER), lift: (s2) => soffitY(s2, openSide * reach(s2)) - 1.25, u: 0.62 },
+  ];
+  if (openSide < 0) { soffitLanes.reverse(); deckLanes.reverse(); fascia.reverse(); }
+  soffit.addRibbon(c.spline, soffitLanes, opts);
+  deck.addRibbon(c.spline, deckLanes, opts);
+  body.addRibbon(c.spline, fascia, opts);
+
+  // ── the two mouths ──────────────────────────────────────────────────────
+  //
+  // The face of the slab, chevroned. From up the road this is a bright band
+  // over a black rectangle, which is the read the whole set piece is aimed at:
+  // a thing to drive *into*, visible from the corner before it.
+  for (const [d, dir] of [[d0, -1], [d0 + span, 1]] as const) {
+    c.spline.atDistance(d, s);
+    const lw = wallAt(0.05)(s);
+    const lo = openAt(OVER)(s);
+    const yw = soffitY(s, wallSide * edge(s));
+    const yo = soffitY(s, openSide * reach(s));
+    const q = (lat: number, lift: number): THREE.Vector3 =>
+      surfacePoint(s, lat, c.verge, lift, new THREE.Vector3());
+    const p0 = q(lw, yw);
+    const p1 = q(lo, yo);
+    const p2 = q(lw, yw + SLAB + 0.75);
+    const p3 = q(lo, yo + SLAB + 0.75);
+    if (dir < 0) mouth.addQuad(p1, p0, p3, p2, [0, 0, 3.4, 1]);
+    else mouth.addQuad(p0, p1, p2, p3, [0, 0, 3.4, 1]);
+  }
+
+  const add = (bd: MeshBuilder, mat: THREE.Material, name: string, cast: boolean): void => {
+    if (!bd.vertexCount) return;
+    const mesh = new THREE.Mesh(bd.toGeometry(), mat);
+    mesh.name = `enclosure:${name}:${e.name}`;
+    mesh.castShadow = cast;
+    mesh.receiveShadow = true;
+    c.root.add(mesh);
+  };
+  add(body, bodyMat, 'body', true);
+  add(soffit, soffitMat, 'soffit', false);
+  add(deck, deckMat, 'deck', true);
+  add(mouth, mouthMat, 'mouth', true);
+
+  if (ribs.list.length) {
+    c.root.add(ribs.mesh(shade(tint, 0.52), `enclosure:ribs:${e.name}`, c.materials));
+  }
+  if (lampMats.length) {
+    // `MeshBasicMaterial`, untoned: the lamp run is the only light source in
+    // the gallery and a lamp that dims with the exposure is a painted lamp.
+    const lm = new THREE.MeshBasicMaterial({ color: lampColor, toneMapped: false });
+    c.materials.push(lm);
+    const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), lm, lampMats.length);
+    mesh.name = `enclosure:lamps:${e.name}`;
+    for (let i = 0; i < lampMats.length; i++) mesh.setMatrixAt(i, lampMats[i]!);
+    mesh.instanceMatrix.needsUpdate = true;
+    c.root.add(mesh);
+  }
+}
+
 // ── the skirt that folds over itself ───────────────────────────────────────
 //
 // **This is the camera-underground bug, and it is measured on these courses.**
@@ -1901,10 +2317,30 @@ export function createCourseKitSystem(ctx: GameContext): GameSystem {
     unfoldSkirt(track, spline, verge);
 
     const kit = features(course).kit;
-    if (!kit) return;
+    const spans = features(course).enclosures;
+    if (!kit && !spans?.length) return;
 
     root = new THREE.Group();
     root.name = 'courseKit';
+
+    const chapterCtx: ChapterCtx = {
+      spline,
+      verge,
+      root,
+      materials,
+      start: course.startDistance ?? 0,
+      L: spline.length,
+    };
+
+    // ── the enclosures ──────────────────────────────────────────────────────
+    //
+    // Off `features` rather than off `kit`, and built before anything else in
+    // here. An enclosure is not a livery choice — it is a stretch of road where
+    // the sun stops reaching the tarmac — so a course may have one without
+    // declaring a kit at all. See `EnclosureDef`.
+    if (spans?.length) for (const e of spans) buildEnclosure(chapterCtx, e);
+
+    if (!kit) { ctx.scene.add(root); return; }
 
     // ── the road's own paint ────────────────────────────────────────────────
     if (kit.kerb) {
@@ -1940,16 +2376,7 @@ export function createCourseKitSystem(ctx: GameContext): GameSystem {
     //
     // Built before the arrival structure so that a chapter which runs over the
     // start line is under it rather than through it. See `ChapterDef`.
-    if (kit.chapters?.length) {
-      buildChapters({
-        spline,
-        verge,
-        root,
-        materials,
-        start: course.startDistance ?? 0,
-        L: spline.length,
-      }, kit.chapters);
-    }
+    if (kit.chapters?.length) buildChapters(chapterCtx, kit.chapters);
 
     // ── the arrival ─────────────────────────────────────────────────────────
     const arrival = kit.arrival ?? 'gantry';

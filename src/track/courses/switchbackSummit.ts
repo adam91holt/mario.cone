@@ -129,43 +129,59 @@ import type { CourseDefEx, RampDef } from './types.ts';
 const RING = ring(
   { x: 99, z: -130, heading: 0, y: 1.0, width: 28 },
   [
-    // ── the valley lobe: low, wide, fast ──────────────────────────────────
+    // ── the valley lobe: low, wide, fast, and *flat* ──────────────────────
+    //
+    // It used to climb from 0.8 to 20 across its own kilometre — a lazy 2%
+    // that spent a sixth of the mountain's whole height budget on road a
+    // player cannot see tilting. A valley floor is flat. See the note on the
+    // profile above: everything this lobe gives up, the neck gets back.
     { radius: 150, turn: 30, width: 28, y: 0.8, name: 'T0 SPILLWAY LEFT' },
     { run: 229.2, width: 28, y: 0.8, name: 'VALLEY STRAIGHT' },
-    { radius: 190, turn: 55, width: 28, y: 2, name: 'T1 CULVERT SWEEP' },
-    { run: 65.4, width: 27, y: 4, name: 'm1' },
-    { radius: 58, turn: 105, width: 25, y: 9, name: 'T2 BATTER LEFT' },
-    { run: 89, width: 26, y: 14, name: 'm2' },
-    { radius: 190, turn: 80, width: 25, y: 20, name: 'T3 FOOT OF THE CLIMB' },
+    { radius: 190, turn: 55, width: 28, y: 1.6, name: 'T1 CULVERT SWEEP' },
+    { run: 65.4, width: 27, y: 2.6, name: 'm1' },
+    { radius: 58, turn: 105, width: 25, y: 4, name: 'T2 BATTER LEFT' },
+    { run: 89, width: 26, y: 6, name: 'm2' },
+    { radius: 190, turn: 80, width: 24, y: 9, name: 'T3 FOOT OF THE CLIMB' },
     // ── the notch, and the climb up the neck ──────────────────────────────
-    { radius: 60, turn: -90, width: 24, y: 26, name: 'T4 THE NOTCH' },
-    { run: 166.5, width: 24, y: 42, name: 'THE CLIMB' },
-    // The two traverses, and they do two jobs. They stop the climb being one
-    // 340-metre ruler, and at 55 metres of radius they sit inside the band a
+    //
+    // **This is where the mountain is.** Ninety-four metres of R60 at 12.2%,
+    // pinching from 24 to 17, and the horizon leaves the top of the frame.
+    { radius: 60, turn: -90, width: 17, y: 20.5, name: 'T4 THE NOTCH' },
+    // 13.5%, sixteen metres wide, and with a roof on it — see `ENCLOSURES`.
+    { run: 166.5, width: 16, y: 43, name: 'THE CLIMB' },
+    // The two traverses, and they do three jobs now. They stop the climb being
+    // one 340-metre ruler; at 55 metres of radius they sit inside the band a
     // drift can actually be steered in — at R130 they were kinks a kart took
     // flat, which is how a mountain course ended up producing fewer slides
-    // than a salt flat. They also bow the road *away* from the plunge, so the
-    // gorge is widest in the middle rather than at its ends.
-    { radius: 55, turn: -35, width: 23, y: 50, name: 'T5 FIRST TRAVERSE' },
-    { run: 167.4, width: 23, y: 64, name: 'THE CLIMB TWO' },
-    { radius: 55, turn: 35, width: 23, y: 70, name: 'T6 SECOND TRAVERSE' },
-    // ── the summit lobe: narrow, tight, high ──────────────────────────────
-    { radius: 170, turn: 70, width: 23, y: 78, name: 'T7 SHOULDER LEFT' },
-    { run: 99.2, width: 23, y: 84, name: 'm5' },
+    // than a salt flat; and they are the **landing**, the two places on the
+    // neck where the gradient eases to 8% and the road opens back out, so a
+    // driver gets a breath between the two ramps rather than one long haul.
+    { radius: 55, turn: -35, width: 19, y: 46, name: 'T5 FIRST TRAVERSE' },
+    { run: 167.4, width: 18, y: 68.5, name: 'THE CLIMB TWO' },
+    { radius: 55, turn: 35, width: 21, y: 71, name: 'T6 SECOND TRAVERSE' },
+    // ── the summit lobe: narrow, tight, high, and nearly level ────────────
+    //
+    // A summit is a *plateau with a lip on it*. This lobe now rises 25 metres
+    // across 664 — under 4% — so the two ramps below it are the only tilted
+    // road on the lap and read as the only tilted road on the lap.
+    { radius: 170, turn: 70, width: 23, y: 76, name: 'T7 SHOULDER LEFT' },
+    { run: 99.2, width: 23, y: 79, name: 'm5' },
     // The Ledge. A tight pair on the summit lobe's long leg: it costs the
     // circuit nothing in shape and buys two more corners inside the band a
     // drift can actually be steered in.
-    { radius: 48, turn: 35, width: 22, y: 88, name: 'T7b THE LEDGE' },
-    { run: 49.1, width: 22, y: 90, name: 'm5b' },
-    { radius: 48, turn: -35, width: 22, y: 92, name: 'T7c LEDGE EXIT' },
-    { run: 59.2, width: 22, y: 94, name: 'm5c' },
+    { radius: 48, turn: 35, width: 22, y: 81, name: 'T7b THE LEDGE' },
+    { run: 49.1, width: 22, y: 82, name: 'm5b' },
+    { radius: 48, turn: -35, width: 22, y: 83.5, name: 'T7c LEDGE EXIT' },
+    { run: 59.2, width: 22, y: 85, name: 'm5c' },
     // The tightest corner in the game — 36 metres of radius on 21 metres of
     // road, on the tip of a promontory a hundred metres above the valley.
-    { radius: 36, turn: 155, width: 21, y: 98, name: 'T8 THE SPUR' },
-    { run: 103.2, width: 24, y: 109, name: 'm6' },
-    { radius: 50, turn: 45, width: 24, y: 116, name: 'T9 THE RIDGE' },
+    { radius: 36, turn: 155, width: 21, y: 88, name: 'T8 THE SPUR' },
+    { run: 103.2, width: 24, y: 96, name: 'm6' },
+    // The last thirty-nine metres onto the ridge, and the only short steep
+    // thing left on the lap: 15% in a corner, so the sky arrives all at once.
+    { radius: 50, turn: 45, width: 24, y: 102, name: 'T9 THE RIDGE' },
     // ── the notch, and the plunge back down the neck ──────────────────────
-    { radius: 58, turn: -90, width: 26, y: 108, name: 'T10 CUTTING SWEEP' },
+    { radius: 58, turn: -90, width: 26, y: 97, name: 'T10 CUTTING SWEEP' },
     // ── THE KICKER ───────────────────────────────────────────────────────
     // The run-in, a **shelf**, and a gap. The shelf is the whole trick, and it
     // is a negative number: the road stops descending for twenty-four metres.
@@ -182,10 +198,10 @@ const RING = ring(
     // Note the floor: `ring.ts` refuses a straight shorter than 20 metres
     // after closure, which is the right rule and the reason the shelf is 24
     // rather than the 18 it wants to be.
-    { run: 48, width: 27, y: 92, name: 'm8' },
-    { run: 24, width: 23, y: 91.4, name: 'THE KICKER' },
-    { run: 32, width: 28, y: 80, name: 'm8b' },
-    { run: 103.5, width: 28, y: 38, name: 'THE PLUNGE' },
+    { run: 48, width: 27, y: 86, name: 'm8' },
+    { run: 24, width: 23, y: 85.4, name: 'THE KICKER' },
+    { run: 32, width: 28, y: 74, name: 'm8b' },
+    { run: 103.5, width: 28, y: 36, name: 'THE PLUNGE' },
     { radius: 160, turn: -12, width: 28, y: 26, name: 'T11 SPILLWAY KINK' },
     { run: 92.5, width: 28, y: 12, name: 'THE SPILLWAY' },
     { radius: 160, turn: 12, width: 28, y: 4, name: 'T12 VALLEY KINK' },
@@ -229,6 +245,75 @@ const RAMPS: RampDef[] = [
   { at: on('THE KICKER', 1), length: 22, lip: 3.6, fall: 0.30, width: 15 },
 ];
 
+/**
+ * ── THE GALLERY: the round that stopped this being a re-skin ───────────────
+ *
+ * A critic played the whole cup and rejected it at 6.5 on one sentence, and it
+ * was about *place* rather than about any of the geometry above:
+ *
+ *   *"All four rounds are the same kind of place — a wide asphalt ribbon on
+ *   open ground under the same midday blue sky. (B) is Mount Wario section
+ *   three, and B wins outright, and the reason is not fidelity: it is that B
+ *   changes what kind of place you are in mid-course and A does not change it
+ *   across four whole courses."*
+ *
+ * The same sheet ran the roster's own re-skin audit and this course failed it:
+ * `{shortcuts, ramps, hazards}` is a strict subset of Saltpan's
+ * `{shortcuts, ramps, hazards, chapters}`. Round four owned nothing.
+ *
+ * So the mountain gets the noun the cup was missing entirely — **a span of
+ * road with a roof on it** — and it goes on the steepest, narrowest, slowest
+ * part of the lap, which is the one place a driver has time to notice where
+ * they are. A hundred and sixty metres of avalanche gallery: a concrete wall
+ * against the hill on the left, a row of piers over the gorge on the right,
+ * a shed roof falling between them, and the sky gone.
+ *
+ * ── which way round it faces, and it is measured, not guessed ──────────────
+ *
+ * The gorge is on the **positive** lateral side of THE CLIMB — the plunge
+ * comes back down 123 metres away in that direction — so the wall is `side:
+ * -1` and every opening in the gallery looks out over the drop and across at
+ * the road you will be on in twenty seconds. That is the whole reason it is a
+ * gallery and not a tunnel: a bore is dark on both sides and throws away the
+ * one view this circuit is built around.
+ *
+ * ── the pitch, which is the only number that matters ───────────────────────
+ *
+ * Nine metres. At the 35-40 m/s a kart actually climbs a 13.5% ramp at, that
+ * is four bars of daylight across the bonnet every second — fast enough to
+ * read as speed, slow enough that each one is a separate event. The ribs
+ * overhead sit on the same stations and the lamp run sits on the half
+ * stations, so the ceiling has the floor's rhythm and the light does not.
+ *
+ * See `EnclosureDef` and `buildEnclosure` in `kit.ts`. The whole thing is six
+ * draw calls and it does nothing after `init`.
+ */
+const GALLERY = {
+  name: 'THE GALLERY',
+  // It stops seventeen metres short of the First Traverse, and that is a
+  // *camera* number. The chase lens trails about nine metres and swings wide
+  // on a corner entry, so a gallery that ran to the end of the straight put the
+  // lens inside its own wall for the half second after the exit — photographed,
+  // and it fills the frame with concrete at the exact moment the road opens.
+  from: on('THE CLIMB', 0.02),
+  to: on('THE CLIMB', 0.90),
+  // 8.2m of clear height at the wall is a camera number before it is an art
+  // one: `config.camera.chase` puts the lens ~3m over the kart, `modes.far`
+  // adds 1.9 and `modes.cinematic` 3.0, so anything under about 7 photographs
+  // the inside of its own roof the moment a reviewer asks for a wide shot.
+  height: 8.2,
+  fall: 2.8,
+  side: -1 as const,
+  pitch: 9,
+  // Cold cast concrete, a shade darker than the road, so the gallery is the
+  // one thing on this mountain that is *not* pale.
+  tint: 0x8b93a0,
+  accent: 0xe04a2b,
+  // Sodium. The only warm light on a course whose every other colour is blue,
+  // and the reason a driver can still see the apex in here.
+  lamp: 0xffc46a,
+};
+
 export const switchbackSummit: CourseDefEx = {
   id: 'switchback-summit',
   name: 'Switchback Summit',
@@ -247,7 +332,15 @@ export const switchbackSummit: CourseDefEx = {
   }),
   width: 26,
   laps: 3,
-  vergeWidth: 7,
+  // **Five, and it used to be seven.** The barrier line is `width/2 + verge`,
+  // so a seven-metre shoulder on a pass that necks to sixteen metres put the
+  // snow fence *seven metres outside the tarmac* — a driver who ran out of road
+  // had a lane and a half of gravel before anything stopped them, on the course
+  // whose name is a promise about commitment. Five is a mountain shoulder: wide
+  // enough that a mistake is recoverable, narrow enough that the fence is in
+  // the frame, and it is what makes the gallery a corridor rather than a
+  // carport — its piers stand on this line.
+  vergeWidth: 5,
   // Alpine scrub: the slowest surface in the game short of water. On a mountain
   // road, leaving it should not be a detour.
   offSurface: 'grass',
@@ -308,6 +401,9 @@ export const switchbackSummit: CourseDefEx = {
     // **The kicker.** See `RAMPS` above and `ramp.ts`; the deck itself is in
     // the centreline, and this is what paints it.
     ramps: RAMPS,
+    // **The gallery.** See `GALLERY` above — the noun no other round in this
+    // cup has, and the only place in the game with a roof over the road.
+    enclosures: [GALLERY],
     // **The washout, in the Spillway.** Half the road on the fastest part of
     // the descent is under the scree that comes off the cutting above it — you
     // arrive at 37% downhill and have to decide whether to give up the inside
@@ -437,6 +533,25 @@ export const switchbackSummit: CourseDefEx = {
       steel: 0xb7c0c9,
       accent: 0xe04a2b,
       banner: { field: '#123B52', ink: '#F2F7FB', strip: '#E04A2B' },
+      // ── the Cutting Sweep, which had never been a cutting ────────────────
+      //
+      // The corner has been called this since the layout was cut and there has
+      // never been anything either side of it. It matters more than the name:
+      // it is the ninety metres immediately before the kicker, and what makes
+      // a jump read is what it is a jump *out of*. A trench with a broken
+      // schist crest closes the horizon for three seconds, and then the road
+      // stops descending, the lip arrives and the whole mountain is gone at
+      // once. Cold grey rock, the same stone as the Spillway's washout.
+      chapters: [{
+        name: 'THE CUTTING SWEEP',
+        from: on('T10 CUTTING SWEEP', 0.10),
+        to: on('T10 CUTTING SWEEP', 1.0),
+        kind: 'cutting' as const,
+        height: 13,
+        batter: 4.2,
+        tint: 0x76808f,
+        face: 'rock' as const,
+      }],
     },
 
     // ── the mountain ──────────────────────────────────────────────────────

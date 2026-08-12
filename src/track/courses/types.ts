@@ -518,6 +518,95 @@ export interface ChapterDef {
   face?: 'rock' | 'works';
 }
 
+/**
+ * ── an enclosed span: the noun the cup did not have ────────────────────────
+ *
+ * **The finding.** A critic played all four rounds and scored the cup 6.5 on a
+ * sentence that no amount of further palette work could have answered:
+ *
+ *   *"All four rounds are the same kind of place — a wide asphalt ribbon on
+ *   open ground under the same midday blue sky — so the cup changes tint and
+ *   plan-view silhouette but never changes what it feels like to be somewhere.
+ *   B is Mount Wario section three, and the reason B wins is not fidelity, it
+ *   is that B changes what kind of place you are in mid-course and A does not
+ *   change it across four whole courses."*
+ *
+ * Every noun this file owned was **outdoors**. A cutting narrows the sky to a
+ * strip; a viaduct puts the ground a long way down; a portal is one arch you
+ * are through in half a second. Not one of them takes the sky away, and the
+ * measurement that proves it is the roster's own feature audit: with only
+ * `chapters` to express *place*, Switchback Summit's feature set came out as a
+ * strict subset of Saltpan Bypass's, which is the exact re-skin condition
+ * `index.ts` declares fatal.
+ *
+ * So an enclosure is a **top-level noun** rather than a fourth chapter kind,
+ * and that is deliberate. A chapter changes the shape of the frame from
+ * outside it. An enclosure changes what lighting model the player is in: the
+ * key light stops reaching the road except through the openings, the horizon
+ * is gone rather than narrowed, the engine note has a wall to come back off,
+ * and the only colour in the frame that is not grey is the lamp run and the
+ * bright slot on the valley side. It is a different *kind* of thing and the
+ * audit has to be able to see that it is.
+ *
+ * ── the shape, and why it is a shed and not a tube ─────────────────────────
+ *
+ * A bored tunnel is the wrong object twice over. It is dark end to end, which
+ * on a course whose whole point is a hundred metres of gorge means throwing
+ * away the view; and it is a circle, which needs a hole punched through a
+ * landform the terrain module builds and this module cannot touch.
+ *
+ * A **gallery** is what an alpine pass actually uses, and it is better on
+ * every axis. One flank is a solid wall standing against the hill; the other
+ * is a row of piers with daylight between them; the roof is a shed falling
+ * from the wall side to the valley side, so an avalanche crosses the road
+ * rather than stopping on it. That gives, for free:
+ *
+ *   * **the strobe.** Piers at a fixed pitch cut the sun into bars that sweep
+ *     across the bonnet at exactly the rate the kart is travelling. It is the
+ *     single cheapest way to make speed legible, and it costs one shadow-
+ *     casting InstancedMesh.
+ *   * **a bright side and a dark side.** The frame is split down the middle:
+ *     black wall and lamp run to one hand, hot slots onto a gorge to the
+ *     other. Nothing else in the cup has an asymmetric frame.
+ *   * **a mouth.** The far portal is a lit rectangle in a black field from two
+ *     hundred metres out — a thing to drive *at*, which is what the four
+ *     circuits were short of.
+ */
+export interface EnclosureDef {
+  /** What this place is called. Read by nothing; kept so the file is legible. */
+  name: string;
+  /** Lap fraction of the up-course mouth, measured from the start line. */
+  from: number;
+  /** Lap fraction of the down-course mouth. */
+  to: number;
+  /**
+   * Metres of clear height under the soffit **at the wall side**, where the
+   * roof is highest. The valley side is `fall` metres lower.
+   *
+   * The floor on this is a camera number, not an art one. `config.camera.chase`
+   * puts the lens about 3m over the kart, `modes.far` adds 1.9 and
+   * `modes.cinematic` 3.0, so anything under about 7 metres photographs the
+   * inside of its own roof the moment a reviewer asks for a pulled-back shot.
+   */
+  height?: number;
+  /** Metres the soffit drops from the wall side to the valley side. */
+  fall?: number;
+  /**
+   * Which flank the solid wall stands on, in the spline's lateral frame — see
+   * `LATERAL FRAME` above `HazardDef`. The piers and the daylight go on the
+   * other one, so this is really the question *"which way does the view go"*.
+   */
+  side?: -1 | 1;
+  /** Metres between piers, and therefore the pitch of the light bars. */
+  pitch?: number;
+  /** Concrete body colour. */
+  tint?: number;
+  /** The chevrons round both mouths and the band along the deck edge. */
+  accent?: number;
+  /** The soffit lamp run. Unlit by anything — it is its own light. */
+  lamp?: number;
+}
+
 export interface KitDef {
   /** What stands over the start line. Defaults to the stock truss gantry. */
   arrival?: ArrivalKind;
@@ -596,11 +685,30 @@ export interface TerrainDef {
  *   3 Saltpan          `patches` with `style: 'brine'` — **the flood**. Three
  *                      sheets of standing water across the fastest road in the
  *                      game, each leaving a different dry lane.
- *   4 Switchback       `ramps` — **the kicker**. The only place in the cup a
- *                      kart leaves the ground because somebody built a ramp.
+ *   4 Switchback       `enclosures` — **the gallery**. Two hundred metres of
+ *                      road with a roof on it, on the steepest part of the
+ *                      climb. The only place in the cup with no sky in it.
  *
  * If you add a fifth course, it needs a fifth noun. A course whose feature list
  * is a subset of another course's is a re-skin, and this cup has been one.
+ *
+ * ── and the audit is over *nouns*, not over property names ─────────────────
+ *
+ * Round four used to own `ramps`, and `ramps` is what put it back in the bin.
+ * Saltpan grew a boost ramp of its own in an unrelated round, and from that
+ * moment `{shortcuts, ramps, hazards}` was a strict subset of
+ * `{shortcuts, ramps, hazards, chapters}` — a re-skin by this file's own rule,
+ * arrived at without anybody touching the mountain. Two of the four rounds
+ * failed the test the same way at the same time.
+ *
+ * The lesson is that a shared property name is not a shared noun and is not a
+ * private one either. `patches` is `island` on round one and `brine` on round
+ * three and those are two different mechanics; `chapters` is a `viaduct` on
+ * round three and would have been a `gallery` on round four. So the audit
+ * `index.ts` publishes is over **(property, kind)** pairs, and a noun that
+ * genuinely changes the rules — as an enclosure changes what is lighting the
+ * road — gets a property of its own so that the audit can see it without
+ * having to be told.
  *
  * ── and then a critic pointed out that none of those four could touch you ──
  *
@@ -632,6 +740,12 @@ export interface TrackFeatures {
   ramps?: RampDef[];
   /** Nose blocks marking a width pinch. See `GateDef`. */
   gates?: GateDef[];
+  /**
+   * **Spans of road with a roof on them.** See `EnclosureDef` — the only noun
+   * in this interface that takes the sky away rather than reshaping it, and
+   * the reason round four is no longer a subset of round three.
+   */
+  enclosures?: EnclosureDef[];
   /**
    * **What this circuit is built out of.** See `KitDef` — the arrival
    * structure over the line and the barrier down both edges of the road.

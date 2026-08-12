@@ -25,7 +25,11 @@
 //                             outside. 249 metres of the lap under a 40-metre
 //                             radius; the longest straight anywhere on it is
 //                             160. *Overland conveyor across the grid,
-//                             concrete jersey barrier, hazard kerb.*
+//                             concrete jersey barrier, hazard kerb.* **And the
+//                             last shift of the day** — the only round in the
+//                             cup that is not played at midday. See its theme
+//                             block: violet zenith, amber horizon, dust that
+//                             the low sun is coming through rather than over.
 //   3  Saltpan Bypass         2 laps · 3.52km · 4 long strips · 1 cut ·
 //                             1 drift · THE FLOOD (5 crossings) · THE SURGE ·
 //                             THE CAUSEWAY. **The wedge.** A right triangle
@@ -37,13 +41,20 @@
 //                             the open pan, a hundred and fifty metres up on
 //                             the causeway's trestle, and the contraflow in a
 //                             sheet-piled cutting.
-//   4  Switchback Summit      3 laps · 2.68km · 5 strips, all uphill · 1 cut ·
-//                             1 washout · THE KICKER · THE GATE. **The
-//                             hourglass.** Two lobes and a waist, the waist
-//                             being the gorge the road climbs out of and
-//                             plunges back into. 115 metres of climb.
-//                             *Cable-car pylons and two gondolas over the
-//                             line, timber snow fence, slate-and-snow kerb.*
+//   4  Switchback Summit      3 laps · 2.71km · 5 strips, all uphill · 1 cut ·
+//                             1 washout · **THE GALLERY** · THE KICKER ·
+//                             THE GATE. **The hourglass.** Two lobes and a
+//                             waist, the waist being the gorge the road climbs
+//                             out of and plunges back into. 101 metres of
+//                             climb, and — this is the round-2 fix — **63 of
+//                             them inside four hundred metres**, in two 13.5%
+//                             ramps either side of the gorge waist, with a flat
+//                             valley floor under them and a near-level summit
+//                             plateau over them. *Cable-car pylons and two
+//                             gondolas over the line, timber snow fence,
+//                             slate-and-snow kerb.* Two built places: the
+//                             gallery on the climb and the Cutting Sweep's rock
+//                             trench in front of the kicker.
 //
 // ── the round that gave the four circuits four shapes ──────────────────────
 //
@@ -62,7 +73,12 @@
 //     Cone Canyon           320m               30m         26.0m      2.37
 //     Jackhammer            160m              249m         41.6m      1.30
 //     Saltpan               629m               60m         11.7m      1.76
-//     Switchback            240m               70m        115.2m      1.68
+//     Switchback            240m               70m        101.2m      1.68
+//
+// (Switchback's elevation was 115.2m when this table was first written. It is
+// 101.2 now and the mountain reads *taller*, because the number that decides
+// whether a road looks like it is climbing is the gradient and not the range —
+// see "the round that gave the cup a second hour, and a roof" below.)
 //
 //   * **longest straight 629 against 160 — 3.9x**, against the 1.15x the
 //     critic measured. The saltpan's is one segment: a 640-metre bulldozed
@@ -314,6 +330,70 @@
 // shoulder is eight metres rather than twelve, and the quarry's two worst
 // corners (the Crusher at 3.1 m/s, the pair at the top of the haul road) are
 // three to four metres wider at the same radius.
+//
+// ── the round that gave the cup a second hour, and a roof ──────────────────
+//
+// A critic played the four and scored 6.5 on two findings that the four
+// palettes and the four silhouettes could not answer between them:
+//
+//   *"All four rounds are the same kind of place — a wide asphalt ribbon on
+//   open ground under the same midday blue sky, sun elevation 0.52-0.85 on
+//   every course. (B) is Mount Wario section three, and B wins outright, and
+//   the reason is not fidelity: it is that B changes what kind of place you are
+//   in mid-course and A does not change it across four whole courses."*
+//
+//   *"Feature-set audit against the roster's own written rule: Switchback =
+//   {shortcuts, ramps, hazards} and Saltpan = {shortcuts, ramps, hazards,
+//   chapters}. Two of four rounds fail the project's own re-skin test."*
+//
+// **1. The mountain got a noun, and it is the one with no sky in it.**
+// `TrackFeatures.enclosures` — see `EnclosureDef` — and THE GALLERY is the
+// only one in the cup: a hundred and forty-six metres of avalanche gallery
+// across THE CLIMB, wall on the mountain flank, piers over the gorge, a shed
+// roof falling between them, sodium lamps under the soffit and real shadow
+// bars strobing across the road at nine metres of pitch. It is the only place
+// in the game where the key light does not reach the tarmac.
+//
+// **2. The audit is over (property, kind) pairs now, and it is published.**
+// `ramps` is what caught the mountain out: Saltpan grew a boost ramp in an
+// unrelated round and from that moment round four was a strict subset of round
+// three without anybody touching round four. A shared property name is not a
+// shared noun.
+//
+//     round        owns, that no other round has
+//     Cone Canyon  patches:island (the divided Carousel) · chapters:portal
+//     Jackhammer   gates (the 11m pinch) · hazards:truck · **the low sun**
+//     Saltpan      patches:brine (the flood) · chapters:viaduct
+//     Switchback   **enclosures** (the gallery) · hazards:boom
+//
+// **3. The mountain now looks like one.** 116 metres spread over 2,680 is a
+// 4.3% average, which is motorway; the horizon sat dead at eye level and the
+// road read flat. The height is concentrated instead of distributed:
+//
+//                      before                  after
+//     valley lobe      0.8 → 20m  (2.0%)       0.8 → 9m   (0.8%)   flat
+//     the notch        20 → 26    (6.4%)       9 → 20.5   (12.2%)  ← ramp
+//     THE CLIMB        26 → 42    (9.6%)       20.5 → 43  (13.5%)  ← ramp
+//     THE CLIMB TWO    50 → 64    (8.4%)       46 → 68.5  (13.4%)  ← ramp
+//     summit lobe      70 → 116   (6.9%)       71 → 102   (3.7%)   plateau
+//
+// ...and the road narrows where it steepens, which it did not before: THE
+// NOTCH is 17 metres and THE CLIMB is 16, against the 24 they both were, and
+// `vergeWidth` came down from 7 to 5 so the snow fence is inside the frame
+// rather than a lane and a half beyond it. The mountain pass used to be the
+// widest, least committed road in the cup — Cone Canyon necks to 19 in
+// Digger's Cutting — which is the opposite of what its name promises.
+//
+// **4. The quarry is played at the end of the shift.** Every course in the cup
+// declared a deep-blue zenith and a sun between 30 and 49 degrees. Round two
+// now has a violet zenith, an amber horizon, a warm low key and dust the sun
+// comes *through* — it was the natural candidate because it is the only round
+// that already declares its own weather (`fog.near` 210 against everybody
+// else's 400-plus), so it is the one place a low sun has something to rake
+// through. **What is not landing is not in this directory:** `SUN_ELEVATION`
+// in `render/lighting.ts` clamps every course to 0.50-0.60 radians, so the
+// 0.17 the quarry declares is read as 0.50 and the long shadows the palette is
+// written for do not exist. The palette does everything a course file can.
 //
 // ── what is honestly still short ───────────────────────────────────────────
 //

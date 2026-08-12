@@ -576,24 +576,65 @@ export const jackhammerQuarry: CourseDefEx = {
   },
 
   theme: {
-    // Rock flour, not sand. See the header: this is both the dust film on the
-    // pit floor and the colour of the bounce light on every machine in the
-    // race, and at a saturated tan it made a grey pit photograph as a desert.
-    ground: 0x9d9a90,
-    // A harder, colder sky than the canyon's: deeper at the zenith, and the
-    // haze band is mineral dust rather than warm air.
-    sky: { top: 0x14549e, bottom: 0xa9c8dc, horizon: 0xd4d1c7 },
+    // ── the last shift: why round two is a different hour of the day ───────
+    //
+    // A critic played the cup and, after praising the four palettes as
+    // genuinely separate, rejected it anyway on the thing four palettes cannot
+    // fix: *"all four `theme.sky` blocks are the same weather and the same
+    // hour — sky.top 0x2e86d6 / 0x14549e / 0x0d49c4 / 0x0a3a9a, four blues, and
+    // sun.elevation 0.85 / 0.52 / 0.58 / 0.55, i.e. every round is between 30
+    // and 49 degrees of sun. No dusk, no night, no overcast, no interior."*
+    //
+    // The quarry is the round to spend on it, and the reason is in its own
+    // numbers rather than in taste. It is the only course in the cup that
+    // already declares its own weather — `fog.near` 230 against everybody
+    // else's 400-plus — so it is the one place where a low sun has something
+    // to rake *through*. A pit at the end of the shift, with the light coming
+    // in over the rim and half the benches already in shadow, is a picture the
+    // other three cannot take.
+    //
+    // **What is honestly not landing yet, and it is not in this file.**
+    // `SUN_ELEVATION` in `render/lighting.ts` clamps every course to 0.50-0.60
+    // radians — a ten-degree window — so the 0.17 declared below is read as
+    // 0.50 and the shadows this palette is written for do not exist. The
+    // clamp's own comment says why it is there (a low sun throws thirty-metre
+    // streaks across the racing line) and that reasoning is right for three of
+    // the four rounds and is exactly what round two wants. The number stays
+    // honest here so it lands the moment the clamp learns to take a per-course
+    // floor; the rest of this block is what a course file *can* do about the
+    // hour, and it does all of it.
+    //
+    // Rock flour at the end of the day: the same pale grey dust with the low
+    // sun's warmth in it. This is both the pit-floor albedo and — via
+    // `sunRig()` — the bounce light on every machine in the race, so warming it
+    // is what puts the hour onto the karts and not only onto the ground.
+    ground: 0xa89179,
+    // **The one sky in the cup that is not blue at the top.** Deep dust-violet
+    // at the zenith, falling through a hot band to a low sun's amber. Nothing
+    // here is a tint of anything on the other three cards.
+    sky: { top: 0x2b2f66, bottom: 0xdc9c62, horizon: 0xf8d3a2 },
     // Half the visibility of Cone Canyon, on purpose — a working pit has its
-    // own weather, and it is the reason the far wall reads as far. Pale rock
-    // dust: neutral, a touch on the warm side of it, and nowhere near either of
-    // the two hazes it has to be told apart from — the canyon's gold and the
-    // mountain's blue.
-    fog: { color: 0xc7c2b6, near: 230, far: 1300 },
-    sun: { color: 0xfff3e0, intensity: 2.85, azimuth: 2.15, elevation: 0.52 },
+    // own weather, and it is the reason the far wall reads as far. The dust is
+    // the same dust; what has changed is what is lighting it, so the haze is
+    // now the warmest air in the game and still nowhere near the canyon's
+    // clean gold or the mountain's cold blue.
+    // The chroma here is held back on purpose and it took a photograph to know
+    // by how much. `render/lighting.ts` normalises this to unit luminance and
+    // multiplies the whole depth of the frame by it, so a saturated value does
+    // not warm the distance, it *replaces* it: at 0xE6A86E the pit's far
+    // benches came back as flat orange cut-outs with no rock in them at all,
+    // which is a worse failure than the midday blue it was fixing. This is the
+    // warmest air in the game and the benches still have grey in them.
+    fog: { color: 0xd9ab84, near: 210, far: 1250 },
+    // Low, warm and from the west, over the pit rim. `intensity` comes down
+    // with the elevation: a sun this colour at this height is a weaker key and
+    // the fill has to be allowed to carry the shaded halves of the benches.
+    sun: { color: 0xffb96a, intensity: 2.35, azimuth: 2.15, elevation: 0.17 },
     // The darkest road in the cup after the saltpan's. The floor is pale, so
     // the tarmac has to carry the contrast — a haul road cut through light
-    // rock, with an orange edge where the canyon has yellow.
-    road: { base: '#2A2F39', line: '#FFF8F0', edge: '#FF6B1A' },
+    // rock, with an orange edge where the canyon has yellow. Warmed a shade,
+    // because at this hour nothing on the site is neutral.
+    road: { base: '#2E2C33', line: '#FFF8F0', edge: '#FF6B1A' },
     props: {
       quarry: true, cones: true, crowds: true,
       machinery: 'heavy', conveyors: true,
