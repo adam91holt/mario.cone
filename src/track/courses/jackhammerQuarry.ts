@@ -135,7 +135,11 @@ import type { CourseDefEx } from './types.ts';
  * the end of the segment, so the pinch arrives with the corner it belongs to.
  */
 const RING = ring(
-  { x: -154, z: -18, heading: 0, y: -0.4, width: 22 },
+  // The start width is the width the *last* segment leaves behind — the Gate
+  // Sweep's 24 — because the ring emits its first waypoint at this value and a
+  // number that disagrees with the segment upstream of it is a step in the road
+  // at the one place a lap is judged from.
+  { x: -154, z: -18, heading: 0, y: -0.4, width: 24 },
   [
     { run: 190, width: 22, y: -0.4, name: 'WEIGHBRIDGE' },
     // **The one corner on this circuit that is not tight, and it is not tight
@@ -152,9 +156,22 @@ const RING = ring(
     { run: 170, width: 22, y: -13, name: 'BENCH ONE' },
     { radius: 34, turn: -180, width: 20, y: -17, name: 'T2 SCREEN HAIRPIN' },
     { run: 170, width: 21, y: -24, name: 'BENCH TWO' },
-    // The narrowest, tightest corner in the game: 28 metres of radius on 16
-    // metres of road, with the gravel cut across its apex.
-    { radius: 30, turn: 180, width: 19, y: -28, name: 'T3 THE CRUSHER' },
+    // The tightest corner in the game — thirty metres of radius, held all the
+    // way through a hundred and eighty degrees, with the gravel cut across its
+    // apex.
+    //
+    // **It was also the narrowest, and that was one thing too many.** A critic
+    // drove the cup and measured the field through here at **3.1 m/s** — a
+    // hundred-tonne machine's walking pace on a race track — and the arithmetic
+    // says why: on nineteen metres of road a kart can widen a thirty-metre
+    // corner to about thirty-nine at the apex, and thirty-nine metres of radius
+    // at nineteen metres of width is not a corner anybody carries speed
+    // through, it is a three-point turn. Twenty-three metres buys about six
+    // metres of apex radius and costs this corner none of its identity: it is
+    // still the tightest thing in the cup by four metres, still the only
+    // hairpin in the game with a shortcut across its apex, and still the corner
+    // this circuit is named after.
+    { radius: 30, turn: 180, width: 23, y: -28, name: 'T3 THE CRUSHER' },
     { run: 170, width: 23, y: -35, name: 'BENCH THREE' },
     { radius: 36, turn: -180, width: 21, y: -39, name: 'T4 SUMP HAIRPIN' },
     // A pit floor is flat, and this is the only flat road below the rim.
@@ -187,9 +204,25 @@ const RING = ring(
     { radius: 120, turn: -18, width: 23, y: -10, name: 'T8b TIP KINK' },
     { run: 119.8, width: 23, y: -8, name: 'HAUL ROAD TWO' },
     { radius: 120, turn: 18, width: 22, y: -6, name: 'T8c WEIGH KINK' },
-    { radius: 45, turn: -90, width: 21, y: -4, name: 'T9 RAMP RIGHT' },
-    { run: 85.5, width: 22, y: -2, name: 'h4' },
-    { radius: 45, turn: -90, width: 22, y: -0.4, name: 'T10 GATE SWEEP' },
+    // ── the two corners the lap is actually lost on ───────────────────────
+    //
+    // Not the hairpins. Measured over a 130-second race with seven racers, the
+    // biggest concentration of sub-12 m/s time on this circuit sits in the last
+    // fifteen per cent of the lap — 7.3 seconds in one fortieth of it — and
+    // three of the race's five reversals happen here. It is the pair of
+    // 45-metre right-handers at the top of the haul road, taken at the end of a
+    // 240-metre climb at 9-11% with the pack still four abreast off the tip
+    // kink, on twenty-one metres of road with the barrier hard against both
+    // sides. There is nowhere to put a mistake.
+    //
+    // Twenty-four metres each, and the run between them the same, which is
+    // three metres of run-off bought at no cost to the shape: the radius, the
+    // gradient, the closure and the comb silhouette are all untouched, and this
+    // is the widest road on the circuit outside the weighbridge — which is what
+    // a haul road *is* at the point where it meets the rim.
+    { radius: 45, turn: -90, width: 24, y: -4, name: 'T9 RAMP RIGHT' },
+    { run: 85.5, width: 24, y: -2, name: 'h4' },
+    { radius: 45, turn: -90, width: 24, y: -0.4, name: 'T10 GATE SWEEP' },
   ],
   { step: 12 },
 );

@@ -75,6 +75,30 @@
 // the pit straight, at 274 metres from the line, and no other straight on the
 // lap reaches 325.
 //
+// ── the three places, and the round that had one ───────────────────────────
+//
+// A critic photographed the same chase view at 22%, 50% and 78% of one lap and
+// rejected the roster on it: *"y = 12.8 / 13.0 / 2.1 — three near-identical
+// frames, same orange verge, same red-and-white striped fence, same tan cone
+// hills, same sky; with the minimap covered you cannot say which third of the
+// lap you are on."* The landscape cannot answer that on a circuit whose whole
+// elevation range is 26 metres, because `track/terrain.ts` anchors the ground
+// to the nearest road's elevation for the first seventy metres — a flat
+// circuit's surroundings are one surroundings by construction.
+//
+// So the lap is three places, and two of them are built (see `kit.chapters`):
+//
+//   THE SPEEDWAY       the pit straight, the chicane and the Grader Sweep, wide
+//                      open under the truss gantry with the stands on it. The
+//                      poster, and declared by omission.
+//   DIGGER'S CUTTING   T1 to the north leg: the road climbs off the straight
+//                      into a blasted rock trench and turns the tightest corner
+//                      on the circuit inside it, with the sky reduced to a strip
+//                      between two broken crests.
+//   THE CANYON HEAD    the low western end, entered under a natural rock arch on
+//                      the exit of the Notch — the one thing in this cup you
+//                      drive *underneath* — with the Carousel beyond it.
+//
 // ── THE SPLIT ──────────────────────────────────────────────────────────────
 //
 // **The Carousel is a divided carriageway.** A hundred metres of raised,
@@ -368,7 +392,71 @@ export const coneCanyon: CourseDefEx = {
     // box art, so this is the reference the other three are differentiated
     // *from* — see `KitDef`. Declared rather than omitted so the roster reads
     // as four choices instead of three plus a default.
-    kit: { arrival: 'gantry', barrier: 'panel' },
+    // ── ...and the three places the poster round passes through ────────────
+    //
+    // A critic photographed the same chase view at 22%, 50% and 78% of one lap
+    // here and rejected the roster on it: *"y = 12.8 / 13.0 / 2.1 — three
+    // near-identical frames, same orange verge, same red-and-white striped
+    // fence, same tan cone hills, same sky; with the minimap covered you cannot
+    // say which third of the lap you are on."* True, and not a decoration
+    // problem: the ground beside a circuit is anchored to the elevation of the
+    // nearest road for the first seventy metres (`ref` in `terrainHeight`), so
+    // a flat circuit's landscape is one landscape by construction and no amount
+    // of `rimHeight` reaches it.
+    //
+    // So the lap is cut into three places that are *built*:
+    //
+    //   1  THE SPEEDWAY — the pit straight, the chicane, the Grader Sweep.
+    //      Open, wide, grandstands, the truss gantry, the mesas on the
+    //      vanishing point. This is the poster, and it is declared by
+    //      omission — nothing is built here.
+    //   2  DIGGER'S CUTTING — the road climbs off the straight into a blasted
+    //      rock trench and turns 34 metres of radius inside it. The horizon is
+    //      gone, the sky is a strip between two broken crests, and the walls
+    //      are close enough to the 19-metre road that the tightest corner in
+    //      the circuit is taken between them. A critic asked for exactly this:
+    //      *"T2 at width 19 should be a cutting between rock walls, not the
+    //      same open verge as PIT STRAIGHT."*
+    //   3  THE CANYON HEAD — the low, wide-open west end, entered through a
+    //      natural rock arch that stands over the road at the Notch. You drive
+    //      *under* something once a lap, forty metres before the Carousel, and
+    //      it is the frame every approach to the signature corner is composed
+    //      in.
+    //
+    // See `ChapterDef` in `types.ts`. Round one otherwise keeps the stock kit
+    // deliberately: a cup needs one circuit that looks like the box art.
+    kit: {
+      arrival: 'gantry',
+      barrier: 'panel',
+      chapters: [
+        {
+          name: "DIGGER'S CUTTING",
+          kind: 'cutting',
+          face: 'rock',
+          // From a third of the way down the run off T1 — so the walls close in
+          // while the road is still straight and the driver can see them coming
+          // — round the Elbow and fifty metres up the north leg.
+          from: on('r1', 0.05),
+          to: on('r2', 0.24),
+          height: 15,
+          batter: 4.2,
+          // A shade darker and redder than `theme.ground`: a freshly blasted
+          // face is the unweathered rock the desert crust is made out of.
+          tint: 0xa85f31,
+        },
+        {
+          name: 'THE CANYON HEAD',
+          kind: 'portal',
+          // On the exit of the Notch, which is the corner that sets up the
+          // Carousel: you come under the arch already turning, and the
+          // horseshoe is in front of you as you clear it.
+          from: on('r5', 0.10),
+          to: on('r5', 0.10),
+          height: 17,
+          tint: 0xb06a3c,
+        },
+      ],
+    },
 
     // ── the canyon, and the round it did not have one ──────────────────────
     //

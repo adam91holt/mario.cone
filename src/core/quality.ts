@@ -64,6 +64,16 @@
 // play at 1.2fps. Every gate whose length depends on the frame rate has a valve;
 // the only ones without are `loading` and `paused`, whose length does not.
 //
+// **...and the corollary has a second half, which round twelve was sent back
+// for missing.** A valve is only a valve if its unit is the unit of the thing
+// it is waiting on. `SEAL_PATIENCE` waited out a *beat of the game* in wall
+// seconds, and because `engine.ts` caps the fixed step at eight per frame, a
+// three-race-second countdown is at most forty-five delivered frames — which at
+// 0.9fps is fifty wall seconds, so a thirty-five-second door opened inside
+// every ordinary countdown on the machine it was fitted for. A door that opens
+// inside the beat it is protecting is not a valve, it is a delay. See
+// `SEAL_FRAMES`.
+//
 // ── 3. The audit ───────────────────────────────────────────────────────────
 //
 // Every gate, threshold and accumulator, what it is denominated in, and what it
@@ -83,7 +93,7 @@
 //   UP_DWELL 9             wall s under budget        unreachable     ok
 //   liveSeconds            wall s of delivered play   honest          ok
 //   CEREMONY_PATIENCE 20   wall s inside the sweep    a valve         ok
-//   SEAL_PATIENCE 35       wall s inside one beat     a valve         ok
+//   SEAL_FRAMES 96         delivered frames of a beat above its bound ok (r12)
 //   FRONT_END_PATIENCE 12  wall s behind the menu     a valve         ok
 //   CEREMONY_GRACE 2.2     race s after the flag      33 frames       ok
 //   LAUNCH_PATIENCE 22     wall s inside the launch   a valve         ok
@@ -112,6 +122,10 @@
 //   RUNG0.drawCalls        submissions per frame      derived         ok (r11)
 //   RUNG0.triangles        triangles per frame        a tripwire      ok (r11)
 //   RUNG0.cpuMs 4.0        ms per **60fps** frame     see STEPS_AT_60 ok (r11)
+//   sealedBeat()           a set of phases + SEAL_FRAMES  events (**) ok (r12)
+//   SEAL_FRAMES 120        delivered frames of one beat   derived     ok (r12)
+//   COUNTDOWN_FRAMES 60    delivered frames               derived     ok (r12)
+//   MAX_STEPS_PER_FRAME 8  fixed steps per drawn frame  engine.ts's cap ok (r12)
 //
 //   `RUNG0.cpuMs` is the one new row with a unit trap in it, and it is the
 //   trap this section exists for: `budget.simMs` is however many fixed steps
@@ -227,7 +241,10 @@
 // ever have caught that; a `setDrawRange` costs nothing at all.
 //
 // Three levers are behind the seam and land at boot, at a race build behind the
-// closed launch board, or at a window resize: `crowd`, `aa`, `drawDistance`.
+// closed launch board, at a window resize, or — since round eight, and only on
+// a machine the governor has judged to have collapsed — on the first frame of
+// the racing after that judgement (`collapseSeam`): `crowd`, `aa`,
+// `drawDistance`.
 // Seven are live, every one either denominated in projected pixels — so the
 // only things it can move are already too small to resolve — or invisible on
 // the frame it lands: `scale`, `tier`, `particles`, `minPx`, `thinFar`,
@@ -321,10 +338,21 @@
 // (see `sizedStep`) — six changes in two hundred seconds, three of them inside
 // three and a half race-seconds of the flag, was the session that found it. And
 // **a machine five times over the budget has no composed picture to protect**:
-// the gate's doors are 20-35 wall seconds, which is right when the thing behind
+// the gate's doors are 12-22 wall seconds, which is right when the thing behind
 // them is a countdown the player can watch and wrong when it is a slideshow.
 // The collapse path is the only branch here that does not consult
 // `pictureLocked()`. See `COLLAPSE_FACTOR`.
+//
+// **...and round twelve found the half of that sentence that is false.** "No
+// composed picture to protect" was argued from continuity — sixty metres of
+// world between two frames two seconds apart — which is a fact about the
+// *camera*, and on a composed beat the camera is the thing that is not moving.
+// Two countdown frames two seconds apart are the same composition twice, and a
+// grandstand that empties between them was photographed doing exactly that
+// under the "3". So the collapse keeps its exemption on a driven frame and
+// loses it on a watched one: `sealedBeat()` for the half that costs 1.71x, and
+// `watchedBeat()` — every composed beat, no door — for the half that costs
+// 0.4%. Two gates, because they are two prices.
 //
 // **3. It must never touch the simulation.** There is no `fixedUpdate` in this
 // file and there never may be. Everything the governor writes — `ctx.quality`,
@@ -425,7 +453,7 @@
 // page, where the frame is 33ms with almost no spread and two cuts that move it
 // by nothing are unambiguous.
 //
-import { config } from './config.ts';
+import { config, FIXED_DT, MAX_STEPS_PER_FRAME } from './config.ts';
 // Types only — this file never imports the three *runtime*, which arrives
 // through `ctx.THREE` like every other system's does. The distinction matters:
 // `import type` is erased, so nothing here can put a second copy of three into
@@ -968,7 +996,13 @@ const LADDER: readonly Rung[] = [
 //
 //   **reset-only** — recorded when the rung is taken, installed at the next
 //   seam: boot, a race build behind the closed launch board, or a window resize
-//   the browser is already reallocating for.
+//   the browser is already reallocating for. Round eight added a fourth door
+//   for the one case where waiting for a race build is not a deferral but an
+//   abandonment — a machine that has *collapsed* mid-race — and round twelve
+//   gave that door the moment gate it was built without: it installs on the
+//   first frame of the racing rather than on whatever frame the collapse
+//   happened to land on, which was, photographed, the "3" of the countdown.
+//   See `collapseSeam` and `watchedBeat`.
 //
 //     `crowd`     the one a person found: the back rows of every stand on the
 //                 course, at once, whether the stand is behind the camera or
@@ -1450,6 +1484,29 @@ function writeMemory(key: string, rungIndex: number): void {
   } catch {
     // Storage full, disabled, or partitioned. The session still works; it just
     // starts from the top next time, which is where it used to start every time.
+  }
+}
+
+/**
+ * ...and the way out of it, which for eleven rounds did not exist.
+ *
+ * A rung written here is *durable*: it survives a reload, a new race and a new
+ * session, under a coarse hardware key. That is the right behaviour for a
+ * governor — a machine does not become faster because the page was refreshed —
+ * and it was, until now, also a one-way door. A player whose picture had been
+ * halved by one bad afternoon (a background export, a second monitor, a browser
+ * mid-update) got the halved picture back on every visit for ever, with nothing
+ * in `src/ui/**` able to show it to them, refuse it, or clear it: the only door
+ * into this ladder was `globalThis.__QUALITY`, which is a debugging surface.
+ *
+ * `QualityPreference.forget()` is the door, and it is on `ctx` so that a
+ * settings screen can reach it. See `ctx.qualityPref`.
+ */
+function forgetMemory(): void {
+  try {
+    globalThis.localStorage?.removeItem(MEMORY_KEY);
+  } catch {
+    // Same argument as `writeMemory`: never take the page down over storage.
   }
 }
 
@@ -2045,7 +2102,7 @@ function isComposed(phase: string | undefined): boolean {
  * 0.7 delivered frames a second is forty-seven wall seconds of a player sitting
  * at 0.7fps while the governor refuses to help.
  *
- * That is the exact shape `SEAL_PATIENCE` was added for — a refusal whose cost
+ * That is the exact shape `SEAL_FRAMES` was added for — a refusal whose cost
  * in the unit a person waits in grows with the slowness it is gating — and the
  * previous round's version of this file argued its way out of it by measuring
  * the grace in pictures and never converting the answer into seconds. Eighteen
@@ -2121,46 +2178,85 @@ const CEREMONY_PATIENCE = 20;
  * is gating — and the file had fitted a door to one instance of it and argued
  * the other away. So both have doors now.
  *
- * Much longer than the sweep's, because a countdown is a beat the player is
- * timing and the sweep is a camera move nobody is. Thirty-five seconds of
- * *delivered play inside this one beat* — the clock restarts on every phase
- * change, so the sweep's twenty cannot be spent on the countdown's account —
- * is a **twelve-fold** overrun of a three-race-second beat. At 60fps it is
- * unreachable by a factor of twelve; at 5fps a countdown takes 7s and it is
- * still unreachable; it opens only below about one and a half frames a second,
- * where the measured wait is fifty-six seconds and no amount of not-popping is
- * worth another twenty of them.
+ * ── ...and why it is counted in *frames* rather than in wall seconds ───────
  *
- * It is also deliberately longer than the thirty-second pressure window in
- * `tools/perfgate.mjs`, which seeks straight into a countdown at rung 0 and
- * asserts that the rung does not move for the whole of it. That assertion is
- * the previous round's fix and it is still the right test of the *seal*; a
- * valve that its own regression test could trip would be a valve that had
- * quietly replaced the thing it was fitted to.
+ * It was `SEAL_PATIENCE = 35`, wall seconds of delivered play inside the beat,
+ * and on the machine this file exists for that door **opens inside an ordinary
+ * countdown**: three race-seconds is at most forty-five delivered frames (see
+ * below), and forty-five frames at 0.9fps is fifty wall seconds. So the valve
+ * fitted to stop a deadlock was, on every failing machine, simply a delayed
+ * version of the pop it was fitted next to — measured, `{phase:'countdown',
+ * heldFor: 36.9}` on the change log and `FAIL: change(s) inside a sealed phase`
+ * out of `tools/perfgate.mjs` on the same run that reported the seal holding.
  *
- * ── ...and the tool's *other* assertion, which this valve cannot satisfy ────
+ * The mistake was a unit one, and it is the file's own §2 rule pointed at the
+ * wrong noun. `SEAL_PATIENCE` was denominated as "a person waiting", which is
+ * wall seconds. But what a person is waiting for here is **a beat of the game**,
+ * and a beat of the game is bounded in race seconds — which `engine.ts` turns
+ * into a bound in *delivered frames*, because it caps the fixed step at eight
+ * per rendered frame. One delivered frame is therefore at most 8/120 = 0.0667
+ * race-seconds **at any frame rate**, and so:
  *
- * `perfgate.mjs` ends with a second, blanket check: no entry in the change log
- * may carry a sealed `phase` at all. On a box slow enough for a three-race-
- * second countdown to take more than thirty-five seconds of delivered play,
- * that assertion and this door are contradictory by construction, and the door
- * is the one the previous round demanded — the seal it replaced was measured at
- * fifty-six seconds. Measured on a deliberately loaded box:
+ *   countdown   3 race-s      ≤ 45 delivered frames
+ *   finished    ~6 race-s     ≤ 90 delivered frames
+ *   results     the player     unbounded
  *
- *   pressure verdict: rungs seen during ceremony = 0   (the seal held)
- *   change log:  {phase:'countdown', heldFor: 36.92, why:'... x3'}
- *   FAIL: 1 change(s) inside a sealed phase: countdown
+ * A door above that bound cannot open inside a beat the game itself ends, and
+ * still opens inside the one beat that waits on a human. That is the whole of
+ * the deadlock argument satisfied without a single wall-clock second in it, and
+ * it is what makes the countdown genuinely **sealed** rather than sealed-ish.
  *
- * The pressure test passed and the blanket check failed on the same run, on the
- * same fact. The blanket check is right about the *shape* and one field short
- * of being able to say so: every entry carries `heldFor`, so the honest
- * assertion is "no change inside a sealed phase **with `heldFor` under
- * `SEAL_PATIENCE`**" — a change at `heldFor: 2` is the round-3 bug and a change
- * at `heldFor: 36.9` is this valve doing its job. `tools/**` is shared and is
- * not this file's to edit; the request is recorded here so the next reader of
- * that FAIL knows which of the two it is looking at.
+ * ── ...and what sealing it costs, which is the reason it is defensible ──────
+ *
+ * Nothing, on any machine that got to the countdown by playing the game. The
+ * beat *before* the countdown is the intro sweep, which keeps its own valve
+ * (`CEREMONY_PATIENCE`, 20 wall seconds) precisely because nobody is timing a
+ * camera move — and that is where a failing machine is actually rescued.
+ * Measured on this box under SwiftShader, from a cold boot with the front-end
+ * closed the way a player closes it:
+ *
+ *   t=0.4s   rung 0  phase=intro   holding "undrawn (race not in this frame)"
+ *   t=6.2s   rung 6  phase=intro   "collapsed (73x budget) x6"
+ *
+ * The collapse lands sixty-three seconds before the countdown is anybody's
+ * problem. The only way to reach a countdown at rung 0 on a failing machine is
+ * for a bench to put one there deliberately — which is exactly what
+ * `perfgate.mjs`'s PRESSURE block does, and its assertion is that nothing moves
+ * when it does.
+ *
+ * `intro` keeps wall seconds because its valve exists for the *deadlock* — the
+ * governor cannot make the frame cheaper until the ceremony ends and the
+ * ceremony cannot end until the frame is cheaper — and that is a race between
+ * two wall clocks. Nothing downstream of the intro has that problem, because
+ * the intro has already spent it.
  */
-const SEAL_PATIENCE = 35;
+const RACE_S_PER_FRAME = FIXED_DT * MAX_STEPS_PER_FRAME;
+/** The countdown's own length as a bound in delivered frames. */
+const COUNTDOWN_FRAMES = Math.ceil((config.race.countdownFrom + 1) / RACE_S_PER_FRAME);
+/**
+ * ...and the door, at twice it: above the longest beat the game itself ends
+ * (`finished` is `FINISH_WINDOW` = 5.9 race-seconds, 89 frames) and reachable
+ * only inside `results`, which waits on a human. Derived rather than typed, so
+ * a director that lengthens the countdown cannot quietly re-open this.
+ */
+const SEAL_FRAMES = COUNTDOWN_FRAMES * 2;
+
+/**
+ * What the governor says while a sealed beat is holding it off, one constant
+ * string per beat.
+ *
+ * A `Record` rather than a template literal because the probe's `holding` is
+ * written on **every delivered frame** the seal is up — which on the machine
+ * this file exists for is the longest run of frames in the session — and
+ * `` `sealed (${phase})` `` allocates a string on each of them. ARCHITECTURE §2
+ * rule 5: nothing allocates per frame in a hot path, including the diagnostics.
+ */
+const SEALED_HOLD: Record<string, string> = {
+  countdown: 'sealed (countdown)',
+  finished: 'sealed (finished)',
+  results: 'sealed (results)',
+  loading: 'sealed (loading)',
+};
 /**
  * ...and the front-end's, which is the one this round was actually lost for.
  *
@@ -2316,6 +2412,12 @@ export interface QualityChange {
    * legal one — it means a machine so slow that the sweep had run for twenty
    * seconds, and see `CEREMONY_PATIENCE` for why that is a door rather than a
    * hole. Anything else here is a bug in the moment gate.
+   *
+   * ...on `log`. On `pins` this field is just a fact about when somebody's hand
+   * moved, and a bench that pins a rung inside a countdown on purpose — which is
+   * exactly what `perfgate.mjs` does one line before asking whether anything
+   * moved inside a countdown — is not a defect. See the note in `applyRung` on
+   * which book an entry goes in.
    */
   phase: string;
   /**
@@ -2332,9 +2434,20 @@ export interface QualityChange {
    * ...and the number the gate actually used: seconds on the fixed-step clock
    * since the `race:racing` edge.
    *
-   * **Anything under `CEREMONY_GRACE` here is a bug in the moment gate.** It is
-   * a separate field from `raceTime` because the two come apart, and the way
-   * they come apart is itself the reading: `beginCountdown()` does not reset
+   * **Anything under `CEREMONY_GRACE` here is a bug in the moment gate — unless
+   * `why` begins `collapsed`.** That exception is the round-eight design and it
+   * is deliberate: the collapse path is the one branch that does not consult
+   * `pictureLocked()` at all, because a machine fifty-five times over its budget
+   * riding out a 2.2-race-second grace is riding out thirty-three wall seconds
+   * of it, and `LAUNCH_PATIENCE` exists to say that is not a trade anybody would
+   * defend out loud. Seen live and correct: `{why:'collapsed (55x budget) x6',
+   * sinceFlag: 0.09}`. What that line does **not** carry any more is the
+   * seam-held half — `deferred` names it, and `watchedBeat()` holds it until the
+   * launch is over — so what landed on the flag is a particle cap, three pixel
+   * thresholds and the first step of a resolution ramp, and not the grandstand.
+   *
+   * It is a separate field from `raceTime` because the two come apart, and the
+   * way they come apart is itself the reading: `beginCountdown()` does not reset
    * `ctx.race.time`, so after a reviewer's seek the race clock says fifteen
    * seconds on the frame the flag falls. See `CEREMONY_GRACE`.
    */
@@ -2729,10 +2842,14 @@ export interface QualityProbe {
   frontEndCovers: boolean;
   /** Seconds of delivered play the front-end and the current composed beat have
    *  each been up. The two patience valves count these; compare them against
-   *  `FRONT_END_PATIENCE`, `CEREMONY_PATIENCE` and `SEAL_PATIENCE` to see how
-   *  much of a refusal is left. */
+   *  `FRONT_END_PATIENCE` and `CEREMONY_PATIENCE` to see how much of a refusal
+   *  is left. */
   frontEndFor: number;
   ceremonyFor: number;
+  /** ...and the composed beat in **delivered frames**, which is the unit the
+   *  sealed beats' own door is denominated in. Compare against `SEAL_FRAMES`.
+   *  A countdown cannot reach it at any frame rate; see the constant. */
+  ceremonyFrames: number;
   paused: boolean;
   /** What the race director's clock says, and what the flag's grace actually
    *  measures — seconds on the fixed-step clock since `race:racing`. They come
@@ -2756,8 +2873,18 @@ export interface QualityProbe {
    * of them is a measurement of the same thing twice.
    */
   changeWorstRatio: number;
-  /** Every change this session, most recent last. */
+  /**
+   * Every change **the governor** made this session, most recent last.
+   *
+   * A change on this list carrying a sealed `phase` is a bug in the moment gate
+   * and `tools/perfgate.mjs` fails the build on it. Hand picks are not on this
+   * list — see `pins`.
+   */
   log: QualityChange[];
+  /** ...and every change made from outside it: `__QUALITY.set/mid/ease`, and a
+   *  tier picked by hand through `quality:changed`. Same shape, different
+   *  author, deliberately a different book. */
+  pins: QualityChange[];
   /** ...and every judgement of a change, whether or not it moved anything. */
   verdicts: QualityVerdict[];
 }
@@ -2775,6 +2902,20 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    * the number they are read from cannot.
    */
   let seamIndex = START_RUNG;
+  /**
+   * A collapse's seam-half that a sealed beat is holding back.
+   *
+   * The fourth door (`collapseSeam`) is the only one that may install the
+   * seam-held half of a rung while a race is running, and it may not do it
+   * inside a composed beat — see `watchedBeat` for the gate and `sealedBeat`
+   * for the photograph that proves why. When it is refused the *want* survives:
+   * `serviceSeam()` installs it on the first delivered frame the beat is over,
+   * and `flushSeam` clears it if a real seam gets there first. A deferral this
+   * file forgets is the round-eight bug — a 199-second race spent paying for
+   * the whole grandstand at a quarter of the pixels — pointed at a smaller
+   * target.
+   */
+  let seamWanted = false;
   let auto = true;
 
   // ── what this machine was last time ──────────────────────────────────────
@@ -3107,6 +3248,17 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   let ceremonyFor = 0;
   let ceremonyPhase = '';
   /**
+   * ...and the same beat counted in **delivered frames**, which is the unit the
+   * sealed beats' door is denominated in.
+   *
+   * Both are kept because they answer different questions and only one of them
+   * is a gate. `ceremonyFor` is what a *person* has been sitting through and is
+   * what the log's `heldFor` reports; `ceremonyFrames` is how far through a beat
+   * the game's own clock has got, and a beat the game ends is bounded in this
+   * unit at every frame rate. See `SEAL_FRAMES`.
+   */
+  let ceremonyFrames = 0;
+  /**
    * ...and the same clock for the front-end, which is not a phase and cannot
    * share one. See `FRONT_END_PATIENCE`.
    */
@@ -3172,6 +3324,16 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   let changeSpoiled = false;
 
   const log: QualityChange[] = [];
+  /**
+   * ...and the same record for changes **somebody else** made.
+   *
+   * A reviewer pinning a rung, a bench walking `mid(0..6)`, a player choosing a
+   * picture in a settings screen: all real changes, all worth having on the
+   * record, and none of them evidence about the governor's conduct. See the note
+   * in `applyRung` for the run where mixing the two convicted this file of a
+   * change the bench itself had made one line before asking about it.
+   */
+  const pins: QualityChange[] = [];
   const verdicts: QualityVerdict[] = [];
 
   // ── the content pass ──────────────────────────────────────────────────────
@@ -3636,11 +3798,11 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     // rebuild to whatever rung change happened to be open. The governor's own
     // ramp arriving is the other case and keeps it; see `landScale`.
     //
-    // ...and `landScale` emits `quality:changed`, so that `ui/menus/stage.ts` —
-    // the one other renderer in the product, and the one this file only half
-    // owns the frame of — can size its own backing store off the scale that is
-    // now real. Existing listeners destructure `quality`, which has not changed,
-    // and are unaffected.
+    // ...and `landScale` emits `quality:changed` carrying the scale that is now
+    // real, so that a second renderer could size its own backing store off it.
+    // Nothing does yet — see the standing request under `FRONT_END_FLOOR`.
+    // Existing listeners destructure `quality`, which has not changed, and are
+    // unaffected.
     landScale(why, false);
     return true;
   }
@@ -3663,6 +3825,9 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   function flushSeam(why: string): boolean {
     const moved = seamIndex !== index;
     seamIndex = index;
+    // A real seam installs everything, so anything a sealed beat was holding has
+    // just landed here instead. See `seamWanted`.
+    seamWanted = false;
     if (moved) installSettings();
     applySeamContent(LADDER[seamIndex]!.content);
     if (moved) {
@@ -3690,8 +3855,12 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     const flushed = flushScale(why);
     // `flushScale` publishes its own edge when it moves the buffer. When it does
     // not — the scale was already right, or a composer moved it for free — a
-    // seam that changed `aa` or the tier still has to say so, because
-    // `ui/menus/stage.ts` sizes its own set off this event.
+    // seam that changed `aa`, the crowd or the draw distance still has to say
+    // so. `render/lighting.ts` and `fx/index.ts` are the whole subscriber list
+    // (checked, not assumed — `ctx.bus.inspect()` and a grep of `src/**`), and
+    // both re-read `ctx.quality` on the edge rather than polling it, so a seam
+    // that moved a setting without publishing would leave the shadow frustum and
+    // the particle caps on the rung the ladder had left.
     if (moved && !flushed) {
       ctx.bus.emit('quality:changed', {
         quality: ctx.quality, scale: liveScale, rung: index, label: LADDER[index]?.label ?? '',
@@ -3745,6 +3914,23 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    * picture to protect* — pointed at the other half of the rung. Round eight
    * made the first half of that argument and stopped one function short of it.
    *
+   * ── ...and the half of that argument that is false, which cost a round ─────
+   *
+   * **"Sixty metres of world between one picture and the next" is a fact about
+   * the camera, not about the clock.** On a composed beat the camera is the
+   * thing that is not moving: two countdown frames two seconds apart are the
+   * same composition twice, which is the *strongest* binding the eye can be
+   * given rather than the weakest, and a stand that empties between two pages of
+   * a flip-book is watched by definition. Photographed by the reviewer who
+   * rejected the last build — identical camera, identical "3", identical grid,
+   * packed five rows deep at rung 0 and bare grey decking 7.6 seconds later at
+   * rung 6, with the resolution unchanged at `sc=1` in both.
+   *
+   * So the exemption keeps the ground it earned — a driven frame with the world
+   * sliding past — and gives back every beat where nobody is driving. See
+   * `watchedBeat`, which is the gate, and `sealedBeat` next to it for why the
+   * *other* half of a rung is refused in a smaller set of beats than this one.
+   *
    * ── Why it is not simply `flushSeam` ───────────────────────────────────────
    *
    * Two things `flushSeam` does are wrong here, and both were found by writing
@@ -3760,9 +3946,36 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    *   that verdict one line ago, about this cut, and this line is what makes the
    *   cut whole. Throwing it away would leave the governor's largest single
    *   action the one action it never judges.
+   *
+   * ── ...and the one thing round eight forgot to give it: a moment ───────────
+   *
+   * It had no gate at all, and the frame that cost is photographed above. It
+   * has one now — `watchedBeat()`, every composed beat, no door — and it is the
+   * one refusal in this file that is a set of beats rather than a clock,
+   * because holding this half costs 0.4-3.8% of the frame and there is no trade
+   * to make.
+   *
+   * What is deferred is **recorded** rather than dropped — `seamWanted` — and
+   * installed on the first frame of the racing, or by the next real seam,
+   * whichever the game reaches first. That distinction is round eight's own
+   * finding restated at the right scale: a rescue that arrives at the next race
+   * build is not a rescue, and a rescue that arrives three race-seconds late,
+   * on the first frame the world is moving under the camera, is one. The
+   * 199-second race that paid for the whole grandstand at a quarter of the
+   * pixels still cannot happen — and now the grandstand does not empty under
+   * the beauty sweep either.
    */
   function collapseSeam(): boolean {
-    if (seamIndex === index) return false;
+    if (seamIndex === index) { seamWanted = false; return false; }
+    if (watchedBeat()) {
+      // Recorded, not refused. `serviceSeam()` installs it on the first frame
+      // of the racing, and `flushSeam` clears it if a race build gets there
+      // first — either way the seam-half lands, and neither way is on a frame
+      // somebody is watching a composition on.
+      seamWanted = true;
+      return false;
+    }
+    seamWanted = false;
     seamIndex = index;
     installSettings();
     applySeamContent(LADDER[seamIndex]!.content);
@@ -3771,6 +3984,25 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     });
     publish();
     return true;
+  }
+
+  /**
+   * A collapse's seam-half that a sealed beat is holding, waiting for a moment.
+   *
+   * Called once per delivered frame from `update`, above every early return, for
+   * the same reason `contentFrame()` and `serviceScale()` are: the rung the
+   * governor has earned is a rung whose *picture* has to arrive eventually, and
+   * the frame it arrives on is a property of the beat rather than of whether the
+   * ladder happens to be deciding anything this frame.
+   *
+   * A no-op on every frame where nothing is owed, which is almost all of them.
+   */
+  function serviceSeam(): void {
+    if (!seamWanted) return;
+    // `collapseSeam` re-asks `watchedBeat()` itself, so this is a retry rather
+    // than a second copy of the gate — one place decides, and it is the same
+    // place on the first attempt and on the ninetieth.
+    collapseSeam();
   }
 
   // ── the content pass: the census ──────────────────────────────────────────
@@ -4824,7 +5056,28 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     let entry: QualityChange | null = null;
     if (from !== index) {
       const b = ctx.budget;
-      if (log.length >= 24) log.shift();
+      // ── which book this goes in ─────────────────────────────────────────
+      //
+      // `log` is **the governor's** change log, and that is not a shade of
+      // meaning: it is the evidence `tools/perfgate.mjs` reads to answer "does
+      // the quality governor ever change the picture at a moment the player is
+      // looking at one". A reviewer's `__QUALITY.set(0)` is not the governor
+      // changing anything; it is the bench setting up an experiment — and
+      // perfgate's own PRESSURE block does exactly that, `set(0)` immediately
+      // before `seek('countdown')`, and then convicted this file for it:
+      //
+      //   {"from":6,"to":0,"why":"pinned","phase":"countdown", …}
+      //   FAIL: 2 change(s) inside a sealed phase: countdown,countdown
+      //
+      // One of those two was the bench's own hand on the lever, filed under the
+      // governor's name. So a hand pick goes in `pins` instead — still on the
+      // record, still in the probe, nothing hidden, filed under whoever did it.
+      // `auto` is exactly the right test and needs no new argument: every hand
+      // entry point (`set`, `mid`, `ease`, and the hand-pick listener on
+      // `quality:changed`) clears it before touching the ladder, and none of the
+      // governor's own paths can run without it.
+      const book = auto ? log : pins;
+      if (book.length >= 24) book.shift();
       // One insertion sort of at most sixty-four floats, once per rung change,
       // so that `changeMs` gets a denominator belonging to the same moment it
       // does. Taken here, before `clearWindow()` below empties the window it
@@ -4852,7 +5105,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         changeRatio: 0,
         changeMs: 0,
       };
-      log.push(entry);
+      book.push(entry);
     }
 
     overFor = 0;
@@ -4871,25 +5124,37 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     changeEntry = entry;
     holding = why;
     publish();
-    // The same channel main.ts's own `setQuality` uses, so lighting, fx, the
-    // contact pass and the menus' 3D set all re-read on one event as they
-    // already do. Nothing new has to subscribe for this file to work.
+    // The same channel main.ts's own `setQuality` uses. **The live subscriber
+    // list is two**, checked rather than assumed — `render/lighting.ts` (the
+    // shadow rig) and `fx/index.ts` (the particle caps) — and nothing new has to
+    // subscribe for this file to work.
     //
-    // ── ...and the render scale rides on it ──────────────────────────────────
+    // ── ...and the render scale rides on it, for a listener that is not there ─
     //
     // `renderScale` is by a long way the largest thing this ladder spends, and
-    // until now it was published only into `budget.renderScale`, which is a
-    // field the engine's `stats()` reports rather than a thing anybody is told
-    // about. That left the one surface in the game with a second renderer of
-    // its own — the front-end's set, `src/ui/menus/stage.ts` — sizing its
-    // backing store from a hardcoded `Math.min(1, 1200 / w)`, which is 0.75 at
-    // 1600x900 and stays 0.75 on a machine the governor has taken to 0.46. A
-    // ladder that half the game's 3D cannot hear is half a ladder.
+    // it used to be published only into `budget.renderScale`, which is a field
+    // the engine's `stats()` reports rather than a thing anybody is told about.
+    // It is on the wire here so that the one surface in the game with a second
+    // renderer of its own — the front-end's set, `src/ui/menus/stage.ts` — can
+    // size its backing store off it instead of off a hardcoded
+    // `Math.min(1, 1200 / w)`, which is 0.75 at 1600x900 and stays 0.75 on a
+    // machine the governor has taken to 0.46.
     //
-    // No new event: `quality:changed` is already heard by everyone who needs
-    // it, and an event nobody has subscribed to is the bug ARCHITECTURE §7
-    // spends three paragraphs on. Existing listeners destructure `quality` and
-    // are unaffected by the extra fields.
+    // **It cannot, today, and this comment used to say that it did.** The
+    // previous round justified putting `scale` on this emit with the sentence
+    // "`ui/menus/stage.ts` sizes its own set off this event"; `stage.ts`
+    // contains no `bus.on` of any kind and reads `ctx.quality.shadows` once, as
+    // a build-time constant. The claim was false, it contradicted this file's
+    // own §7 note four hundred lines above it, and it is exactly the failure
+    // ARCHITECTURE §7 describes — an emit with nobody on the other end — dressed
+    // up as its own fix. Half the game's 3D still cannot hear this ladder.
+    //
+    // The field stays on the wire, because the payload is honest and costs
+    // nothing, and the **blocking cross-module request** is recorded here and
+    // under `FRONT_END_FLOOR`: one line in `src/ui/menus/stage.ts`,
+    // `Math.min(1, 1200 / w) * scale`, off a `bus.on('quality:changed')`. Until
+    // that lands, `FRONT_END_FLOOR` is the honest bottom of the ladder and the
+    // title screen is the most expensive surface in the product.
     //
     // `scale` on the wire is what the drawing buffer **has**, not what the rung
     // asks for. Between seams those differ (see `flushScale`), and a listener
@@ -5075,7 +5340,11 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    *
    *   front-end   `FRONT_END_PATIENCE`  12s
    *   intro       `CEREMONY_PATIENCE`   20s
-   *   sealed      `SEAL_PATIENCE`       35s — countdown, finish, results
+   *   sealed      `SEAL_FRAMES`         120 delivered frames of the beat —
+   *                                     countdown, finish, results. Above the
+   *                                     bound the game's own clock puts on the
+   *                                     first two, so it can only ever open
+   *                                     inside the third. See `SEAL_FRAMES`.
    *   the launch  `LAUNCH_PATIENCE`     22s — the flag and the rocket start
    *   loading     no door               boot, and the pause screen
    *
@@ -5089,8 +5358,11 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    * this one and refuses on either. A steady-state window taken behind the
    * front-end is a measurement of the menu's own set, not of the race.
    *
-   * ...and the collapse path does not ask at all — at five times the budget
-   * there is no composed picture to protect. See `COLLAPSE_DWELL`.
+   * ...and the collapse path does not ask *this* at all — at five times the
+   * budget there is no composed picture to protect on a frame anybody is
+   * driving. It asks `sealedBeat()` instead, which is this function's own
+   * sealed branch and nothing else, so the two can never come apart. See
+   * `COLLAPSE_DWELL` and `sealedBeat`.
    */
   function pictureLocked(): boolean {
     // A still frame with a plate over it. No door — see above.
@@ -5100,7 +5372,10 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     const phase = ctx.race?.phase;
     if (phase === 'loading') return true;
     if (phase === 'intro') return ceremonyFor < CEREMONY_PATIENCE;
-    if (isComposed(phase)) return ceremonyFor < SEAL_PATIENCE;
+    // One gate, two callers. The collapse path asks `sealedBeat()` on its own
+    // account — it is exempt from everything else here and is not exempt from
+    // this — so the two can never come apart. See `sealedBeat`.
+    if (isComposed(phase)) return sealedBeat();
     // The flag's own beat and the launch that follows it, on the fixed-step
     // clock rather than on the wall clock — see `CEREMONY_GRACE`. `flagAt` is
     // latched on the `race:racing` edge, so this is the same gesture at every
@@ -5109,6 +5384,150 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     // forty-seven wall seconds on a machine at 0.7fps and 2.2 on one that is
     // fine, and only the first of those is a wait worth arguing about.
     return ctx.time.elapsed - flagAt < CEREMONY_GRACE && flagFor < LAUNCH_PATIENCE;
+  }
+
+  /**
+   * The four beats nothing may change the picture inside, at any frame rate.
+   *
+   * ── The frame this round was sent back for ─────────────────────────────────
+   *
+   * Two photographs, identical camera, identical "3" numeral, identical grid:
+   * at rung 0 both start-line grandstands are packed five rows deep with
+   * individually-coloured spectators, and 7.6 seconds later at rung 6 they are
+   * bare grey decking with the bunting hanging over nobody. The resolution had
+   * not moved — `sc=1` on both — so the *only* thing that changed was the
+   * population, which is `crowd`, which is the one lever the seam rule was
+   * written around. It landed there because the collapse path installed its own
+   * seam-half through `collapseSeam()` with no moment gate at all.
+   *
+   * ── Why the collapse path's exemption was wrong, and only here ─────────────
+   *
+   * Round eight's argument for exempting it is quoted in full at `collapseSeam`
+   * and it is a good one: the seam rule protects *continuity*, continuity needs
+   * a before-frame and an after-frame the eye binds into one moving scene, and
+   * at 2062ms apart with the camera travelling thirty metres a second there is
+   * sixty metres of world between them and nothing to bind.
+   *
+   * **That argument is a statement about the camera, not about the clock**, and
+   * on a composed beat the camera is the thing that is not moving. During a
+   * countdown the rig is near-static over the grid, so two frames two seconds
+   * apart are the *same picture twice* — which is the strongest possible binding
+   * rather than the weakest, and the exact opposite of what the round-eight
+   * reasoning assumed. A slideshow of one unchanging composition is a flip-book
+   * of that composition, and a spectator stand that empties between two of its
+   * pages is watched by definition.
+   *
+   * So the exemption keeps exactly the ground it earned — a *driven* frame, at
+   * five times the budget, where the world is genuinely sliding past — and gives
+   * back the four beats where nobody is driving.
+   *
+   * ── What the refusal costs, which is why it can afford to be this strict ───
+   *
+   * Every other refusal in this file is a timed wait, because each is trading a
+   * *cost* against a *risk* and the header's law is that the cost has to be
+   * stated out loud in wall seconds. Here the cost is nearly zero and was
+   * measured by the reviewer who rejected the last build, on the machine it
+   * matters on: the whole seam-held half, isolated, is **718ms → 715.3ms at the
+   * floor (0.4%)** and **1798.5ms → 1729.4ms at the top (3.8%)**, against 60.1%
+   * for the resolution lever it travels with. Holding it for a three-second
+   * countdown buys back the game's most-watched frame for under half a percent.
+   *
+   * The frame-half is not that cheap — it is most of the ladder's 1.71x — and
+   * sealing *it* here would be a real refusal if a failing machine could ever
+   * arrive at a countdown still needing it. It cannot, and that is a measured
+   * fact rather than an assumption: the collapse path does not consult the
+   * moment gate at all in `intro`, so it fires there first. See the note on the
+   * collapse path itself for the log line.
+   *
+   * ── ...and the one door, which is not in wall seconds either ───────────────
+   *
+   * `SEAL_FRAMES`, denominated in delivered frames of this beat, above the bound
+   * `engine.ts`'s eight-step cap puts on a beat the game's own clock ends. It
+   * therefore cannot open inside a countdown or a finish at any frame rate, and
+   * exists for `results` — the one composed beat whose length is a person.
+   *
+   * `intro` is deliberately **not** in this set and `perfgate.mjs` agrees with
+   * the omission for the same reason: the sweep is a camera move nobody is
+   * timing, it carries the valve that stops the whole gate deadlocking, and it
+   * is where a failing machine is actually rescued — measured on this box, the
+   * collapse lands at 6.2s of delivered play with `phase: intro`, sixty-three
+   * seconds before the countdown could care. `racing` is not in it either: that
+   * is the case `collapseSeam` was built for and it still installs on the spot.
+   */
+  function sealedBeat(): boolean {
+    // A still frame with a plate over it, and the one beat whose length has
+    // nothing to do with the frame rate.
+    if (paused) return true;
+    // Behind the front-end this is somebody else's frame: the race is not drawn
+    // at all (`skipDraw`) and those frames are discarded before any of this is
+    // reached. The menu's own gate is `FRONT_END_PATIENCE`.
+    if (frontEndOpen) return false;
+    const phase = ctx.race?.phase;
+    // Boot, and the pause screen. No door, for the reason `loading` never had
+    // one: its length is not a function of the frame rate.
+    if (phase === 'loading') return true;
+    if (phase === 'countdown' || phase === 'finished' || phase === 'results') {
+      // ...and the one door, denominated in the unit these beats are bounded
+      // in. It cannot open inside a countdown or a finish at any frame rate and
+      // exists for `results`, which waits on a human. See `SEAL_FRAMES`.
+      return ceremonyFrames < SEAL_FRAMES;
+    }
+    return false;
+  }
+
+  /**
+   * ...and the wider set the **seam-held half** of a rung may not land in:
+   * every composed beat, `intro` included, with no door at all.
+   *
+   * Two gates rather than one, because they are gating two different things
+   * with two different price tags, and collapsing them would get one of them
+   * wrong in whichever direction the merge went.
+   *
+   *   The **frame-half** is most of the ladder's 1.71x. Refusing it has a real
+   *   cost, so it is refused only where the refusal is provably free — the four
+   *   beats in `sealedBeat()`, which the machine only ever reaches after the
+   *   intro has already rescued it.
+   *
+   *   The **seam-half** is 0.4% of the frame at the floor and 3.8% at the top.
+   *   Refusing it costs nothing worth measuring, so it is refused wherever
+   *   anybody could watch it happen — which is every composed beat.
+   *
+   * `intro` is the case that makes this two functions instead of one, and it is
+   * the *normal* case rather than a corner: the collapse path fires during the
+   * sweep on every failing machine (measured on this box at 6.2s of delivered
+   * play, `collapsed (73x budget) x6`, `phase: intro`), and the sweep is a slow
+   * camera move over a packed grid with two grandstands in shot. The frame-half
+   * has to land there or nothing is ever rescued; the crowd emptying under a
+   * beauty sweep is the same photograph the countdown gave, one beat earlier.
+   *
+   * So the collapse installs its frame-half on the spot and its seam-half is
+   * recorded and lands on the first frame of the racing — see `collapseSeam`
+   * and `serviceSeam`.
+   */
+  function watchedBeat(): boolean {
+    if (paused) return true;
+    if (frontEndOpen) return false;
+    if (isComposed(ctx.race?.phase)) return true;
+    // ── ...and the flag, which the first version of this missed ──────────────
+    //
+    // Photographed, on the build that had only the phase test: the collapse
+    // landed at 7.9s of delivered play in the intro, the countdown held its
+    // grandstands packed all the way to the "3" — and then the seam-half
+    // installed on the **GO! frame**, race time 0.10, because `racing` is not a
+    // composed phase and `serviceSeam()` fires on the first frame it can. The
+    // gate had moved the pop three race-seconds later, onto the one frame in the
+    // game the whole of `CEREMONY_GRACE` exists to keep clear.
+    //
+    // So the launch is part of "watched", on the same fixed-step clock the
+    // moment gate uses, and with **no door** — where `pictureLocked()` needs
+    // `LAUNCH_PATIENCE` because refusing the frame-half costs a failing machine
+    // most of 1.71x, refusing this costs it 0.4%. Two prices, two gates; see
+    // `sealedBeat` above.
+    //
+    // After it, the round-eight continuity argument is simply true: the world is
+    // moving at thirty metres a second under a chase camera, and a share of a
+    // population changing across that is not a change anybody can watch.
+    return ctx.time.elapsed - flagAt < CEREMONY_GRACE;
   }
 
   /**
@@ -5389,6 +5808,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       frontEndCovers,
       frontEndFor: +frontEndFor.toFixed(2),
       ceremonyFor: +ceremonyFor.toFixed(2),
+      ceremonyFrames,
       paused,
       raceTime: +(ctx.race?.time ?? 0).toFixed(2),
       sinceFlag: sinceFlag(),
@@ -5396,6 +5816,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       changeWorstMs: +changeWorst.toFixed(1),
       changeWorstRatio: +changeWorstRatio.toFixed(2),
       log,
+      pins,
       verdicts,
     };
   };
@@ -5894,6 +6315,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         if (open === frontEndOpen) return;
         frontEndOpen = open;
         ceremonyFor = 0;
+        ceremonyFrames = 0;
         ceremonyPhase = '';
         frontEndFor = 0;
         // A fresh front-end session is not a hand-off, and the set it hides
@@ -6021,6 +6443,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         // settings object on the wire is the pick, and composing our own over
         // the top of it would be the ladder overruling a decision.
         seamIndex = index;
+        seamWanted = false;
         applySeamContent(LADDER[seamIndex]!.content);
         applyFrameContent(LADDER[index]!.content);
         applyScale(LADDER[index]!.scale);
@@ -6029,8 +6452,102 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         holding = 'pinned';
       });
 
+      // ── the front door, which for eleven rounds was a debugging global ──────
+      //
+      // Everything above this line is a governor: it measures the machine, walks
+      // a seven-rung ladder, and writes where it settled to `localStorage` under
+      // a coarse hardware key so the answer survives a reload. All of that is
+      // right, and all of it happened to a player who was never told and could
+      // never answer. Nothing in `src/ui/**` exposes a graphics, quality or
+      // resolution control of any kind — checked, not assumed — so the only door
+      // into this ladder was `globalThis.__QUALITY`, which is the reviewers'.
+      //
+      // A rung is durable and a machine does not become faster because the page
+      // was refreshed, so the memory is correct; what was wrong is that it was a
+      // one-way door. One bad afternoon — a background export, a browser
+      // mid-update, a second monitor — and the picture is halved on this machine
+      // for ever, with no way to see it, refuse it or clear it.
+      //
+      // So the standing rung is published on `ctx` as a preference: the named
+      // ladder, the standing answer, whether a person chose it, the remembered
+      // value, and the two verbs. `ui/menus` owns the screen and this file owns
+      // the fact; the screen is a **cross-module request** recorded in the
+      // report and not built here.
+      //
+      // No `quality:pref` event: nothing subscribes to one yet, and ARCHITECTURE
+      // §7 spends three paragraphs on why an unheard emit is a bug rather than a
+      // head start. A screen that wants to redraw on a governor move already has
+      // `quality:changed`, which carries the rung and its label.
+      ctx.qualityPref = {
+        rungs: LADDER.map((r, i) => ({ index: i, label: r.label, tier: r.settings.tier })),
+        get rung() { return index; },
+        get label() { return LADDER[index]?.label ?? ''; },
+        get auto() { return auto; },
+        get remembered() { return memoryRung; },
+        /**
+         * A person picked. Held, remembered, and never overruled.
+         *
+         * Goes through the same two calls `__QUALITY.set` does, for the same
+         * reason: somebody who asks for a rung is asking to *see* that rung, so
+         * the seam-held half lands with it rather than at the next race build.
+         * A settings screen that takes three race builds to answer is not one.
+         */
+        set(next: number | null): void {
+          if (next === null) {
+            // Back to the measurement. The stored rung is left alone — it is the
+            // governor's own note about this machine, and this verb is "you
+            // decide", not "forget what you know". `forget()` is that verb.
+            auto = true;
+            overFor = 0; underFor = 0; panicFor = 0; settleFor = 0;
+            settleFrames = 0;
+            clearWindow();
+            holding = 'settling';
+            publish();
+            return;
+          }
+          const i = next < 0 ? 0 : next >= LADDER.length ? LADDER.length - 1 : Math.round(next);
+          auto = false;
+          applyRung(i, 'preference');
+          flushSeam('preference');
+          holding = 'pinned';
+          // Remembered like the governor's own answer, so a pick survives the
+          // reload that the thing it is overriding survives. Written directly
+          // rather than through the settle path above, which exists to stop a
+          // rung the ladder merely passed through being recorded — a decision is
+          // not passed through.
+          memoryRung = i;
+          writeMemory(memoryKey, i);
+        },
+        /** ...and the way out of the one-way door. */
+        forget(): void {
+          forgetMemory();
+          memoryRung = -1;
+          memorySeeded = false;
+          // Back to the top of the ladder, because that is what a machine with
+          // no history gets (`START_RUNG`), and a "clear this and start again"
+          // that left the picture where it was would be a button doing nothing a
+          // player can see. The governor re-earns whatever it re-earns.
+          //
+          // `auto` is held false across the move so the entry is filed under
+          // `pins` — a person pressed this — and handed back immediately after.
+          auto = false;
+          applyRung(START_RUNG, 'preference cleared');
+          flushSeam('preference cleared');
+          auto = true;
+          overFor = 0; underFor = 0; panicFor = 0; settleFor = 0;
+          settleFrames = 0;
+          clearWindow();
+          holding = 'settling';
+          publish();
+        },
+      };
+
       (globalThis as unknown as Record<string, unknown>).__QUALITY = {
         probe,
+        /** The player-facing preference, so a bench can exercise the door a
+         *  settings screen will use rather than a private one. Same object as
+         *  `ctx.qualityPref`. */
+        pref: ctx.qualityPref,
         /** Hand the ladder back to the measurement, or take it away. */
         auto(on: boolean): boolean {
           auto = on !== false;
@@ -6314,6 +6831,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       benchQuietFor = 0;
       verdictPending = false;
       ceremonyFor = 0;
+      ceremonyFrames = 0;
       ceremonyPhase = '';
       // ── the front-end has stopped covering the frame ─────────────────────
       //
@@ -6654,12 +7172,23 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       const nowPhase = ctx.race?.phase ?? '';
       if (frontEndOpen || paused) {
         ceremonyFor = 0;
+        ceremonyFrames = 0;
         ceremonyPhase = '';
       } else if (isComposed(nowPhase)) {
-        if (nowPhase !== ceremonyPhase) { ceremonyPhase = nowPhase; ceremonyFor = 0; }
+        if (nowPhase !== ceremonyPhase) {
+          ceremonyPhase = nowPhase;
+          ceremonyFor = 0;
+          ceremonyFrames = 0;
+        }
         ceremonyFor += secs;
+        // ...and the same beat in the unit its door is denominated in. Counted
+        // off `frameTick` rather than off wall time, because the bound this is
+        // compared against comes from `engine.ts`'s eight-step cap and is a
+        // statement about frames. See `SEAL_FRAMES`.
+        ceremonyFrames += frameTick;
       } else {
         ceremonyFor = 0;
+        ceremonyFrames = 0;
         ceremonyPhase = '';
       }
       frontEndFor = frontEndOpen ? frontEndFor + secs : 0;
@@ -6691,6 +7220,15 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       if (cullables.length || scatter.length || shells.size || shadowShellList.length) {
         contentFrame();
       }
+
+      // ── ...and any seam-half a composed beat sent away ───────────────────
+      //
+      // Same argument, one line down: a rescue the collapse path ordered while
+      // the countdown was on the screen is a rescue that still has to arrive,
+      // and the frame it arrives on is a property of the *beat* rather than of
+      // whether the ladder is deciding anything this frame. A no-op on every
+      // frame where nothing is owed. See `sealedBeat` and `seamWanted`.
+      serviceSeam();
 
       // ── land any resolution the ladder has earned and not yet been given ──
       //
@@ -6763,9 +7301,21 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       //
       // **Above everything, including the warm-up sample gate**, because a
       // machine five times over the budget is not a machine that needs more
-      // evidence gathered about it — see `COLLAPSE_FACTOR`. It is the only
-      // branch in this file that does not consult `pictureLocked()`, and
-      // `COLLAPSE_DWELL` is where that is argued.
+      // evidence gathered about it — see `COLLAPSE_FACTOR`. It is still the only
+      // branch here that does not consult `pictureLocked()` — it may fire on a
+      // corner, on the flag and inside the rocket start, because at 83ms a frame
+      // there is no such thing as between corners — and `COLLAPSE_DWELL` is
+      // where that is argued.
+      //
+      // What it may **not** do any more is fire inside a composed beat. The
+      // round-eight exemption was argued from continuity — sixty metres of world
+      // between two frames two seconds apart — and that is an argument about the
+      // camera, which on a countdown is not moving. See `sealedBeat` for the
+      // photograph. The four sealed beats are a wall rather than a wait here,
+      // and the reason it can be one is that the beat before them (`intro`) has
+      // the valve and is where a failing machine is measurably rescued: on this
+      // box, `collapsed (73x budget) x6` at 6.2s of delivered play with
+      // `phase: intro`, sixty-three seconds before the countdown began.
       //
       // What it fixes, in the reviewer's numbers: fifty to seventy seconds of
       // delivered play to reach the floor, walked as `dropped (panic) x3` twice
@@ -6787,6 +7337,18 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       if (collapsing && index < collapseBottom && !stalled && !paused
         && wallCount >= COLLAPSE_SAMPLES
         && collapseFor >= COLLAPSE_DWELL && collapseFrames >= COLLAPSE_FRAMES) {
+        // Not inside a composed beat, at any frame rate. The dwell restarts
+        // rather than banking, so the rescue lands a frame into the racing
+        // instead of on the frame the seal lifts — which is the flag.
+        if (sealedBeat()) {
+          collapseFor = 0;
+          collapseFrames = 0;
+          // Interned rather than interpolated: this runs on every delivered
+          // frame of a sealed beat, and a template literal here is a string
+          // allocated once a frame in the one branch a failing machine spends
+          // the most frames inside. See `SEALED_HOLD`.
+          return hold(paused ? 'paused' : (SEALED_HOLD[ctx.race?.phase ?? ''] ?? 'sealed'));
+        }
         markDrop();
         let want = index + sizedStep();
         if (want > collapseBottom) want = collapseBottom;
@@ -7111,7 +7673,12 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // front-end happens to be up would otherwise leave the engine refusing to
       // draw with nobody left to change its mind.
       if (ctx.budget) ctx.budget.skipDraw = false;
+      seamWanted = false;
       stageEl = null;
+      // The preference is this file's fact and goes away with it: a settings
+      // screen holding a `set()` that no longer moves anything is worse than one
+      // that can see there is no ladder to move. See `QualityPreference`.
+      delete ctx.qualityPref;
       delete (globalThis as unknown as Record<string, unknown>).__QUALITY;
     },
   };

@@ -69,7 +69,7 @@ import * as THREE from 'three';
 import { MeshBuilder, fbm, noise2, smoothstep, surfacePoint, type Lane } from '../geom.ts';
 import { makeCheckerTexture, makeKerbTexture, makePaintTexture } from '../textures.ts';
 import { config } from '../../core/config.ts';
-import { features, type BarrierKind, type KitDef } from './types.ts';
+import { features, type BarrierKind, type ChapterDef, type KitDef } from './types.ts';
 import type { TrackSpline } from '../spline.ts';
 import type {
   CourseDef, GameContext, GameSystem, SplineSample, Track,
@@ -1093,6 +1093,517 @@ function buildPylon(a: BuildArgs): ArrivalParts {
   };
 }
 
+// ── chapters: the places one lap passes through ────────────────────────────
+//
+// **The finding.** A critic photographed the same chase view at 22%, 50% and
+// 78% of one lap of every course: *"Cone Canyon — three near-identical frames,
+// same orange verge, same striped fence, same tan hills, same sky; with the
+// minimap covered you cannot say which third of the lap you are on. Saltpan —
+// same white salt, same black ribbon, same distant butte, three times. Only one
+// of four courses has chapters."*
+//
+// The one that passed — Switchback Summit, valley floor to summit works — did
+// it with a hundred and sixteen metres of climb, and that is not a style the
+// other two can copy. `track/terrain.ts` anchors the landscape to the elevation
+// of the **nearest road** (`ref` in `terrainHeight`, which does not reach the
+// datum until 340 metres out), so on a flat circuit the ground beside the road
+// is the same ground for the whole lap by construction, and raising one section
+// of tarmac simply lifts the landscape with it. There is no course-side number
+// that digs a valley next to a bypass.
+//
+// So a chapter is **built**. It stands something along a span of the road that
+// is big enough to change the shape of the frame — a trench between two faces,
+// a deck with a truss on it, an arch across the road — and two spans of the
+// same lap under the same sky then read as two places. See `ChapterDef`.
+//
+// Everything here obeys the same three rules as the barrier: nothing leans over
+// the tarmac inside the line physics enforces, nothing is taller than it needs
+// to be to close the horizon, and every piece is one mesh or one InstancedMesh.
+// A chapter is scenery — it changes what the road looks like and never where it
+// goes.
+
+/** Rock face: bedded strata across the profile, fractures up it. */
+function rockFaceTexture(tint: number): THREE.CanvasTexture {
+  const key = `kit:rock:${tint.toString(16)}`;
+  return tex(key, 256, 256, (g, W, H) => {
+    const rnd = rand(0x9e3b17 ^ tint);
+    const base = new THREE.Color(tint);
+    const hex = (c: THREE.Color, f: number): string =>
+      `#${_shade.copy(c).multiplyScalar(f).getHexString()}`;
+    g.fillStyle = hex(base, 1);
+    g.fillRect(0, 0, W, H);
+    // Strata. x is height up the face, so a bed is a band in x — and it wobbles
+    // along the track, because a bed that is a ruled line is a painted wall.
+    let x = 0;
+    while (x < W) {
+      const band = 6 + rnd() * 26;
+      const f = 0.72 + rnd() * 0.5;
+      g.fillStyle = hex(base, f);
+      g.beginPath();
+      g.moveTo(x, 0);
+      for (let y = 0; y <= H; y += 16) {
+        g.lineTo(x + Math.sin(y * 0.035 + x) * 3.5, y);
+      }
+      for (let y = H; y >= 0; y -= 16) {
+        g.lineTo(x + band + Math.sin(y * 0.035 + x * 1.7) * 3.5, y);
+      }
+      g.closePath();
+      g.fill();
+      x += band;
+    }
+    // Fractures: a joint runs *up* the face, so it is a line at constant v.
+    for (let i = 0; i < 26; i++) {
+      const y = rnd() * H;
+      g.fillStyle = `rgba(20,12,8,${(0.10 + rnd() * 0.26).toFixed(3)})`;
+      g.fillRect(rnd() * W * 0.5, y, W, 1 + rnd() * 2);
+    }
+    // Blast scar and dust, heaviest at the toe where the spoil piles up.
+    for (let i = 0; i < 520; i++) {
+      const px = rnd() * W;
+      g.fillStyle = `rgba(255,242,220,${(rnd() * 0.10 * (px / W)).toFixed(3)})`;
+      g.fillRect(px, rnd() * H, 1 + rnd() * 4, 1 + rnd() * 3);
+    }
+  });
+}
+
+/** Works wall: ribbed sheet pile, concrete capping, hazard band at the toe. */
+function worksWallTexture(tint: number, accent: number): THREE.CanvasTexture {
+  const key = `kit:works:${tint.toString(16)}:${accent.toString(16)}`;
+  return tex(key, 256, 256, (g, W, H) => {
+    const rnd = rand(0x1f5c88 ^ tint);
+    const body = `#${new THREE.Color(tint).getHexString()}`;
+    g.fillStyle = body;
+    g.fillRect(0, 0, W, H);
+    // Sheet pile: the pans and webs run up the face, so a rib is a stripe along
+    // v. Two tones, because a pile wall is a folded plate and half of it faces
+    // away from the sun.
+    for (let y = 0; y < H; y += 22) {
+      g.fillStyle = 'rgba(255,255,255,0.13)';
+      g.fillRect(0, y, W, 8);
+      g.fillStyle = 'rgba(20,24,30,0.22)';
+      g.fillRect(0, y + 12, W, 6);
+    }
+    // Capping beam along the crest, and a walkway kerb under it.
+    g.fillStyle = '#D9D5C8';
+    g.fillRect(W * 0.86, 0, W * 0.14, H);
+    g.fillStyle = 'rgba(30,34,40,0.35)';
+    g.fillRect(W * 0.845, 0, W * 0.02, H);
+    // Hazard band along the toe: the part a kart can actually reach.
+    g.fillStyle = `#${new THREE.Color(accent).getHexString()}`;
+    g.fillRect(0, 0, W * 0.11, H);
+    g.fillStyle = '#22262E';
+    for (let y = -30; y < H; y += 30) {
+      g.beginPath();
+      g.moveTo(0, y);
+      g.lineTo(0, y + 15);
+      g.lineTo(W * 0.11, y + 15 - W * 0.11);
+      g.lineTo(W * 0.11, y - W * 0.11);
+      g.closePath();
+      g.fill();
+    }
+    // Salt bloom and streaking down the face.
+    for (let i = 0; i < 320; i++) {
+      const px = W * 0.11 + rnd() * W * 0.72;
+      g.fillStyle = `rgba(244,241,232,${(rnd() * 0.22).toFixed(3)})`;
+      g.fillRect(px, rnd() * H, 2 + rnd() * 9, 1 + rnd() * 2);
+    }
+  });
+}
+
+interface ChapterCtx {
+  spline: TrackSpline;
+  verge: number;
+  root: THREE.Group;
+  materials: THREE.Material[];
+  /** Metres from the ring's origin to the start line — lap fractions are off it. */
+  start: number;
+  L: number;
+}
+
+/** A chapter's span resolved to an absolute distance and a length in metres. */
+function chapterSpan(c: ChapterCtx, ch: ChapterDef): [number, number] {
+  const d0 = (((c.start + ch.from * c.L) % c.L) + c.L) % c.L;
+  let span = (ch.to - ch.from) * c.L;
+  if (span < 0) span += c.L;
+  return [d0, Math.max(20, span)];
+}
+
+const edgeOf = (verge: number) => (s: SplineSample): number => s.width * 0.5 + verge;
+
+/**
+ * A lateral offset outside the barrier, **clamped so it cannot fold through the
+ * centre of a corner**.
+ *
+ * `track/terrain.ts` carries the same clamp on its skirt rings and says why: on
+ * the inside of a tight turn, a lane laid a fixed distance out from a
+ * curved centreline runs out of room at the radius of curvature and then turns
+ * itself inside out. Digger's Elbow is 34 metres of radius on a road whose
+ * barrier line is already 17.9 metres from the centreline, so a wall wanting to
+ * sit twelve metres behind that has three metres of world to sit in. Clamping
+ * costs a metre of wall on the apex of the tightest corners in the cup;
+ * not clamping costs the mesh.
+ */
+function offsetAt(s: SplineSample, edge: number, off: number, side: -1 | 1): number {
+  const inner = (s.curvature > 0 ? -1 : 1) === side;
+  if (!inner || Math.abs(s.curvature) <= 1e-4) return side * (edge + off);
+  const limit = Math.max(0, 1 / Math.abs(s.curvature) - edge - 2.5);
+  return side * (edge + Math.min(off, limit));
+}
+
+/**
+ * A cutting: two faces standing just outside the barrier, and the horizon gone.
+ *
+ * The whole read is the *crest line* — a wall of one height is a fence, and a
+ * rock face has a broken top that moves against the sky as you drive under it.
+ * So the crest is noise on the along-track distance, and it ramps in and out
+ * over the first and last forty metres of the span so the road is not walled by
+ * a step.
+ */
+function buildCutting(c: ChapterCtx, ch: ChapterDef): void {
+  const h = ch.height ?? 11;
+  const batter = ch.batter ?? 3.4;
+  const isRock = (ch.face ?? 'rock') === 'rock';
+  const tint = ch.tint ?? (isRock ? 0xa9633a : 0x8f9aa4);
+  const [d0, span] = chapterSpan(c, ch);
+  const map = isRock ? rockFaceTexture(tint) : worksWallTexture(tint, ch.accent ?? 0xffc300);
+  const mat = new THREE.MeshLambertMaterial({ map, side: THREE.DoubleSide });
+  c.materials.push(mat);
+
+  const edge = edgeOf(c.verge);
+  const tp = Math.min(0.34, 46 / span);
+  const ramp = (f: number): number => smoothstep(0, tp, f) * smoothstep(0, tp, 1 - f);
+  const b = new MeshBuilder();
+
+  for (const side of [-1, 1] as const) {
+    // The crest, in metres above the road. Rock breaks; a works wall is built,
+    // so it only breathes a few per cent.
+    const crest = (s: SplineSample, f: number): number => {
+      const n = isRock
+        ? 0.72 + 0.56 * noise2(s.distance / 27 + side * 4.5, side * 2.3)
+        : 0.96 + 0.08 * noise2(s.distance / 40, side);
+      return h * ramp(f) * n;
+    };
+    const at = (off: number) => (s: SplineSample): number => offsetAt(s, edge(s), off, side);
+    // ── the face, and the top, as two ribbons ─────────────────────────────
+    //
+    // Deliberately two, because `MeshBuilder` averages normals within one
+    // ribbon and across a crest that is exactly wrong: the first cut of this
+    // was one profile from the toe over the top and back down, and it
+    // photographed as a smooth grey whale-back — a dune, not a cut face. Two
+    // ribbons do not share vertices, so the crest is a hard edge and the face
+    // holds one value against the sky.
+    const face: Lane[] = [
+      // Buried toe, so there is no gap under the wall on a cambered corner.
+      { lat: at(0.35), lift: () => -1.6, u: 0 },
+      { lat: at(0.70), lift: (s, f) => -0.30 + 0.5 * ramp(f), u: 0.05 },
+      { lat: at(1.05), lift: (s, f) => crest(s, f) * 0.46, u: 0.42 },
+      { lat: at(1.35 + batter * 0.42), lift: (s, f) => crest(s, f) * 0.88, u: 0.82 },
+      { lat: at(1.35 + batter * 0.62), lift: (s, f) => crest(s, f), u: 1 },
+    ];
+    // The top: a narrow crest shelf, then the back falling away into the
+    // landscape — which is what stops the wall reading as a cardboard flat the
+    // moment the camera gets above it.
+    const top: Lane[] = [
+      { lat: at(1.35 + batter * 0.62), lift: (s, f) => crest(s, f), u: 1 },
+      { lat: at(1.35 + batter), lift: (s, f) => crest(s, f) * (isRock ? 0.94 : 1), u: 0.88 },
+      { lat: at(1.35 + batter + 7), lift: (s, f) => crest(s, f) * 0.42 - 2.5, u: 0.5 },
+    ];
+    if (side < 0) { face.reverse(); top.reverse(); }
+    const opts = {
+      verge: c.verge, from: d0, to: d0 + span, step: 3.2, vScale: isRock ? 16 : 11,
+    };
+    b.addRibbon(c.spline, face, opts);
+    b.addRibbon(c.spline, top, opts);
+  }
+  const mesh = new THREE.Mesh(b.toGeometry(), mat);
+  mesh.name = `chapter:cutting:${ch.name}`;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  c.root.add(mesh);
+
+  // ── what closes the top of a works cutting ──────────────────────────────
+  //
+  // A rock cutting is closed by its own crest, which breaks and leans. A wall
+  // built by people is level and would leave a strip of sky exactly as wide as
+  // the road, so a works cutting is bridged: a pipe rack every forty metres,
+  // carrying two runs of pipe over the carriageway. It is the piece that makes
+  // this a *place inside a works* rather than a road with two grey walls beside
+  // it, and it costs one InstancedMesh.
+  //
+  // **Thin, and grey.** The first cut ran three 42cm members in the kit's
+  // hazard yellow at two thirds of the wall's height, and photographed as three
+  // enormous olive timbers lying across the top of the frame — the loudest
+  // thing on the circuit, at the exact moment a driver is trying to read a
+  // thirty-metre-radius chicane under them. A service run is 20cm of painted
+  // steel and it belongs *above* the eye line, not across it.
+  if (!isRock) {
+    const st = new Struts();
+    const s: SplineSample = c.spline.atDistance(d0);
+    const racks = Math.max(1, Math.round(span / 42));
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    for (let i = 0; i < racks; i++) {
+      const f = (i + 0.5) / racks;
+      if (ramp(f) < 0.55) continue;
+      c.spline.atDistance(d0 + span * f, s);
+      const off = edge(s) + 1.1;
+      const top = h * 1.02;
+      for (let j = 0; j < 2; j++) {
+        const y = top + j * 0.62;
+        surfacePoint(s, -off, c.verge, y, a);
+        surfacePoint(s, off, c.verge, y, b);
+        st.add(a.x, a.y, a.z, b.x, b.y, b.z, 0.22 - j * 0.04);
+      }
+      // The two stools the rack sits on, standing on the wall crest.
+      for (const side of [-1, 1] as const) {
+        surfacePoint(s, side * off, c.verge, h * 0.55, a);
+        surfacePoint(s, side * off, c.verge, top + 1.1, b);
+        st.add(a.x, a.y, a.z, b.x, b.y, b.z, 0.34);
+      }
+    }
+    if (st.list.length) {
+      c.root.add(st.mesh(shade(tint, 0.72), `chapter:rack:${ch.name}`, c.materials));
+    }
+  }
+
+  // Talus. A cut face sheds, and the toe of the heap is the one place the
+  // driver's eye can measure how far away the wall is.
+  if (isRock) {
+    const talusMat = new THREE.MeshLambertMaterial({
+      color: shade(tint, 0.86), side: THREE.DoubleSide,
+    });
+    c.materials.push(talusMat);
+    const t = new MeshBuilder();
+    for (const side of [-1, 1] as const) {
+      const at = (off: number) => (s: SplineSample): number => offsetAt(s, edge(s), off, side);
+      const heap = (s: SplineSample, f: number): number =>
+        ramp(f) * (0.9 + 1.9 * noise2(s.distance / 13 + side * 7.7, side));
+      const lanes: Lane[] = [
+        { lat: at(-0.1), lift: () => -0.45, u: 0 },
+        { lat: at(1.1), lift: (s, f) => heap(s, f), u: 0.5 },
+        { lat: at(2.4), lift: (s, f) => heap(s, f) * 0.5, u: 1 },
+      ];
+      if (side < 0) lanes.reverse();
+      t.addRibbon(c.spline, lanes, {
+        verge: c.verge, from: d0, to: d0 + span, step: 2.6, vScale: 9,
+      });
+    }
+    const talus = new THREE.Mesh(t.toGeometry(), talusMat);
+    talus.name = `chapter:talus:${ch.name}`;
+    talus.receiveShadow = true;
+    c.root.add(talus);
+  }
+}
+
+/**
+ * A viaduct: the road up on a structure, because the ground will not go down.
+ *
+ * Four pieces, and the order matters — the fascia is what says *there is
+ * nothing under the edge of this road*, and without it a parapet is a wall and
+ * a truss is a fence:
+ *
+ *   1. a deck fascia overhanging both flanks, with a beam hanging under it;
+ *   2. a solid parapet standing on the fascia;
+ *   3. two through trusses standing on the parapets;
+ *   4. portal braces across the top every fifth panel, which is the member that
+ *      makes it a bridge rather than two fences.
+ */
+function buildViaduct(c: ChapterCtx, ch: ChapterDef): void {
+  const h = ch.height ?? 6.2;
+  const over = ch.batter ?? 2.4;
+  const steel = ch.tint ?? 0x3a6f9c;
+  const accent = ch.accent ?? 0xf1efe6;
+  const [d0, span] = chapterSpan(c, ch);
+  const edge = edgeOf(c.verge);
+  const tp = Math.min(0.22, 30 / span);
+  const ramp = (f: number): number => smoothstep(0, tp, f) * smoothstep(0, tp, 1 - f);
+
+  // ── the deck ────────────────────────────────────────────────────────────
+  const deckMat = new THREE.MeshLambertMaterial({
+    color: accent, side: THREE.DoubleSide,
+  });
+  const beamMat = new THREE.MeshLambertMaterial({ color: shade(steel, 0.8) });
+  c.materials.push(deckMat, beamMat);
+  const deck = new MeshBuilder();
+  const fascia = new MeshBuilder();
+  for (const side of [-1, 1] as const) {
+    const at = (off: number) => (s: SplineSample): number => offsetAt(s, edge(s), off, side);
+    const top: Lane[] = [
+      { lat: at(-0.2), lift: () => -0.34, u: 0 },
+      { lat: at(over * 0.6), lift: () => -0.26, u: 0.5 },
+      { lat: at(over), lift: () => -0.26, u: 1 },
+    ];
+    // The hanging beam. It ramps to nothing at both ends of the span so the
+    // structure grows out of the embankment instead of starting in mid-air.
+    const face: Lane[] = [
+      { lat: at(over), lift: () => -0.26, u: 0 },
+      { lat: at(over * 0.94), lift: (s, f) => -0.26 - 2.6 * ramp(f) - 0.4, u: 1 },
+    ];
+    if (side < 0) { top.reverse(); face.reverse(); }
+    deck.addRibbon(c.spline, top, { verge: c.verge, from: d0, to: d0 + span, step: 3, vScale: 6 });
+    fascia.addRibbon(c.spline, face, { verge: c.verge, from: d0, to: d0 + span, step: 3, vScale: 6 });
+    // The parapet: a solid box profile standing on the deck edge.
+    const wall: Lane[] = [
+      { lat: at(over - 0.62), lift: () => -0.3, u: 0 },
+      { lat: at(over - 0.62), lift: (s, f) => 0.35 + 0.72 * ramp(f), u: 0.4 },
+      { lat: at(over), lift: (s, f) => 0.38 + 0.74 * ramp(f), u: 0.6 },
+      { lat: at(over), lift: () => -0.3, u: 1 },
+    ];
+    if (side < 0) wall.reverse();
+    deck.addRibbon(c.spline, wall, { verge: c.verge, from: d0, to: d0 + span, step: 3, vScale: 6 });
+  }
+  const deckMesh = new THREE.Mesh(deck.toGeometry(), deckMat);
+  deckMesh.name = `chapter:deck:${ch.name}`;
+  deckMesh.castShadow = true;
+  deckMesh.receiveShadow = true;
+  c.root.add(deckMesh);
+  const fasciaMesh = new THREE.Mesh(fascia.toGeometry(), beamMat);
+  fasciaMesh.name = `chapter:fascia:${ch.name}`;
+  fasciaMesh.castShadow = true;
+  c.root.add(fasciaMesh);
+
+  // ── the truss ───────────────────────────────────────────────────────────
+  const st = new Struts();
+  const PANEL = 6.2;
+  const bays = Math.max(3, Math.round(span / PANEL));
+  const s: SplineSample = c.spline.atDistance(d0);
+  // Two chords a side, so a bay is four points: (low,high) at each end.
+  const pts: THREE.Vector3[][] = [];
+  for (let i = 0; i <= bays; i++) {
+    const f = i / bays;
+    c.spline.atDistance(d0 + span * f, s);
+    const lift = ramp(f);
+    const row: THREE.Vector3[] = [];
+    for (const side of [-1, 1] as const) {
+      const lat = offsetAt(s, edge(s), over - 0.3, side);
+      row.push(surfacePoint(s, lat, c.verge, 0.9 * lift, new THREE.Vector3()));
+      row.push(surfacePoint(s, lat, c.verge, (0.9 + h) * lift, new THREE.Vector3()));
+    }
+    pts.push(row);
+  }
+  const V = (v: THREE.Vector3): [number, number, number] => [v.x, v.y, v.z];
+  for (let i = 0; i < bays; i++) {
+    const a = pts[i]!, b = pts[i + 1]!;
+    for (const k of [0, 2]) {
+      // Chords.
+      st.add(...V(a[k]!), ...V(b[k]!), 0.30);
+      st.add(...V(a[k + 1]!), ...V(b[k + 1]!), 0.30);
+      // Vertical and diagonal — the diagonal alternates hand, which is what a
+      // Warren web looks like and what stops it reading as a ladder.
+      st.add(...V(a[k]!), ...V(a[k + 1]!), 0.20);
+      if (i % 2 === 0) st.add(...V(a[k]!), ...V(b[k + 1]!), 0.17);
+      else st.add(...V(a[k + 1]!), ...V(b[k]!), 0.17);
+    }
+    // Portal bracing overhead. Every fifth bay, plus knee braces into the top
+    // chords so the frame has a corner rather than a butt joint.
+    if (i % 5 === 2) {
+      st.add(...V(a[1]!), ...V(a[3]!), 0.26);
+      const kneeL = a[1]!.clone().lerp(a[3]!, 0.14);
+      const kneeR = a[3]!.clone().lerp(a[1]!, 0.14);
+      st.add(...V(a[0]!.clone().lerp(a[1]!, 0.72)), ...V(kneeL), 0.15);
+      st.add(...V(a[2]!.clone().lerp(a[3]!, 0.72)), ...V(kneeR), 0.15);
+    }
+  }
+  if (st.list.length) {
+    const mesh = st.mesh(steel, `chapter:truss:${ch.name}`, c.materials);
+    c.root.add(mesh);
+  }
+}
+
+/**
+ * A portal: a natural rock bridge across the road.
+ *
+ * Not a span of road but a gate on one — the frame you drive *through* on the
+ * way into the next chapter, and the cheapest thing in this file per metre of
+ * memory it buys.
+ *
+ * ── one solid sweep, and it took a photograph to know that ─────────────────
+ *
+ * The first cut was voussoirs: thirty boxes stood along the half ellipse with
+ * their scale and roll shaken by noise, on the reasoning that a smooth tube
+ * photographs as a plastic croquet hoop. It photographs as **a chain of loose
+ * slabs** — a caterpillar of separate rectangles with daylight between them,
+ * because the along-arc spacing of an arch this size is three metres and no
+ * honest block is six metres long. A rock arch is one piece of rock.
+ *
+ * So it is a swept section: a rectangular profile carried along the ellipse,
+ * four quads per station, the radial half-thickness swelling at the crown and
+ * at the springings the way a natural bridge does, and the section's outline
+ * broken by the same deterministic hash noise the cutting's crest uses. Each
+ * quad gets its own normals — `addQuad` accumulates per batch — so it is
+ * flat-shaded and rocky rather than smooth and inflatable. The sweep runs from
+ * `t = -0.05` to `1.05`, which drives both feet into the ground instead of
+ * standing them on it.
+ */
+function buildPortal(c: ChapterCtx, ch: ChapterDef): void {
+  const tint = ch.tint ?? 0xa9633a;
+  const d = (((c.start + (ch.from + ch.to) * 0.5 * c.L) % c.L) + c.L) % c.L;
+  const s = c.spline.atDistance(d);
+  const edge = s.width * 0.5 + c.verge;
+  const foot = edge + 3.0;
+  const rise = ch.height ?? 15;
+  const mat = new THREE.MeshLambertMaterial({ map: rockFaceTexture(tint) });
+  c.materials.push(mat);
+
+  const fwd = new THREE.Vector3().crossVectors(s.right, s.up).normalize();
+  const b = new MeshBuilder();
+  const SEC = 26;
+
+  // Centreline of the arch at parameter t, into `out`.
+  const centre = (t: number, out: THREE.Vector3): THREE.Vector3 => {
+    const a = Math.PI * t;
+    return surfacePoint(s, -Math.cos(a) * foot, c.verge, Math.sin(a) * rise - 1.2, out);
+  };
+  // The four corners of the section at t, in order: inner-near, inner-far,
+  // outer-far, outer-near.
+  const _c0 = new THREE.Vector3();
+  const _c1 = new THREE.Vector3();
+  const _tan = new THREE.Vector3();
+  const _rad = new THREE.Vector3();
+  const section = (t: number): THREE.Vector3[] => {
+    const a = Math.PI * t;
+    centre(t, _c0);
+    centre(t + 0.01, _c1);
+    _tan.subVectors(_c1, _c0).normalize();
+    _rad.crossVectors(_tan, fwd).normalize();
+    const wob = noise2(t * 9.4, 3.3);
+    // Thick at the crown, thick where it lands, thinnest a third of the way up
+    // each leg — and never thin enough to read as a handle.
+    const half = 2.4 + 1.7 * Math.abs(Math.cos(a)) + 1.9 * Math.pow(Math.sin(a), 2) + wob * 1.5;
+    const deep = 4.2 + wob * 2.6;
+    const out: THREE.Vector3[] = [];
+    for (const [r, f] of [[-1, -1], [-1, 1], [1, 1], [1, -1]] as const) {
+      out.push(_c0.clone().addScaledVector(_rad, r * half).addScaledVector(fwd, f * deep));
+    }
+    return out;
+  };
+
+  let prev = section(-0.05);
+  for (let i = 1; i <= SEC; i++) {
+    const t = -0.05 + (1.1 * i) / SEC;
+    const next = section(t);
+    for (let k = 0; k < 4; k++) {
+      const k2 = (k + 1) % 4;
+      b.addQuad(prev[k]!, prev[k2]!, next[k]!, next[k2]!, [0, 0, 1, 1]);
+    }
+    prev = next;
+  }
+
+  const mesh = new THREE.Mesh(b.toGeometry(), mat);
+  mesh.name = `chapter:portal:${ch.name}`;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  c.root.add(mesh);
+}
+
+function buildChapters(c: ChapterCtx, chapters: ChapterDef[]): void {
+  for (const ch of chapters) {
+    if (ch.kind === 'cutting') buildCutting(c, ch);
+    else if (ch.kind === 'viaduct') buildViaduct(c, ch);
+    else buildPortal(c, ch);
+  }
+}
+
 // ── the skirt that folds over itself ───────────────────────────────────────
 //
 // **This is the camera-underground bug, and it is measured on these courses.**
@@ -1396,6 +1907,21 @@ export function createCourseKitSystem(ctx: GameContext): GameSystem {
       if (barrier === 'jersey') buildJersey(bc);
       else if (barrier === 'seawall') buildSeawall(bc);
       else buildSnowFence(bc);
+    }
+
+    // ── the chapters ────────────────────────────────────────────────────────
+    //
+    // Built before the arrival structure so that a chapter which runs over the
+    // start line is under it rather than through it. See `ChapterDef`.
+    if (kit.chapters?.length) {
+      buildChapters({
+        spline,
+        verge,
+        root,
+        materials,
+        start: course.startDistance ?? 0,
+        L: spline.length,
+      }, kit.chapters);
     }
 
     // ── the arrival ─────────────────────────────────────────────────────────

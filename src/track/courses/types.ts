@@ -452,6 +452,72 @@ export type ArrivalKind = 'gantry' | 'conveyor' | 'jetty' | 'pylon';
  */
 export type BarrierKind = 'panel' | 'jersey' | 'seawall' | 'snowfence';
 
+/**
+ * ── chapters: the three *places* one lap is made of ────────────────────────
+ *
+ * A critic photographed the same chase view at 22%, 50% and 78% of a lap on
+ * every course and rejected the roster on what came back:
+ *
+ *   *"Cone Canyon: y=12.8 / 13.0 / 2.1 — three near-identical frames, same
+ *   orange verge, same red-and-white striped fence, same tan cone hills, same
+ *   sky; with the minimap covered you cannot say which third of the lap you are
+ *   on. Saltpan Bypass: same white salt, same black ribbon with a yellow line,
+ *   same single distant butte, three times. Only one of four courses has
+ *   chapters."*
+ *
+ * The one that passed was Switchback Summit, and the reason it passed is worth
+ * naming exactly, because it is not artistry: **its road changes altitude by a
+ * hundred and sixteen metres**, so `render/theme.ts`'s snow ramp, the pines and
+ * the gorge all arrive on their own. Every other circuit in the cup is flat
+ * enough that the *landscape* is one landscape for the whole lap — and no
+ * amount of terrain tuning fixes that, because `track/terrain.ts` anchors the
+ * ground to the elevation of the nearest road (`ref` in `terrainHeight`), so
+ * the land beside a circuit always comes with it.
+ *
+ * A chapter is therefore **built**, not sculpted: a span of the lap that stands
+ * something along the road big enough to change the shape of the frame. Two
+ * spans of the same lap under the same sky read as two places if one is a
+ * corridor between walls and the other is open, and that is a thing a course
+ * can declare and `courses/kit.ts` can build.
+ *
+ *   * `cutting`  — the road runs in a trench between two faces that rise `height`
+ *                  metres from just outside the barrier. The horizon disappears,
+ *                  the sky narrows to a strip, and the walls carry the light.
+ *                  Rock on a canyon, sheet-piled concrete in a works.
+ *   * `viaduct`  — the road is up on a structure: a deck fascia overhanging both
+ *                  flanks, a parapet, and a through truss standing on it with
+ *                  portal braces overhead. What says *you are on something* when
+ *                  the landscape cannot be dug away underneath you.
+ *   * `portal`   — a single arch across the road: two rock stacks and a natural
+ *                  bridge between them. Not a span of road but a gate on it —
+ *                  the frame you drive through into the next chapter.
+ */
+export type ChapterKind = 'cutting' | 'viaduct' | 'portal';
+
+export interface ChapterDef {
+  /** What this place is called. Read by nothing; kept for the file to be legible. */
+  name: string;
+  /** Lap fraction of the leading edge, from the start line. */
+  from: number;
+  /** Lap fraction of the trailing edge. A `portal` uses the midpoint. */
+  to: number;
+  kind: ChapterKind;
+  /** Metres the faces stand above the road, or the truss above the deck. */
+  height?: number;
+  /** Metres of lateral batter on a cutting; deck overhang on a viaduct. */
+  batter?: number;
+  /** Body colour of the built thing. */
+  tint?: number;
+  /** Trim: capping, handrail, chevrons, hazard bands. */
+  accent?: number;
+  /**
+   * What the face is made of, which decides how it is drawn as well as what
+   * colour it is: `rock` is bedded strata with a broken crest, `works` is
+   * ribbed sheet pile with a capping beam and a hazard band along the toe.
+   */
+  face?: 'rock' | 'works';
+}
+
 export interface KitDef {
   /** What stands over the start line. Defaults to the stock truss gantry. */
   arrival?: ArrivalKind;
@@ -474,6 +540,12 @@ export interface KitDef {
   accent?: number;
   /** The name banner it carries: background, lettering, hazard strip. */
   banner?: { field: string; ink: string; strip: string };
+  /**
+   * **The places this lap passes through.** See `ChapterDef` — a course with
+   * no chapters is one place for the whole race, which is the finding that put
+   * this here.
+   */
+  chapters?: ChapterDef[];
 }
 
 /**

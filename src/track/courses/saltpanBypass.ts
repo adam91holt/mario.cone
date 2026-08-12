@@ -41,7 +41,10 @@
 //   T5 Contraflow Exit R30 right straight back out of it
 //   T6 Windsock Right R58 onto the works leg
 //   ── side two: the works leg, with THE CAUSEWAY on it ──
-//   CAUSEWAY          the levee, 12.5m up, with the kicker on the crest
+//   CAUSEWAY          the levee: up at 16%, a hundred and fifty metres along
+//                     the crest 13.6m above the pan inside the works' steel
+//                     trestle, the kicker on the last metre of it, then off the
+//                     far side at 21%
 //   T7/T8 kinks       R200 either way
 //   ── vertex: PAN ENTRY (90°) ──
 //   T9 Pan Entry      R55, 50° — the pan's braking point
@@ -106,9 +109,29 @@
 // straight for longer than the run to the first corner, because the run to the
 // first corner *is* the longest straight.
 //
-// The pan is flat: twelve metres of elevation across the whole lap, all but
-// three of it in the causeway, which is what a dry lake is and what makes the
+// The pan is flat: thirteen metres of elevation across the whole lap, all but
+// two of it in the causeway, which is what a dry lake is and what makes the
 // horizon do the work instead of the terrain.
+//
+// ── the three places, and why two of them are built ────────────────────────
+//
+// A critic photographed the same chase view at 22%, 50% and 78% of one lap here
+// and got *"y = 3.1 / 2.8 / 2.5 — same white salt, same black ribbon with a
+// yellow line, same single distant butte, three times"*. That is what a
+// bulldozed road across a dry lake looks like, and it is also seventy seconds
+// of never arriving anywhere.
+//
+// A lake bed cannot be given a valley to fix it: `track/terrain.ts` anchors the
+// ground to the elevation of the nearest road for the first seventy metres, so
+// raising the road raises the pan with it. So the lap is cut into three places
+// and two of them are **built** — see `kit.chapters` below and `ChapterDef`:
+//
+//   THE PAN          open, white, empty, the horizon on four sides. Declared by
+//                    omission, and the reference the other two are read from.
+//   THE CAUSEWAY     a hundred and fifty metres up on the works' trestle, with
+//                    the truss going by overhead and the kicker off the end.
+//   THE CONTRAFLOW   the chicane, in a sheet-piled works cutting with pipe
+//                    racks bridging it: the only enclosed road in the cup.
 //
 // **Two laps.** Every other round in the cup runs three; this one is 3.5
 // kilometres of road, and a third lap of it is the same lap again.
@@ -158,17 +181,36 @@ const RING = ring(
     { run: 60, width: 26, y: 3.0, name: 's5' },
     { radius: 58, turn: -80, width: 28, y: 2.8, name: 'T6 WINDSOCK RIGHT' },
     // ── side two: the works leg ───────────────────────────────────────────
-    { run: 124.9, width: 28, y: 3.0, name: 's6' },
-    // ── THE CAUSEWAY ─────────────────────────────────────────────────────
+    { run: 50, width: 28, y: 3.0, name: 's6' },
+    // ── THE CAUSEWAY: chapter two of three ───────────────────────────────
+    //
     // The one vertical idea a dry lake is allowed to have, and it is *built*
-    // rather than geological: the bypass has to get over the salt works' old
-    // tramway embankment, so it climbs the levee at 16%, runs 26 metres along
-    // the crest twelve and a half metres above the pan, and falls off the far
-    // side at 22%. There is a kicker on the crest — see `RAMPS`.
-    { run: 54, width: 25, y: 11.6, name: 'CAUSEWAY CLIMB' },
-    { run: 26, width: 23, y: 12.5, name: 'CAUSEWAY TOP' },
-    { run: 46, width: 29, y: 2.6, name: 'CAUSEWAY DROP' },
-    { run: 90, width: 30, y: 2.2, name: 's7' },
+    // rather than geological: the bypass gets over the salt works' old tramway
+    // embankment on the works' own trestle. It climbs the levee at 16%, runs a
+    // hundred and fifty metres along the crest thirteen and a half metres above
+    // the pan, and falls off the far side at 21%, with the kicker on the last
+    // metre of the crest — see `RAMPS`.
+    //
+    // **It was twenty-six metres long and it was not a place.** A critic drove
+    // this circuit and reported three frames of one lap that were the same
+    // picture; the causeway is what answers that on this side of the triangle,
+    // and a set piece you are past in half a second cannot. A hundred and fifty
+    // metres is four seconds up on the deck with the truss going by overhead —
+    // long enough to *be* somewhere, short enough that the flat-out character
+    // of this circuit is untouched.
+    //
+    // The five straights on this leg sum to the same 340.9 metres they always
+    // did, which is why the ring still closes on its own geometry with a 0.0m
+    // adjustment on every straight. Re-cutting one segment of a closed traverse
+    // means re-cutting its neighbours by the same total, on the same heading.
+    { run: 58, width: 24, y: 12.4, name: 'CAUSEWAY CLIMB' },
+    // 21 metres, and the pinch is the aiming mark: the deck is the narrowest
+    // road on the circuit outside the chicane, it is what the truss stands on,
+    // and it opens out again behind the lip. Width follows speed, and it also
+    // follows *how much of the road you are being asked to hit*.
+    { run: 150, width: 21, y: 13.6, name: 'CAUSEWAY TOP' },
+    { run: 52, width: 29, y: 2.6, name: 'CAUSEWAY DROP' },
+    { run: 30.9, width: 30, y: 2.2, name: 's7' },
     { radius: 200, turn: 20, width: 30, y: 2.0, name: 'T7 SURVEY KINK' },
     { run: 130, width: 30, y: 2.0, name: 's8' },
     { radius: 200, turn: -20, width: 30, y: 2.0, name: 'T8 CULVERT KINK' },
@@ -242,10 +284,22 @@ export const saltpanBypass: CourseDefEx = {
   width: 32,
   // Two. See the header — 3.5km, and the third lap is the second one again.
   laps: 2,
-  // Twelve metres of salt crust either side. Running wide out here does not end
-  // your race the way it does in the quarry — it just costs you the corner, and
-  // that is the trade a wide-open circuit is supposed to offer.
-  vergeWidth: 12,
+  // ── eight metres of salt crust either side, and it used to be twelve ──────
+  //
+  // Wide run-off is the trade a wide-open circuit offers, and past a point it
+  // stops being run-off and becomes somewhere a kart can *keep driving* at 58%
+  // of top speed. Measured over a 130-second race with seven racers, this
+  // course spent **97 seconds on sand** and a critic clocked one CPU driver
+  // reversing 104 metres over eight seconds out in it. Physics stands the wall
+  // at `width/2 + verge - 0.8`, so twelve metres of shoulder is eleven metres
+  // of sand a mistake can be buried in before anything puts you back.
+  //
+  // Eight is the same number Cone Canyon runs and one more than the quarry's,
+  // and it does two other things this round needed: it brings the barrier — and
+  // with it the causeway's truss and the contraflow's walls, which stand just
+  // outside it — four metres nearer the road, which is four metres of a
+  // chapter's enclosure bought for nothing.
+  vergeWidth: 8,
   vergeSurface: 'sand',
   offSurface: 'sand',
   walls: true,
@@ -272,7 +326,12 @@ export const saltpanBypass: CourseDefEx = {
     // ones that do not answer. See `SurfacePatchDef`.
     pads: [
       { at: on('s5', 0.45), lateral: -0.30, width: 7, length: 30 },
-      { at: on('s7', 0.35), lateral: 0.26, width: 7, length: 32 },
+      // Was on `s7`, which is thirty-one metres long now that the causeway has
+      // eaten most of this leg's straight — a thirty-two-metre strip on it
+      // would have hung off both ends and half of it would have been on the
+      // 21% drop. It is on the run out to the survey kink instead, which is
+      // where a kart that landed the kicker badly is trying to get going again.
+      { at: on('s8', 0.12), lateral: 0.26, width: 7, length: 32 },
       { at: on('s11', 0.30), lateral: 0.28, width: 7, length: 32 },
       // **The west leg's second strip.** A critic photographed this circuit at
       // 2493 metres of lap and got *"a black road running dead straight to a
@@ -328,13 +387,30 @@ export const saltpanBypass: CourseDefEx = {
       // that the centreline reads underneath it, because judging the depth of
       // a flooded road *is* the skill. Lateral is in the spline's frame, so
       // `-1` is the driver's right; see `SurfacePatchDef`.
+      //
+      // ── ±0.9, and why no sheet on this circuit reaches ±1 ────────────────
+      //
+      // A critic photographed THE FLOOD and rejected it: *"two flat translucent
+      // quads whose ruled edges overhang the yellow edge line onto the verge"*.
+      // Half of that is a fault in how a sheet is drawn and is filed against
+      // `track/road.ts` (the lift, the missing waterline, the absent foam);
+      // this half is the course's, and it is arithmetic. `band()` in road.ts
+      // resolves a lateral of `t` to `t · width/2`, so a sheet declared to ±1
+      // is built to the **exact** edge of the tarmac — where the edge line is,
+      // where the crown has already fallen away, and where a millimetre of
+      // spline sampling error puts water on the salt. Every band on this course
+      // now stops at 0.90 of the half width, which is a metre and a half short
+      // of the paint on the bypass, so a sheet cannot spill off the road at any
+      // width the ribbon passes through. The dry lane each one leaves is
+      // unchanged — that is the other edge, and it is the one the design is
+      // about.
       {
         from: on('THE BYPASS', 0.400), to: on('THE BYPASS', 0.453),
-        latFrom: -1, latTo: 0.18, surface: 'water', tint: '#5D909C', style: 'brine',
+        latFrom: -0.90, latTo: 0.18, surface: 'water', tint: '#5D909C', style: 'brine',
       },
       {
         from: on('THE BYPASS', 0.600), to: on('THE BYPASS', 0.653),
-        latFrom: -0.18, latTo: 1, surface: 'water', tint: '#5D909C', style: 'brine',
+        latFrom: -0.18, latTo: 0.90, surface: 'water', tint: '#5D909C', style: 'brine',
       },
       {
         from: on('THE BYPASS', 0.800), to: on('THE BYPASS', 0.853),
@@ -350,11 +426,28 @@ export const saltpanBypass: CourseDefEx = {
       // is. It is the only surface hazard in the cup that punishes *being
       // overtaken* rather than braking late.
       //
+      // ── and for a whole round it was on the racing line ──────────────────
+      //
+      // It was declared `latFrom: 0.40, latTo: 1`, described in this comment as
+      // the *outside* half, and it was the inside: `+` is the inside of a
+      // right-hand corner (see `LATERAL FRAME` in `types.ts`) and the Pan Sweep
+      // is a 40° right. So the windrow lay exactly where `racingline.ts` puts
+      // the worn line and where every CPU driver in the field goes, and a
+      // critic measured what that costs — *"the field loses real time stuck on
+      // your surfaces: 55.4 seconds under 12 m/s per 130 seconds of racing"*,
+      // with 97 seconds of a seven-racer race spent on sand. A hazard that
+      // takes away the only line is not a hazard, it is a toll.
+      //
+      // It is on the outside now, which is what the paragraph above always
+      // said it was, and it stops at 0.48 rather than running into the middle
+      // of the road: the fast line is clear, and the price of being pushed wide
+      // is a second rather than a lap.
+      //
       // Near-white, because it is salt: on the darkest tarmac in the cup it is
       // the most legible hazard in the game.
       {
         from: on('T10 PAN SWEEP', 0.12), to: on('T10 PAN SWEEP', 0.88),
-        latFrom: 0.40, latTo: 1, surface: 'sand', tint: '#E4DECA',
+        latFrom: -0.48, latTo: -0.98, surface: 'sand', tint: '#E4DECA',
       },
 
       // ── the other two thirds of the lake ────────────────────────────────
@@ -378,11 +471,11 @@ export const saltpanBypass: CourseDefEx = {
       // leg's strip is at 0.55 of its segment and this sheet ends at 0.24.
       {
         from: on('s8', 0.30), to: on('s8', 0.52),
-        latFrom: -1, latTo: 0.30, surface: 'water', tint: '#5D909C', style: 'brine',
+        latFrom: -0.90, latTo: 0.30, surface: 'water', tint: '#5D909C', style: 'brine',
       },
       {
         from: on('s12', 0.14), to: on('s12', 0.24),
-        latFrom: -0.30, latTo: 1, surface: 'water', tint: '#5D909C', style: 'brine',
+        latFrom: -0.30, latTo: 0.90, surface: 'water', tint: '#5D909C', style: 'brine',
       },
     ],
     // ── THE SURGE: what stops the slalom being memorised ───────────────────
@@ -493,6 +586,68 @@ export const saltpanBypass: CourseDefEx = {
       steel: 0x2e6c9e,
       accent: 0xf3f1e8,
       banner: { field: '#F1EFE6', ink: '#1B4E7E', strip: '#2E6C9E' },
+
+      // ── the three places this lap goes through ─────────────────────────
+      //
+      // A critic photographed the same chase view at 22%, 50% and 78% of one
+      // lap: *"y = 3.1 / 2.8 / 2.5 — same white salt, same black ribbon with a
+      // yellow line, same single distant butte, three times."* That is a fair
+      // description of a bulldozed road across a dry lake, and it is also a
+      // course you can drive for seventy seconds without arriving anywhere.
+      //
+      // The trap in fixing it is that the obvious answer does not work: a
+      // lake bed cannot be given a valley, because `track/terrain.ts` anchors
+      // the ground to the elevation of the nearest road for the first seventy
+      // metres and does not reach the datum for three hundred and forty, so
+      // raising a section of tarmac raises the pan with it. **The pan stays
+      // flat whatever this file says.** So the two chapters are *built*, and
+      // between them they take the lap from one place to three:
+      //
+      //   1  THE PAN — the bypass, the west leg, the Beacon. Open, white,
+      //      empty, thirty-four metres wide, the horizon on all four sides.
+      //      Declared by omission: no chapter runs here, and it is the
+      //      reference the other two are read against.
+      //   2  THE CAUSEWAY — a hundred and fifty metres up on the works'
+      //      trestle: deck fascia over both flanks, a parapet, and a through
+      //      truss with portal braces going by overhead at seven metres. The
+      //      sky is a strip, the road is 21m, and the kicker fires you off the
+      //      end of it.
+      //   3  THE CONTRAFLOW — the chicane runs in a walled works cutting,
+      //      sheet-piled both sides with pipe racks bridging it. It is the
+      //      only enclosed road in this cup and the only place on this circuit
+      //      where the horizon is gone.
+      //
+      // See `ChapterDef` in `types.ts` and `buildViaduct`/`buildCutting` in
+      // `kit.ts`.
+      chapters: [
+        {
+          name: 'THE CAUSEWAY',
+          kind: 'viaduct',
+          // Starts a third of the way up the climb, so the structure comes out
+          // of the embankment rather than beginning in mid-air, and stops
+          // short of the lip: the last thirty metres of deck are clear sky, so
+          // the kicker launches you *out* of the truss instead of through it.
+          from: on('CAUSEWAY CLIMB', 0.52),
+          to: on('CAUSEWAY TOP', 0.86),
+          height: 7.2,
+          batter: 2.6,
+          tint: 0x36698f,
+          accent: 0xf1efe6,
+        },
+        {
+          name: 'THE CONTRAFLOW',
+          kind: 'cutting',
+          face: 'works',
+          // From the braking point for the Works Right to the exit of the
+          // Windsock: the whole of the sharp end of the wedge.
+          from: on('T3 WORKS RIGHT', 0.15),
+          to: on('s5', 0.75),
+          height: 8.4,
+          batter: 3.0,
+          tint: 0x9aa6b0,
+          accent: 0xffc300,
+        },
+      ],
     },
 
     // Almost nothing, and that is the point of a dry lake — but *almost* is

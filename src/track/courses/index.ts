@@ -15,6 +15,9 @@
 //                             the map card, which is twice as thin as anything
 //                             else in the cup. *Yellow truss gantry, striped
 //                             panel barrier, red-and-white kerb* — the poster.
+//                             Three chapters: the open speedway, Digger's
+//                             Cutting between two rock faces, and the canyon
+//                             head under its arch.
 //   2  Jackhammer Quarry      3 laps · 2.50km · 5 short strips · 2 cuts ·
 //                             2 spills · THE CUT · THE HAUL TRUCK. **The
 //                             comb.** Four hairpins folding four benches into
@@ -30,7 +33,10 @@
 //                             three sheets of standing brine laid across it
 //                             and one on each of the other two sides.
 //                             *Loading jetty on piles, salt-crusted low wall,
-//                             works-blue kerb, yellow lines.*
+//                             works-blue kerb, yellow lines.* Three chapters:
+//                             the open pan, a hundred and fifty metres up on
+//                             the causeway's trestle, and the contraflow in a
+//                             sheet-piled cutting.
 //   4  Switchback Summit      3 laps · 2.68km · 5 strips, all uphill · 1 cut ·
 //                             1 washout · THE KICKER · THE GATE. **The
 //                             hourglass.** Two lobes and a waist, the waist
@@ -266,6 +272,48 @@
 // pass again. It prints `groundY` against the lowest road on the circuit next
 // to the angles, because when that relationship is the cause it is the whole
 // cause and the repair is one line in a course file.
+//
+// ── the round that gave two of the four circuits chapters ──────────────────
+//
+// A critic drove all four, photographed the same chase view at 22%, 50% and
+// 78% of one lap on each, and rejected the cup on what came back:
+//
+//   *"Cone Canyon and Saltpan Bypass have no chapters — at 22%, 50% and 78% of
+//   the same lap they are the same picture: same tarmac, same verge, same
+//   barrier run, same horizon, same light. Switchback Summit does exactly this
+//   right — valley floor y=14.5, mid-mountain traverse with pines and a drop
+//   y=68.2, summit works y=114.2 — and proves the roster knows how."*
+//
+// The mountain does it with elevation, and that is not a method the other two
+// can borrow. **`track/terrain.ts` anchors the ground to the elevation of the
+// nearest road** — `ref` in `terrainHeight` does not reach the course datum
+// until 340 metres out — so on a flat circuit the landscape beside the road is
+// one landscape for the whole lap *by construction*, and raising a section of
+// tarmac raises the pan or the desert with it. There is no course-side number
+// that digs a valley next to a bypass.
+//
+// So a chapter is **built**: `KitDef.chapters` (see `ChapterDef` in
+// `types.ts`), read by `courses/kit.ts`, which stands a rock or sheet-pile
+// cutting along a span, puts a span up on a viaduct with a truss over it, or
+// throws a rock arch across the road. Two circuits now have three places each:
+//
+//     course        chapter one        chapter two          chapter three
+//     Cone Canyon   the speedway       Digger's Cutting     the canyon head,
+//                   (open, stands)     (rock trench, 15m)   under a rock arch
+//     Saltpan       the pan (open)     the causeway         the contraflow
+//                                      (150m of trestle)    (works cutting)
+//
+// The same round answered the other two findings on that sheet. Every `brine`
+// patch in the cup is now declared inside ±0.90 of the half width, so a sheet
+// of standing water cannot be built onto the verge — the rest of that finding
+// is about how road.ts *draws* water and is filed there. And the field's lost
+// time was measured rather than argued: 130 seconds of racing with seven
+// racers spent **97 seconds on sand** at the saltpan, whose Pan Sweep windrow
+// turned out to be authored on the inside of a right-hander — the racing line —
+// while its comment claimed the outside. It is on the outside now, the
+// shoulder is eight metres rather than twelve, and the quarry's two worst
+// corners (the Crusher at 3.1 m/s, the pair at the top of the haul road) are
+// three to four metres wider at the same radius.
 //
 // ── what is honestly still short ───────────────────────────────────────────
 //
