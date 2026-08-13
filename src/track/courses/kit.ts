@@ -282,47 +282,167 @@ function snowfenceTexture(): THREE.CanvasTexture {
 }
 
 /**
- * The name banner. Course-specific livery rather than one navy plate with the
- * name swapped, which is what the four grid shots had in common.
+ * The name banner.
+ *
+ * -- the round it stopped being a plate ------------------------------------
+ *
+ *   *"The start banners on rounds 2, 3 and 4 are plain untextured plates
+ *   (grey/yellow, white, grey) against Cone Canyon's designed hazard-striped
+ *   one."*
+ *
+ * Round one's banner is not this function -- it is `track/gantry.ts`'s, kept
+ * deliberately as the reference the other three are read against -- so what
+ * this had to do was stop being a rectangle with a word on it. Four things,
+ * all of them paint, none of them a draw call:
+ *
+ *   * **ends.** A banner is bolted to a structure at both ends and the
+ *     fixings are the loudest part of it: two hazard-striped end blocks in the
+ *     livery's own colours, with the fastening line down the inside of each.
+ *   * **light.** The field is lit from above, with the sky in the top eighth
+ *     and its own shadow in the bottom sixth, so it reads as a sheet of
+ *     something rather than as a fill.
+ *   * **fixings.** A bolt line along both flanges. It is the detail that sets
+ *     the *scale* of the object -- without it a banner is any size at all.
+ *   * **the name.** Drawn with a bright top edge under it, because the one
+ *     thing on this object that has to survive being photographed at four
+ *     hundred metres through haze is the word.
  */
 function bannerTexture(name: string, s: { field: string; ink: string; strip: string }): THREE.CanvasTexture {
   return tex(`kit:banner:${name}:${s.field}:${s.ink}:${s.strip}`, 1024, 128, (g, W, H) => {
     g.fillStyle = s.field;
     g.fillRect(0, 0, W, H);
-    // A single strip top and bottom rather than a full hazard field: the name
-    // is the message and the livery is the frame.
+    // Sheet light: sky in the top, its own shade in the bottom.
+    const lit = g.createLinearGradient(0, 0, 0, H);
+    lit.addColorStop(0, 'rgba(255,255,255,0.22)');
+    lit.addColorStop(0.16, 'rgba(255,255,255,0.04)');
+    lit.addColorStop(0.78, 'rgba(0,0,0,0.05)');
+    lit.addColorStop(1, 'rgba(0,0,0,0.26)');
+    g.fillStyle = lit;
+    g.fillRect(0, 0, W, H);
+    // Flanges top and bottom, in the livery's strip colour.
     g.fillStyle = s.strip;
-    g.fillRect(0, 0, W, 9);
-    g.fillRect(0, H - 9, W, 9);
-    g.fillStyle = 'rgba(0,0,0,0.16)';
-    g.fillRect(0, 13, W, 4);
-    g.fillRect(0, H - 17, W, 4);
+    g.fillRect(0, 0, W, 11);
+    g.fillRect(0, H - 11, W, 11);
+    g.fillStyle = 'rgba(0,0,0,0.20)';
+    g.fillRect(0, 11, W, 4);
+    g.fillRect(0, H - 15, W, 4);
+
+    // The end blocks.
+    const END = W * 0.115;
+    for (const side of [0, 1]) {
+      const x0 = side ? W - END : 0;
+      g.save();
+      g.beginPath();
+      g.rect(x0, 0, END, H);
+      g.clip();
+      g.fillStyle = s.strip;
+      g.fillRect(x0, 0, END, H);
+      // Hazard chevrons, leaning away from the middle of the banner.
+      g.fillStyle = 'rgba(24,26,32,0.86)';
+      const dir = side ? -1 : 1;
+      for (let i = -2; i < 8; i++) {
+        const x = x0 + i * 34;
+        g.beginPath();
+        g.moveTo(x, 0);
+        g.lineTo(x + 16, 0);
+        g.lineTo(x + 16 + dir * H, H);
+        g.lineTo(x + dir * H, H);
+        g.closePath();
+        g.fill();
+      }
+      g.restore();
+      // The fastening line down the inside edge of the block.
+      g.fillStyle = 'rgba(0,0,0,0.34)';
+      g.fillRect(side ? W - END - 3 : END, 0, 3, H);
+      g.fillStyle = 'rgba(255,255,255,0.20)';
+      g.fillRect(side ? W - END : END - 2, 0, 2, H);
+    }
+
+    // Bolts along both flanges, and only across the field: an end block is a
+    // plate over the fixing, not another thing bolted through it.
+    for (let x = END + 26; x < W - END - 20; x += 52) {
+      for (const y of [19, H - 19]) {
+        g.fillStyle = 'rgba(0,0,0,0.34)';
+        g.beginPath(); g.arc(x, y + 1, 4, 0, Math.PI * 2); g.fill();
+        g.fillStyle = 'rgba(255,255,255,0.30)';
+        g.beginPath(); g.arc(x, y, 3.2, 0, Math.PI * 2); g.fill();
+      }
+    }
+
     g.font = '900 62px "Trebuchet MS", system-ui, sans-serif';
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.fillStyle = 'rgba(0,0,0,0.42)';
-    g.fillText(name.toUpperCase(), W / 2 + 3, H / 2 + 4);
+    g.fillStyle = 'rgba(0,0,0,0.46)';
+    g.fillText(name.toUpperCase(), W / 2 + 3, H / 2 + 5);
+    // A hairline of the strip colour along the top of the letters, which is
+    // what stops the word going soft against the field at distance.
+    g.fillStyle = s.strip;
+    g.fillText(name.toUpperCase(), W / 2, H / 2 - 2.5);
     g.fillStyle = s.ink;
     g.fillText(name.toUpperCase(), W / 2, H / 2);
   }, THREE.ClampToEdgeWrapping);
 }
 
-/** The housing five lamps sit proud of. Painted; the lenses are meshes. */
+/**
+ * The housing five lamps sit proud of. Painted; the lit lenses are meshes.
+ *
+ * ── an unlit lamp is still a lamp ──────────────────────────────────────────
+ *
+ * *"All four five-lamp boards render as unlit grey circles."* Correct, and
+ * that is what they were: a black disc with a grey ring on it. But the five
+ * seconds this board is lit are five seconds of a three-minute race, and every
+ * other frame in the review sheet photographs it *off* — so the off state is
+ * the state this object is actually judged in, and it was drawn as an absence.
+ *
+ * A signal lens that is not lit is not grey. It is deep, saturated glass with
+ * the sky in the top of it and its own filament shadow in the bottom, sitting
+ * in a chrome bezel with a hood over it. All of that is paint on this canvas
+ * and none of it costs a draw call, and it is the difference between a board
+ * that is off and a board that is broken.
+ */
 function lampBoardTexture(steel: number): THREE.CanvasTexture {
   const hex = `#${steel.toString(16).padStart(6, '0')}`;
   return tex(`kit:board:${hex}`, 320, 80, (g, W, H) => {
-    g.fillStyle = '#1A1D24';
+    const body = g.createLinearGradient(0, 0, 0, H);
+    body.addColorStop(0, '#2A2F3A');
+    body.addColorStop(0.5, '#171A21');
+    body.addColorStop(1, '#0E1015');
+    g.fillStyle = body;
     g.fillRect(0, 0, W, H);
     g.fillStyle = hex;
     g.fillRect(0, 0, W, 7);
     g.fillRect(0, H - 7, W, 7);
     for (let i = 0; i < 5; i++) {
       const x = (i + 0.5) * (W / 5);
-      g.fillStyle = '#0B0D12';
+      // Bezel: a bright ring with a dark inner shoulder, so the lens sits in
+      // something rather than on it.
+      g.fillStyle = '#C2C9D4';
+      g.beginPath(); g.arc(x, H / 2, 29, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#3A414C';
       g.beginPath(); g.arc(x, H / 2, 26, 0, Math.PI * 2); g.fill();
-      g.strokeStyle = 'rgba(210,215,225,0.55)';
-      g.lineWidth = 3;
-      g.beginPath(); g.arc(x, H / 2, 26, 0, Math.PI * 2); g.stroke();
+      // The glass. Dark red, not grey — a cold signal lens is still red.
+      const lens = g.createRadialGradient(x - 8, H / 2 - 9, 2, x, H / 2, 24);
+      lens.addColorStop(0, '#8E2318');
+      lens.addColorStop(0.55, '#511209');
+      lens.addColorStop(1, '#230703');
+      g.fillStyle = lens;
+      g.beginPath(); g.arc(x, H / 2, 23, 0, Math.PI * 2); g.fill();
+      // Fresnel rings across the glass, and the sky caught in the top of it.
+      g.strokeStyle = 'rgba(255,190,170,0.13)';
+      g.lineWidth = 2;
+      for (let r = 7; r < 23; r += 5) {
+        g.beginPath(); g.arc(x, H / 2, r, 0, Math.PI * 2); g.stroke();
+      }
+      g.fillStyle = 'rgba(226,240,255,0.34)';
+      g.beginPath();
+      g.ellipse(x - 7, H / 2 - 10, 9, 5, -0.5, 0, Math.PI * 2);
+      g.fill();
+      // The hood, which is what makes a signal readable in the sun and what
+      // makes it read as a signal at a hundred metres.
+      g.fillStyle = 'rgba(10,12,16,0.72)';
+      g.beginPath();
+      g.ellipse(x, H / 2 - 22, 31, 9, 0, Math.PI, Math.PI * 2);
+      g.fill();
     }
   }, THREE.ClampToEdgeWrapping);
 }
@@ -608,6 +728,8 @@ class Struts {
 const UP = new THREE.Vector3(0, 1, 0);
 
 const _shade = new THREE.Color();
+/** Scratch for the second colour in a two-colour mix. See `talusTexture`. */
+const _grey = new THREE.Color();
 /** A darker mix of a kit colour, so one declared steel can carry two values. */
 function shade(color: number, f: number): number {
   return _shade.setHex(color).multiplyScalar(f).getHex();
@@ -1146,8 +1268,48 @@ function buildPylon(a: BuildArgs): ArrivalParts {
 // goes.
 
 /** Rock face: bedded strata across the profile, fractures up it. */
-function rockFaceTexture(tint: number): THREE.CanvasTexture {
-  const key = `kit:rock:${tint.toString(16)}`;
+/**
+ * The face of a rock cutting.
+ *
+ * **x is height up the face and y is distance along the track.** Every lane in
+ * `buildCutting`'s profile carries a `u` that is its fraction of the way from
+ * the buried toe to the crest, and `MeshBuilder` writes it straight into the
+ * texture's first coordinate — so this canvas is a *section* through the cut,
+ * drawn once and swept a hundred metres. Anything that varies with height is
+ * drawn here; anything that varies along the cut is drawn in the geometry.
+ *
+ * ── the round this was rewritten in ────────────────────────────────────────
+ *
+ *   *"The 15m face fills ~55% of the frame in one uniform orange from toe to
+ *   crest — no value gradient, no AO where it meets the ground, no sky-facing
+ *   highlight on the bench. The 'strata' are thin wobbly pencil-weight lines of
+ *   identical weight everywhere that run straight over the one horizontal bench
+ *   step, so the step reads as texture rather than geometry."*
+ *
+ * Three of those four were one fault. The old shade ramp went dark at x=0,
+ * neutral by x=0.22 and then **flat until x=0.80** — and 0.22 to 0.80 is the
+ * whole of the face a driver ever sees, the buried toe and the crest shelf
+ * being the parts outside it. So the wall had a gradient everywhere except on
+ * itself. The bench is at u≈0.36-0.41 (see the `face` lanes) and nothing here
+ * knew that, so every bed and every joint ran straight over it.
+ *
+ * What is drawn now, bottom to top:
+ *
+ *   * **the lower lift**, warmer and two stops down — it is in its own shade
+ *     for most of the day and it has the fines off the fan blown up it;
+ *   * **the bench**, as a hard three-part event: a black line of shadow under
+ *     the lip, the lit floor of the shelf, and a bright sky-facing edge;
+ *   * **the upper lift**, cooler and lighter, with its bedding *offset* from
+ *     the lower one — a bench is cut on a bedding plane, so the beds above it
+ *     are not the beds below it;
+ *   * **the crest**, catching the sky.
+ *
+ * `benched` is passed in rather than assumed because a face under nine metres
+ * is cut in one lift and a shelf painted across it would be a lie about
+ * geometry that is not there.
+ */
+function rockFaceTexture(tint: number, benched = true): THREE.CanvasTexture {
+  const key = `kit:rock:${tint.toString(16)}:${benched ? 'b' : 's'}`;
   return tex(key, 256, 256, (g, W, H) => {
     const rnd = rand(0x9e3b17 ^ tint);
     const base = new THREE.Color(tint);
@@ -1155,58 +1317,193 @@ function rockFaceTexture(tint: number): THREE.CanvasTexture {
       `#${_shade.copy(c).multiplyScalar(f).getHexString()}`;
     g.fillStyle = hex(base, 1);
     g.fillRect(0, 0, W, H);
-    // Strata. x is height up the face, so a bed is a band in x — and it wobbles
-    // along the track, because a bed that is a ruled line is a painted wall.
-    // The range is deliberately wide: photographed at 15 metres tall against a
-    // desert sky, a face whose beds are all within ten per cent of each other
-    // reads as one sheet of corrugated card.
-    let x = 0;
-    while (x < W) {
-      const band = 6 + rnd() * 26;
-      const f = 0.62 + rnd() * 0.72;
-      g.fillStyle = hex(base, f);
-      g.beginPath();
-      g.moveTo(x, 0);
-      for (let y = 0; y <= H; y += 16) {
-        g.lineTo(x + Math.sin(y * 0.035 + x) * 3.5, y);
+
+    /** Where the catch berm sits, as a fraction of the face. Matches `face`. */
+    const BX0 = 0.355, BX1 = 0.415;
+    const bench0 = BX0 * W, bench1 = BX1 * W;
+
+    /**
+     * One lift's worth of bedding.
+     *
+     * `weight` scales how hard the partings are cut, so the lower lift — which
+     * is nearer, larger on screen, and in shade — carries the heavy joints and
+     * the upper lift carries fine ones. Identical line weight everywhere was
+     * half of *"pencil-weight lines of identical weight"*; the other half is
+     * that there is now a range of band heights inside each lift instead of
+     * one distribution across the whole face.
+     */
+    const beds = (x0: number, x1: number, lo: number, hi: number, weight: number): void => {
+      let x = x0;
+      while (x < x1) {
+        const band = lo + rnd() * (hi - lo);
+        const f = 0.60 + rnd() * 0.76;
+        const w = Math.min(band, x1 - x);
+        g.save();
+        g.beginPath();
+        g.rect(x0, 0, x1 - x0, H);
+        g.clip();
+        g.fillStyle = hex(base, f);
+        g.beginPath();
+        g.moveTo(x, 0);
+        for (let y = 0; y <= H; y += 12) g.lineTo(x + Math.sin(y * 0.035 + x) * 3.5, y);
+        for (let y = H; y >= 0; y -= 12) {
+          g.lineTo(x + w + Math.sin(y * 0.035 + x * 1.7) * 3.5, y);
+        }
+        g.closePath();
+        g.fill();
+        // The parting between two beds, which is where a face weathers first.
+        // Its weight is the bed's own — a thick bed parts on a thick joint —
+        // so the face has heavy lines and hairlines rather than one gauge.
+        const jw = (0.9 + band * 0.10) * weight;
+        g.fillStyle = `rgba(24,13,7,${(0.16 + 0.34 * weight * rnd()).toFixed(3)})`;
+        g.beginPath();
+        g.moveTo(x, 0);
+        for (let y = 0; y <= H; y += 12) g.lineTo(x + Math.sin(y * 0.035 + x) * 3.5, y);
+        for (let y = H; y >= 0; y -= 12) {
+          g.lineTo(x + jw + Math.sin(y * 0.035 + x) * 3.5, y);
+        }
+        g.closePath();
+        g.fill();
+        g.restore();
+        x += band;
       }
-      for (let y = H; y >= 0; y -= 16) {
-        g.lineTo(x + band + Math.sin(y * 0.035 + x * 1.7) * 3.5, y);
-      }
-      g.closePath();
-      g.fill();
-      // The parting between two beds, which is where a face weathers first.
-      g.fillStyle = 'rgba(26,14,8,0.30)';
-      g.beginPath();
-      g.moveTo(x, 0);
-      for (let y = 0; y <= H; y += 16) g.lineTo(x + Math.sin(y * 0.035 + x) * 3.5, y);
-      for (let y = H; y >= 0; y -= 16) {
-        g.lineTo(x + 2.5 + Math.sin(y * 0.035 + x) * 3.5, y);
-      }
-      g.closePath();
-      g.fill();
-      x += band;
+    };
+
+    if (benched) {
+      // Thick beds below, thin above, and the two runs start at different
+      // phases — which is the whole point of cutting a face in two lifts.
+      beds(0, bench0, 9, 30, 1.0);
+      beds(bench1, W, 5, 17, 0.55);
+    } else {
+      beds(0, W, 6, 26, 0.8);
     }
-    // The toe goes into shade and the crest catches the sky. Without this the
-    // wall has no foot: a face lit dead flat looks pasted onto the verge.
+
+    // ── the value structure ─────────────────────────────────────────────────
+    //
+    // A single ramp across the *whole* face, so no part of it is flat. The
+    // shape: black at the buried toe, still two stops down two metres up where
+    // the fan throws its own shadow, recovering through the lower lift, a step
+    // at the bench, and the top third catching the sky.
     const shadeGrad = g.createLinearGradient(0, 0, W, 0);
-    shadeGrad.addColorStop(0, 'rgba(18,8,4,0.55)');
-    shadeGrad.addColorStop(0.22, 'rgba(18,8,4,0.16)');
-    shadeGrad.addColorStop(0.80, 'rgba(255,240,214,0.00)');
-    shadeGrad.addColorStop(1, 'rgba(255,240,214,0.16)');
+    shadeGrad.addColorStop(0.00, 'rgba(14,7,3,0.70)');
+    // Roughly the bottom two metres of a fifteen-metre face — the band a
+    // critic asked to be darkened, and where the scree fan's own occlusion is.
+    shadeGrad.addColorStop(0.13, 'rgba(16,8,4,0.34)');
+    shadeGrad.addColorStop(0.26, 'rgba(18,10,5,0.20)');
+    shadeGrad.addColorStop(BX0 - 0.005, 'rgba(20,11,6,0.13)');
+    shadeGrad.addColorStop(BX1 + 0.005, 'rgba(255,241,214,0.05)');
+    shadeGrad.addColorStop(0.72, 'rgba(255,243,218,0.10)');
+    shadeGrad.addColorStop(1.00, 'rgba(255,246,224,0.26)');
     g.fillStyle = shadeGrad;
     g.fillRect(0, 0, W, H);
-    // Fractures: a joint runs *up* the face, so it is a line at constant v.
-    for (let i = 0; i < 26; i++) {
-      const y = rnd() * H;
-      g.fillStyle = `rgba(20,12,8,${(0.10 + rnd() * 0.26).toFixed(3)})`;
-      g.fillRect(rnd() * W * 0.5, y, W, 1 + rnd() * 2);
+
+    if (benched) {
+      // ── the bench, as three lines ───────────────────────────────────────
+      //
+      // A shelf is read from its shadow, not from its floor. Under the lip of
+      // the upper lift there is a hard dark line; the floor of the berm is
+      // lighter than either lift because it is the one horizontal surface on
+      // the wall and it is pointed at the sky; and the outer edge of it takes
+      // a hot rim. Painted as three narrow bands rather than a gradient, so
+      // the eye reads an *edge* — the failure being fixed is that the step
+      // read as texture.
+      g.fillStyle = 'rgba(12,6,2,0.52)';
+      g.fillRect(bench0, 0, (bench1 - bench0) * 0.34, H);
+      g.fillStyle = 'rgba(255,247,228,0.30)';
+      g.fillRect(bench0 + (bench1 - bench0) * 0.34, 0, (bench1 - bench0) * 0.5, H);
+      g.fillStyle = 'rgba(255,250,236,0.52)';
+      g.fillRect(bench1 - 2, 0, 3, H);
+      // Spoil that has fallen onto the berm and sits along the back of it.
+      for (let i = 0; i < 90; i++) {
+        const y = rnd() * H;
+        g.fillStyle = `rgba(26,15,8,${(0.10 + rnd() * 0.22).toFixed(3)})`;
+        g.fillRect(bench0 + rnd() * (bench1 - bench0) * 0.7, y, 1 + rnd() * 3, 2 + rnd() * 5);
+      }
     }
-    // Blast scar and dust, heaviest at the toe where the spoil piles up.
+
+    // ── the joints ──────────────────────────────────────────────────────────
+    //
+    // A joint runs *up* the face, so it is a line at constant y. Three
+    // populations rather than one: a handful of deep ones that go the whole
+    // height, a lot of short ones inside the lower lift only, and a few
+    // hairlines up top. That is what stops them reading as a single hatch —
+    // and none of them crosses the bench, because a joint that ran over a
+    // three-metre shelf would be drawing the wall as one plane again.
+    const joint = (y: number, x0: number, x1: number, a: number, t: number): void => {
+      g.fillStyle = `rgba(18,10,6,${a.toFixed(3)})`;
+      g.fillRect(x0, y, x1 - x0, t);
+    };
+    for (let i = 0; i < 9; i++) {
+      const y = rnd() * H;
+      joint(y, rnd() * W * 0.16, benched ? bench0 : W, 0.34 + rnd() * 0.22, 2 + rnd() * 3);
+      if (benched && rnd() > 0.45) joint(y + 1 + rnd() * 4, bench1, W, 0.22, 1 + rnd() * 2);
+    }
+    for (let i = 0; i < 22; i++) {
+      const y = rnd() * H;
+      const x0 = rnd() * (benched ? bench0 : W) * 0.6;
+      joint(y, x0, x0 + (benched ? bench0 : W) * (0.3 + rnd() * 0.6), 0.08 + rnd() * 0.16, 1);
+    }
+    if (benched) {
+      for (let i = 0; i < 14; i++) {
+        const y = rnd() * H;
+        joint(y, bench1 + rnd() * (W - bench1) * 0.4, W, 0.06 + rnd() * 0.12, 1);
+      }
+    }
+
+    // Blast scar and dust, heaviest at the toe where the spoil piles up — and
+    // a second pass of pale fines blown *up* the lower lift off the fan, which
+    // is what actually joins a rock face to the heap at its foot.
     for (let i = 0; i < 520; i++) {
       const px = rnd() * W;
       g.fillStyle = `rgba(255,242,220,${(rnd() * 0.10 * (px / W)).toFixed(3)})`;
       g.fillRect(px, rnd() * H, 1 + rnd() * 4, 1 + rnd() * 3);
+    }
+    for (let i = 0; i < 260; i++) {
+      const px = rnd() ** 2.4 * W * 0.30;
+      g.fillStyle = `rgba(226,205,176,${(rnd() * 0.16).toFixed(3)})`;
+      g.fillRect(px, rnd() * H, 1 + rnd() * 5, 1 + rnd() * 2);
+    }
+  });
+}
+
+/**
+ * The scree fan at the toe of a rock cutting.
+ *
+ * Same axes as the face: x is *across* the fan (barrier at 0, wall at 1) and y
+ * runs along the cut. Pale and grey where the rock is fresh at the foot of the
+ * wall, dirtier and warmer out where the fines wash toward the road, with a
+ * scatter of chips that is coarse near the wall and fine away from it.
+ */
+function talusTexture(tint: number): THREE.CanvasTexture {
+  const key = `kit:talus:${tint.toString(16)}`;
+  return tex(key, 256, 256, (g, W, H) => {
+    const rnd = rand(0x4c17a3 ^ tint);
+    const base = new THREE.Color(tint);
+    const hex = (f: number, gy: number): string =>
+      `#${_shade.copy(base).lerp(_grey.setRGB(gy, gy, gy), 0.34)
+        .multiplyScalar(f).getHexString()}`;
+    const ramp = g.createLinearGradient(0, 0, W, 0);
+    ramp.addColorStop(0, hex(0.80, 0.55));
+    ramp.addColorStop(0.55, hex(1.02, 0.66));
+    ramp.addColorStop(1, hex(1.24, 0.74));
+    g.fillStyle = ramp;
+    g.fillRect(0, 0, W, H);
+    // Chips. Coarse and pale at the wall end, fine and dark toward the road —
+    // which is how a fan actually sorts itself.
+    for (let i = 0; i < 1500; i++) {
+      const t = rnd();
+      const px = t * W;
+      const sz = 1 + (t ** 2) * 5 * rnd();
+      const v = 0.55 + rnd() * 0.75;
+      g.fillStyle = `rgba(${(210 * v) | 0},${(198 * v) | 0},${(182 * v) | 0},${(0.10 + 0.34 * rnd()).toFixed(3)})`;
+      g.fillRect(px, rnd() * H, sz, sz * (0.5 + rnd()));
+    }
+    // Runnels: the lines the rain leaves down a fan, across it rather than
+    // along it, so they read as flow and not as bedding.
+    for (let i = 0; i < 26; i++) {
+      const y = rnd() * H;
+      g.fillStyle = `rgba(38,24,14,${(0.05 + rnd() * 0.10).toFixed(3)})`;
+      g.fillRect(rnd() * W * 0.4, y, W, 1 + rnd() * 2);
     }
   });
 }
@@ -1341,11 +1638,43 @@ function buildCutting(c: ChapterCtx, ch: ChapterDef): void {
   const isRock = (ch.face ?? 'rock') === 'rock';
   const tint = ch.tint ?? (isRock ? 0xa9633a : 0x8f9aa4);
   const [d0, span] = chapterSpan(c, ch);
-  const map = isRock ? rockFaceTexture(tint) : worksWallTexture(tint, ch.accent ?? 0xffc300);
+  const benchedFace = isRock && h >= 9;
+  const map = isRock
+    ? rockFaceTexture(tint, benchedFace)
+    : worksWallTexture(tint, ch.accent ?? 0xffc300);
   const mat = new THREE.MeshLambertMaterial({ map, side: THREE.DoubleSide });
   c.materials.push(mat);
 
-  const edge = edgeOf(c.verge);
+  /**
+   * Metres the toe of a rock face stands back behind the barrier line.
+   *
+   * ── the street lamp halfway up the cliff ────────────────────────────────
+   *
+   * A critic photographed Digger's Cutting and found *"a street lamp and a
+   * small blue box stuck to the middle of the vertical rock face"*. They are
+   * not this file's objects — `world/index.ts` drops a `lightColumn` every 52
+   * metres at 3.2-4.4m outboard of the barrier and a `flagPole` every 104 at
+   * 4.4-5.6 — and neither placement consults anything a chapter has built.
+   * The wall's toe was at 0.35m and its batter reaches the crest by about
+   * 3.5m, so a column standing at 4.0 was **inside** the face, at whatever
+   * height the batter had got to there: halfway up.
+   *
+   * A cutting cannot ask the world module not to light the road, and a road
+   * beside a rock cutting *is* lit in real life. What it can do is leave the
+   * furniture somewhere to stand: the toe moves out past the far end of both
+   * placement bands, and the talus fan below fills the ground it vacated, so a
+   * column stands in front of the wall on the scree instead of inside it. That
+   * also answers the second half of the same finding — *"two hexagonal
+   * boulders across the whole 900px span sit on flat dirt with no scree fan"* —
+   * because a fan needs somewhere to be, and 0.35m of verge is not somewhere.
+   *
+   * The proper fix is still owed by `world/index.ts` and is filed in this
+   * round's report; this is the half that is in this file, and it is the half
+   * that makes the toe of the wall a *place*.
+   */
+  const stand = isRock ? 4.0 : 0;
+  const edge0 = edgeOf(c.verge);
+  const edge = (s: SplineSample): number => edge0(s) + stand;
   const tp = Math.min(0.34, 46 / span);
   const ramp = (f: number): number => smoothstep(0, tp, f) * smoothstep(0, tp, 1 - f);
   const b = new MeshBuilder();
@@ -1402,7 +1731,7 @@ function buildCutting(c: ChapterCtx, ch: ChapterDef): void {
     // face this tall is actually cut, and it is the piece that stops the wall
     // being one sweep. Below about nine metres there is only one lift and the
     // profile falls back to the single batter it always was.
-    const benched = isRock && h >= 9;
+    const benched = benchedFace;
     const lift1 = h > 16 ? 0.46 : 0.36;
     const bench = (s: SplineSample, f: number): number => crest(s, f) * lift1;
     /**
@@ -1525,8 +1854,16 @@ function buildCutting(c: ChapterCtx, ch: ChapterDef): void {
   // things with facets and cast shadows, at a size the eye already knows, in a
   // scatter that gets sparser away from the foot.
   if (isRock) {
+    // ── the fan is not the face ─────────────────────────────────────────
+    //
+    // It was `shade(tint, 0.86)` — a flat fill fourteen per cent off the wall
+    // standing on it — and with the fan now several metres wide that is a
+    // brown apron reading as part of the same object. Freshly shed rock is
+    // paler and greyer than a weathered face: it has broken along clean
+    // surfaces, and the fines washed out of it sit on top. So it gets its own
+    // value *and* its own texture, and the wall gets an edge to stand on.
     const talusMat = new THREE.MeshLambertMaterial({
-      color: shade(tint, 0.86), side: THREE.DoubleSide,
+      map: talusTexture(tint), side: THREE.DoubleSide,
     });
     c.materials.push(talusMat);
     const t = new MeshBuilder();
@@ -1541,15 +1878,37 @@ function buildCutting(c: ChapterCtx, ch: ChapterDef): void {
      */
     const heapAt = (s: SplineSample, f: number, side: -1 | 1, o: number): number => {
       const hgt = heap(s, f, side);
-      if (o <= 1.1) return -0.45 + (hgt + 0.45) * ((o + 0.1) / 1.2);
+      // The same four knots the ribbon above is swept through, read as a
+      // piecewise line. It has to be the *same* four: a block placed off a
+      // profile the fan is not built to is a block floating over it or buried
+      // in it, which is the bug this function was written to fix the first
+      // time and would be the bug again if the fan moved and this did not.
+      const k0 = -stand - 0.1, k1 = -stand * 0.45;
+      if (o <= k0) return -0.45;
+      if (o <= k1) {
+        const t = k1 > k0 ? (o - k0) / (k1 - k0) : 1;
+        return -0.45 + (hgt * 0.34 + 0.45) * t;
+      }
+      if (o <= 1.1) {
+        const t = (o - k1) / (1.1 - k1);
+        return hgt * (0.34 + 0.66 * t);
+      }
       if (o <= 2.4) return hgt * (1 - 0.5 * (o - 1.1) / 1.3);
       return Math.max(0, hgt * 0.5 * (1 - (o - 2.4) / 2.2));
     };
     for (const side of sides) {
       const at = (off: number) => (s: SplineSample): number => offsetAt(s, edge(s), off, side);
+      // ── the fan runs from the barrier to the toe, not from the toe ──────
+      //
+      // With `stand` metres of ground between the kerb and the foot of the
+      // wall there is finally a scree fan to build rather than a lip to hint
+      // at. It rises from nothing at the barrier line to the full heap where
+      // the rock starts, which is the profile a fan actually has and the
+      // reason the wall stops looking pasted onto flat dirt.
       const lanes: Lane[] = [
-        { lat: at(-0.1), lift: () => -0.45, u: 0 },
-        { lat: at(1.1), lift: (s, f) => heap(s, f, side), u: 0.5 },
+        { lat: at(-stand - 0.1), lift: () => -0.45, u: 0 },
+        { lat: at(-stand * 0.45), lift: (s, f) => heap(s, f, side) * 0.34, u: 0.24 },
+        { lat: at(1.1), lift: (s, f) => heap(s, f, side), u: 0.7 },
         { lat: at(2.4), lift: (s, f) => heap(s, f, side) * 0.5, u: 1 },
       ];
       if (side < 0) lanes.reverse();
@@ -1574,7 +1933,7 @@ function buildCutting(c: ChapterCtx, ch: ChapterDef): void {
     // below takes about a third of them out again. Photographed at span/7.5 the
     // chase camera caught two of them in a sixty-metre view, which is a prop
     // rather than a toe.
-    const per = Math.max(6, Math.round(span / 4.5));
+    const per = Math.max(8, Math.round(span / 3.2));
     const blocks: THREE.Matrix4[] = [];
     const p = new THREE.Vector3();
     const q = new THREE.Quaternion();
@@ -1592,12 +1951,16 @@ function buildCutting(c: ChapterCtx, ch: ChapterDef): void {
         // was laid out. `u` is cubed so most of them are at the foot.
         const u = rnd() ** 3;
         if (rnd() > 0.2 + 0.55 * (1 - u)) continue;
-        const size = (0.9 + 1.7 * rnd()) * (1 - 0.45 * u) * (h > 16 ? 1.3 : 1);
+        const size = (1.1 + 2.2 * rnd()) * (1 - 0.45 * u) * (h > 16 ? 1.3 : 1);
         // **Outboard of the barrier line, always.** `edge` is where the barrier
         // and the wall physics enforces both stand; a block inside it is a rock
         // in the road that every kart in the field drives straight through.
-        // The band stops at 3.4 because past that it is inside the face.
-        const o = 0.3 + u * 3.1 + rnd() * 0.3;
+        //
+        // `u` measures *away from the wall*, so with `u` cubed the scatter is
+        // dense at the toe and thins across the fan toward the road — which is
+        // the distribution a rockfall actually leaves, and the reason the fan
+        // reads as something that fell rather than something that was graded.
+        const o = 1.6 - u * (stand + 1.4);
         const off = offsetAt(s, edge(s), o, side);
         surfacePoint(s, off, c.verge, heapAt(s, f, side, o) + size * 0.28, p);
         up.copy(s.up).normalize();
@@ -1616,6 +1979,26 @@ function buildCutting(c: ChapterCtx, ch: ChapterDef): void {
       im.name = `chapter:blocks:${ch.name}`;
       im.castShadow = true;
       im.receiveShadow = true;
+      // ── the blocks may not all be the wall's colour ────────────────────
+      //
+      // They were `shade(tint, 0.94)` — six per cent off the face behind them
+      // — and a critic counted *"two hexagonal boulders across the whole 900px
+      // span"* on a fan that had thirty of them in it. The rest were there and
+      // invisible, because a faceted object the same value as its background
+      // is a background. Freshly broken rock is lighter than a weathered face
+      // and the shadowed underside of a block is much darker than either, so
+      // the spread here is wide on purpose: 0.62 to 1.28 of the face, per
+      // instance, off the same deterministic stream that placed them.
+      const _c = new THREE.Color();
+      im.instanceColor = new THREE.InstancedBufferAttribute(
+        new Float32Array(blocks.length * 3), 3,
+      );
+      for (let i = 0; i < blocks.length; i++) {
+        const v = 0.62 + 0.66 * rnd() ** 1.4;
+        _c.setRGB(v, v * (0.99 + 0.02 * rnd()), v * (0.97 + 0.06 * rnd()));
+        im.instanceColor.setXYZ(i, _c.r, _c.g, _c.b);
+      }
+      im.instanceColor.needsUpdate = true;
       for (let i = 0; i < blocks.length; i++) im.setMatrixAt(i, blocks[i]!);
       im.instanceMatrix.needsUpdate = true;
       c.root.add(im);

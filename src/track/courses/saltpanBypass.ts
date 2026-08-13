@@ -415,17 +415,33 @@ export const saltpanBypass: CourseDefEx = {
       // width the ribbon passes through. The dry lane each one leaves is
       // unchanged — that is the other edge, and it is the one the design is
       // about.
+      //
+      // ── the tint, and why it went up two stops ───────────────────────────
+      //
+      // `#3F6E7C` was measured on the running game at (36,93,120) against a
+      // road at (44,49,63) and a sky at (236,234,230): *"the water is DARKER
+      // than the tarmac, under a near-white sky, on a white salt lake."* That
+      // is not a preference, it is wrong — a shallow sheet standing on a
+      // pale-grey lake bed under an overcast dome is one of the brightest
+      // things in the frame, because it is a mirror pointed at the sky and
+      // because everything under it is white.
+      //
+      // Two things fixed it and they are in two files. `courses/flood.ts` now
+      // takes the *sky* into the sheet with a Fresnel term, which is where the
+      // body of a water surface actually comes from; and the tint below is the
+      // colour of what is *under* the water rather than the colour of the
+      // water — brine over pale salt crust, not brine over deep mud.
       {
         from: on('THE BYPASS', 0.400), to: on('THE BYPASS', 0.453),
-        latFrom: -0.90, latTo: 0.18, surface: 'water', tint: '#3F6E7C', style: 'brine',
+        latFrom: -0.90, latTo: 0.18, surface: 'water', tint: '#5E97A8', style: 'brine',
       },
       {
         from: on('THE BYPASS', 0.600), to: on('THE BYPASS', 0.653),
-        latFrom: -0.18, latTo: 0.90, surface: 'water', tint: '#3F6E7C', style: 'brine',
+        latFrom: -0.18, latTo: 0.90, surface: 'water', tint: '#5E97A8', style: 'brine',
       },
       {
         from: on('THE BYPASS', 0.800), to: on('THE BYPASS', 0.853),
-        latFrom: -0.52, latTo: 0.52, surface: 'water', tint: '#3F6E7C', style: 'brine',
+        latFrom: -0.52, latTo: 0.52, surface: 'water', tint: '#5E97A8', style: 'brine',
       },
 
       // **The drift.** A dry lake is a wind machine, and what it moves is salt.
@@ -482,11 +498,11 @@ export const saltpanBypass: CourseDefEx = {
       // leg's strip is at 0.55 of its segment and this sheet ends at 0.24.
       {
         from: on('s8', 0.30), to: on('s8', 0.52),
-        latFrom: -0.90, latTo: 0.30, surface: 'water', tint: '#3F6E7C', style: 'brine',
+        latFrom: -0.90, latTo: 0.30, surface: 'water', tint: '#5E97A8', style: 'brine',
       },
       {
         from: on('s12', 0.14), to: on('s12', 0.24),
-        latFrom: -0.30, latTo: 0.90, surface: 'water', tint: '#3F6E7C', style: 'brine',
+        latFrom: -0.30, latTo: 0.90, surface: 'water', tint: '#5E97A8', style: 'brine',
       },
     ],
     // ── THE SURGE: what stops the slalom being memorised ───────────────────

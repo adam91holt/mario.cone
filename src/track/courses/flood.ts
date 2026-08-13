@@ -71,7 +71,9 @@ import { surfacePoint } from '../geom.ts';
 import type { PatchRuntime } from '../road.ts';
 import { features } from './types.ts';
 import type { TrackSpline } from '../spline.ts';
-import type { CourseDef, GameContext, GameSystem, Racer, SplineSample, Track } from '../../types.ts';
+import type {
+  CourseDef, CourseTheme, GameContext, GameSystem, Racer, SplineSample, Track,
+} from '../../types.ts';
 
 // ── numbers ────────────────────────────────────────────────────────────────
 
@@ -86,13 +88,27 @@ const DEPTH = 0.055;
  * a sheet whose edge is both transparent and level with the tarmac has no edge
  * to see.
  */
-const MARGIN = 2.2;
+const MARGIN = 3.8;
 /** Metres of foam / wet band inside the margin. The critic asked for 1-2. */
-const FOAM = 1.6;
-/** Along-track sampling of the sheet, metres. */
-const STEP = 1.6;
-/** Across-track sampling of the sheet, metres. Ripple is per-pixel, not per-vertex. */
-const ACROSS = 20;
+const FOAM = 2.4;
+/**
+ * Along-track sampling of the sheet, metres.
+ *
+ * ── why this is 1.0 and `ACROSS` is 36 ──────────────────────────────────────
+ *
+ * *"…and a visibly faceted top edge."* The waterline is not a straight line:
+ * `buildSheet` wobbles it ±0.55m per column and then dissolves it per pixel,
+ * and both of those are sampled **at the vertex grid**. A twenty-column band
+ * across a thirty-four-metre road is one sample every 1.7 metres, so a wobble
+ * with a half-metre amplitude comes out of the rasteriser as a row of straight
+ * chords — a scallop. Neither the dissolve nor the foam can hide it, because
+ * `aEdge` is interpolated off the same grid. The fix is sampling rate and
+ * nothing else, and the cost is one draw call's worth of vertices: the whole
+ * flood is five sheets and still one mesh per tint.
+ */
+const STEP = 1.0;
+/** Across-track sampling of the sheet. Ripple is per-pixel; the *waterline* is not. */
+const ACROSS = 36;
 
 /** Below this, a wheel is paddling rather than planing and throws nothing. */
 const SPRAY_MIN_SPEED = 7;
@@ -104,6 +120,31 @@ const WAKE_POINTS = 40;
 const MAX_RACERS = 12;
 
 // ── the sheet ──────────────────────────────────────────────────────────────
+
+/**
+ * The two ends of the course's own sky, resolved once per build.
+ *
+ * Not a copy of `render/lighting.ts`'s `sunRig` — that resolves the *lights*
+ * and this resolves what a mirror lying on the road returns. It reads the same
+ * `theme.sky` block, so the two cannot disagree about what colour the dome is.
+ */
+interface SkyColours {
+  zenith: THREE.Color;
+  horizon: THREE.Color;
+}
+
+/** `theme.sky` → the pair above, with the house defaults for a course without one. */
+function skyColours(theme: CourseTheme | undefined): SkyColours {
+  const s = theme?.sky;
+  return {
+    zenith: new THREE.Color(s?.top ?? 0x2e86d6),
+    // The *haze* band rather than `bottom`, for the same reason `sunRig` calls
+    // it `haze`: what a horizontal surface returns near the horizon is the air
+    // over the far shore, and that is the colour the atmosphere is drawing
+    // there. On the saltpan that is white; at the quarry it is amber.
+    horizon: new THREE.Color(s?.horizon ?? s?.bottom ?? 0xbfe7ff),
+  };
+}
 
 /**
  * The water shader, grafted onto a Phong material rather than written from
@@ -119,7 +160,9 @@ const MAX_RACERS = 12;
  * only extra attribute, and it drives the dissolve, the foam and the wet band
  * from one number so they cannot come apart.
  */
-function waterMaterial(tint: string, time: { value: number }): THREE.MeshPhongMaterial {
+function waterMaterial(
+  tint: string, time: { value: number }, sky: SkyColours,
+): THREE.MeshPhongMaterial {
   const mat = new THREE.MeshPhongMaterial({
     color: new THREE.Color(tint),
     specular: 0xfffdf6,
@@ -154,7 +197,19 @@ function waterMaterial(tint: string, time: { value: number }): THREE.MeshPhongMa
     // given back by the depth ramp below, which is where the body belongs
     // anyway: a flooded road is thin at its margin and deep in the middle, and
     // one flat alpha across the whole sheet says the opposite.
-    opacity: 0.56,
+    //
+    // ── and 0.56 was *still* opaque, because opacity was doing two jobs ─────
+    //
+    // *"No reflection, no transparency — the yellow lane dashes vanish under
+    // it. The water is DARKER than the tarmac, under a near-white sky, on a
+    // white salt lake."* Both halves of that are one mistake: a flat alpha
+    // says the surface is equally see-through from every angle, and water is
+    // the textbook case of a surface that is not. Head-on you see the bottom;
+    // at a graze you see the sky and nothing else. So the alpha is now **the
+    // Fresnel term** — see `uSkyZenith` below — and this number is only the
+    // floor it starts from, which is why it can come down to a third and the
+    // sheet still has a body where a body belongs.
+    opacity: 0.34,
     depthWrite: false,
     polygonOffset: true,
     polygonOffsetFactor: -5,
@@ -163,6 +218,20 @@ function waterMaterial(tint: string, time: { value: number }): THREE.MeshPhongMa
 
   mat.onBeforeCompile = (shader): void => {
     shader.uniforms.uTime = time;
+    // ── the sky, which is the other half of what water *is* ────────────────
+    //
+    // A sheet of standing brine on a salt pan under a near-white sky is one of
+    // the brightest things in that landscape, and the reason is not its own
+    // colour — it is that a horizontal mirror seen at a graze returns the sky
+    // almost perfectly. The body tint only survives where you are looking
+    // steeply *into* it, which from a chase camera two and a half metres up is
+    // the couple of metres directly in front of the machine.
+    //
+    // These two are the course's own `theme.sky`, so the water cannot disagree
+    // with the dome over it — including at the quarry, where the dome is
+    // indigo, and at the summit, where it is not there at all.
+    shader.uniforms.uSkyZenith = { value: sky.zenith };
+    shader.uniforms.uSkyHorizon = { value: sky.horizon };
 
     shader.vertexShader = shader.vertexShader
       .replace(
@@ -184,6 +253,8 @@ function waterMaterial(tint: string, time: { value: number }): THREE.MeshPhongMa
         '#include <common>',
         `#include <common>
         uniform float uTime;
+        uniform vec3 uSkyZenith;
+        uniform vec3 uSkyHorizon;
         varying float vEdge;
         varying vec3 vWorld;
 
@@ -192,6 +263,11 @@ function waterMaterial(tint: string, time: { value: number }): THREE.MeshPhongMa
         // than a varying: it is a value passed between two injections in the
         // same fragment, not between two stages.
         float vGlint = 0.0;
+        // The rippled surface normal, in **world** space, written by the
+        // normal injection and read by the reflection injection. The lit
+        // pipeline only keeps the view-space one and a reflection has to be
+        // taken against the sky, which does not rotate with the camera.
+        vec3 vWorldN = vec3( 0.0, 1.0, 0.0 );
 
         // Six crossed wave trains at three scales. Cheap, endless, and — because
         // every phase is a function of uTime, which is simulation time — the
@@ -240,6 +316,7 @@ function waterMaterial(tint: string, time: { value: number }): THREE.MeshPhongMa
         `#include <normal_fragment_begin>
         {
           vec3 wn = rippleNormal( vWorld.xz, uTime );
+          vWorldN = wn;
           normal = normalize( ( viewMatrix * vec4( wn, 0.0 ) ).xyz );
         }`,
       )
@@ -254,18 +331,26 @@ function waterMaterial(tint: string, time: { value: number }): THREE.MeshPhongMa
           // boundary anywhere. Squared, so most of the fade happens close in
           // and the sheet keeps its body.
           float diss = smoothstep( 0.0, ${MARGIN.toFixed(2)}, e );
-          diffuseColor.a *= diss * diss;
+          diss *= diss;
+          diffuseColor.a *= diss;
 
           // ── depth ────────────────────────────────────────────────────────
-          // Water gets darker and less transparent the further you are from
-          // the edge of it, because there is more of it between the eye and
-          // the tarmac. aEdge is already that distance, so the ramp is free
-          // — and it is the cue a driver actually reads to pick a line: the
-          // pale rim is where the sheet is survivable and the dark middle is
-          // where it is not.
-          float deep = smoothstep( ${MARGIN.toFixed(2)}, 7.0, e );
-          diffuseColor.a = min( 0.86, diffuseColor.a * ( 1.0 + 0.62 * deep ) );
-          diffuseColor.rgb *= 1.0 - 0.24 * deep;
+          // Water gets a little denser the further you are from the edge of
+          // it, because there is more of it between the eye and the tarmac.
+          // aEdge is already that distance, so the ramp is free — and it is
+          // the cue a driver reads to pick a line: the pale rim is where the
+          // sheet is survivable and the body is where it is not.
+          //
+          // Both halves of this used to be about three times what they are.
+          // The alpha ceiling was 0.86 and the darkening 24%, which together
+          // put the middle of every sheet *below* the tarmac in value and took
+          // the lane markings out from under it — the exact finding. The body
+          // the sheet lost here is given back by the reflection below, where
+          // it belongs: what makes deep water read as deep is that it stops
+          // showing you the bottom and starts showing you the sky.
+          float deep = smoothstep( ${MARGIN.toFixed(2)}, 8.0, e );
+          diffuseColor.a = min( 0.52, diffuseColor.a * ( 1.0 + 0.34 * deep ) );
+          diffuseColor.rgb *= 1.0 - 0.08 * deep;
 
           // ── the foam, and the wet band under it ──────────────────────────
           // A scrolling ragged crest riding the edge. The two trains beat
@@ -288,7 +373,39 @@ function waterMaterial(tint: string, time: { value: number }): THREE.MeshPhongMa
           // inside the foam band so the two cues do not fight, and kept to a
           // ratio rather than an absolute so a course may flood in any colour.
           float sw = rippleHeight( vWorld.xz, uTime );
-          diffuseColor.rgb *= 0.82 + 0.40 * sw;
+          diffuseColor.rgb *= 0.86 + 0.32 * sw;
+
+          // ── the sky in the water ─────────────────────────────────────────
+          //
+          // Schlick, against the rippled world normal, with the reflected ray
+          // used to pick a colour off the course's own dome: near the horizon
+          // the sheet returns the haze band, tipped up by a crest it returns
+          // the zenith. That is the whole difference between a sheet of water
+          // and a sheet of paint, and it is what makes the far half of a
+          // crossing read *brighter* than the tarmac under a white sky and
+          // *indigo* under the quarry's — from one expression, because both
+          // ends of the ramp are the theme's.
+          //
+          // The Fresnel also drives the alpha, which is the half a constant
+          // opacity can never do: at 15 degrees of incidence the sheet is a
+          // mirror and you cannot see the lane dashes through it; at 70 you
+          // can read the dashes and the drain grating. A driver picking a line
+          // through five crossings a lap is reading exactly that gradient.
+          {
+            vec3 V = normalize( cameraPosition - vWorld );
+            float fres = pow( 1.0 - clamp( dot( vWorldN, V ), 0.0, 1.0 ), 4.0 );
+            vec3 R = reflect( -V, vWorldN );
+            vec3 skyC = mix( uSkyHorizon, uSkyZenith, smoothstep( 0.02, 0.42, R.y ) );
+            // 1.25 rather than 1.0: the dome a player actually sees carries
+            // the atmosphere's inscatter on top of these two anchors, so a
+            // straight copy of them reads as a *dull* sky reflected in bright
+            // water. This is the one hand-trimmed number on the surface.
+            diffuseColor.rgb = mix( diffuseColor.rgb, skyC * 1.25, 0.16 + 0.74 * fres );
+            // Carried out on the dissolve, or the mirror would put the ruled
+            // polygon boundary straight back at every grazing angle — which is
+            // where the boundary is *most* visible.
+            diffuseColor.a = clamp( diffuseColor.a + fres * 0.72 * diss, 0.0, 0.95 );
+          }
 
           diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 1.0, 0.99, 0.96 ), foam * 0.92 );
           diffuseColor.a = max( diffuseColor.a, foam * 0.86 );
@@ -513,11 +630,17 @@ void main() {
   float churn = ( 1.0 - s ) * ( 0.42
     + 0.38 * sin( vWorld.x * 2.7 + vWorld.z * 1.9 - uTime * 3.1 )
     * sin( vWorld.z * 3.3 - vWorld.x * 2.1 + uTime * 2.4 ) );
-  float body = clamp( rails * 1.15 + churn * 0.55, 0.0, 1.0 );
+  float body = clamp( rails * 1.35 + churn * 0.72, 0.0, 1.0 );
   // Fades out at the head as well as the tail: the wake has to *close* behind
   // the machine rather than end on a straight line.
   float fade = ( 1.0 - vAge ) * ( 1.0 - vAge ) * smoothstep( 0.0, 0.06, vAge );
-  gl_FragColor = vec4( vec3( 1.0, 0.995, 0.97 ), body * fade * 0.44 );
+  // 0.72 rather than 0.44. The sheet under this is now a Fresnel mirror rather
+  // than a flat 0.56 wash, so the water it is drawn over is *brighter* than it
+  // used to be, and a 0.44 white ribbon on it disappeared — a critic looking
+  // straight at a machine crossing five sheets a lap reported "no wake". A
+  // wake is the loudest thing on a flooded road; it is allowed to be the
+  // brightest thing in the crossing.
+  gl_FragColor = vec4( vec3( 1.0, 0.995, 0.97 ), body * fade * 0.72 );
   if ( gl_FragColor.a < 0.004 ) discard;
 }`;
 
@@ -804,6 +927,9 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
 
     hasWater = true;
     probe.hasWater = true;
+    // Resolved once, shared by every sheet on the course: the water answers to
+    // the same dome the rest of the frame is lit by.
+    const sky = skyColours(track.theme);
     const spline = track.spline as unknown as TrackSpline;
     const verge = course.vergeWidth ?? 5;
     splineRef = spline;
@@ -866,7 +992,7 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
       geo.setIndex(buf.idx);
       geo.computeVertexNormals();
       geometries.push(geo);
-      const mat = waterMaterial(tint, timeU);
+      const mat = waterMaterial(tint, timeU, sky);
       materials.push(mat);
       const mesh = new THREEns.Mesh(geo, mat);
       mesh.name = 'floodSheet';
@@ -1148,6 +1274,7 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
     hasWater: false,
   };
   (globalThis as unknown as { __FLOOD?: typeof probe }).__FLOOD = probe;
+  (globalThis as unknown as Record<string, unknown>).__DBGCTX = ctx;
 
   return {
     name: 'flood',

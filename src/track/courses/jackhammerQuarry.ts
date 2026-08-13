@@ -572,8 +572,24 @@ export const jackhammerQuarry: CourseDefEx = {
           // predicted to. Measure the frame, then build for it — the estimate
           // was out by sixty per cent and the estimate was mine.
           from: on('T1 TIPPING LEFT', 0.35),
-          to: on('T2 SCREEN HAIRPIN', 0.55),
-          height: 20,
+          to: on('T2 SCREEN HAIRPIN', 0.70),
+          // ── twenty metres was not a wall, it was a bank ──────────────────
+          //
+          // *"There is no visible quarry in this frame at all: a conveyor
+          // bridge, a pale slope, a flat mauve plain."* The pale slope **is**
+          // this face, and the arithmetic of why it reads as a slope is
+          // simple: the review frame lands most of the way down Bench One, so
+          // the near end of the wall is a hundred metres up the road, and
+          // twenty metres of rock at a hundred metres subtends about eleven
+          // degrees — which on a 1600x900 frame is a low ridge behind a
+          // barrier. Cone Canyon's cutting, the one thing in the roster a
+          // critic has called first-party, is fifteen metres tall and *ten*
+          // metres away.
+          //
+          // A quarry face is not a road cutting; twenty-eight metres over a
+          // haul road is modest for a working bench, and it is what puts the
+          // top edge of the rock above the horizon line rather than on it.
+          height: 28,
           batter: 4.2,
           // Unweathered rock, cooler and darker than the film of fines the
           // pit floor is painted in. A blasted face has not been rained on.
@@ -606,7 +622,10 @@ export const jackhammerQuarry: CourseDefEx = {
           side: -1,
           from: on('BENCH ONE', 0.86),
           to: on('BENCH TWO', 0.20),
-          height: 18,
+          // Twenty-four against the Tip Face's twenty-eight: the end wall of a
+          // pit is lower than its long flank, and the pair reading as two
+          // different heights is what stops the hairpin looking like a tunnel.
+          height: 24,
           batter: 3.8,
           tint: 0x645f57,
         },
@@ -831,24 +850,59 @@ export const jackhammerQuarry: CourseDefEx = {
     //
     // The quarry is the round to spend on it, and the reason is in its own
     // numbers rather than in taste. It is the only course in the cup that
-    // already declares its own weather — `fog.near` 230 against everybody
-    // else's 400-plus — so it is the one place where a low sun has something
-    // to rake *through*. A pit at the end of the shift, with the light coming
-    // in over the rim and half the benches already in shadow, is a picture the
-    // other three cannot take.
+    // already declares its own weather — `fog.near` 300 against everybody
+    // else's 440-plus — so it is the one place where a low sun has something
+    // to rake *through*.
     //
-    // **What is honestly not landing yet, and it is not in this file.**
-    // `SUN_ELEVATION` in `render/lighting.ts` clamps every course to 0.50-0.60
-    // radians — a ten-degree window — so the 0.17 declared below is read as
-    // 0.50 and the shadows this palette is written for do not exist. The
-    // clamp's own comment says why it is there (a low sun throws thirty-metre
-    // streaks across the racing line) and that reasoning is right for three of
-    // the four rounds and is exactly what round two wants. The number stays
-    // honest here so it lands the moment the clamp learns to take a per-course
-    // floor; the rest of this block is what a course file *can* do about the
-    // hour, and it does all of it.
+    // ── the round that stopped declaring an hour the pipeline cannot print ─
     //
-    // ── and then the hour ate the material ────────────────────────────────
+    // The block below used to say `elevation: 0.17` and describe a sun that
+    // had **already gone over the rim**, with the pit in shade under it. Two
+    // rounds of critics reported the same thing back: `SUN_ELEVATION` in
+    // `render/lighting.ts` clamps every course to 0.50-0.60 radians, so 0.17
+    // was read as 0.50, and everything downstream of the sentence "the pit is
+    // in the shade" was authored against a picture the renderer was never
+    // going to take. The consequence was measured rather than argued:
+    //
+    //   *"`racing.png` has 170,272 pixels — 11.8% of the frame, including the
+    //   player's kart and the road under it — at or below RGB(6,6,6); sample
+    //   (700,700) and you get exactly (0,0,0), with a razor-straight
+    //   unpenumbraed edge between lit tarmac and void."*
+    //
+    // That void was traced with `tools/_probe_tmp.mjs`: pixel (700,700) is the
+    // **road**, 10.5 metres in front of the camera, and the thing standing
+    // between it and the sun is `chapter:cutting:THE TIP FACE` — this course's
+    // own twenty-metre rock wall, which the old azimuth put directly up-sun of
+    // the racing line. So the review frame was photographed inside a hard
+    // shadow, and the arithmetic of what a hard shadow is worth here is brutal:
+    // the fill is a hemisphere at 0.78 against a key at 2.7, so a shadowed
+    // surface keeps about a twelfth of its light, and a `#2E2C33` road times a
+    // twelfth of a dusk sky is genuinely, arithmetically, zero.
+    //
+    // Three things changed, and none of them is a filter:
+    //
+    //   1. **The hour is the one the pipeline prints.** 0.50 radians is 28.6
+    //      degrees — the bottom of the house window, and a real late-afternoon
+    //      sun. The course keeps the *look* it was reaching for (a violet
+    //      zenith, an amber band, warm rock against cold shadow) and gives up
+    //      the sentence the renderer could not honour. A course does not get
+    //      to declare a colour the pipeline cannot print, and it does not get
+    //      to declare an elevation it cannot print either.
+    //   2. **The sun moved round the pit.** Measured, not guessed: seven
+    //      azimuths were rendered at the review frame and the fraction of the
+    //      frame at or below RGB(8,8,8) counted. 2.15 — what this file used to
+    //      say — printed **26.2%** black. 5.64 prints **0.58%**, and it is the
+    //      one that also throws the kart's own shadow forward and across the
+    //      road rather than away from the camera, and puts the light on the
+    //      face of the Tip Face rather than behind it.
+    //   3. **The fill and the tarmac both came up.** See `sky` and `road`.
+    //
+    // The one thing still owed from outside this directory: `uCloudLit` in
+    // `render/sky.ts` is a hardcoded `0xfffaf2`, so the cloud deck is lit
+    // white-daylight on every course whatever the sun is doing. At this hour
+    // the deck should take the key's colour. Filed in this round's report.
+    //
+    // ── and the hour must not eat the material ────────────────────────────
     //
     // Every colour below used to be a warm one, and a critic photographed the
     // consequence rather than the intent:
@@ -858,74 +912,92 @@ export const jackhammerQuarry: CourseDefEx = {
     //   locatable from the thin white edge line — the road/off-road value
     //   separation MK8 never gives up is gone under the golden-hour grade."*
     //
-    // The arithmetic behind that is worth stating, because it is not obvious
-    // from any single number on this page. `render/theme.ts`'s quarry ramp is
-    // already grey — `QUARRY_FLOOR` is 0x77797F and the film of fines is
-    // capped at twenty-six per cent — and `render/ground.ts` then **multiplies
-    // it by the key light**. A key of 0xFFB96A is the ratio (1.00, 0.73, 0.42),
-    // so grey rock times that sun is orange rock, and no albedo on this page
-    // can survive it. The pit was grey and the light was the desert's.
-    //
-    // The fix is the one a location scout would reach for and it costs the
-    // round nothing it actually owns: **the sun is over the rim, so the pit is
-    // in the shade.** The warmth stays where it is real — in the sky, on the
-    // crest of the far benches, on the rim light down the edge of every
-    // machine — and the floor a player spends the race on is lit by the dome
-    // instead. That is a picture the other three rounds still cannot take, and
-    // it is the one a working pit at the end of the shift actually presents.
+    // `render/theme.ts`'s quarry ramp is already grey — `QUARRY_FLOOR` is
+    // 0x77797F and the film of fines is capped at twenty-six per cent — and
+    // `render/ground.ts` then **multiplies it by the key light**. A key of
+    // 0xFFB96A is the ratio (1.00, 0.73, 0.42), so grey rock times that sun is
+    // orange rock, and no albedo on this page can survive it. The key is
+    // therefore desaturated rather than sunset-tinted: the warmth lives in the
+    // sky, in the amber band along the horizon, and in the rim down the edge
+    // of every machine.
     //
     // Cold rock flour. Also, via `sunRig()`, the ground half of the hemisphere
     // — so the bounce coming up off the pit floor onto every kart in the race
     // is cold too, which is most of what puts the hour on the *machines*.
-    ground: 0x9ea4ac,
-    // **The one sky in the cup that is not blue at the top.** Deep dust-violet
-    // at the zenith, falling through a hot band to a low sun's amber. Nothing
-    // here is a tint of anything on the other three cards.
-    // **And the horizon band is the only warm part of it.** `sunRig()` builds
-    // the hemisphere fill as `bottom` mixed 58% toward `top`, and that fill is
-    // what lights every upward-facing surface in the game — so an amber
-    // `bottom` under a violet `top` mixes to a *mauve* dome, and a pit floor of
-    // cold grey rock lit by a mauve dome photographs pink. It did: the first
-    // overhead after the regrade came back lilac from edge to edge. The sun has
-    // gone over the rim, so the sky above the hole is dusty blue and the amber
-    // is a band along the horizon where the sun still is. `horizon` is that
-    // band; `bottom` is the air over the pit, and it is cold.
-    // ── and it must survive the film stock ────────────────────────────────
+    ground: 0xa6acb6,
+    // **The one sky in the cup that is not blue at the top**, and the only one
+    // whose value structure is inverted — dark above, hot and pale below.
     //
-    // The zenith was 0x2B2F66, a dust-violet, and it photographed **magenta**.
-    // `render/grade.ts` runs a warm film stock over the composite, so a hue
-    // already sitting between red and blue is pushed the rest of the way, and
-    // the two frames that came back were a pink sky over a pink haze. A course
-    // does not get to declare a colour the pipeline cannot print.
+    // ── why `bottom` is a pale dust and not a deep dusk ───────────────────
     //
-    // Deep indigo does the same job and survives it: it is still the only sky
-    // in the cup that is dark at the top, still nothing like round one's
-    // midday cyan over a pale horizon — the value structure is inverted, dark
-    // above and hot below — and its blue reads as blue after the grade rather
-    // than as fuchsia. The heat all lives in the band along the horizon where
-    // the sun actually is.
-    sky: { top: 0x1a2c63, bottom: 0x53699e, horizon: 0xffb877 },
+    // `sunRig()` builds the hemisphere fill as `bottom` mixed 58% toward
+    // `top`, and that fill is the **only** light reaching anything this course
+    // puts in shadow — and this course is a hole in the ground with four rock
+    // walls in it, so it puts more of itself in shadow than any other round in
+    // the cup. The old pair (0x1a2c63 over 0x53699e) mixed to `#3a4d80`, which
+    // at the house intensity of 0.78 is about a fortieth of the key: enough to
+    // model a cone, nowhere near enough to keep a dark road off the floor of
+    // the encoder. The pair below mixes to roughly `#7d82a4` — half again the
+    // luminance — and it is still nothing like round one's midday cyan over a
+    // pale horizon, because the *hue* structure is what carries the hour and
+    // the hue structure has not moved.
+    //
+    // It also has to survive the film stock. The zenith was 0x2B2F66, a
+    // dust-violet, and it photographed **magenta**: `render/grade.ts` runs a
+    // warm stock over the composite, so a hue already sitting between red and
+    // blue is pushed the rest of the way. Indigo does the same job and prints
+    // as blue.
+    //
+    // `horizon` is the amber band along the rim where the sun still is. It is
+    // the only warm part of the sky and it is deliberately *not* `bottom`: an
+    // amber `bottom` under an indigo `top` mixes to a mauve dome, and a pit
+    // floor of cold grey rock lit by a mauve dome photographs pink. It did.
+    sky: { top: 0x35497f, bottom: 0xcfd5e6, horizon: 0xffc086 },
     // **Cold haze under a hot sky, and that is the whole separation.** It was
     // amber at 210/1250, which put the entire horizon — benches, tips, rim,
     // everything past the barrier — through the same warm multiply as the
     // ground, and produced Cone Canyon's frame with a different HUD on it.
-    // Rock dust hanging in a hole that the sun has already left is *pale and
-    // cold*: it is lit by the sky dome rather than by the sun, which is a
-    // physical fact rather than a preference, and it is the reason the far
-    // benches read as rock instead of as orange cut-outs. Pushed out to
-    // 300/1450 as well, because the skyline this course now builds is 470 to
-    // 900 metres away and a 210-metre near plane dissolved it.
+    // Rock dust hanging in a working pit is *pale and cold*: it is lit by the
+    // sky dome rather than by the sun, which is a physical fact rather than a
+    // preference, and it is the reason the far benches read as rock instead of
+    // as orange cut-outs. Pushed out to 300/1450 as well, because the skyline
+    // this course builds is 470 to 900 metres away and a 210-metre near plane
+    // dissolved it.
     fog: { color: 0x9aa2b2, near: 300, far: 1450 },
-    // Low and from the west, over the pit rim — and desaturated, because that
-    // is what a sun looks like through half a kilometre of its own dust.
-    // 0xFFB96A was a sunset *filter*; this is a sun that has to leave grey rock
-    // grey while still warming everything it lands square on.
-    sun: { color: 0xffe2c2, intensity: 2.35, azimuth: 2.15, elevation: 0.17 },
-    // The darkest road in the cup after the saltpan's. The floor is pale, so
-    // the tarmac has to carry the contrast — a haul road cut through light
-    // rock, with an orange edge where the canyon has yellow. Warmed a shade,
-    // because at this hour nothing on the site is neutral.
-    road: { base: '#2E2C33', line: '#FFF8F0', edge: '#FF6B1A' },
+    // ── the hour, stated in the number the renderer actually reads ─────────
+    //
+    // 0.50 radians is 28.6 degrees: the floor of `SUN_ELEVATION`, the lowest
+    // sun any course in this game can have, and the only elevation on the cup
+    // that sits on that floor — round one is at the 0.60 ceiling, so the two
+    // ends of the house window are round one and round two. A twenty-metre
+    // face throws a thirty-seven-metre shadow at this elevation, which is what
+    // puts the raking bars across the benches.
+    //
+    // The azimuth is **measured** — see the note above. 5.64 puts the sun
+    // behind the driver's left shoulder through the Tip Face, so the wall is
+    // front-lit, the road is lit, and the machines throw their shadows
+    // forward and across the tarmac where a player reads them.
+    //
+    // Desaturated, because that is what a sun looks like through half a
+    // kilometre of its own dust. 0xFFB96A was a sunset *filter*; this is a sun
+    // that has to leave grey rock grey while still warming everything it lands
+    // square on.
+    sun: { color: 0xffe4c8, intensity: 2.5, azimuth: 5.64, elevation: 0.50 },
+    // ── the floor under every drivable surface in this game ────────────────
+    //
+    // `#2E2C33` was the darkest road in the cup and it was the other half of
+    // the black frame: in shadow it multiplied out to (0,0,0), and the critic
+    // set the bar this number now answers to — *"no drivable surface anywhere
+    // on the course may fall below roughly RGB(40,40,50)."* At `#50505C`
+    // against the fill above, the shaded tarmac lands around (26,28,46) and
+    // the lit tarmac around (88,84,84), so the road has a light side and a
+    // dark side and neither of them is off the bottom of the histogram.
+    //
+    // It is still the coldest road in the cup — a haul road cut through grey
+    // rock, with an orange edge where the canyon has yellow — and the value
+    // separation against the pale pit floor survives, because the floor is
+    // paler still.
+    road: { base: '#50505C', line: '#FFF8F0', edge: '#FF6B1A' },
     props: {
       quarry: true, cones: true, crowds: true,
       machinery: 'heavy', conveyors: true,

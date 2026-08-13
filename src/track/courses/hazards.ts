@@ -856,12 +856,38 @@ function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
   // than the sheet, and deeper water is darker. So: darker, and more opaque
   // than the thing it is standing in, which is what puts a body back under the
   // crest.
-  const waterM = new THREE.MeshLambertMaterial({
-    color: 0x2d6274, transparent: true, opacity: 0.9,
-    emissive: 0x0d2a33, side: THREE.DoubleSide,
+  //
+  // ── ...and then it had to be made of the same substance as the sheet ─────
+  //
+  // A later critic photographed the crossing and filed the bore as *"an opaque
+  // slab with a hard vertical front wall and a visibly faceted top edge — a
+  // collision volume with a colour."* Both halves of that survived the work
+  // above because the work above was all **silhouette**, and what was wrong by
+  // then was **material**: 0.9 opacity on a Lambert with a dark emissive is a
+  // painted solid, and it stood in a sheet that had meanwhile become a
+  // Fresnel mirror (see `courses/flood.ts`). Two objects made of the same
+  // substance may not disagree about what that substance looks like, and by
+  // this round they disagreed completely — the sheet returned the sky and the
+  // wave standing in it returned nothing at all.
+  //
+  // So the body is transparent enough to see the far bank through, the
+  // emissive is a *sky* colour rather than a bottom-of-a-pond colour, and both
+  // sides get a specular. It is still darker and denser than the sheet, which
+  // is the one thing about the old note that was right: a metre and a half of
+  // water stacked on a sheet of water is deeper, and deeper water is darker.
+  const waterM = new THREE.MeshPhongMaterial({
+    color: 0x40808f, transparent: true, opacity: 0.70,
+    emissive: 0x16323d, specular: 0xdff2ff, shininess: 90,
+    side: THREE.DoubleSide,
+    // The bore travels *through* the flood sheet, and two transparent surfaces
+    // that both write depth will punch holes in each other depending on which
+    // was submitted first. Neither writes; the render order decides.
+    depthWrite: false,
   });
   const foamM = new THREE.MeshLambertMaterial({
-    color: 0xeaf6f8, transparent: true, opacity: 0.94, side: THREE.DoubleSide,
+    color: 0xf4fbfd, emissive: 0x2b4652,
+    transparent: true, opacity: 0.97, side: THREE.DoubleSide,
+    depthWrite: false,
   });
   keep.push(waterM, foamM);
 
@@ -916,7 +942,19 @@ function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
     // out to a skirt: what is behind a bore is deeper water, not a ramp, and a
     // long flat back is the other half of what made this read as a wedge from
     // overhead.
-    pos.push(2.4, SKIRT + 0.55 * cap * h, z);
+    // ── the back of a bore is short, not a ramp ──────────────────────────
+    //
+    // This was `(2.4, SKIRT + 0.55·cap·h)`, which put the back foot 1.4 metres
+    // up and 3.8 metres behind a crest 2.5 metres up: a sixteen-degree plane
+    // three metres wide, running the whole 22-metre length. A chase camera
+    // sees the *back* of a bore for most of the time one is on screen — the
+    // wave crosses the road and keeps going — so that plane is the single
+    // largest facet this object presents, and lit by a white sky it is the
+    // pale slab a critic photographed and called "an opaque slab with a hard
+    // vertical front wall". The front wall was the least of it; the slab was
+    // the back. At (1.5, 0.20) the same crest sits over a forty-degree back,
+    // so what the camera gets is a *crest* with water falling away behind it.
+    pos.push(1.5, SKIRT + 0.20 * cap * h, z);
     pos.push(-lean, h, z);
     pos.push(-3.0, SKIRT, z);
   }
@@ -931,6 +969,10 @@ function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
   geo.computeVertexNormals();
   const wall = new THREE.Mesh(geo, waterM);
   wall.receiveShadow = true;
+  // Over the flood sheet (2), under the wake (4) and the crest. Nothing here
+  // writes depth, so this ordering is the only thing deciding what is in front
+  // of what where a bore is standing in standing water.
+  wall.renderOrder = 3;
   g.add(wall);
   rig.wall = wall;
 
@@ -953,9 +995,12 @@ function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
     const surf = 0.22 + 0.78 * clamp01(
       0.5 + 0.62 * Math.sin(t * 23.0 + 0.4) + 0.30 * Math.sin(t * 41.0 + 2.1),
     );
-    const throwF = 0.62 * cap * surf;
-    cpos.push(-lean - throwF * 0.55, h + 0.16 * cap * surf, z);
-    cpos.push(-lean - throwF * 1.5, h - 0.52 * cap * surf, z);
+    // Thrown further forward and hung further down the face than it was: the
+    // crest has to be wide enough to read as the top of the wave from behind
+    // as well as from in front, which is where most of a bore is watched from.
+    const throwF = 0.95 * cap * surf;
+    cpos.push(-lean - throwF * 0.10 + 0.55 * cap, h + 0.22 * cap * surf, z);
+    cpos.push(-lean - throwF * 1.7, h - 0.80 * cap * surf, z);
   }
   for (let i = 0; i < N; i++) {
     const a = i * 2;
@@ -966,6 +1011,7 @@ function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
   cgeo.setIndex(cidx);
   cgeo.computeVertexNormals();
   const crest = new THREE.Mesh(cgeo, foamM);
+  crest.renderOrder = 5;
   g.add(crest);
   rig.crest = crest;
 
