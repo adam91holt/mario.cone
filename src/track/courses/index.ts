@@ -28,10 +28,11 @@
 //                             three more down the pit, concrete jersey
 //                             barrier, hazard kerb.* **And the last shift of
 //                             the day** — the only round in the cup that is
-//                             not played at midday, and the sun has already
-//                             gone over the rim: deep indigo zenith, a hot
-//                             amber band along the horizon where the sun
-//                             still is, and a **cold** pit under it. Three
+//                             not played at midday: deep indigo zenith, a hot
+//                             amber band along the horizon, a pale dust sky
+//                             low down and the lowest sun the renderer can
+//                             print (0.50 rad, the floor of `SUN_ELEVATION`,
+//                             against round one's 0.60 ceiling). Three
 //                             chapters, and two of them have **one face**:
 //                             the Tip Face over the outside of the first
 //                             hairpin, the Cut walled on both hands at the
@@ -523,7 +524,111 @@
 // road level, every one of them was *inside* the two and a half metres of
 // talus they were meant to be lying on.
 //
+// ── the round the three hero set pieces were finished in ───────────────────
+//
+// A critic played the cup at 6.5 and rejected it on one sentence: *"each
+// course's signature set piece — the one thing it is named for — is the
+// least-finished object in its own frame."* Three findings, three files, and
+// the first of them is the most useful thing this directory has been told,
+// because it is a *measurement of a multiplication* rather than of a colour.
+//
+// **1. The quarry's racing frame was 11.8% pure black.** 170,272 pixels at or
+// below RGB(6,6,6), including the player's kart and the road under it, with a
+// razor-straight unpenumbraed edge across the middle of it. It was traced
+// rather than guessed: the pixel at (700,700) is the **road**, 10.5 metres in
+// front of the lens, and the thing standing between it and the sun is
+// `chapter:cutting:THE TIP FACE` — this course's own rock wall. The straight
+// edge is the shadow camera's own box.
+//
+// The arithmetic is the finding. `render/lighting.ts` runs the fill as a
+// hemisphere at 0.78 against a key at 2.7, so **a shadowed surface keeps about
+// a twelfth of its light**, and a `#2E2C33` road times a twelfth of a dusk sky
+// is genuinely zero — not "too dark", *zero*, to the encoder. Two consequences
+// bind every course file in this directory:
+//
+//   * **A course cannot put its own hero object up-sun of its own racing
+//     line.** The azimuth was measured, not chosen: seven values were rendered
+//     at the review frame and the fraction of the frame at or below RGB(8,8,8)
+//     counted. 2.15, what the file said, printed 26.2%. 5.64 prints 0.6%, and
+//     it is also the one that throws the machines' shadows forward across the
+//     road instead of away from the camera.
+//   * **The tarmac and the sky have to be able to survive being multiplied.**
+//     `theme.sky.bottom` is the only lever a course has on how bright its own
+//     shadows are, because `sunRig` builds the hemisphere out of it; the
+//     quarry's mixed to `#3a4d80` and now mixes to about `#7d82a4`. The road
+//     went from `#2E2C33` to `#50505C`.
+//
+// Measured on the finished frame: **zero pixels at or below RGB(6,6,6)**,
+// against 170,272; the road under the kart reads (73,62,64) where it read
+// (0,0,0); and the mean value of the ground half of the frame is 0.334 against
+// 0.224 before and Cone Canyon's 0.440. Round two is still the dark round of
+// the cup, which is the point of it — it is no longer a hole in the encoder.
+//
+// The same round **stopped declaring an hour the pipeline cannot print.**
+// `SUN_ELEVATION` clamps to 0.50-0.60 and the quarry declared 0.17, so
+// everything downstream of the sentence "the sun has gone over the rim, so the
+// pit is in the shade" was authored against a picture the renderer was never
+// going to take — for two whole rounds, with a comment saying so. It declares
+// 0.50 now: the floor of the house window, 28.6 degrees, still the lowest sun
+// in the cup and still the only round not played at midday. **The number a
+// file states must be the number the renderer reads.**
+//
+// **2. THE FLOOD was a collision volume with a colour.** Measured at (36,93,120)
+// against a road at (44,49,63) and a sky at (236,234,230) — *"the water is
+// DARKER than the tarmac, under a near-white sky, on a white salt lake"* — with
+// the lane dashes stopping dead at the waterline. One mistake underneath all of
+// it: **a flat opacity says a surface is equally see-through from every angle,
+// and water is the textbook case of one that is not.** `courses/flood.ts`'s
+// sheet now carries a Schlick term against its own rippled normal, and that one
+// expression is both the transparency *and* the body: head-on you read the
+// dashes and the drain grating through it, at a graze it is a mirror returning
+// the course's own `theme.sky`. The sheet reads white on the pan and indigo
+// under the quarry from the same line. Sampled on the finished frame: the
+// sheet reads (154,175,204) near and (111,134,155) at its far edge, against a
+// road at (58,61,70) and a sky at (199,209,234) — so the water now sits
+// *between* the tarmac and the sky instead of below both, which is what a
+// mirror lying on a salt pan does. It was (36,93,120).
+//
+// The bore in `courses/hazards.ts` had to be made of the same substance in the
+// same round, and the thing wrong with it was not the front: a chase camera
+// watches a bore *leave*, and its back was a sixteen-degree plane three metres
+// wide running the whole 22-metre length — the actual "opaque slab". It is a
+// forty-degree back now, under a crest thrown half again as far forward.
+//
+// **3. Digger's Cutting was one hue from toe to crest**, with the strata
+// running unbroken straight over the bench, *"so the bench reads as texture and
+// the whole 15m face reads as a backdrop."* The cause was in
+// `rockFaceTexture`, and it is worth stating exactly, because the file looked
+// like it had already answered this: there *was* a toe-to-crest shade ramp, and
+// it went dark at x=0, neutral by x=0.22 and then **flat until x=0.80** — so
+// the wall had a gradient everywhere except on the part of itself anybody sees.
+// The canvas now knows where the bench is (u≈0.355-0.415, the same numbers the
+// `face` lanes are built from), draws it as a shadow line, a lit shelf floor
+// and a sky-facing lip, and runs two separate bedding populations either side
+// of it at different weights and different phases — because a bench is cut on a
+// bedding plane, so the beds above one are not the beds below it.
+//
+// And the street lamp halfway up the rock face is **not this directory's
+// object**: `world/index.ts` drops a `lightColumn` every 52 metres at 3.2-4.4m
+// outboard of the barrier and a `flagPole` every 104 at 4.4-5.6, and neither
+// consults anything a chapter has built. The wall's toe was at 0.35m, so a
+// column at 4.0 was inside the face at whatever height the batter had reached.
+// The half of that fix which lives here is `stand` in `buildCutting`: the toe
+// stands back four metres and the talus fan fills the ground it vacated, so the
+// furniture stands *in front of* the wall on the scree. The other half is filed
+// as a cross-module request. A road beside a cutting is lit in real life; the
+// bug was never the lamp, it was that the wall left it nowhere to stand.
+//
 // ── what is honestly still short ───────────────────────────────────────────
+//
+//   * *A hard shadow on tarmac can still reach zero, and the last of it is not
+//     in this directory.* `render/contact.ts` draws its blob with
+//     `MultiplyBlending`, so where a kart's contact patch lands **inside** its
+//     own cast shadow the two multiply: a twelfth of the light times the blob
+//     is under RGB(8,8,8) whatever a course declares. It is about half a per
+//     cent of the quarry's frame now, all of it directly under the machines,
+//     and no course-side number reaches it — the fill would have to be raised
+//     to a fifth of key, which is the ratio §12 exists to prevent.
 //
 //   * *`tools/underground.mjs` fails Switchback Summit, and it is not the
 //     layout.* One sample in three hundred puts the chase lens 56 degrees and

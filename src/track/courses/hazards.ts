@@ -840,7 +840,11 @@ function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
   //      and lying flat on the road, which is the single strongest cue that
   //      something is *water arriving* rather than an object being slid across
   //      the tarmac — and it is the part a chase camera sees first.
-  const N = 30;
+  // 54 rather than 30. At 22 metres of face that is a station every 40cm, and
+  // it is the whole of *"a visibly low-poly scalloped silhouette"*: the crown
+  // and the surf are both sampled here, so a 73cm station turned a wave into a
+  // row of chords against a white sky. Sixty-odd extra triangles.
+  const N = 54;
   const len = 22;
   // ── the bore has to be darker than the sheet it stands in ────────────────
   //
@@ -876,7 +880,7 @@ function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
   // is the one thing about the old note that was right: a metre and a half of
   // water stacked on a sheet of water is deeper, and deeper water is darker.
   const waterM = new THREE.MeshPhongMaterial({
-    color: 0x40808f, transparent: true, opacity: 0.70,
+    color: 0x40808f, transparent: true, opacity: 0.62,
     emissive: 0x16323d, specular: 0xdff2ff, shininess: 90,
     side: THREE.DoubleSide,
     // The bore travels *through* the flood sheet, and two transparent surfaces
@@ -886,7 +890,7 @@ function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
   });
   const foamM = new THREE.MeshLambertMaterial({
     color: 0xf4fbfd, emissive: 0x2b4652,
-    transparent: true, opacity: 0.97, side: THREE.DoubleSide,
+    transparent: true, opacity: 0.90, side: THREE.DoubleSide,
     depthWrite: false,
   });
   keep.push(waterM, foamM);
@@ -998,9 +1002,9 @@ function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
     // Thrown further forward and hung further down the face than it was: the
     // crest has to be wide enough to read as the top of the wave from behind
     // as well as from in front, which is where most of a bore is watched from.
-    const throwF = 0.95 * cap * surf;
-    cpos.push(-lean - throwF * 0.10 + 0.55 * cap, h + 0.22 * cap * surf, z);
-    cpos.push(-lean - throwF * 1.7, h - 0.80 * cap * surf, z);
+    const throwF = 0.70 * cap * surf;
+    cpos.push(-lean - throwF * 0.10 + 0.30 * cap, h + 0.20 * cap * surf, z);
+    cpos.push(-lean - throwF * 1.6, h - 0.58 * cap * surf, z);
   }
   for (let i = 0; i < N; i++) {
     const a = i * 2;

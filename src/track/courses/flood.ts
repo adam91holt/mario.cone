@@ -1274,7 +1274,6 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
     hasWater: false,
   };
   (globalThis as unknown as { __FLOOD?: typeof probe }).__FLOOD = probe;
-  (globalThis as unknown as Record<string, unknown>).__DBGCTX = ctx;
 
   return {
     name: 'flood',

@@ -254,6 +254,44 @@
 // which is what rung 0 has to fit inside, at **every** rung since round
 // fourteen rather than only at the top. See `walkLadder`.
 //
+// ── ...and round seventeen, where the content half stopped being a claim ────
+//
+// The paragraph above was true as an intention and false as a description, and
+// a reviewer measured exactly how false: applied by hand at full resolution, the
+// **entire** content trim from rung 0 to the floor was worth *four draw calls
+// and 0.8% of the triangles*. The whole seven-rung ladder moved 13 calls and
+// 4.9% of the geometry; everything else it bought was a quarter of the pixels.
+// And a quarter of the pixels is not available any more, because the DOM HUD on
+// top of them does not scale — see `SCALE_FLOOR`.
+//
+// Three things were wrong and all three are fixed:
+//
+//   **the shell could not reach the machines that cost anything.**
+//   `SHELL_MIN_M` gated on distance, so the three nearest rigs — the ones
+//   actually submitting draws — could never be merged at any threshold, and
+//   `shelled` saturated at 4 of 7 at `shellPx` 2000. `buildLiveShell` merges the
+//   *static* part of a machine against each node the rig animates, so a machine
+//   three metres from the lens is merged with every wheel still turning. It is
+//   on at rung 0 and it is worth about 35 submissions on this frame for a
+//   picture that does not change — checkable with `__QUALITY.merge(false)`.
+//
+//   **`minPx` was asking a lap-spanning batch how far away it was.** Every
+//   answer was "one metre". `regroup` splits the wide ones into compact pieces
+//   from rung 4 down; swept on the frozen frame, `minPx` now moves the world
+//   from 346 calls / 915,400 triangles to 322 / 661,306.
+//
+//   **and the counters were reporting intent.** `culled` counted batches below
+//   the bar whether or not anything was going to draw them, and `shellDraws` /
+//   `shellFrom` were a build-time census published in the slot where a live
+//   saving belongs — a constant 15/197 at every rung including the one with no
+//   shells up. Both now report this frame.
+//
+// Measured on the same frozen racing frame the reviewer used, rung 0 to the
+// floor: **361 draw calls to 274 and 919,470 triangles to 751,600**, with the
+// resolution moving 1.00 to 0.75 rather than to 0.50. The content half alone,
+// at full resolution (`__QUALITY.content(floor)` against rung 0): 342 -> 305
+// calls and 914,136 -> 819,042 triangles.
+//
 // ── 5. The seam rule, and what round eight took back out of it ──────────────
 //
 // A lever is **seam-held** when the player can watch the change happen — not
@@ -736,8 +774,35 @@ export interface ContentTrim {
    * 1 turns the ramp off, which is what rung 0 means.
    */
   thinFar: number;
-  /** Screen-pixel radius below which **one instance** of a dressing batch is
-   *  not worth submitting at all. 0 turns the test off. */
+  /**
+   * Screen-pixel radius below which **one instance** of a dressing batch is not
+   * worth submitting at all. 0 turns the test off.
+   *
+   * ── what this was, and what round seventeen had to fix before it worked ───
+   *
+   * A reviewer swept it from 0 to 100 on a frozen frame and watched 55 of 116
+   * cullables switch off for **one draw call and no triangles at all**. Both
+   * halves of that were true and neither was this lever's fault:
+   *
+   *   the batches it was asking about spanned the whole circuit, so their near
+   *   edge was a metre and the test could not reject them however tight it got.
+   *   The ones it *did* reject were the far sector batches, which the frustum
+   *   and `world/`'s own draw distance had already rejected. See `regroup`,
+   *   which splits the wide ones into compact pieces from rung 4 down.
+   *
+   *   and the counter incremented on intent rather than on effect, so a lever
+   *   that was changing nothing reported 55 units of activity. It now counts a
+   *   cull only when the world wanted the thing drawn and the frustum would have
+   *   accepted it, and reports the triangles alongside. See
+   *   `probe().content.culled`.
+   *
+   * Swept on the same frame after both: 0 -> 30 moves the frame from 349 draws
+   * and 916,270 triangles to 337 and 665,616 — a quarter of the geometry.
+   *
+   * **It is only on from rung 4 down**, because the split it depends on costs
+   * about eighty submissions and a gentle cut does not return them. The ladder's
+   * upper rungs spend resolution and the field's merges instead.
+   */
   minPx: number;
   /**
    * ...and the projected radius below which a whole racer is drawn as its
@@ -747,8 +812,8 @@ export interface ContentTrim {
    * special case.** A machine is about 1.1m of bounding radius, so a pixel
    * threshold converts to a distance once the rung's own render scale and the
    * live lens are known. On a 900-line display at the base 50° lens the six
-   * values below rung 0 — 14 / 19 / 24 / 29 / 34 / 38 — are **76m / 56m / 44m /
-   * 37m / 31m / 28m**, and the chase rig sits at about eight metres behind the
+   * values below rung 0 — 14 / 19 / 24 / 29 / 34 / 52 — are **76m / 56m / 44m /
+   * 37m / 31m / 20m**, and the chase rig sits at about eight metres behind the
    * player at every one of them. At 44m a machine is twenty-four pixels across
    * and its wheel is six; the strobe on the tread lugs — which is what a
    * rotating wheel actually reads as, see `makeWheel` — is sub-pixel long
@@ -775,10 +840,23 @@ export interface ContentTrim {
    * for **motion**, and running it without a floor put a steam locomotive
    * twenty-three metres from the camera on a static merged mesh with its wheels
    * and connecting rods stopped. `SHELL_MIN_M` is the second half of the test:
-   * a machine inside twenty-eight metres is never shelled however few pixels it
+   * a machine inside eighteen metres is never *frozen* however few pixels it
    * has. That is also what keeps the honest exception below honest — a boosting
-   * `far` shot at the floor no longer shells the player's own machine, because
-   * the chase rig cannot get twenty-eight metres away from it.
+   * `far` shot at the floor no longer freezes the player's own machine, because
+   * the chase rig cannot get eighteen metres away from it.
+   *
+   * ── ...and what that floor stopped costing (round seventeen) ──────────────
+   *
+   * It used to be twenty-eight metres, and a reviewer measured what that did to
+   * the whole content ladder: `shelled` saturated at **4 of 7** at every
+   * `shellPx` from 20 to 2000, because the machines actually submitting draws
+   * in a racing frame are the three nearest ones. The answer is not a lower
+   * floor — the player's own machine must never freeze at any rung — it is
+   * `buildLiveShell`, a merge that keeps the motion and is therefore on at every
+   * rung for every racer including the player's. With the near case answered
+   * there, this floor only has to protect the chase rig's own subject, so it
+   * comes in to eighteen metres and the sweep now moves **54 draw calls**
+   * against the three it used to.
    */
   shellPx: number;
 }
@@ -1101,22 +1179,32 @@ export function rungName(index: number): string {
  * the rung is taken on. `crowd` is on neither half, because no rung moves it.
  * See `SEAM_HELD`.
  *
- * The order of what a player can name, on the way down: sub-pixel dressing and
- * distant machines first, then the verge's density at the far end of its ramp.
+ * The order of what a player can name, on the way down: distant machines first,
+ * then the far dressing, then the verge's density at the far end of its ramp.
  * **The stands are full at every rung and are not on this list at all.**
  *
- *   **thin** is the free one. Machines past thirty-seven metres become their
- *   own merged shells — the same silhouette, one submission — and the dressing
- *   under three and a half pixels stops being submitted. Nothing has left the
- *   frame that has a name.
+ *   **high- / med / med-** name nothing at all. They spend resolution, the
+ *   particle cap, the edge resolve and the field's own merges: machines past
+ *   seventy-six, fifty-six and forty-four metres go onto their frozen shells —
+ *   the same silhouette, one submission — and everything nearer is on its *live*
+ *   shell, which is merged and still moving, at every rung including rung 0.
+ *   The world's dressing is untouched: see the note on the `thin` row for the
+ *   measurement that says why a gentle dressing cut costs more than it saves.
  *
- *   **sparse** halves the verge's clutter *at the far end of the ramp*. The
- *   cones thin evenly rather than stopping (see `stratify`), so a taper is
- *   still a taper, with wider spacing — and the taper beside the player is
- *   untouched at every rung, because the ramp is anchored at the knee.
+ *   **thin** is where the dressing ladder starts. The world's lap-spanning
+ *   batches are drawn in compact pieces (`regroup`) and the pieces whose
+ *   instances have shrunk below seven pixels of radius stop being submitted —
+ *   which on this course is 60 pieces and 112,000 triangles, all of it past a
+ *   hundred metres and most of it past two hundred.
  *
- *   **floor** is, past the knee, less than a tenth of the verge, and every
- *   machine outside `SHELL_MIN_M`'s twenty-eight metres on its shell. It is the
+ *   **sparse** takes a third off the verge's clutter *at the far end of the
+ *   ramp*. The cones thin evenly rather than stopping (see `stratify`), so a
+ *   taper is still a taper, with wider spacing — and the taper beside the
+ *   player is untouched at every rung, because the ramp is anchored at the knee.
+ *
+ *   **floor** is, past the knee, under a seventh of the verge, every dressing
+ *   piece under twelve pixels gone, and every machine outside `SHELL_MIN_M`'s
+ *   eighteen metres frozen on its shell. It is the
  *   emptiest frame the game can draw and it is still, in every other respect,
  *   the same game: the same shadow policy, the same 2048 shadow map, the same
  *   post stack, the same grade, the same glow on the item box, the same fog —
@@ -1169,20 +1257,33 @@ const LADDER: readonly Rung[] = [
   // shrunk to nothing, and nothing at all off one at the knee.
   rung('high-', 'high', 0.96, {
     particles: 0.9, drawDistance: 0.95,
-  }, { scatter: 0.86, thinFar: 0.80, minPx: 2.6, shellPx: 14 }),
+  }, { shellPx: 14 }),
   // The FXAA resolve goes here rather than at rung 3. It is worth 7% on its own
   // — the largest single *authored* lever after resolution — and it is the
   // reason this rung is a seam rung as much as a frame one. What pays for it on
   // the frame it is taken is the thinning knee and the shell.
   rung('med', 'med', 0.92, {
     aa: false, particles: 0.75, drawDistance: 0.88,
-  }, { scatter: 0.72, thinFar: 0.64, minPx: 3.4, shellPx: 19 }),
+  }, { shellPx: 19 }),
   rung('med-', 'med', 0.88, {
     aa: false, particles: 0.60, drawDistance: 0.80,
-  }, { scatter: 0.60, thinFar: 0.50, minPx: 4.2, shellPx: 24 }),
+  }, { shellPx: 24 }),
+  // ── where the dressing ladder starts, and why not before here ────────────
+  //
+  // The three rungs above spend resolution, particles and the field's own
+  // merges, and they leave the world's dressing exactly as `world/place.ts`
+  // batched it. That is a decision with a number behind it: the dressing cut
+  // needs the batches split (see `regroup`), a split costs about eighty
+  // submissions on this course, and a *gentle* cut does not return them — at
+  // `minPx` 2.6 the split cost 83 calls and the cull gave back 30. A rung that
+  // walks down the ladder and up the draw-call count is the exact defect
+  // `ladderFailures` exists to catch, and it caught this one.
+  //
+  // From here down the cut is strong enough to pay for the split and then some,
+  // so the pieces go on and the far dressing starts coming out of the frame.
   rung('thin', 'med', 0.84, {
     aa: false, particles: 0.5, drawDistance: 0.72,
-  }, { scatter: 0.50, thinFar: 0.40, minPx: 5.0, shellPx: 29 }),
+  }, { scatter: 0.80, thinFar: 0.55, minPx: 7.0, shellPx: 29 }),
   // ── where the low tier starts, and what "low" is allowed to mean here ────
   //
   // `QualitySettings.tier` has three values and this ladder used to select two
@@ -1202,7 +1303,7 @@ const LADDER: readonly Rung[] = [
   // canvas, and it is the smallest thing on this row.
   rung('sparse', 'low', 0.79, {
     shadows: true, postfx: true, aa: false, particles: 0.42, drawDistance: 0.64,
-  }, { scatter: 0.40, thinFar: 0.32, minPx: 6.0, shellPx: 34 }),
+  }, { scatter: 0.62, thinFar: 0.42, minPx: 9.0, shellPx: 34 }),
   // The floor. Still shadowed — at the *same* 2048 map as rung 0 — still
   // composited, still graded, still glowing, still fogged by the same
   // depth-driven atmosphere as the top rung, still drawn at three quarters of
@@ -1215,7 +1316,7 @@ const LADDER: readonly Rung[] = [
   // shell, which is merged and still moving. See `buildLiveShell`.
   rung('floor', 'low', 0.75, {
     shadows: true, postfx: true, aa: false, particles: 0.34, drawDistance: 0.55,
-  }, { scatter: 0.3, thinFar: 0.25, minPx: 7.0, shellPx: 52 }),
+  }, { scatter: 0.45, thinFar: 0.30, minPx: 12.0, shellPx: 52 }),
 ];
 
 // ── the seam rule ──────────────────────────────────────────────────────────
@@ -1242,12 +1343,18 @@ const LADDER: readonly Rung[] = [
 //   because it only governs what happens next, or (c) uniform across a picture
 //   that is being redrawn anyway.
 //
-//     `minPx`     a dressing batch stops being submitted below N pixels of
-//                 instance radius. A rung step is 0.6-1.1px.
+//     `minPx`     a dressing *piece* stops being submitted below N pixels of
+//                 instance radius. It also switches the world's lap-spanning
+//                 batches onto their compact pieces (`regroup`), which is a
+//                 change of *which mesh carries an instance* rather than of
+//                 which instances are carried — so the frame it lands on differs
+//                 by exactly what the cull removed and by nothing else.
 //     `shellPx`   a machine is drawn as its own merged shell — pixel-identical
 //                 geometry in the same materials. What it gives up is that the
-//                 wheels stop turning, and `SHELL_MIN_M` keeps that
-//                 twenty-eight metres away whatever the pixel test says.
+//                 wheels stop turning, and `SHELL_MIN_M` keeps that eighteen
+//                 metres away whatever the pixel test says. Everything nearer is
+//                 already merged by `buildLiveShell`, which is not a rung: it
+//                 keeps every animated node separate and is on at rung 0.
 //     `thinFar`   the same instrument pointed at density: a scatter batch thins
 //                 on a ramp as it shrinks, anchored so a rung changes nothing
 //                 at the near end. See `ContentTrim.thinFar`, `THIN_KNEE_PX`.
@@ -3381,21 +3488,45 @@ export interface QualityProbe {
      *  at the far end of the ramp. 1 is a ladder spending nothing on the verge. */
     scatterFar: number;
     crowdGeos: number; batches: number; cullables: number; shells: number;
-    culled: number; shelled: number;
+    /**
+     * Batches the projected-size test took out of **this frame**.
+     *
+     * Counted as a saving rather than as an intent: a batch only appears here
+     * if the world's own draw-distance pass wanted it drawn and the view
+     * frustum would have accepted it. The old counter incremented on anything
+     * below the bar, which is how a sweep of `minPx` could report 55 of 116
+     * cullables held off while the frame moved by one draw call.
+     */
+    culled: number;
+    /** ...and the triangles those culls removed, which is the unit the frame is
+     *  actually denominated in. */
+    culledTris: number;
+    shelled: number;
     /** Scatter batches the distance ramp is holding below the standing share
      *  this frame. See `ContentTrim.thinFar`. */
     thinned: number;
     /**
-     * What the cast's shells cost against what they stand in for: submissions
-     * with every shell up, and the mesh count they were merged from.
+     * What the **frozen** shells cost this frame, against what the machines
+     * under them would have cost this frame.
      *
-     * The pair exists because the previous round shipped a shell that cost
-     * **more** than the machine it replaced and no number in this probe could
-     * say so. `shellDraws` must be a small fraction of `shellFrom`; if it is
-     * not, the ladder's largest content lever is pointing the wrong way and
-     * every rung below rung 0 is more expensive than rung 0.
+     * Live, not a census: see the note on `shellDraws` in the system body. Both
+     * are zero at rung 0 because rung 0 freezes nothing, and `shellFrom` is
+     * measured after `vehicles/`'s part ladder and the live shell have had their
+     * say — so it is what this lever is *actually* saving, not what it could
+     * save against a machine nobody was drawing.
      */
     shellDraws: number; shellFrom: number;
+    /** ...and the same pair for the **live** shells, which are on at every rung
+     *  for every racer and are where the near machines' submissions now come
+     *  from. See `buildLiveShell`. */
+    liveDraws: number; liveFrom: number;
+    /** The cast's frozen shells with every one of them standing in, against the
+     *  mesh count they were merged from. A property of the build. This is the
+     *  number that used to be published as `shellDraws`. */
+    shellPotentialDraws: number; shellPotentialFrom: number;
+    /** World batches too wide for any distance test to mean anything, and the
+     *  compact parts they were split into. See `regroup`. */
+    regrouped: number; regroupParts: number;
   };
 
   // ── the instrument: wall time between delivered frames ───────────────────
@@ -4289,6 +4420,21 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     radius: number;
     item: number;
     hidden: boolean;
+    /**
+     * The split this node is a part of, or null for a batch the world still
+     * owns outright.
+     *
+     * `world/index.ts` writes `visible` on its own batches at order 22 for its
+     * draw-distance test, and a split batch's parts are not batches it knows
+     * about. So the world keeps its authority over the *kind* — its answer is
+     * read off `src` at order 95 and handed to every part — and this pass owns
+     * only the part-level cut on top of it. Without it the two writes fight and
+     * the cull's own `hidden` bookkeeping desynchronises from the flag.
+     */
+    gate: Regrouped | null;
+    /** Triangles this batch submits at full count, so a cull can be reported in
+     *  the unit the frame is denominated in rather than as a batch count. */
+    tris: number;
   }
   /**
    * A racer's merged shell: the whole machine's geometry in one buffer, painted
@@ -4379,8 +4525,32 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    * submissions they cost. The second must be far smaller than the first or the
    * lever is upside down.
    */
+  /**
+   * ── the fix the sixteenth round's reviewer named exactly ──────────────────
+   *
+   * These used to be filled in by `buildShells` and never touched again, so
+   * `probe().content` published a constant `15/197` at every rung, at every
+   * `shellPx` **including zero**, and with `shelled: 0` beside it. A census
+   * *potential* was being printed in the slot where a live saving belongs, and
+   * it read as a working lever from outside the page — which is how a ladder
+   * that moved four draw calls could be believed for sixteen rounds.
+   *
+   * They are now written by `contentFrame`, every frame, from what is actually
+   * standing in: `shellDraws` is what the frozen shells cost *this frame* and
+   * `shellFrom` is what the machines under them would have cost *this frame*,
+   * after the part ladder and the live shell have had their say. Both are zero
+   * at rung 0 and that is the honest answer — rung 0 freezes nothing.
+   *
+   * The census potential is kept beside them under its own name, because it is
+   * genuinely useful and was never the problem; publishing it as a saving was.
+   */
   let shellDraws = 0;
   let shellFrom = 0;
+  /** What the whole cast's frozen shells *would* cost with every one of them
+   *  standing in, against the mesh count they were merged from. A property of
+   *  the build, not of the frame. */
+  let shellPotentialDraws = 0;
+  let shellPotentialFrom = 0;
   /** Batches the screen-size test is holding off, and racers on their shells,
    *  this frame. The two numbers a review reads to see the rung working. */
   let culledNow = 0;
@@ -4407,10 +4577,37 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    */
   let primeShells = 0;
 
+  /** ...and the triangles those culls took out of the frame. The unit the
+   *  frame is actually denominated in; a batch count is not one. */
+  let culledTrisNow = 0;
+
   // Scratch. The content pass runs every rendered frame over a hundred-odd
   // batches and eight racers and must not allocate a byte doing it.
   const _cam = new ctx.THREE.Vector3();
   const _wp = new ctx.THREE.Vector3();
+  /**
+   * The view frustum, rebuilt once per rendered frame and reused.
+   *
+   * Only the *counters* consult it — a cull is only a saving if the renderer
+   * would have submitted the thing, and the renderer's own frustum test is the
+   * arbiter of that. The cull itself deliberately does not, because hiding a
+   * batch the frustum was going to reject anyway costs nothing and testing it
+   * twice would.
+   */
+  const _frustum = new ctx.THREE.Frustum();
+  const _fm = new ctx.THREE.Matrix4();
+  const _fs = new ctx.THREE.Sphere();
+  function updateFrustum(): void {
+    ctx.camera.updateMatrixWorld();
+    _fm.multiplyMatrices(ctx.camera.projectionMatrix, ctx.camera.matrixWorldInverse);
+    _frustum.setFromProjectionMatrix(_fm);
+  }
+  function inFrustum(c: Cullable): boolean {
+    _fs.center.set(c.cx, c.cy, c.cz);
+    _fs.radius = c.radius;
+    return _frustum.intersectsSphere(_fs);
+  }
+  function cullTris(c: Cullable): number { return c.tris; }
 
   // Our own sample buffers. `track.sample()` and `spline.atDistance()` both
   // hand back a shared scratch when none is supplied, and the camera and the
@@ -5034,25 +5231,64 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    *  mean anything. A racing camera sees maybe 250m of usable depth through the
    *  fog, so a batch wider than that cannot be judged as one object. */
   const REGROUP_MIN_R = 190;
-  /** ...and the cell the instances are re-bucketed into. Small enough that a
-   *  cell is either in the shot or clearly not, large enough that a cell is
-   *  still worth a submission. */
-  const REGROUP_CELL = 230;
+  /**
+   * ...and the cell the instances are re-bucketed into.
+   *
+   * **Deliberately coarse, and the first draft was not.** A 230m cell split 66
+   * batches into 419 parts, and a part is a submission: measured on the frozen
+   * racing frame, drawing the world in those pieces cost **+280 draw calls**
+   * before any cull, and the cull only ever returned them at pixel thresholds
+   * that take traffic cones out of the verge a hundred metres in front of the
+   * player. A lever that has to be visible before it is free is not a lever.
+   *
+   * At 420m a kind that carpets the lap comes out as three or four pieces
+   * rather than eight, the piece on the far side of the circuit is six hundred
+   * metres away and past every draw distance the world authors, and the split
+   * costs about sixty submissions instead of two hundred and eighty.
+   */
+  const REGROUP_CELL = 420;
   /** Triangles a batch has to carry before splitting it is worth the extra
    *  submissions. Below this the draw call costs more than the geometry. */
-  const REGROUP_MIN_TRIS = 500;
+  const REGROUP_MIN_TRIS = 1200;
   /** ...and the most parts one kind may be broken into, so a pathological
    *  scatter cannot turn one draw into thirty. */
-  const REGROUP_MAX_PARTS = 8;
+  const REGROUP_MAX_PARTS = 4;
+  /**
+   * The largest single instance a split may touch, in metres of radius.
+   *
+   * The split exists so that a *distance* test can reject the far side of the
+   * circuit, and that argument only holds for things which are authored to
+   * disappear: `world/index.ts` gives a traffic cone 250m and a hoarding 400,
+   * and gives a landmass 2100 and a floodlight tower 2000. Splitting the
+   * skyline buys submissions and rejects nothing, because the skyline is
+   * supposed to be there. Four metres is comfortably above the whole roadworks
+   * kit (a skip is 2.1, a container 3.6) and comfortably below the middle
+   * distance (a marquee is 9.2, a hardstand 36).
+   */
+  const REGROUP_ITEM_MAX = 4;
 
   interface Regrouped {
     /** The world's own batch. Never drawn again while its parts stand in — but
      *  never removed, re-materialised or disposed either: it is `world/`'s. */
     src: THREE.InstancedMesh;
     parts: THREE.InstancedMesh[];
-    /** What the world's draw-distance pass said about the whole kind this
-     *  frame, read at order 95 before we take the flag off it. */
+    /** What the world's draw-distance pass last said about the whole kind. */
     gate: boolean;
+    /**
+     * ...and whether the `false` currently on `src.visible` is *ours*.
+     *
+     * The two modules write the same flag — `world/index.ts` at order 22 and
+     * this pass at order 95 — so "is it off" cannot be read as "did the world
+     * turn it off". In an ordinary frame that is harmless, because the world
+     * writes first and we read its answer before overwriting it. It is not
+     * harmless on a frame the world's pass did not run: `__QUALITY.set()` and
+     * `walkLadder` call `contentFrame` directly, several times, with no update
+     * in between, and a naive read would see our own `false`, conclude the world
+     * wanted the kind gone, and blank the course's dressing on the reviewer's
+     * bench. So the write is remembered, and a remembered write means "no new
+     * answer — keep the last one".
+     */
+    mine: boolean;
   }
   const regrouped: Regrouped[] = [];
   /** Batches split, and the parts they became. Reported so a course where the
@@ -5089,6 +5325,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     if (n < 2) return [];
     const geo = src.geometry;
     if (!geo.boundingSphere) geo.computeBoundingSphere();
+    if ((geo.boundingSphere?.radius ?? 0) > REGROUP_ITEM_MAX) return [];
     const tri = ((geo.index ? geo.index.count : geo.getAttribute('position')?.count ?? 0) / 3) * n;
     if (tri < REGROUP_MIN_TRIS) return [];
 
@@ -5213,7 +5450,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       const parts = splitBatch(src);
       if (!parts.length) continue;
       src.visible = false;
-      regrouped.push({ src, parts, gate: true });
+      regrouped.push({ src, parts, gate: true, mine: true });
       regroupSplit++;
       regroupParts += parts.length;
     }
@@ -5267,9 +5504,14 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
           });
         }
         if (bs && !isContact) {
+          const verts = geo.index
+            ? geo.index.count
+            : (geo.getAttribute('position')?.count ?? 0);
           cullables.push({
             node: o, cx: _wp.x, cy: _wp.y, cz: _wp.z,
             radius: bs.radius, item, hidden: false,
+            gate: partGate.get(o) ?? null,
+            tris: Math.round((verts / 3) * n),
           });
         }
       }
@@ -5584,33 +5826,49 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   // rig's own spring state, and it runs at a race build behind a closed launch
   // board.
   //
-  // ── what stays out of the merge, and why ──────────────────────────────────
+  // ── what the merge keeps, and what it will not touch ──────────────────────
   //
-  // The merge collapses material to one shared painted-vinyl standard material
-  // with the colour baked per vertex, exactly as the frozen shell does — so
-  // anything whose material is *not* painted vinyl is excluded and keeps its own
-  // submission. Chrome, rubber, glass, lamp lenses, anything transparent,
-  // anything additive, anything flat-shaded and anything the rig animates the
-  // material of. That is the difference between this and the frozen shell and it
-  // is what makes it safe at three metres: the parts a player can tell apart at
-  // arm's length are precisely the parts that are not merged.
+  // The frozen shell collapses the whole machine onto one painted-vinyl
+  // material, and at seventy-six metres that is free. At three metres it is not:
+  // a chrome exhaust and a rubber tyre lighting identically is exactly the sort
+  // of thing ARCHITECTURE §12 is about. So this merge does **not** collapse the
+  // shading — it collapses the *colour*, which is per-vertex, and buckets by
+  // everything else.
   //
-  // Parts marked `userData.detail` are excluded too, because `vehicles/index.ts`
-  // owns those — its part ladder switches them off wholesale at distance and a
-  // merged copy would take that authority away from it.
+  // A bucket is `(anchor, flatShading, side, roughness, metalness)` with the two
+  // scalars quantised to a twentieth. `mat()` in `vehicles/parts.ts` varies
+  // colour freely and shading barely at all — the whole cast uses about five
+  // distinct shadings — so the quantisation costs at most 0.025 of roughness on
+  // any one part and the buckets stay few. All of them share one program:
+  // roughness and metalness are uniforms, not shader features, so seven machines
+  // of merged bodywork add **one** program to the game (two if any of them is
+  // flat-shaded, which is a define).
+  //
+  // Genuinely excluded, and each for a reason a still frame can show:
+  //
+  //   *transparent* — glass keeps its own submission, always. Baking a cab
+  //     window opaque is invisible at seventy metres and obvious at five.
+  //   *unlit* (`toneMapped: false`) — the additive discs and flashes are not
+  //     lit at all and merging them into a lit buffer would change them.
+  //   *emissive above `LIVE_EMISSIVE_MAX`* — a lamp lens has to stay additive,
+  //     because `paintShell` folds emissive into the baked colour and a lens
+  //     that is merely a brighter shade of its housing is not a lens.
+  //   *anything the rig animates the material of* — measured, not guessed.
+  //   *`userData.detail`* — `vehicles/index.ts` owns those and switches them
+  //     wholesale at distance; a merged copy would take that authority away.
 
   /** Name on every merged live body, so the census and the audit can see them. */
   const LIVE_BODY = 'lodLiveBody';
-  /** Painted vinyl, as `parts.ts` defines it, with the tolerance a merge needs.
-   *  Anything outside this keeps its own material and its own draw call. */
-  const LIVE_ROUGH_LO = 0.38;
-  const LIVE_ROUGH_HI = 0.70;
-  const LIVE_METAL_MAX = 0.10;
-  const LIVE_EMISSIVE_MAX = 0.20;
-  /** Meshes a merge has to reach before it is worth its own bookkeeping. Two
-   *  meshes merged into one saves one submission and costs a buffer; three is
-   *  where it starts being worth having. */
-  const LIVE_MIN_MESHES = 3;
+  /** Emissive intensity above which a part is a light rather than paint. */
+  const LIVE_EMISSIVE_MAX = 0.25;
+  /** Meshes a bucket has to reach before merging it is worth the buffer. Two is
+   *  the honest floor: two meshes become one submission, which is the whole
+   *  point, and a machine's wheels are exactly that shape. */
+  const LIVE_MIN_MESHES = 2;
+  /** Steps the shading scalars are quantised to when bucketing. A twentieth of
+   *  roughness is below the resolution of a painted surface under one key
+   *  light; anything coarser starts merging rubber with chrome. */
+  const LIVE_QUANT = 20;
 
   interface LiveShell {
     /** Merged buffers, each parented to the animated node it was merged
@@ -5628,37 +5886,41 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    *  and `Map.prototype.values()` allocates an iterator. Same argument as
    *  `shadowShellList`. */
   const liveShellList: LiveShell[] = [];
-  /** One material for every live shell in the game. See `shellMaterial` for the
-   *  program-count argument; this is a second one, and only a second one. */
-  let liveMat: THREE.Material | null = null;
-  function liveMaterial(): THREE.Material {
-    if (liveMat) return liveMat;
+  /**
+   * One material per *shading* across the whole cast, cached by that shading.
+   *
+   * Shared globally rather than per machine, so seven merged bodies with the
+   * same roughness are seven draws through one material rather than seven
+   * materials. See the block above for why this does not multiply programs.
+   */
+  const liveMats = new Map<string, THREE.Material>();
+  function liveMaterial(sig: string, rough: number, metal: number, flat: boolean,
+    side: THREE.Side): THREE.Material {
+    const hit = liveMats.get(sig);
+    if (hit) return hit;
     const T = ctx.THREE;
     const m = new T.MeshStandardMaterial({
       color: 0xffffff, vertexColors: true,
-      roughness: 0.52, metalness: 0, side: T.FrontSide,
+      roughness: rough, metalness: metal, flatShading: flat, side,
     });
-    m.name = 'mc.lodLive';
-    liveMat = m;
+    m.name = `mc.lodLive.${sig}`;
+    liveMats.set(sig, m);
     return m;
   }
 
-  /** Is this material one the merge may collapse? See the block above. */
-  function isVinyl(mat: THREE.Material | THREE.Material[] | undefined): boolean {
-    if (!mat || Array.isArray(mat)) return false;
+  /** The bucket key for a material, or null when it must keep its own draw. */
+  function liveSig(mat: THREE.Material | THREE.Material[] | undefined): string | null {
+    if (!mat || Array.isArray(mat)) return null;
     const std = mat as THREE.MeshStandardMaterial & {
       isMeshStandardMaterial?: boolean; toneMapped?: boolean; flatShading?: boolean;
     };
-    if (!std.isMeshStandardMaterial) return false;
-    if (std.transparent) return false;
-    if (std.toneMapped === false) return false;
-    if (std.flatShading) return false;
-    if (std.side !== ctx.THREE.FrontSide) return false;
-    const r = std.roughness ?? 0.52;
-    if (r < LIVE_ROUGH_LO || r > LIVE_ROUGH_HI) return false;
-    if ((std.metalness ?? 0) > LIVE_METAL_MAX) return false;
-    if ((std.emissiveIntensity ?? 0) > LIVE_EMISSIVE_MAX) return false;
-    return true;
+    if (!std.isMeshStandardMaterial) return null;
+    if (std.transparent) return null;
+    if (std.toneMapped === false) return null;
+    if ((std.emissiveIntensity ?? 0) > LIVE_EMISSIVE_MAX) return null;
+    const r = Math.round((std.roughness ?? 0.5) * LIVE_QUANT);
+    const m = Math.round((std.metalness ?? 0) * LIVE_QUANT);
+    return `${std.flatShading ? 1 : 0}.${std.side}.${r}.${m}`;
   }
 
   /**
@@ -5807,8 +6069,13 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     // so an empty `dynNodes` is not a reason to stop — `root` is the anchor of
     // last resort and the loop below falls back to it.
 
-    /** anchor -> the static meshes hanging off it. */
-    const buckets = new Map<THREE.Object3D, THREE.Mesh[]>();
+    /** (anchor, shading) -> the static meshes in that bucket. */
+    interface Bucket {
+      anchor: THREE.Object3D; sig: string; list: THREE.Mesh[];
+      rough: number; metal: number; flat: boolean; side: THREE.Side;
+    }
+    const buckets = new Map<string, Bucket>();
+    const anchorId = new Map<THREE.Object3D, number>();
     root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh || !mesh.visible || !mesh.geometry) return;
@@ -5820,7 +6087,9 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       }
       if (dynNodes.has(o)) return;
       const mat = mesh.material as THREE.Material;
-      if (!isVinyl(mat) || dynMats.has(mat)) return;
+      if (dynMats.has(mat)) return;
+      const sig = liveSig(mat);
+      if (!sig) return;
       // `vehicles/index.ts` owns the detail parts and switches them wholesale.
       if (mesh.userData.detail === true) return;
       if (!mesh.geometry.getAttribute('position')) return;
@@ -5829,15 +6098,25 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         if (dynNodes.has(p)) { anchor = p; break; }
         if (p === root) break;
       }
-      const list = buckets.get(anchor);
-      if (list) list.push(mesh); else buckets.set(anchor, [mesh]);
+      let aid = anchorId.get(anchor);
+      if (aid === undefined) { aid = anchorId.size; anchorId.set(anchor, aid); }
+      const key = `${aid}|${sig}`;
+      const hit = buckets.get(key);
+      if (hit) { hit.list.push(mesh); return; }
+      const std = mat as THREE.MeshStandardMaterial & { flatShading?: boolean };
+      buckets.set(key, {
+        anchor, sig, list: [mesh],
+        rough: std.roughness ?? 0.5, metal: std.metalness ?? 0,
+        flat: std.flatShading === true, side: std.side,
+      });
     });
 
     const bodies: THREE.Mesh[] = [];
     const hides: THREE.Mesh[] = [];
     const inv = new T.Matrix4();
     const local = new T.Matrix4();
-    for (const [anchor, list] of buckets) {
+    for (const bucket of buckets.values()) {
+      const { anchor, list } = bucket;
       if (list.length < LIVE_MIN_MESHES) continue;
       anchor.updateMatrixWorld(true);
       inv.copy(anchor.matrixWorld).invert();
@@ -5853,7 +6132,8 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       const merged = mergeParts(parts);
       for (const g of parts) g.dispose();
       if (!merged) continue;
-      const body = new T.Mesh(merged, liveMaterial());
+      const body = new T.Mesh(merged, liveMaterial(
+        bucket.sig, bucket.rough, bucket.metal, bucket.flat, bucket.side));
       body.name = LIVE_BODY;
       // The shadow shell is the machine's one caster at every rung; a second
       // silhouette here would double the depth draw. Same rule as `buildShell`.
@@ -5865,7 +6145,11 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       for (const mesh of list) hides.push(mesh);
     }
     if (!bodies.length) return null;
-    for (const mesh of hides) mesh.visible = false;
+    // A race can be rebuilt while a reviewer has the merge switched off. Born in
+    // whichever state the switch is in, or the machine would draw its bodywork
+    // twice — once merged and once not — until somebody flipped it back.
+    for (const b of bodies) b.visible = liveOn;
+    if (liveOn) for (const mesh of hides) mesh.visible = false;
     return { bodies, hides, saved: hides.length - bodies.length };
   }
 
@@ -5880,9 +6164,32 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    * these flags and nothing can flicker.
    */
   function holdLiveShells(): void {
+    if (!liveOn) return;
     for (let i = 0; i < liveShellList.length; i++) {
       const hides = liveShellList[i]!.hides;
       for (let j = 0; j < hides.length; j++) hides[j]!.visible = false;
+    }
+  }
+
+  /**
+   * The live shells, as a switch a reviewer can flip.
+   *
+   * The whole claim this merge makes is *the picture does not change*, and a
+   * claim like that is worth exactly what it can be checked with. `__QUALITY
+   * .merge(false)` puts every machine back on its own meshes on the next frame,
+   * so a bench can photograph the identical frozen frame both ways and diff it
+   * pixel for pixel — which is the only honest test of "identical", and is not
+   * something any of this file's other levers can offer, because every one of
+   * them is *supposed* to change the picture.
+   */
+  let liveOn = true;
+  function setLive(on: boolean): void {
+    if (on === liveOn) return;
+    liveOn = on;
+    for (let i = 0; i < liveShellList.length; i++) {
+      const s = liveShellList[i]!;
+      for (const b of s.bodies) b.visible = on;
+      if (!on) for (const m of s.hides) m.visible = true;
     }
   }
 
@@ -6151,6 +6458,8 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     contentShells = 0;
     shellDraws = 0;
     shellFrom = 0;
+    shellPotentialDraws = 0;
+    shellPotentialFrom = 0;
     shelledNow = 0;
   }
 
@@ -6169,8 +6478,8 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       const shell = buildShell(root);
       if (shell) {
         shells.set(racer.id, shell);
-        shellDraws += shell.draws;
-        shellFrom += shell.from;
+        shellPotentialDraws += shell.draws;
+        shellPotentialFrom += shell.from;
       }
       // ...and the live shell last, because it reads `visible` on the machine's
       // own meshes and both of the passes above leave that alone. It skips the
@@ -6296,31 +6605,100 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     const h = (canvas.height || canvas.clientHeight || 720) * liveScale;
     const pxPerMetre = (h * 0.5) / Math.tan((ctx.camera.fov * Math.PI) / 360);
     _cam.copy(ctx.camera.position);
+    updateFrustum();
 
     // ── the dressing ──────────────────────────────────────────────────────
     const minPx = content.minPx;
+    // ── which batching the frame is drawn with, and why it is a rung ────────
+    //
+    // The split is not free and it is not a saving on its own: a lap of traffic
+    // cones is one submission whole and eight submissions in pieces, and at rung
+    // 0 — where nothing is culled — the pieces are strictly worse. Measured on a
+    // frozen racing frame, drawing every kind in pieces with no cull cost **+236
+    // draw calls for nothing**, which is the exact shape of mistake the last two
+    // rounds of this file were about.
+    //
+    // What the pieces buy is the *ability to cull*, and nothing else. So they
+    // are switched on with the lever that culls: at `minPx` 0 the world is drawn
+    // exactly as `world/place.ts` batched it, and from rung 1 down it is drawn in
+    // pieces so that the pieces nobody can resolve can be dropped. Rung 0 is
+    // therefore byte-identical to the batching this file inherited, and every
+    // rung below it has a lever with teeth for the first time.
+    //
+    // Seam-safety: the switch is invisible by construction. It changes which
+    // meshes carry the instances and not which instances are carried — the frame
+    // it lands on differs by exactly what `minPx` removes, which is the same
+    // sub-pixel dressing `minPx` was already allowed to remove on any frame.
+    //
+    // The thinning ramp asks the same question of the same objects, so it turns
+    // the pieces on too: a rung that thins the verge but leaves it batched by
+    // the lap would be measuring a near edge of one metre and thinning nothing.
+    const useParts = minPx > 0 || content.thinFar * content.scatter < 1;
+    // `world/index.ts` switches each of *its* batches at order 22 against that
+    // batch's authored draw distance. A split batch's parts are not batches it
+    // knows about, so its verdict is read off the original here and handed to
+    // them. See `Cullable.gate`.
+    for (let i = 0; i < regrouped.length; i++) {
+      const r = regrouped[i]!;
+      // A `true` is always the world's — this pass never writes one while the
+      // parts are up. A `false` is only the world's if we did not put it there.
+      // See `Regrouped.mine`.
+      if (r.src.visible) r.gate = true;
+      else if (!r.mine) r.gate = false;
+      const want = r.gate && !useParts;
+      if (r.src.visible !== want) r.src.visible = want;
+      r.mine = !want;
+    }
     let culled = 0;
+    let culledTris = 0;
     for (let i = 0; i < cullables.length; i++) {
       const c = cullables[i]!;
+      // The gate is the world's verdict on the whole kind. A part whose kind is
+      // already switched off is not something this pass gets to claim.
+      const gateOn = c.gate ? c.gate.gate : true;
       if (minPx <= 0) {
-        if (c.hidden) { c.node.visible = true; c.hidden = false; }
+        // A batch this pass never hid is not this pass's to hand back: the
+        // world's own draw-distance test writes the same flag at order 22 and
+        // a blanket `visible = true` here would overrule it for every batch on
+        // the course. (It did, for one build: `world` went from 112 drawn calls
+        // to 381 and its drawn triangles *rose* by 74,000 at rung 0, because
+        // the ladder's cheapest rung was quietly switching the whole far half
+        // of the circuit back on.)
+        //
+        // A *part* is switched off outright here: with no cull to pay for them,
+        // the original carries the whole kind in one submission. See `useParts`.
+        if (c.gate) { if (c.node.visible) c.node.visible = false; }
+        else if (c.hidden) c.node.visible = true;
+        c.hidden = false;
         continue;
       }
       const dx = c.cx - _cam.x, dy = c.cy - _cam.y, dz = c.cz - _cam.z;
       // The *near edge* of the batch, so a run of verge passing the camera is
-      // never judged on where its far end is.
+      // never judged on where its far end is. Since `regroup` this is a
+      // question about a compact object rather than about a lap of scenery.
       const near = Math.max(1, Math.sqrt(dx * dx + dy * dy + dz * dz) - c.radius);
       const px = (c.item * pxPerMetre) / near;
       const bar = c.hidden ? minPx * CONTENT_HYSTERESIS : minPx;
-      if (px < bar) {
-        if (!c.hidden) { c.node.visible = false; c.hidden = true; }
+      const hide = px < bar;
+      if (hide !== c.hidden) c.hidden = hide;
+      c.node.visible = gateOn && !hide;
+      // ── counted as what it saves, not as what it intends ─────────────────
+      //
+      // The old counter incremented on every batch below the bar, which is how
+      // this lever could report 55 of 116 cullables held off while the frame
+      // changed by one draw call: most of them were things `world/` had already
+      // switched off for distance, or things the frustum had already rejected.
+      // A number that counts intent rather than effect is worse than no number
+      // — it is what let sixteen rounds believe the content ladder worked. So a
+      // cull only counts when the frame would otherwise have drawn it: the
+      // world wanted it on, and it is inside the frustum.
+      if (hide && gateOn && inFrustum(c)) {
         culled++;
-      } else if (c.hidden) {
-        c.node.visible = true;
-        c.hidden = false;
+        culledTris += cullTris(c);
       }
     }
     culledNow = culled;
+    culledTrisNow = culledTris;
 
     // ── the verge's density, as a function of how big a cone is on screen ──
     //
@@ -6387,6 +6765,8 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     }
     const shellPx = content.shellPx;
     let shelled = 0;
+    let frozenDraws = 0;
+    let frozenFrom = 0;
     // Indexed rather than `for...of`: this is the hot path's hot path and an
     // array iterator is an allocation the engine is only *usually* clever
     // enough to remove.
@@ -6419,13 +6799,21 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         // disc fading in with rpm, an exhaust glow with boost — and this pass
         // has to have the last word for as long as the shell is standing in,
         // or a machine shows its glow through its own replacement.
+        //
+        // ...and this is where `shellFrom` is counted, on the edge and again
+        // every frame the shell holds: what it is standing in for is what would
+        // be *drawn* right now, which is the machine as `vehicles/`'s part
+        // ladder and the live shell have already left it — not the mesh count it
+        // was merged from at build time. See `probe().content.shellFrom`.
         for (let i = 0; i < s.hides.length; i++) {
           if (!s.on) s.was[i] = s.hides[i]!.visible;
+          frozenFrom += drawableUnder(s.hides[i]!, s.on ? s.was[i]! : s.hides[i]!.visible);
           s.hides[i]!.visible = false;
         }
         if (!s.on) s.group.visible = true;
         s.on = true;
         shelled++;
+        frozenDraws += s.draws;
         continue;
       }
       if (!s.on) {
@@ -6446,6 +6834,49 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       }
     }
     shelledNow = shelled;
+    shellDraws = frozenDraws;
+    shellFrom = frozenFrom;
+    // The live shells are not conditional, so their bill is the same every
+    // frame and is counted where it is built. Recomputed here anyway — one
+    // addition over at most seven entries — so that a shell whose sources the
+    // frozen shell has taken over is not double-counted.
+    let ld = 0, lf = 0;
+    for (let i = 0; i < liveShellList.length; i++) {
+      ld += liveShellList[i]!.bodies.length;
+      lf += liveShellList[i]!.hides.length;
+    }
+    liveDraws = ld;
+    liveFrom = lf;
+  }
+
+  /**
+   * Submissions a subtree would contribute if `gate` let it draw.
+   *
+   * Used only for the shells' live saving counters, and only for machines that
+   * are actually standing on a shell — at most seven small subtrees, and zero
+   * at rung 0. It walks rather than caching a number because the answer moves
+   * every frame: the part ladder in `vehicles/index.ts` switches parts off with
+   * distance and the live shell has already replaced most of the rest, so "what
+   * this shell is standing in for" is a question about *this* frame.
+   */
+  function drawableUnder(node: THREE.Object3D, gate: boolean): number {
+    if (!gate) return 0;
+    // The node's own flag is the caller's business (`was`, on the edge), so the
+    // walk starts with it forced on and descends normally from its children.
+    let n = (node as THREE.Mesh).isMesh ? 1 : 0;
+    const kids = node.children;
+    for (let i = 0; i < kids.length; i++) n += drawableWalk(kids[i]!);
+    return n;
+  }
+  /** ...and the recursion, as a named function rather than a closure: this runs
+   *  inside the per-frame content pass and a closure per hidden child per
+   *  shelled machine is exactly the allocation the frame budget forbids. */
+  function drawableWalk(o: THREE.Object3D): number {
+    if (!o.visible) return 0;
+    let n = (o as THREE.Mesh).isMesh ? 1 : 0;
+    const kids = o.children;
+    for (let i = 0; i < kids.length; i++) n += drawableWalk(kids[i]!);
+    return n;
   }
 
   // ── the ladder, measured rather than described ──────────────────────────────
@@ -7979,10 +8410,14 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         scatterFar: +(content.thinFar * content.scatter).toFixed(3),
         crowdGeos: contentCrowd, batches: contentScatter,
         cullables: contentCullable, shells: contentShells,
-        culled: culledNow, shelled: shelledNow, thinned: thinnedNow,
-        // See `shellDraws`. `shellDraws` < `shellFrom` is the whole claim the
-        // shell makes, and it is checkable from outside the page.
+        culled: culledNow, culledTris: culledTrisNow,
+        shelled: shelledNow, thinned: thinnedNow,
+        // See `shellDraws`. Live, per frame, and zero at rung 0 — which is what
+        // a rung that freezes nothing is supposed to report.
         shellDraws, shellFrom,
+        liveDraws, liveFrom,
+        shellPotentialDraws, shellPotentialFrom,
+        regrouped: regroupSplit, regroupParts,
       },
 
       wallMs: +wallMean.toFixed(2),
@@ -9230,6 +9665,18 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
           externalTouch();
           return probe();
         },
+        /**
+         * Turn the machines' live merge off and on. See `setLive`.
+         *
+         * Not a quality lever and deliberately not on the ladder: it is the A/B
+         * for a merge whose whole claim is that it draws the same picture.
+         */
+        merge(on: boolean): QualityProbe {
+          setLive(on !== false);
+          contentFrame();
+          externalTouch();
+          return probe();
+        },
         /** Re-take the census by hand, after a bench has rebuilt the world. */
         census(): QualityProbe {
           censusContent();
@@ -10228,10 +10675,21 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // done once, so a governor that goes away without letting go would leave
       // the field casting from a frozen merge for ever.
       clearShadowShells();
+      // ...and the live shells, which are the same kind of switch held down:
+      // every machine's own meshes are hidden every frame while a merged body
+      // stands in for them, so going away without letting go would leave the
+      // field permanently missing its bodywork.
+      clearLiveShells();
+      // ...and the world's own batches, put back whole. See `regroup`: the
+      // originals were never removed or re-materialised, only held off, so
+      // handing them back is one flag each.
+      clearRegroup();
       shadowShellMat?.dispose();
       shadowShellMat = null;
       shellMat?.dispose();
       shellMat = null;
+      for (const m of liveMats.values()) m.dispose();
+      liveMats.clear();
       crowdGeos.length = 0;
       scatter.length = 0;
       cullables.length = 0;

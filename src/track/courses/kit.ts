@@ -1373,7 +1373,7 @@ function rockFaceTexture(tint: number, benched = true): THREE.CanvasTexture {
       // Thick beds below, thin above, and the two runs start at different
       // phases — which is the whole point of cutting a face in two lifts.
       beds(0, bench0, 9, 30, 1.0);
-      beds(bench1, W, 5, 17, 0.55);
+      beds(bench1, W, 6, 20, 0.74);
     } else {
       beds(0, W, 6, 26, 0.8);
     }
@@ -1392,8 +1392,13 @@ function rockFaceTexture(tint: number, benched = true): THREE.CanvasTexture {
     shadeGrad.addColorStop(0.26, 'rgba(18,10,5,0.20)');
     shadeGrad.addColorStop(BX0 - 0.005, 'rgba(20,11,6,0.13)');
     shadeGrad.addColorStop(BX1 + 0.005, 'rgba(255,241,214,0.05)');
-    shadeGrad.addColorStop(0.72, 'rgba(255,243,218,0.10)');
-    shadeGrad.addColorStop(1.00, 'rgba(255,246,224,0.26)');
+    shadeGrad.addColorStop(0.72, 'rgba(255,243,218,0.09)');
+    // Cool, not warm, at the very top. The crest is the one part of a cut face
+    // that sees the whole sky and none of the ground bounce, and a warm
+    // highlight there washed the upper lift out into the same pale orange the
+    // finding was about.
+    shadeGrad.addColorStop(0.93, 'rgba(226,238,255,0.13)');
+    shadeGrad.addColorStop(1.00, 'rgba(206,226,255,0.22)');
     g.fillStyle = shadeGrad;
     g.fillRect(0, 0, W, H);
 
