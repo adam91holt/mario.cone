@@ -279,15 +279,38 @@ out of politeness — if you can name a gap that a player would notice, it fails
 
 // ── run ────────────────────────────────────────────────────────────────────
 
-const MAX_ROUNDS = 3;
-const PASS_SCORE = 8.5;
+// This script used to hardcode all five pieces at three rounds — up to thirty
+// agents in one wave, on a box that suspends every 35-90 minutes and whose
+// journal cannot always be recovered afterwards. Every other wave in the
+// project runs two pieces and two rounds and leans on resume. So it takes the
+// same {pieces, rounds, carry} args wave.workflow.mjs does, and the old
+// behaviour is what you get by passing nothing.
+const input = (() => {
+  if (typeof args === 'undefined' || !args) return {};
+  if (typeof args !== 'string') return args;
+  try {
+    return JSON.parse(args);
+  } catch (err) {
+    throw new Error(`workflow args were a string but not valid JSON: ${String(err)}`);
+  }
+})();
 
-log(`Wave 1: ${PIECES.length} pieces, up to ${MAX_ROUNDS} rounds each.`);
+const MAX_ROUNDS = input.rounds || 3;
+const PASS_SCORE = 8.5;
+const CARRY = input.carry || {};
+const SELECTED = input.pieces
+  ? input.pieces.map((id) => PIECES.find((p) => p.id === id)).filter(Boolean)
+  : PIECES;
+
+log(`Wave 1: ${SELECTED.map((p) => p.id).join(', ')} — up to ${MAX_ROUNDS} rounds each.`);
+for (const id of Object.keys(CARRY)) log(`  carrying forward a prior verdict for ${id}`);
 
 const results = await pipeline(
-  PIECES,
+  SELECTED,
   async (piece) => {
-    let verdict = null;
+    // A carried verdict is round 1's brief, so the wave does not spend its
+    // first round rediscovering what the last one already named.
+    let verdict = CARRY[piece.id] || null;
     let round = 0;
     const history = [];
 
