@@ -637,10 +637,28 @@ export const switchbackSummit: CourseDefEx = {
         // and which is the exact frame the finding was written off. Held off
         // the shoulder by five metres so the cableway masts, the grid and the
         // marshals' posts have their ground.
+        //
+        // ── and the ceiling is 30, not the default 22 ────────────────────
+        //
+        // `ceiling` is measured *above the road beside the stand*, and the
+        // first cut left it at the default — which on a mountain does not
+        // thin the forest, it deletes one side of it. Every belt here has a
+        // hillside rising on one flank and a fall on the other; a 22-metre cap
+        // takes out everything on the rising flank within about thirty metres
+        // of the shoulder, which is the whole of it. Photographed, that is a
+        // road with a dense forest on its left and a bare olive slope on its
+        // right, and the bare slope is the one the finding is about.
+        //
+        // The number that actually matters is `render/theme.ts`'s snowline,
+        // and it is nowhere near 22: `smoothstep(line, line + 46, rel)` with
+        // `line` = 62 ± 27, so the snow does not begin until *thirty-five*
+        // metres above the road at its lowest. Thirty leaves a clear margin
+        // under that and puts trees back on the hillside a chase camera is
+        // actually pointed at.
         {
           from: on('T11 SPILLWAY KINK', 0.4),
           to: on('T3 FOOT OF THE CLIMB', 0.55),
-          near: 5, far: 62, density: 17,
+          near: 5, far: 70, density: 17, ceiling: 30,
         },
         // ── the flank under the Notch ───────────────────────────────────────
         //
@@ -650,7 +668,40 @@ export const switchbackSummit: CourseDefEx = {
         {
           from: on('T3 FOOT OF THE CLIMB', 0.55),
           to: on('T4 THE NOTCH', 0.55),
-          near: 6, far: 58, density: 12, ceiling: 17,
+          near: 6, far: 60, density: 12, ceiling: 24,
+        },
+        // ── the last stands, and why the belt does not simply stop ──────────
+        //
+        // A treeline is a *gradient*, not a fence. Cutting the forest dead at
+        // the Notch left the one frame `capture.mjs` calls `racing` — nine
+        // seconds of autopilot, which puts the camera on the approach to the
+        // gallery — looking at a bare olive slope with pines only on the
+        // hillside a kilometre away, which is the finding again in a different
+        // place. Real conifers keep going up in thinning, wind-bent stands for
+        // a couple of hundred metres past the last closed canopy, and *that*
+        // is the picture that says "we are climbing out of the trees" rather
+        // than "the trees stopped".
+        //
+        // A third of the density of the flank, a shorter reach, and a ceiling
+        // of ten metres, so the stragglers hug the road's own shelf and none
+        // of them climbs the cutting. Everything above the gallery stays bare.
+        {
+          from: on('T4 THE NOTCH', 0.55),
+          to: on('THE CLIMB', 0.22),
+          near: 5, far: 36, density: 6, ceiling: 15,
+        },
+        // ── coming back down into them ──────────────────────────────────────
+        //
+        // The Plunge is 103 metres of road falling from 74 to 36, the fastest
+        // thing on the mountain, and it is the moment the course *returns* to
+        // the valley. Trees arriving on both shoulders through the second half
+        // of the drop is the cue that the descent has got somewhere — and it
+        // is the same statement as the climb, played backwards, which is what
+        // makes an out-and-back mountain read as one place rather than two.
+        {
+          from: on('THE PLUNGE', 0.45),
+          to: on('T11 SPILLWAY KINK', 0.4),
+          near: 5, far: 56, density: 13, ceiling: 24,
         },
       ],
 

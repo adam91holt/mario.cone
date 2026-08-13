@@ -799,6 +799,16 @@ function buildRockfall(
  * what makes it unmissable, and about five metres thick, which is what makes it
  * survivable.
  */
+/**
+ * How far the bore's foot is buried.
+ *
+ * See the note in `buildSurge`: this is 65cm rather than the 15cm it was,
+ * because the wave spends its whole approach out over a verge the road's crown
+ * has already fallen away from, and a translucent skirt inside the ground costs
+ * nothing while a gap under one is the thing a critic photographs.
+ */
+const SKIRT = -0.65;
+
 function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
   const g = new THREE.Group();
   const N = 14;
@@ -814,16 +824,41 @@ function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
 
   // The body: a swept face with a slight scallop along its length so it is not
   // a ruled wall.
+  // ── the two things a bore may not do at its ends ──────────────────────────
+  //
+  // A critic photographed the flood on Saltpan Bypass and filed it as a decal
+  // with *"hard straight polygon edges… and at the outer ends it floats above
+  // the tarmac with a visible vertical side wall"*. The sheet took most of that
+  // note, and this object is where the rest of it lives, because a bore is what
+  // a reviewer sees when they photograph the flood: it is the tallest, nearest,
+  // most opaque piece of water on the course.
+  //
+  //   * **It ended in mid-air.** The face is a three-line tent — bottom, crest,
+  //     bottom — swept along the road, and the sweep simply *stopped* at ±13
+  //     metres at full height. From alongside, that is a metre and a half of
+  //     water ending on a flat vertical rectangle: the "side wall". `cap` takes
+  //     the crest down onto the bottom line over the last fifth at each end, so
+  //     the wave closes into a wedge and has no end to see.
+  //   * **It floated.** The rig sits on the road's centreline height and the
+  //     bore travels thirteen metres past the shoulder, where the crown has
+  //     fallen away and the verge has dropped further — so a skirt tucked 15cm
+  //     under the surface was, for the whole in-ramp, hanging over the ground
+  //     with daylight beneath it. The skirt is 65cm now. It is inside the road
+  //     wherever the road is flat, which costs nothing, and it is still inside
+  //     the ground where the ground has gone away, which is the point.
   const pos: number[] = [];
   const idx: number[] = [];
   for (let i = 0; i <= N; i++) {
     const t = i / N;
     const z = (t - 0.5) * len;
-    const h = 1.5 + 0.55 * Math.sin(t * 7.1) + 0.3 * Math.sin(t * 3.3 + 1.4);
-    const lean = 0.9 + 0.25 * Math.sin(t * 5.0 + 0.6);
-    pos.push(2.9, -0.15, z);
+    // 0 at both ends, 1 across the middle three fifths.
+    const ease = (v: number): number => { const k = clamp01(v); return k * k * (3 - 2 * k); };
+    const cap = ease(t / 0.2) * ease((1 - t) / 0.2);
+    const h = (1.5 + 0.55 * Math.sin(t * 7.1) + 0.3 * Math.sin(t * 3.3 + 1.4)) * cap + SKIRT * (1 - cap);
+    const lean = (0.9 + 0.25 * Math.sin(t * 5.0 + 0.6)) * cap;
+    pos.push(2.9, SKIRT, z);
     pos.push(-lean, h, z);
-    pos.push(-3.4, -0.15, z);
+    pos.push(-3.4, SKIRT, z);
   }
   for (let i = 0; i < N; i++) {
     const a = i * 3;
@@ -846,10 +881,14 @@ function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
   for (let i = 0; i <= N; i++) {
     const t = i / N;
     const z = (t - 0.5) * len;
-    const h = 1.5 + 0.55 * Math.sin(t * 7.1) + 0.3 * Math.sin(t * 3.3 + 1.4);
-    const lean = 0.9 + 0.25 * Math.sin(t * 5.0 + 0.6);
-    cpos.push(-lean + 0.12, h + 0.34, z);
-    cpos.push(-lean - 0.75, h - 0.28, z);
+    // The same taper the face carries. A foam lip that kept full height past
+    // the end of the wave under it would be a white bar hanging in the air.
+    const ease = (v: number): number => { const k = clamp01(v); return k * k * (3 - 2 * k); };
+    const cap = ease(t / 0.2) * ease((1 - t) / 0.2);
+    const h = (1.5 + 0.55 * Math.sin(t * 7.1) + 0.3 * Math.sin(t * 3.3 + 1.4)) * cap + SKIRT * (1 - cap);
+    const lean = (0.9 + 0.25 * Math.sin(t * 5.0 + 0.6)) * cap;
+    cpos.push(-lean + 0.12 * cap, h + 0.34 * cap, z);
+    cpos.push(-lean - 0.75 * cap, h - 0.28 * cap, z);
   }
   for (let i = 0; i < N; i++) {
     const a = i * 2;

@@ -5897,6 +5897,15 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         out.push(`rung ${r.rung} (${r.label}) triangles ${r.triangles} over the `
           + `ceiling of ${RUNG0.triangles}`);
       }
+      if (r.rung === 0 && r.drawCalls > RUNG0.drawCalls) {
+        // Said once more, in the ladder's own words, because rung 0 being over
+        // the ceiling is a statement about the *content* rather than about the
+        // ladder: no rescue rung can fix a top rung that does not fit, and the
+        // module that has to act on it is whichever one owns the draws.
+        out.push(`rung 0 does not fit its own budget — the ladder cannot rescue `
+          + `a frame whose top rung is already ${r.drawCalls - RUNG0.drawCalls} `
+          + `submissions over. This is a content bill, not a governor one.`);
+      }
       if (r.rung > 0 && r.drawCalls > top.drawCalls + LADDER_SLACK) {
         out.push(`rung ${r.rung} (${r.label}) costs ${r.drawCalls} draw calls `
           + `against rung 0's ${top.drawCalls} — the ladder goes UP on the `
@@ -6137,7 +6146,11 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     return out;
   }
 
-  function applyRung(next: number, why: string): void {
+  /** Returns whether the ask was a rung at all — false means it was refused and
+   *  the ladder did not move. The one caller that needs the answer is
+   *  `qualityPref.set`, which must not write a refused value to `localStorage`
+   *  and call it a player's decision. */
+  function applyRung(next: number, why: string): boolean {
     const from = index;
     // ── the clamp, and the two doors it is behind ────────────────────────────
     //
@@ -6161,7 +6174,8 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     // which is the one predicate that refuses `NaN` and both infinities, and
     // `Math.round`, because a rung is an index and 3.5 is not one.
     const asked = typeof next === 'number' ? next : NaN;
-    index = Number.isFinite(asked)
+    const took = Number.isFinite(asked);
+    index = took
       ? Math.max(0, Math.min(LADDER.length - 1, Math.round(asked)))
       : from;
     const r = LADDER[index]!;
@@ -6324,6 +6338,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     ctx.bus.emit('quality:changed', {
       quality: ctx.quality, scale: liveScale, rung: index, label: r.label,
     });
+    return took;
   }
 
   /**
@@ -8108,11 +8123,26 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
             publish();
             return;
           }
-          const i = next < 0 ? 0 : next >= LADDER.length ? LADDER.length - 1 : Math.round(next);
+          // ── one clamp, and it is not this one ────────────────────────────
+          //
+          // This used to compute its own — `next < 0 ? 0 : next >= len ? len-1
+          // : Math.round(next)` — and the two doors into `applyRung` then
+          // disagreed about the same input: `set("3")` was refused while
+          // `pref.set("3")` installed rung 3, and `pref.set(Infinity)` pinned
+          // the floor where `set(Infinity)` did nothing. Worse, this door is the
+          // one that **writes to `localStorage`**, so `pref.set({})` recorded a
+          // `Math.round({})` of `NaN` as a player's considered decision, to be
+          // restored and held on the next boot. The validation belongs where
+          // every door arrives; this one asks and then reads back what was
+          // actually installed.
           auto = false;
-          applyRung(i, 'preference');
+          const took = applyRung(next, 'preference');
           flushSeam('preference');
           holding = 'pinned';
+          // Nothing that was refused is remembered. A record of a decision
+          // nobody could have made is worse than no record, because `init()`
+          // restores a pick whole.
+          if (!took) return;
           // Remembered like the governor's own answer, so a pick survives the
           // reload that the thing it is overriding survives. Written directly
           // rather than through the settle path above, which exists to stop a
@@ -8122,9 +8152,9 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
           // ...and written as a **pick**, which is the flag `init()` restores
           // whole. A player's choice is not evidence the governor has to
           // re-earn, so it is the one record `resumeRung`'s half does not touch.
-          memoryRung = i;
+          memoryRung = index;
           memoryPick = true;
-          writeMemory(memoryKey, i, true);
+          writeMemory(memoryKey, index, true);
         },
         /** ...and the way out of the one-way door. */
         forget(): void {
@@ -8442,9 +8472,20 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
           // project has about what a frame may cost.
           const applies = top !== null || frameApplies;
           const failures: string[] = [];
+          // Named, not counted. A budget failure that says "447" sends whoever
+          // reads it looking; the same failure that says "447, and the field is
+          // 188 of them" has already answered the next question, and the
+          // information is one sort away in an object this call already built.
+          const culprits = (): string => a.groups
+            .filter((g) => g.drawn + g.shadow > 0)
+            .sort((x, y) => (y.drawn + y.shadow) - (x.drawn + x.shadow))
+            .slice(0, 3)
+            .map((g) => `${g.group} ${g.drawn}+${g.shadow}`)
+            .join(', ');
           if (frameApplies && drawCalls > RUNG0.drawCalls) {
             failures.push(`draw calls ${drawCalls} over the rung-0 ceiling of `
-              + `${RUNG0.drawCalls} (${RUNG0.at}) — on the frame just drawn`);
+              + `${RUNG0.drawCalls} (${RUNG0.at}) — on the frame just drawn; `
+              + `worst groups: ${culprits()}`);
           }
           if (frameApplies && triangles > RUNG0.triangles) {
             failures.push(`triangles ${triangles} over the rung-0 ceiling of `

@@ -98,7 +98,7 @@ const ACROSS = 20;
 const SPRAY_MIN_SPEED = 7;
 
 /** Hard ceilings. Nothing in here allocates after `build()`. */
-const MAX_SPRAY = 1400;
+const MAX_SPRAY = 1800;
 /** Wake samples kept per racer. At 0.055s a sample that is about 2.2s of trail. */
 const WAKE_POINTS = 40;
 const MAX_RACERS = 12;
@@ -120,9 +120,6 @@ const MAX_RACERS = 12;
  * from one number so they cannot come apart.
  */
 function waterMaterial(tint: string, time: { value: number }): THREE.MeshPhongMaterial {
-  if ((globalThis as unknown as { __FLOOD_SOLID?: boolean }).__FLOOD_SOLID) {
-    return new THREE.MeshBasicMaterial({ color: 0xff00ff }) as unknown as THREE.MeshPhongMaterial;
-  }
   const mat = new THREE.MeshPhongMaterial({
     color: new THREE.Color(tint),
     specular: 0xfffdf6,
@@ -131,12 +128,24 @@ function waterMaterial(tint: string, time: { value: number }): THREE.MeshPhongMa
     // asked for and it is free — the ripple normal below is what makes it
     // travel across the surface instead of sitting still.
     shininess: 260,
+    // ── the sparkle that does not depend on where the sun is ────────────────
+    //
+    // A specular highlight is a *reflection*, and a reflection is only visible
+    // from the handful of angles that put the sun on the other side of the
+    // surface normal. On the review sheet the flood is photographed from
+    // directly overhead as often as it is from a chase camera, and from
+    // overhead at midday there is no specular answer at all — which is how a
+    // surface with a shininess of 260 on it still reads as a painted patch.
+    // So the travelling crests below are also added to `totalEmissiveRadiance`,
+    // which is not a reflection and is therefore visible from everywhere. It
+    // is the same wave field, so the glint and the highlight ride together.
+    emissive: 0x0a1a20,
     vertexColors: true,
     transparent: true,
     // Judging the depth of a flooded road *is* the skill this sheet exists to
     // ask about, so the centre dashes and the edge line have to read through
     // it. An opaque sheet is a painted patch with a highlight on it.
-    opacity: 0.62,
+    opacity: 0.72,
     depthWrite: false,
     polygonOffset: true,
     polygonOffsetFactor: -5,
@@ -169,6 +178,12 @@ function waterMaterial(tint: string, time: { value: number }): THREE.MeshPhongMa
         varying float vEdge;
         varying vec3 vWorld;
 
+        // Written where the crests are computed, read further down the chunk
+        // list where the emission is assembled. A file-scope global rather
+        // than a varying: it is a value passed between two injections in the
+        // same fragment, not between two stages.
+        float vGlint = 0.0;
+
         // Six crossed wave trains at three scales. Cheap, endless, and — because
         // every phase is a function of uTime, which is simulation time — the
         // same on every machine and in every replay.
@@ -181,6 +196,30 @@ function waterMaterial(tint: string, time: { value: number }): THREE.MeshPhongMa
           g.x += 0.028 * sin( p.x * 4.30 + p.y * 2.10 + t * 5.10 );
           g.y += 0.028 * sin( p.y * 4.05 - p.x * 2.60 - t * 5.80 );
           return normalize( vec3( -g.x, 1.0, -g.y ) );
+        }
+
+        // The same six trains read as a height instead of a slope, 0..1. This
+        // is what the eye actually finds at 87 m/s: not a highlight, which is
+        // one bright pixel that may or may not be pointing at you, but bands of
+        // light and dark travelling across the sheet at a different speed from
+        // the machine crossing it.
+        // Eight trains rather than six, and at deliberately incommensurate
+        // angles. Two crossed trains make a *lattice*: the first cut of this
+        // photographed as a field of even diamonds marching across the sheet,
+        // which is a pattern rather than a surface. Odd directions and odd
+        // speeds put the repeat far enough out that a thirty-four-metre sheet
+        // never contains one.
+        float rippleHeight( vec2 p, float t ) {
+          float h = 0.0;
+          h += 0.30 * sin( p.x * 0.53 + p.y * 0.19 + t * 1.55 );
+          h += 0.30 * sin( p.y * 0.61 - p.x * 0.27 + t * 1.21 );
+          h += 0.19 * sin( p.x * 1.13 + p.y * 0.87 - t * 2.03 );
+          h += 0.17 * sin( p.x * 1.71 - p.y * 1.19 - t * 2.90 );
+          h += 0.17 * sin( p.y * 1.57 + p.x * 1.03 + t * 2.35 );
+          h += 0.10 * sin( p.x * 3.11 - p.y * 2.37 + t * 4.10 );
+          h += 0.10 * sin( p.x * 4.33 + p.y * 2.09 + t * 5.10 );
+          h += 0.10 * sin( p.y * 4.07 - p.x * 2.61 - t * 5.80 );
+          return clamp( h * 0.44 + 0.5, 0.0, 1.0 );
         }`,
       )
       // The perturbation is built in world space and then taken into view
@@ -224,9 +263,32 @@ function waterMaterial(tint: string, time: { value: number }): THREE.MeshPhongMa
           float foam = smoothstep( ${(FOAM + 0.15).toFixed(2)}, 0.20, e ) * crest;
           foam *= smoothstep( 0.0, 0.45, e );
 
+          // ── the swell ────────────────────────────────────────────────────
+          // Light and dark travelling across the body of the sheet. Held back
+          // inside the foam band so the two cues do not fight, and kept to a
+          // ratio rather than an absolute so a course may flood in any colour.
+          float sw = rippleHeight( vWorld.xz, uTime );
+          diffuseColor.rgb *= 0.82 + 0.40 * sw;
+
           diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 1.0, 0.99, 0.96 ), foam * 0.92 );
           diffuseColor.a = max( diffuseColor.a, foam * 0.86 );
+          // The sheet is thin at its margin and a travelling crest there would
+          // sparkle on bare tarmac, so the glint is carried out on the alpha.
+          vGlint = pow( smoothstep( 0.68, 1.0, sw ), 2.5 ) * diffuseColor.a;
         }`,
+      )
+      // ── the glint ────────────────────────────────────────────────────────
+      //
+      // Added as emission rather than as specular for the reason stated on
+      // `emissive` above: a reflection is invisible from most of the angles
+      // this course is photographed from, and "no motion, no ripple, no
+      // specular sparkle" was the finding. Emission is visible from all of
+      // them, and because it rides the same wave field as the highlight and
+      // the swell, the surface reads as one moving thing rather than three.
+      .replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+        totalEmissiveRadiance += vec3( 0.62, 0.86, 0.92 ) * vGlint * 0.52;`,
       );
   };
 
@@ -298,8 +360,18 @@ function buildSheet(
       // Deep in the middle, and paler where it thins — the one cue that says
       // which part of a flooded road you can survive. Same read the stock sheet
       // had; it is the only thing about it that was right.
+      // ── and it is brighter than the tarmac, not darker ───────────────────
+      //
+      // This started at 0.86..1.16 and photographed as a dark slate patch: a
+      // 0.62-alpha #3F6E7C over the darkest asphalt in the cup lands within a
+      // few values of *wet road*, which is the one thing the flood must not
+      // look like. The surge bore standing in the same frame — `hazards.ts`,
+      // a brighter teal at a higher alpha — read as water immediately, and two
+      // objects made of the same substance may not disagree about what that
+      // substance looks like. Lifted to 1.00..1.34 so the sheet sits clearly
+      // above the road it lies on.
       const shallow = 1 - Math.min(1, e / 3.4);
-      const v = 0.86 + shallow * 0.30;
+      const v = 1.00 + shallow * 0.34;
       col.push(v * 0.93, v, v * 1.05, 1);
       edge.push(e);
     }
@@ -311,7 +383,27 @@ function buildSheet(
       const b = a + 1;
       const c = a + cols;
       const dd = c + 1;
-      idx.push(a, c, b, b, c, dd);
+      // ── the winding, and the round it cost ────────────────────────────────
+      //
+      // This read `(a, c, b, b, c, dd)` and it faced the entire flood at the
+      // ground. `spline.ts` builds its frame as `right = tangent × up`, so
+      // `tangent × right` is **−up**: a quad wound "along the road first, then
+      // across it" has its front face pointing *down*, and `FrontSide` is the
+      // three.js default. Every sheet on Saltpan Bypass was therefore drawn
+      // exclusively for an observer underneath the tarmac.
+      //
+      // It is worth stating what that failure looked like from the outside,
+      // because it is the reason a whole round of work read as "nothing was
+      // done": the *bore* — the surge hazard, a leaning wall of brine with a
+      // foam lip, built in `hazards.ts` and unaffected by this — was still
+      // there, and it is a translucent teal slab with hard ruled edges that
+      // stands proud of the road at its ends. So the crossing did not go
+      // blank. It went down to exactly the object the critic described, and a
+      // reviewer photographing "the flood" was photographing the one piece of
+      // water this file does not build. The check that finds this in one
+      // frame, rather than in an afternoon, is an opaque material: geometry
+      // that will not draw magenta is not a shader problem.
+      idx.push(a, b, c, b, dd, c);
     }
   }
 }
@@ -338,7 +430,7 @@ void main() {
   // mass across the bottom half of the picture with the road behind it gone.
   // Everything inside four metres is faded out: the plume is *there*, it is
   // just not allowed to be the picture.
-  vAlpha = aAlpha * smoothstep( 1.1, 4.6, z );
+  vAlpha = aAlpha * smoothstep( 1.6, 5.8, z );
   gl_PointSize = clamp( aSize * uScale / z, 1.0, 150.0 );
 }`;
 
@@ -353,8 +445,14 @@ void main() {
   float r = dot( d, d ) * 4.0;
   if ( r > 1.0 ) discard;
   float a = ( 1.0 - r ) * ( 1.0 - r );
-  float core = pow( 1.0 - r, 6.0 );
-  gl_FragColor = vec4( vColor + core * 0.35, a * vAlpha );
+  // The core is deliberately taken past 1.0. The composite runs an HDR bloom
+  // pyramid, so a droplet whose middle is over white blooms and a droplet
+  // whose middle is exactly white does not — and blooming is the difference
+  // between spray you notice at 87 m/s and spray you find afterwards in a
+  // screenshot. The falloff is steep so it is the middle of a droplet that
+  // burns, not the droplet.
+  float core = pow( 1.0 - r, 5.0 );
+  gl_FragColor = vec4( vColor + core * 0.95, a * vAlpha );
 }`;
 
 interface Spray {
@@ -502,11 +600,21 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
     p.vx = vx; p.vy = vy; p.vz = vz;
     p.life = 0; p.ttl = ttl;
     p.size0 = s0; p.size1 = s1;
-    // Brine is not white: it is a very pale, very slightly green-blue, and the
-    // droplets closest to the sheet carry more of the sheet's own colour.
-    p.r = 0.80 + warm * 0.20;
-    p.g = 0.90 + warm * 0.10;
-    p.b = 0.94 + warm * 0.06;
+    // ── why the plume is not white ────────────────────────────────────────
+    //
+    // It was — 0.80/0.90/0.94 up to flat white — and it was invisible, which
+    // is the finding. This course is a *salt pan*: the ground is near-white
+    // crust, the sky is pale, the horizon is a white haze, and a white plume
+    // over any of the three is a plume nobody can see. Water broken into air
+    // is only bright where the light gets through it; the body of a rooster
+    // tail is a cool, fairly deep blue-grey, and it is the *rim* that burns
+    // out. So the body sits well under the background here, and the hot core
+    // in the fragment shader takes the peak over 1.0 into the bloom pyramid.
+    // Contrast against the salt is what makes the crossing readable, and it
+    // has to come from the dark end because the pale end is taken.
+    p.r = 0.56 + warm * 0.26;
+    p.g = 0.72 + warm * 0.22;
+    p.b = 0.82 + warm * 0.16;
     p.alpha = alpha;
   }
 
@@ -530,8 +638,20 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
     // Scaled off top speed rather than off an absolute, so a heavy machine and
     // a light one throw the same amount of water at the same fraction of their
     // own pace.
-    const load = Math.min(1, sp / 46);
-    const n = Math.min(9, Math.round(budget * (2.4 + 9.5 * load) * dt * 60));
+    //
+    // ── and the curve is bent, because water is where nobody is fast ──────
+    //
+    // This was linear, and linear is wrong here for a reason particular to
+    // this hazard: `water` is 45% of top speed, so *by construction* almost
+    // every frame of a machine in the flood is a frame at a fifth to a third
+    // of the load a linear curve would call full. The frame a critic
+    // photographs — five machines wallowing through the sheet off the line at
+    // eleven metres a second — was therefore the frame with the least spray in
+    // it, which is exactly backwards: a vehicle ploughing through standing
+    // water at a walking pace still pushes a bow wave the width of itself. The
+    // power bends the low end up without moving the top.
+    const load = Math.min(1, Math.pow(Math.min(1, sp / 46), 0.6));
+    const n = Math.min(7, Math.round(budget * (1.9 + 7.4 * load) * dt * 60));
 
     for (let i = 0; i < n; i++) {
       const rear = i % 3 !== 0;
@@ -556,10 +676,20 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
         r.vel.x * drag + _right.x * out - _fwd.x * range(1, 5) + range(-0.5, 0.5),
         throwUp,
         r.vel.z * drag + _right.z * out - _fwd.z * range(1, 5) + range(-0.5, 0.5),
-        range(0.34, 0.72),
-        range(0.13, 0.32) * (rear ? 1.35 : 1),
-        range(0.62, 1.15),
-        range(0.50, 0.85) * (0.45 + 0.55 * load),
+        // ── the droplet is a *mass* of water, not a bead ───────────────────
+        //
+        // The sizes here were 0.13-0.32 growing to 0.62-1.15 metres, which at
+        // a chase camera's eight metres is a seven-pixel dot growing to a
+        // thirty-pixel smudge. Photographed at 1280x720 against a white salt
+        // pan that is not a rooster tail, it is dust. A tyre at sixty metres a
+        // second is not throwing droplets — it is throwing torn sheets of
+        // water that break up as they rise, so each sprite stands for a lump
+        // of the plume rather than for a drop, and it grows by a factor of
+        // five as it atomises.
+        range(0.42, 0.86),
+        range(0.26, 0.58) * (rear ? 1.4 : 1),
+        range(1.5, 2.7),
+        range(0.50, 0.85) * (0.58 + 0.42 * load),
         rnd(),
       );
     }
@@ -567,7 +697,7 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
     // The sheet itself, pushed sideways: a low flat curtain either side of the
     // machine that is thrown *out* rather than up. It is what makes the plume
     // read as displaced water instead of as steam.
-    const m = Math.min(4, Math.round(budget * (1.2 + 4.0 * load) * dt * 60));
+    const m = Math.min(3, Math.round(budget * (0.9 + 3.0 * load) * dt * 60));
     for (let i = 0; i < m; i++) {
       const side = i % 2 === 0 ? 1 : -1;
       _at.copy(r.pos)
@@ -579,9 +709,9 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
         r.vel.x * 0.24 + _right.x * side * range(3.2, 7.4),
         range(0.6, 2.0),
         r.vel.z * 0.24 + _right.z * side * range(3.2, 7.4),
-        range(0.45, 0.85),
-        range(0.28, 0.52), range(0.85, 1.45),
-        range(0.24, 0.42) * (0.4 + 0.6 * load),
+        range(0.55, 1.05),
+        range(0.55, 0.95), range(1.9, 3.2),
+        range(0.28, 0.46) * (0.55 + 0.45 * load),
         rnd() * 0.5,
       );
     }
@@ -594,7 +724,7 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
     _m.makeRotationFromQuaternion(r.quat);
     _right.set(1, 0, 0).applyMatrix4(_m);
     _fwd.set(0, 0, 1).applyMatrix4(_m);
-    const load = Math.min(1, sp / 46);
+    const load = Math.min(1, Math.pow(Math.min(1, sp / 46), 0.6));
     const n = Math.round(budget * (16 + 30 * load));
     for (let i = 0; i < n; i++) {
       const side = i % 2 === 0 ? 1 : -1;
@@ -607,8 +737,8 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
         r.vel.x * 0.30 + _right.x * side * range(2.5, 9.5) + _fwd.x * range(0, 4),
         range(2.6, 9.0),
         r.vel.z * 0.30 + _right.z * side * range(2.5, 9.5) + _fwd.z * range(0, 4),
-        range(0.42, 0.90),
-        range(0.18, 0.46), range(1.0, 1.7),
+        range(0.55, 1.15),
+        range(0.32, 0.78), range(2.0, 3.4),
         range(0.42, 0.78),
         rnd(),
       );
@@ -632,6 +762,13 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
     wakeMesh = null;
     live = 0;
     hasWater = false;
+    // The probe is a statement about the picture, so it is cleared where the
+    // picture is torn down rather than in `update`, which returns early on a
+    // course with no water and would leave the last course's answer standing.
+    probe.hasWater = false;
+    probe.spray = 0;
+    probe.wet = 0;
+    probe.wakes = 0;
     for (const t of trails) { t.count = 0; t.head = 0; t.since = 0; t.wasWet = false; }
   }
 
@@ -646,6 +783,7 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
     if (!defs.length) return;
 
     hasWater = true;
+    probe.hasWater = true;
     const spline = track.spline as unknown as TrackSpline;
     const verge = course.vergeWidth ?? 5;
     splineRef = spline;
@@ -1022,15 +1160,34 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
       // spray is twice as big on a phone as it is on the review sheet.
       sprayScale.value = ctx.renderer.domElement.height * 0.42;
 
-      const budget = Math.max(0.25, Math.min(1.4, ctx.quality.particles ?? 1));
+      const quality = Math.max(0.25, Math.min(1.4, ctx.quality.particles ?? 1));
       const racers = ctx.racers;
-      probe.wet = 0;
-      for (let i = 0; i < racers.length && i < MAX_RACERS; i++) {
+      const n = Math.min(racers.length, MAX_RACERS);
+
+      // ── the pool is shared, so the share is worked out first ──────────────
+      //
+      // `emit()` returns silently once the pool is full, and the loop below
+      // walks the field in id order — so an unshared budget does not degrade,
+      // it *truncates*: the first two or three machines fill the pool and
+      // everything behind them crosses the flood bone dry. The exact frame the
+      // critic photographed is the one this breaks on, five machines in the
+      // water at once, and the racer it would have starved is whichever one
+      // happens to be last in the array. So the per-machine rate is divided
+      // down when the field is submerged together, which costs a plume a
+      // little of its density and costs nobody their plume.
+      let nWet = 0;
+      for (let i = 0; i < n; i++) {
+        const r = racers[i]!;
+        if (r.surface === 'water' && r.grounded) nWet++;
+      }
+      probe.wet = nWet;
+      const budget = quality * Math.min(1, 2.6 / Math.max(1, nWet));
+
+      for (let i = 0; i < n; i++) {
         const r = racers[i]!;
         const wet = r.surface === 'water' && r.grounded;
         const t = trails[i]!;
         if (wet) {
-          probe.wet++;
           if (!t.wasWet) splash(r, budget);
           sprayRacer(r, dt, budget);
           record(r, i, dt);
@@ -1040,7 +1197,6 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
       stepSpray(dt);
       stepWake(dt);
       probe.spray = live;
-      probe.hasWater = hasWater;
       let w = 0;
       for (const t of trails) if (t.count > 1) w++;
       probe.wakes = w;
