@@ -9630,3 +9630,360 @@ The container came back with a stale checkout — the real head was five commits
 ### 🤖 Claude — 2026-08-13 08:11 UTC
 
 Now the board, with the real verdicts from the pushed history.
+
+### 🤖 Claude — 2026-08-13 08:13 UTC
+
+Launching wave 5 — the first wave ever judged off an honest review sheet.
+
+### 🤖 Claude — 2026-08-13 08:14 UTC
+
+Both agents are builders on the expected pieces. Now re-arming the Routine — its stored prompt is two days stale.
+
+### 🤖 Claude — 2026-08-13 10:07 UTC
+
+Understood — wave 5's round 2 is in flight right now (both builders writing within the last minute). I'll let it finish, close it out, open the PR to `main`, and then stop.
+
+First, so a container restart can't lose that instruction, I'm writing it into the Routine itself:
+
+### 🧑 Prompt — 2026-08-13 12:56 UTC
+
+Continue from where you left off.
+
+### 🤖 Claude — 2026-08-13 12:56 UTC
+
+No response requested.
+
+### 🧑 Prompt — 2026-08-13 12:56 UTC
+
+after this round, can we do the last pr and pause any progress for now
+
+### 🤖 Claude — 2026-08-13 12:57 UTC
+
+Understood — let wave 5's round finish, land it as the final PR, then stop. Wave 5 is mid-round-two right now (round one came back look 6.5, camera 6.5, both blind picks still Mario Kart).
+
+First I'm writing your instruction into the loop itself, so an hourly tick in a fresh container can't launch a wave 6 behind your back.
+
+### 🧑 Prompt — 2026-08-13 13:37 UTC
+
+Continue from where you left off.
+
+### 🤖 Claude — 2026-08-13 13:37 UTC
+
+No response requested.
+
+### 🧑 Prompt — 2026-08-13 13:37 UTC
+
+MARIO.CONE build loop — hourly. Repo adam91holt/mario.cone (PUBLIC), branch claude/waves-phases-routine-setup-faggxq. WFDIR=/root/.claude/projects/-home-user-mario-cone/796d0d90-4635-56a8-a763-6958ed7d5f0d/subagents/workflows
+
+FIRST TICK IN A FRESH CONTAINER: `ls node_modules` — if it is missing, `npm install` before anything else. The container is reclaimed on inactivity and comes back with an empty node_modules; every agent that runs typecheck or smoke without it fails on something that has nothing to do with its piece.
+
+EVERY TICK, before anything else: `node tools/session.mjs`. It refreshes docs/session/prompts.md and docs/session/session.jsonl — the conversation that is building this game, which the user asked to be published and kept current. It exits non-zero if a message body was truncated; if that happens fix the tool rather than committing a mangled archive. Commit the refresh with whatever else the tick produces.
+It MERGES every transcript in the project dir with the archive already in the repo, keyed on record uuid, and is append-only and idempotent — safe to run from any session. It used to open one hardcoded transcript and broke the moment the build changed hands. Never "fix" it by pointing it at the current session and writing the result: finished sessions' transcripts are deleted from disk long before the work they describe, and docs/session/session.jsonl is the only surviving copy of the first six days. If a run reports FEWER records than the file already had, stop and find out why rather than committing it.
+
+Do NOT trust any run id written here — resolve it: RUN=$(ls -t $WFDIR | head -1). Current run: courses+perf WAVE 2 = wf_108abd86-700, launched 2026-08-11 22:25 UTC, two pieces two rounds, both carrying the 7.0 they earned. Wave 1 (wf_85f146bd-139) finished all eight agents clean: courses 6.0 then 7.0, perf 6.0 then 7.0, no pass, every blind A/B still Mario Kart.
+
+ITS ARGS ARE ON DISK: handoffs/wave.args.json. Resume passes them byte-for-byte — Workflow({scriptPath:"/home/user/mario.cone/tools/wave.workflow.mjs", resumeFromRunId:RUN, args:<the parsed contents of that file>}). Do not retype them from memory; args that differ by one character miss the cache and re-buy the whole wave. When you launch a NEW wave, write its args to that file in the same breath. Keep the file slimmed to what buildPrompt actually reads — score, pass, blindPick, biggestGap, directive, evidence — so the file and the launch cannot drift.
+
+STEP 1 — PROVE the wave is alive. Two checks; the second has never been wrong:
+  date -u
+  ls -lt --time-style=+%H:%M:%S $WFDIR/$RUN/agent-*.jsonl | head -3
+  ps -eo etime,comm | grep -w claude
+(a) Newest agent-*.jsonl mtime older than ~25 minutes = dead. USE `ls -t`; a plain `ls | tail` sorts ALPHABETICALLY and once hid the only live agent behind eleven finished ones.
+(b) ELAPSED of the main `claude` process. DECISIVE. If claude has been alive for LESS time than the gap since the last agent write, the container restarted and every in-flight agent is dead, however recent the mtimes look. Two agents whose last write is the IDENTICAL second is the same signature. Do NOT grep for claude in a `--sort=-pcpu | head -4` list — Chrome outranks it and it will not appear.
+Never judge by files existing or Chrome counts: subagents run IN-PROCESS inside the main claude process, so `ps aux | grep claude` shows nothing for a healthy wave.
+
+NEVER pkill on a pattern that your own shell's command line also matches. `pkill -f "node foo.mjs"` matches the shell running that very command and kills the whole tick mid-sentence — it has happened, twice in a row, and it looks exactly like a container suspend. Anchor it (`pkill -f '^node foo'`) or kill by pid resolved with an anchored pgrep. And never pkill anything matching "capture.mjs": agents run the same tools you do.
+
+Count: node -e "const fs=require('fs');let s=0,r=0;for(const l of fs.readFileSync(process.argv[1],'utf8').trim().split('\n')){try{const e=JSON.parse(l);if(e.type==='started')s++;if(e.type==='result')r++;}catch{}}console.log(s,r)" $WFDIR/$RUN/journal.jsonl
+Concurrency is 2 on this 4-core box.
+
+STEP 2 — If DEAD, RESUME, DO NOT RELAUNCH:
+  Workflow({scriptPath:"<the same script>", resumeFromRunId:"<the dead RUN>", args:<the SAME args object, byte-for-byte — read handoffs/wave.args.json>})
+Completed agent() calls return from cache instantly and only the killed agents re-run, carry intact. Args must match exactly or the cache misses. First `npx tsc --noEmit`, then commit and push whatever exists (say in the message if unverified). Read the dead run's journal for results that already have a `score` — those verdicts are earned and must never be re-bought:
+  node -e "const fs=require('fs');for(const l of fs.readFileSync(process.argv[1],'utf8').trim().split('\n')){try{const e=JSON.parse(l);if(e.type==='result'&&e.result?.score!==undefined)console.log(e.agentId,e.result.score,e.result.biggestGap);}catch{}}" $WFDIR/$RUN/journal.jsonl
+IF TYPECHECK FAILS INSIDE A FILE A DEAD AGENT WAS MID-WRITE ON, that is NOT transient — the agent is not coming back to finish it, and the resumed agent restarts that step from scratch. `git checkout --` those files rather than committing a build that cannot compile.
+AFTER ANY LAUNCH OR RESUME, VERIFY: grep 'YOUR PIECE' AND 'Observed:' out of each new agent transcript.
+
+STEP 3 — If ALIVE: `npx tsc --noEmit`. If clean, commit and push. Do NOT run captures or smoke while agents are active.
+
+STEP 4 — If FINISHED:
+  a. `npx tsc --noEmit` then `node tools/capture.mjs --smoke`. Typecheck-clean has passed on a build that did not boot; smoke is the real gate. Then `npm test`, and `node tools/underground.mjs` (see below).
+  b. `node tools/capture.mjs` and LOOK at the PNGs with Read. Never trust an agent's summary.
+  c. Update tools/progress.state.json with the real verdicts from the journal, `node tools/progress.mjs`, `node tools/readmeshots.mjs`.
+  d. Commit and push. THE MERGE TO MAIN IS THE USER'S CALL RIGHT NOW — a push to main redeploys the live game, and the deployed build still has the camera burial in it. Ask before opening the PR; do not merge unprompted. When they say go: PR (base main, draft false), merge, then `git fetch origin main && git reset --hard origin/main && git push --force-with-lease` (merges are squashed, so ff-only will refuse).
+  e. Launch the next wave — two pieces, two rounds, carry the verdicts the last wave earned, and write the new args to handoffs/wave.args.json.
+
+PLAYER REPORT — REPRODUCED, ASSIGNED, NOT YET FIXED. "Sometimes the map is below a layer or something and you kinda go underground and the screen just went brown above the racer and you can't see them."
+It is JACKHAMMER QUARRY. `node tools/underground.mjs --course jackhammer-quarry` drives autopilot on the racing line and finds the lens inside the landscape on 33 of 200 samples, worst 3.92m under at t=26s with the kart ON THE ROAD at 83 m/s. The raycast returns THREE AND FOUR stacked 'embankment' surfaces at one XZ (-5.67, -23.27, -37.78): the swept skirt folding over itself around the benches. The wave-1 courses critic found the same thing independently and blind — two of five quarry shots came back a full frame of grey scree with no kart and no road, chase at 27.5s and far at 14.3s — and its directive is carried into wave 2. THE FIX IS LAYOUT, NOT LENS: the bench walls need a set-back from the racing line wide enough for a rig trailing ~8m behind and ~3m above. When it is fixed, WIRE tools/underground.mjs INTO npm test — it is red now, which is the first time it has been worth anything.
+THREE GUARDS ON THAT TOOL, EACH BOUGHT WITH A WRONG ANSWER. Read them before touching it. (1) Terrain is the two meshes NAMED 'ground' and 'embankment'; picking by vertex count also catches grandstands, crowds and an overhead sign, and "reproduced" the bug 8.5m under on cone-canyon when the camera was passing beneath a gantry under clear sky. (2) reset() takes courseId/vehicleId and SILENTLY IGNORES unknown keys, so passing `course` loads the default — the test measured cone-canyon four times and printed four course names. It now checks snapshot().track.id against what it asked for. (3) The engine's rAF loop never stops and steps the sim by wall time alongside anything the harness drives, so setTimeScale(0) must be re-applied AFTER EVERY reset (reset restores it to 1). Without it a sample labelled t=2s is nothing of the sort, holding full steer for thirty real seconds drives off the road, and on the mountain course that reported the camera 12m underground when the kart was simply inside a hill. capture.mjs has always done this and says why.
+STILL UNCHECKED: other vehicles, being spun out, the finish camera, and look-behind on a course whose banks are close.
+
+REMAINING WORK, IN ORDER (handoffs/README.md §5 is the long form):
+  1. COURSES — 7.0. Round two closed the shape gap for real and measured it: longest straight 621m saltpan against 151m quarry (4.1x), elevation 115.2m switchback against 13.6m saltpan (8.5x), and the four map cards — dogleg, comb, wedge, hourglass — pass the cover-the-names test. The new gap is that four different shapes are still one place: identical gantry, banner, grandstands, crowd, kerb, barrier, edge line and chevrons on all four. Plus the quarry burial above.
+  2. PERF — 7.0. The seam rule landed and locking the visible levers cost the governor its mid-race authority. Its only live lever is render scale, which softens the 3D and not the DOM HUD, and the collapse path steps 1.00 to 0.50 in one frame.
+  3. CLOSING VERDICTS ON WAVE 1 — feel, camera, track, look, cast were merged long ago and never judged. The board still shows them as `review`. tools/wave1.workflow.mjs. NOTE: `camera` is the piece that owns the chase clamp, and the burial is being fixed as layout; if the quarry set-back does not clear it, camera's round is where the lens-side fix belongs.
+  4. A COHERENCE PASS (tools/coherence.workflow.mjs) for the gaps no single piece owns: the purple tier-3 mini-turbo has still never been seen by anyone; a single carried item is not drawn in the world at all because the orbit rig is only built for count>1; the finish letterbox guillotines the position badge on the one beat it matters. It must NEVER run while a wave is running.
+  5. A PHONE CRITIC. tools/phone.mjs passes, but no critic has ever played this on glass. The touch layer shipped straight to main off a bug report, unjudged.
+
+RENAME TO "GARY'S KART" — PARKED. DO NOT START IT.
+The user raised it on 2026-08-11 and then said on the same day: "Just park the rename until I ask for it." So it is NOT triggered by the board going green, NOT part of the definition of done, and NOT something to raise again. It waits for the user to ask for it in their own words. Do not bring it up, do not start it early, do not fold pieces of it into other work. If the board goes fully green and the rename has not been asked for, the build is finished — say so and stop.
+The research is preserved at the bottom of handoffs/build-loop-prompt.txt so nobody re-derives it. It is reference, not a work item. Do not read it as a to-do.
+
+Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
+MARIO.CONE build loop — hourly. Repo adam91holt/mario.cone (PUBLIC), branch claude/waves-phases-routine-setup-faggxq. WFDIR=/root/.claude/projects/-home-user-mario-cone/796d0d90-4635-56a8-a763-6958ed7d5f0d/subagents/workflows
+
+FIRST TICK IN A FRESH CONTAINER: `ls node_modules` — if it is missing, `npm install` before anything else. The container is reclaimed on inactivity and comes back with an empty node_modules; every agent that runs typecheck or smoke without it fails on something that has nothing to do with its piece.
+
+EVERY TICK, before anything else: `node tools/session.mjs`. It refreshes docs/session/prompts.md and docs/session/session.jsonl — the conversation that is building this game, which the user asked to be published and kept current. It exits non-zero if a message body was truncated; if that happens fix the tool rather than committing a mangled archive. Commit the refresh with whatever else the tick produces.
+It MERGES every transcript in the project dir with the archive already in the repo, keyed on record uuid, and is append-only and idempotent — safe to run from any session. It used to open one hardcoded transcript and broke the moment the build changed hands. Never "fix" it by pointing it at the current session and writing the result: finished sessions' transcripts are deleted from disk long before the work they describe, and docs/session/session.jsonl is the only surviving copy of the first six days. If a run reports FEWER records than the file already had, stop and find out why rather than committing it.
+
+Do NOT trust any run id written here — resolve it: RUN=$(ls -t $WFDIR | head -1). Current run: courses+perf WAVE 2 = wf_108abd86-700, launched 2026-08-11 22:25 UTC, two pieces two rounds, both carrying the 7.0 they earned. Wave 1 (wf_85f146bd-139) finished all eight agents clean: courses 6.0 then 7.0, perf 6.0 then 7.0, no pass, every blind A/B still Mario Kart.
+
+ITS ARGS ARE ON DISK: handoffs/wave.args.json. Resume passes them byte-for-byte — Workflow({scriptPath:"/home/user/mario.cone/tools/wave.workflow.mjs", resumeFromRunId:RUN, args:<the parsed contents of that file>}). Do not retype them from memory; args that differ by one character miss the cache and re-buy the whole wave. When you launch a NEW wave, write its args to that file in the same breath. Keep the file slimmed to what buildPrompt actually reads — score, pass, blindPick, biggestGap, directive, evidence — so the file and the launch cannot drift.
+
+STEP 1 — PROVE the wave is alive. Two checks; the second has never been wrong:
+  date -u
+  ls -lt --time-style=+%H:%M:%S $WFDIR/$RUN/agent-*.jsonl | head -3
+  ps -eo etime,comm | grep -w claude
+(a) Newest agent-*.jsonl mtime older than ~25 minutes = dead. USE `ls -t`; a plain `ls | tail` sorts ALPHABETICALLY and once hid the only live agent behind eleven finished ones.
+(b) ELAPSED of the main `claude` process. DECISIVE. If claude has been alive for LESS time than the gap since the last agent write, the container restarted and every in-flight agent is dead, however recent the mtimes look. Two agents whose last write is the IDENTICAL second is the same signature. Do NOT grep for claude in a `--sort=-pcpu | head -4` list — Chrome outranks it and it will not appear.
+Never judge by files existing or Chrome counts: subagents run IN-PROCESS inside the main claude process, so `ps aux | grep claude` shows nothing for a healthy wave.
+
+NEVER pkill on a pattern that your own shell's command line also matches. `pkill -f "node foo.mjs"` matches the shell running that very command and kills the whole tick mid-sentence — it has happened, twice in a row, and it looks exactly like a container suspend. Anchor it (`pkill -f '^node foo'`) or kill by pid resolved with an anchored pgrep. And never pkill anything matching "capture.mjs": agents run the same tools you do.
+
+Count: node -e "const fs=require('fs');let s=0,r=0;for(const l of fs.readFileSync(process.argv[1],'utf8').trim().split('\n')){try{const e=JSON.parse(l);if(e.type==='started')s++;if(e.type==='result')r++;}catch{}}console.log(s,r)" $WFDIR/$RUN/journal.jsonl
+Concurrency is 2 on this 4-core box.
+
+STEP 2 — If DEAD, RESUME, DO NOT RELAUNCH:
+  Workflow({scriptPath:"<the same script>", resumeFromRunId:"<the dead RUN>", args:<the SAME args object, byte-for-byte — read handoffs/wave.args.json>})
+Completed agent() calls return from cache instantly and only the killed agents re-run, carry intact. Args must match exactly or the cache misses. First `npx tsc --noEmit`, then commit and push whatever exists (say in the message if unverified). Read the dead run's journal for results that already have a `score` — those verdicts are earned and must never be re-bought:
+  node -e "const fs=require('fs');for(const l of fs.readFileSync(process.argv[1],'utf8').trim().split('\n')){try{const e=JSON.parse(l);if(e.type==='result'&&e.result?.score!==undefined)console.log(e.agentId,e.result.score,e.result.biggestGap);}catch{}}" $WFDIR/$RUN/journal.jsonl
+IF TYPECHECK FAILS INSIDE A FILE A DEAD AGENT WAS MID-WRITE ON, that is NOT transient — the agent is not coming back to finish it, and the resumed agent restarts that step from scratch. `git checkout --` those files rather than committing a build that cannot compile.
+AFTER ANY LAUNCH OR RESUME, VERIFY: grep 'YOUR PIECE' AND 'Observed:' out of each new agent transcript.
+
+STEP 3 — If ALIVE: `npx tsc --noEmit`. If clean, commit and push. Do NOT run captures or smoke while agents are active.
+
+STEP 4 — If FINISHED:
+  a. `npx tsc --noEmit` then `node tools/capture.mjs --smoke`. Typecheck-clean has passed on a build that did not boot; smoke is the real gate. Then `npm test`, and `node tools/underground.mjs` (see below).
+  b. `node tools/capture.mjs` and LOOK at the PNGs with Read. Never trust an agent's summary.
+  c. Update tools/progress.state.json with the real verdicts from the journal, `node tools/progress.mjs`, `node tools/readmeshots.mjs`.
+  d. Commit and push. THE MERGE TO MAIN IS THE USER'S CALL RIGHT NOW — a push to main redeploys the live game, and the deployed build still has the camera burial in it. Ask before opening the PR; do not merge unprompted. When they say go: PR (base main, draft false), merge, then `git fetch origin main && git reset --hard origin/main && git push --force-with-lease` (merges are squashed, so ff-only will refuse).
+  e. Launch the next wave — two pieces, two rounds, carry the verdicts the last wave earned, and write the new args to handoffs/wave.args.json.
+
+PLAYER REPORT — REPRODUCED, ASSIGNED, NOT YET FIXED. "Sometimes the map is below a layer or something and you kinda go underground and the screen just went brown above the racer and you can't see them."
+It is JACKHAMMER QUARRY. `node tools/underground.mjs --course jackhammer-quarry` drives autopilot on the racing line and finds the lens inside the landscape on 33 of 200 samples, worst 3.92m under at t=26s with the kart ON THE ROAD at 83 m/s. The raycast returns THREE AND FOUR stacked 'embankment' surfaces at one XZ (-5.67, -23.27, -37.78): the swept skirt folding over itself around the benches. The wave-1 courses critic found the same thing independently and blind — two of five quarry shots came back a full frame of grey scree with no kart and no road, chase at 27.5s and far at 14.3s — and its directive is carried into wave 2. THE FIX IS LAYOUT, NOT LENS: the bench walls need a set-back from the racing line wide enough for a rig trailing ~8m behind and ~3m above. When it is fixed, WIRE tools/underground.mjs INTO npm test — it is red now, which is the first time it has been worth anything.
+THREE GUARDS ON THAT TOOL, EACH BOUGHT WITH A WRONG ANSWER. Read them before touching it. (1) Terrain is the two meshes NAMED 'ground' and 'embankment'; picking by vertex count also catches grandstands, crowds and an overhead sign, and "reproduced" the bug 8.5m under on cone-canyon when the camera was passing beneath a gantry under clear sky. (2) reset() takes courseId/vehicleId and SILENTLY IGNORES unknown keys, so passing `course` loads the default — the test measured cone-canyon four times and printed four course names. It now checks snapshot().track.id against what it asked for. (3) The engine's rAF loop never stops and steps the sim by wall time alongside anything the harness drives, so setTimeScale(0) must be re-applied AFTER EVERY reset (reset restores it to 1). Without it a sample labelled t=2s is nothing of the sort, holding full steer for thirty real seconds drives off the road, and on the mountain course that reported the camera 12m underground when the kart was simply inside a hill. capture.mjs has always done this and says why.
+STILL UNCHECKED: other vehicles, being spun out, the finish camera, and look-behind on a course whose banks are close.
+
+REMAINING WORK, IN ORDER (handoffs/README.md §5 is the long form):
+  1. COURSES — 7.0. Round two closed the shape gap for real and measured it: longest straight 621m saltpan against 151m quarry (4.1x), elevation 115.2m switchback against 13.6m saltpan (8.5x), and the four map cards — dogleg, comb, wedge, hourglass — pass the cover-the-names test. The new gap is that four different shapes are still one place: identical gantry, banner, grandstands, crowd, kerb, barrier, edge line and chevrons on all four. Plus the quarry burial above.
+  2. PERF — 7.0. The seam rule landed and locking the visible levers cost the governor its mid-race authority. Its only live lever is render scale, which softens the 3D and not the DOM HUD, and the collapse path steps 1.00 to 0.50 in one frame.
+  3. CLOSING VERDICTS ON WAVE 1 — feel, camera, track, look, cast were merged long ago and never judged. The board still shows them as `review`. tools/wave1.workflow.mjs. NOTE: `camera` is the piece that owns the chase clamp, and the burial is being fixed as layout; if the quarry set-back does not clear it, camera's round is where the lens-side fix belongs.
+  4. A COHERENCE PASS (tools/coherence.workflow.mjs) for the gaps no single piece owns: the purple tier-3 mini-turbo has still never been seen by anyone; a single carried item is not drawn in the world at all because the orbit rig is only built for count>1; the finish letterbox guillotines the position badge on the one beat it matters. It must NEVER run while a wave is running.
+  5. A PHONE CRITIC. tools/phone.mjs passes, but no critic has ever played this on glass. The touch layer shipped straight to main off a bug report, unjudged.
+
+RENAME TO "GARY'S KART" — PARKED. DO NOT START IT.
+The user raised it on 2026-08-11 and then said on the same day: "Just park the rename until I ask for it." So it is NOT triggered by the board going green, NOT part of the definition of done, and NOT something to raise again. It waits for the user to ask for it in their own words. Do not bring it up, do not start it early, do not fold pieces of it into other work. If the board goes fully green and the rename has not been asked for, the build is finished — say so and stop.
+The research is preserved at the bottom of handoffs/build-loop-prompt.txt so nobody re-derives it. It is reference, not a work item. Do not read it as a to-do.
+
+Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
+MARIO.CONE build loop — hourly. Repo adam91holt/mario.cone (PUBLIC), branch claude/waves-phases-routine-setup-faggxq. WFDIR=/root/.claude/projects/-home-user-mario-cone/796d0d90-4635-56a8-a763-6958ed7d5f0d/subagents/workflows
+
+FIRST TICK IN A FRESH CONTAINER: `ls node_modules` — if it is missing, `npm install` before anything else. The container is reclaimed on inactivity and comes back with an empty node_modules; every agent that runs typecheck or smoke without it fails on something that has nothing to do with its piece.
+
+EVERY TICK, before anything else: `node tools/session.mjs`. It refreshes docs/session/prompts.md and docs/session/session.jsonl — the conversation that is building this game, which the user asked to be published and kept current. It exits non-zero if a message body was truncated; if that happens fix the tool rather than committing a mangled archive. Commit the refresh with whatever else the tick produces.
+It MERGES every transcript in the project dir with the archive already in the repo, keyed on record uuid, and is append-only and idempotent — safe to run from any session. It used to open one hardcoded transcript and broke the moment the build changed hands. Never "fix" it by pointing it at the current session and writing the result: finished sessions' transcripts are deleted from disk long before the work they describe, and docs/session/session.jsonl is the only surviving copy of the first six days. If a run reports FEWER records than the file already had, stop and find out why rather than committing it.
+
+Do NOT trust any run id written here — resolve it: RUN=$(ls -t $WFDIR | head -1). Current run: courses+perf WAVE 2 = wf_108abd86-700, launched 2026-08-11 22:25 UTC, two pieces two rounds, both carrying the 7.0 they earned. Wave 1 (wf_85f146bd-139) finished all eight agents clean: courses 6.0 then 7.0, perf 6.0 then 7.0, no pass, every blind A/B still Mario Kart.
+
+ITS ARGS ARE ON DISK: handoffs/wave.args.json. Resume passes them byte-for-byte — Workflow({scriptPath:"/home/user/mario.cone/tools/wave.workflow.mjs", resumeFromRunId:RUN, args:<the parsed contents of that file>}). Do not retype them from memory; args that differ by one character miss the cache and re-buy the whole wave. When you launch a NEW wave, write its args to that file in the same breath. Keep the file slimmed to what buildPrompt actually reads — score, pass, blindPick, biggestGap, directive, evidence — so the file and the launch cannot drift.
+
+STEP 1 — PROVE the wave is alive. Two checks; the second has never been wrong:
+  date -u
+  ls -lt --time-style=+%H:%M:%S $WFDIR/$RUN/agent-*.jsonl | head -3
+  ps -eo etime,comm | grep -w claude
+(a) Newest agent-*.jsonl mtime older than ~25 minutes = dead. USE `ls -t`; a plain `ls | tail` sorts ALPHABETICALLY and once hid the only live agent behind eleven finished ones.
+(b) ELAPSED of the main `claude` process. DECISIVE. If claude has been alive for LESS time than the gap since the last agent write, the container restarted and every in-flight agent is dead, however recent the mtimes look. Two agents whose last write is the IDENTICAL second is the same signature. Do NOT grep for claude in a `--sort=-pcpu | head -4` list — Chrome outranks it and it will not appear.
+Never judge by files existing or Chrome counts: subagents run IN-PROCESS inside the main claude process, so `ps aux | grep claude` shows nothing for a healthy wave.
+
+NEVER pkill on a pattern that your own shell's command line also matches. `pkill -f "node foo.mjs"` matches the shell running that very command and kills the whole tick mid-sentence — it has happened, twice in a row, and it looks exactly like a container suspend. Anchor it (`pkill -f '^node foo'`) or kill by pid resolved with an anchored pgrep. And never pkill anything matching "capture.mjs": agents run the same tools you do.
+
+Count: node -e "const fs=require('fs');let s=0,r=0;for(const l of fs.readFileSync(process.argv[1],'utf8').trim().split('\n')){try{const e=JSON.parse(l);if(e.type==='started')s++;if(e.type==='result')r++;}catch{}}console.log(s,r)" $WFDIR/$RUN/journal.jsonl
+Concurrency is 2 on this 4-core box.
+
+STEP 2 — If DEAD, RESUME, DO NOT RELAUNCH:
+  Workflow({scriptPath:"<the same script>", resumeFromRunId:"<the dead RUN>", args:<the SAME args object, byte-for-byte — read handoffs/wave.args.json>})
+Completed agent() calls return from cache instantly and only the killed agents re-run, carry intact. Args must match exactly or the cache misses. First `npx tsc --noEmit`, then commit and push whatever exists (say in the message if unverified). Read the dead run's journal for results that already have a `score` — those verdicts are earned and must never be re-bought:
+  node -e "const fs=require('fs');for(const l of fs.readFileSync(process.argv[1],'utf8').trim().split('\n')){try{const e=JSON.parse(l);if(e.type==='result'&&e.result?.score!==undefined)console.log(e.agentId,e.result.score,e.result.biggestGap);}catch{}}" $WFDIR/$RUN/journal.jsonl
+IF TYPECHECK FAILS INSIDE A FILE A DEAD AGENT WAS MID-WRITE ON, that is NOT transient — the agent is not coming back to finish it, and the resumed agent restarts that step from scratch. `git checkout --` those files rather than committing a build that cannot compile.
+AFTER ANY LAUNCH OR RESUME, VERIFY: grep 'YOUR PIECE' AND 'Observed:' out of each new agent transcript.
+
+STEP 3 — If ALIVE: `npx tsc --noEmit`. If clean, commit and push. Do NOT run captures or smoke while agents are active.
+
+STEP 4 — If FINISHED:
+  a. `npx tsc --noEmit` then `node tools/capture.mjs --smoke`. Typecheck-clean has passed on a build that did not boot; smoke is the real gate. Then `npm test`, and `node tools/underground.mjs` (see below).
+  b. `node tools/capture.mjs` and LOOK at the PNGs with Read. Never trust an agent's summary.
+  c. Update tools/progress.state.json with the real verdicts from the journal, `node tools/progress.mjs`, `node tools/readmeshots.mjs`.
+  d. Commit and push. THE MERGE TO MAIN IS THE USER'S CALL RIGHT NOW — a push to main redeploys the live game, and the deployed build still has the camera burial in it. Ask before opening the PR; do not merge unprompted. When they say go: PR (base main, draft false), merge, then `git fetch origin main && git reset --hard origin/main && git push --force-with-lease` (merges are squashed, so ff-only will refuse).
+  e. Launch the next wave — two pieces, two rounds, carry the verdicts the last wave earned, and write the new args to handoffs/wave.args.json.
+
+PLAYER REPORT — REPRODUCED, ASSIGNED, NOT YET FIXED. "Sometimes the map is below a layer or something and you kinda go underground and the screen just went brown above the racer and you can't see them."
+It is JACKHAMMER QUARRY. `node tools/underground.mjs --course jackhammer-quarry` drives autopilot on the racing line and finds the lens inside the landscape on 33 of 200 samples, worst 3.92m under at t=26s with the kart ON THE ROAD at 83 m/s. The raycast returns THREE AND FOUR stacked 'embankment' surfaces at one XZ (-5.67, -23.27, -37.78): the swept skirt folding over itself around the benches. The wave-1 courses critic found the same thing independently and blind — two of five quarry shots came back a full frame of grey scree with no kart and no road, chase at 27.5s and far at 14.3s — and its directive is carried into wave 2. THE FIX IS LAYOUT, NOT LENS: the bench walls need a set-back from the racing line wide enough for a rig trailing ~8m behind and ~3m above. When it is fixed, WIRE tools/underground.mjs INTO npm test — it is red now, which is the first time it has been worth anything.
+THREE GUARDS ON THAT TOOL, EACH BOUGHT WITH A WRONG ANSWER. Read them before touching it. (1) Terrain is the two meshes NAMED 'ground' and 'embankment'; picking by vertex count also catches grandstands, crowds and an overhead sign, and "reproduced" the bug 8.5m under on cone-canyon when the camera was passing beneath a gantry under clear sky. (2) reset() takes courseId/vehicleId and SILENTLY IGNORES unknown keys, so passing `course` loads the default — the test measured cone-canyon four times and printed four course names. It now checks snapshot().track.id against what it asked for. (3) The engine's rAF loop never stops and steps the sim by wall time alongside anything the harness drives, so setTimeScale(0) must be re-applied AFTER EVERY reset (reset restores it to 1). Without it a sample labelled t=2s is nothing of the sort, holding full steer for thirty real seconds drives off the road, and on the mountain course that reported the camera 12m underground when the kart was simply inside a hill. capture.mjs has always done this and says why.
+STILL UNCHECKED: other vehicles, being spun out, the finish camera, and look-behind on a course whose banks are close.
+
+REMAINING WORK, IN ORDER (handoffs/README.md §5 is the long form):
+  1. COURSES — 7.0. Round two closed the shape gap for real and measured it: longest straight 621m saltpan against 151m quarry (4.1x), elevation 115.2m switchback against 13.6m saltpan (8.5x), and the four map cards — dogleg, comb, wedge, hourglass — pass the cover-the-names test. The new gap is that four different shapes are still one place: identical gantry, banner, grandstands, crowd, kerb, barrier, edge line and chevrons on all four. Plus the quarry burial above.
+  2. PERF — 7.0. The seam rule landed and locking the visible levers cost the governor its mid-race authority. Its only live lever is render scale, which softens the 3D and not the DOM HUD, and the collapse path steps 1.00 to 0.50 in one frame.
+  3. CLOSING VERDICTS ON WAVE 1 — feel, camera, track, look, cast were merged long ago and never judged. The board still shows them as `review`. tools/wave1.workflow.mjs. NOTE: `camera` is the piece that owns the chase clamp, and the burial is being fixed as layout; if the quarry set-back does not clear it, camera's round is where the lens-side fix belongs.
+  4. A COHERENCE PASS (tools/coherence.workflow.mjs) for the gaps no single piece owns: the purple tier-3 mini-turbo has still never been seen by anyone; a single carried item is not drawn in the world at all because the orbit rig is only built for count>1; the finish letterbox guillotines the position badge on the one beat it matters. It must NEVER run while a wave is running.
+  5. A PHONE CRITIC. tools/phone.mjs passes, but no critic has ever played this on glass. The touch layer shipped straight to main off a bug report, unjudged.
+
+RENAME TO "GARY'S KART" — PARKED. DO NOT START IT.
+The user raised it on 2026-08-11 and then said on the same day: "Just park the rename until I ask for it." So it is NOT triggered by the board going green, NOT part of the definition of done, and NOT something to raise again. It waits for the user to ask for it in their own words. Do not bring it up, do not start it early, do not fold pieces of it into other work. If the board goes fully green and the rename has not been asked for, the build is finished — say so and stop.
+The research is preserved at the bottom of handoffs/build-loop-prompt.txt so nobody re-derives it. It is reference, not a work item. Do not read it as a to-do.
+
+Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
+MARIO.CONE build loop — hourly. Repo adam91holt/mario.cone (PUBLIC), branch claude/waves-phases-routine-setup-faggxq. WFDIR=/root/.claude/projects/-home-user-mario-cone/796d0d90-4635-56a8-a763-6958ed7d5f0d/subagents/workflows
+
+READ handoffs/build-loop-prompt.txt AND FOLLOW IT. It is the durable, edited-in-place version of this procedure and it is always fresher than this message, because it is committed with every tick while this trigger text is only updated when someone remembers. If the two disagree, the file wins. What follows is the short form, kept here only so a tick that cannot read the repo is not blind.
+
+FIRST TICK IN A FRESH CONTAINER: `ls node_modules` — if missing, `npm install` before anything else.
+
+AND BEFORE YOU BELIEVE ONE BYTE OF THE LOCAL STATE: `git fetch origin claude/waves-phases-routine-setup-faggxq && git log --oneline HEAD..origin/claude/waves-phases-routine-setup-faggxq`. A RESTORED CONTAINER CAN COME BACK ON A STALE CHECKOUT. On 2026-08-13 it came back five commits behind with a working tree to match, and the stale tree was internally consistent so nothing looked wrong — a whole tick went into re-deriving work that was already pushed. The things that lie are all of them: the working tree, `git log`, `handoffs/*`, `tools/progress.state.json`, and `$WFDIR/$RUN/journal.jsonl`, which is under /root/.claude, is not in git, and freezes at whatever the snapshot caught. THE ONLY DURABLE RECORD IS THE PUSHED HISTORY — read `git log origin/<branch>` and the commit MESSAGES; this project writes its findings into them precisely so a lost container cannot take a verdict with it.
+NEVER RESUME A WAVE OFF A STALE JOURNAL. Resume reads that file as its cache, so a journal frozen at 8 results when the run reached 13 does not skip the missing five, it RE-BUYS them. If the journal disagrees with what the pushed commits say the wave reached, close the wave out on the recorded verdicts and launch the next one.
+
+EVERY TICK, before anything else: `node tools/session.mjs`. It refreshes docs/session/prompts.md and docs/session/session.jsonl — the conversation building this game, which the user asked to be published and kept current. It MERGES every transcript in the project dir with the archive in the repo, keyed on record uuid, and is append-only. If a run reports FEWER records than the file already had, stop and find out why rather than committing it.
+
+CURRENT: WAVE 5 = wf_4b71b881-5e9, launched 2026-08-13 08:31 UTC — look + camera, two rounds, no carry, tools/wave1.workflow.mjs. Both agents verified as builders on the right pieces. It is the first wave ever judged off a rung-0 review sheet and the first time either piece has been judged at all. Do NOT trust that run id — resolve it: RUN=$(ls -t $WFDIR | head -1). WAVE 4 (courses+perf, wf_6b3a5457-38c) IS CLOSED and must not be resumed; it earned courses 6.5 then 7.0 and perf 6.5 twice, every blind A/B still Mario Kart.
+
+ARGS ARE ON DISK: handoffs/wave.args.json, shaped {script, launched, note, args}. Resume with Workflow({scriptPath:<the file's "script">, resumeFromRunId:RUN, args:<the file's "args" object, byte-for-byte>}) — the args FIELD, not the whole file. Args that differ by one character miss the cache and re-buy the wave. When you launch a NEW wave, rewrite that file in the same breath.
+
+STEP 1 — PROVE the wave is alive:
+  date -u
+  ls -lt --time-style=+%H:%M:%S $WFDIR/$RUN/agent-*.jsonl | head -3
+  ps -eo etime,comm | grep -w claude
+(a) Newest agent-*.jsonl mtime older than ~25 minutes = dead. USE `ls -t`; a plain `ls | tail` sorts ALPHABETICALLY and once hid the only live agent behind eleven finished ones.
+(b) ELAPSED of the main `claude` process. DECISIVE. If claude has been alive for LESS time than the gap since the last agent write, the container restarted and every in-flight agent is dead however recent the mtimes look. Two agents whose last write is the IDENTICAL second is the same signature.
+Subagents run IN-PROCESS, so `ps aux | grep claude` shows nothing for a healthy wave. Concurrency is 2 on this 4-core box.
+
+STEP 2 — If DEAD, RESUME (subject to the stale-journal rule above), DO NOT RELAUNCH. Typecheck first, then commit and push whatever exists. Verdicts already in the journal are earned and must never be re-bought. If typecheck fails inside a file a dead agent was mid-write on, `git checkout --` it rather than committing a build that cannot compile.
+AFTER ANY LAUNCH OR RESUME, LOOK AT WHAT THE NEW AGENTS ACTUALLY ARE. A builder's transcript says 'YOUR PIECE:'; a critic's says 'PIECE UNDER REVIEW:'. If they are critics when you expected builders, the round is judging old work.
+
+STEP 3 — If ALIVE: `npx tsc --noEmit`; if clean, commit and push. Do NOT run captures or smoke while agents are active, and never pkill anything matching "capture.mjs" — agents run the same tools you do.
+NEVER MATCH A PROCESS PATTERN YOUR OWN SHELL'S COMMAND LINE ALSO MATCHES. `pkill -f "node foo.mjs"` matches the shell running that very command and kills the tick mid-sentence, twice now, and it looks exactly like a container suspend. A wait loop written as `until ! pgrep -f "tools/(phone|steer)"` never exits for the same reason. Anchor the pattern, or resolve the pid and `while kill -0 $PID`. `npm test` takes upwards of half an hour under software GL, most of it in phone.mjs — slow is not hung.
+
+STEP 4 — If FINISHED: typecheck, `node tools/capture.mjs --smoke`, `npm test` (six gates: typecheck, smoke, countdown, phone, steer, underground). Then `node tools/capture.mjs` and LOOK at the PNGs with Read — and check shots/index.json reads `budget.rung: 0` and `scenePx: "1600x900"` on every shot. Update tools/progress.state.json from the real verdicts, `node tools/progress.mjs`, `node tools/readmeshots.mjs`, commit and push. Then launch the next wave — two pieces, two rounds, carry the verdicts the last wave earned.
+THE MERGE TO MAIN IS THE USER'S CALL. A push to main redeploys the live game. Ask before opening the PR; do not merge unprompted.
+
+REMAINING WORK, IN ORDER (handoffs/build-loop-prompt.txt has the long form with the measurements):
+  1. Wave 5 in flight — look + camera, never judged before.
+  2. COURSES — 7.0, 15 rounds, still descending. Sameness has been framed five ways across five waves and is now at the road surface itself: all four courses run on identical dark-grey speckled asphalt with identical white markings.
+  3. PERF — 6.5, 18 rounds, PLATEAUED. Three consecutive verdicts on one axis. Do not keep buying rounds without a new axis; it has had eighteen against two for five pieces never judged at all.
+  4. The rest of wave 1 — feel, track, cast.
+  5. A COHERENCE PASS (tools/coherence.workflow.mjs), which must NEVER run while a wave is running.
+  6. A PHONE CRITIC. tools/phone.mjs passes but no critic has ever played this on glass.
+
+PLAYER REPORT — FIXED AND GATED, 2026-08-12. The underground camera on Jackhammer Quarry was layout, not lens: benches sat hard against the road with no clearance for a chase rig trailing ~8m back and ~3m up. Before: 33/200 samples with the lens inside the landscape, worst 3.92m under with the kart ON THE ROAD at 83 m/s. After: 0/171, closest approach 3.17m ABOVE the surface. `node tools/underground.mjs` is now in `npm test` — it was deliberately kept out until it had been red, because a gate that has never failed is not a gate. Its three guards are documented in the handoff and each was bought with a wrong answer; read them before touching it.
+
+RENAME TO "GARY'S KART" — PARKED. DO NOT START IT. The user raised it on 2026-08-11 and then said the same day: "Just park the rename until I ask for it." It is NOT triggered by the board going green, NOT part of the definition of done, and NOT something to raise again. It waits for the user to ask in their own words. The research at the bottom of handoffs/build-loop-prompt.txt is reference so nobody re-derives it — it is not a to-do. If the board goes fully green and the rename has not been asked for, the build is finished: say so and stop.
+
+Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
+MARIO.CONE build loop — hourly. Repo adam91holt/mario.cone (PUBLIC), branch claude/waves-phases-routine-setup-faggxq. WFDIR=/root/.claude/projects/-home-user-mario-cone/796d0d90-4635-56a8-a763-6958ed7d5f0d/subagents/workflows
+
+READ handoffs/build-loop-prompt.txt AND FOLLOW IT. It is the durable, edited-in-place version of this procedure and it is always fresher than this message, because it is committed with every tick while this trigger text is only updated when someone remembers. If the two disagree, the file wins. What follows is the short form, kept here only so a tick that cannot read the repo is not blind.
+
+FIRST TICK IN A FRESH CONTAINER: `ls node_modules` — if missing, `npm install` before anything else.
+
+AND BEFORE YOU BELIEVE ONE BYTE OF THE LOCAL STATE: `git fetch origin claude/waves-phases-routine-setup-faggxq && git log --oneline HEAD..origin/claude/waves-phases-routine-setup-faggxq`. A RESTORED CONTAINER CAN COME BACK ON A STALE CHECKOUT. On 2026-08-13 it came back five commits behind with a working tree to match, and the stale tree was internally consistent so nothing looked wrong — a whole tick went into re-deriving work that was already pushed. The things that lie are all of them: the working tree, `git log`, `handoffs/*`, `tools/progress.state.json`, and `$WFDIR/$RUN/journal.jsonl`, which is under /root/.claude, is not in git, and freezes at whatever the snapshot caught. THE ONLY DURABLE RECORD IS THE PUSHED HISTORY — read `git log origin/<branch>` and the commit MESSAGES; this project writes its findings into them precisely so a lost container cannot take a verdict with it.
+NEVER RESUME A WAVE OFF A STALE JOURNAL. Resume reads that file as its cache, so a journal frozen at 8 results when the run reached 13 does not skip the missing five, it RE-BUYS them. If the journal disagrees with what the pushed commits say the wave reached, close the wave out on the recorded verdicts and launch the next one.
+
+EVERY TICK, before anything else: `node tools/session.mjs`. It refreshes docs/session/prompts.md and docs/session/session.jsonl — the conversation building this game, which the user asked to be published and kept current. It MERGES every transcript in the project dir with the archive in the repo, keyed on record uuid, and is append-only. If a run reports FEWER records than the file already had, stop and find out why rather than committing it.
+
+CURRENT: WAVE 5 = wf_4b71b881-5e9, launched 2026-08-13 08:31 UTC — look + camera, two rounds, no carry, tools/wave1.workflow.mjs. Both agents verified as builders on the right pieces. It is the first wave ever judged off a rung-0 review sheet and the first time either piece has been judged at all. Do NOT trust that run id — resolve it: RUN=$(ls -t $WFDIR | head -1). WAVE 4 (courses+perf, wf_6b3a5457-38c) IS CLOSED and must not be resumed; it earned courses 6.5 then 7.0 and perf 6.5 twice, every blind A/B still Mario Kart.
+
+ARGS ARE ON DISK: handoffs/wave.args.json, shaped {script, launched, note, args}. Resume with Workflow({scriptPath:<the file's "script">, resumeFromRunId:RUN, args:<the file's "args" object, byte-for-byte>}) — the args FIELD, not the whole file. Args that differ by one character miss the cache and re-buy the wave. When you launch a NEW wave, rewrite that file in the same breath.
+
+STEP 1 — PROVE the wave is alive:
+  date -u
+  ls -lt --time-style=+%H:%M:%S $WFDIR/$RUN/agent-*.jsonl | head -3
+  ps -eo etime,comm | grep -w claude
+(a) Newest agent-*.jsonl mtime older than ~25 minutes = dead. USE `ls -t`; a plain `ls | tail` sorts ALPHABETICALLY and once hid the only live agent behind eleven finished ones.
+(b) ELAPSED of the main `claude` process. DECISIVE. If claude has been alive for LESS time than the gap since the last agent write, the container restarted and every in-flight agent is dead however recent the mtimes look. Two agents whose last write is the IDENTICAL second is the same signature.
+Subagents run IN-PROCESS, so `ps aux | grep claude` shows nothing for a healthy wave. Concurrency is 2 on this 4-core box.
+
+STEP 2 — If DEAD, RESUME (subject to the stale-journal rule above), DO NOT RELAUNCH. Typecheck first, then commit and push whatever exists. Verdicts already in the journal are earned and must never be re-bought. If typecheck fails inside a file a dead agent was mid-write on, `git checkout --` it rather than committing a build that cannot compile.
+AFTER ANY LAUNCH OR RESUME, LOOK AT WHAT THE NEW AGENTS ACTUALLY ARE. A builder's transcript says 'YOUR PIECE:'; a critic's says 'PIECE UNDER REVIEW:'. If they are critics when you expected builders, the round is judging old work.
+
+STEP 3 — If ALIVE: `npx tsc --noEmit`; if clean, commit and push. Do NOT run captures or smoke while agents are active, and never pkill anything matching "capture.mjs" — agents run the same tools you do.
+NEVER MATCH A PROCESS PATTERN YOUR OWN SHELL'S COMMAND LINE ALSO MATCHES. `pkill -f "node foo.mjs"` matches the shell running that very command and kills the tick mid-sentence, twice now, and it looks exactly like a container suspend. A wait loop written as `until ! pgrep -f "tools/(phone|steer)"` never exits for the same reason. Anchor the pattern, or resolve the pid and `while kill -0 $PID`. `npm test` takes upwards of half an hour under software GL, most of it in phone.mjs — slow is not hung.
+
+STEP 4 — If FINISHED: typecheck, `node tools/capture.mjs --smoke`, `npm test` (six gates: typecheck, smoke, countdown, phone, steer, underground). Then `node tools/capture.mjs` and LOOK at the PNGs with Read — and check shots/index.json reads `budget.rung: 0` and `scenePx: "1600x900"` on every shot. Update tools/progress.state.json from the real verdicts, `node tools/progress.mjs`, `node tools/readmeshots.mjs`, commit and push. Then launch the next wave — two pieces, two rounds, carry the verdicts the last wave earned.
+THE MERGE TO MAIN IS THE USER'S CALL. A push to main redeploys the live game. Ask before opening the PR; do not merge unprompted.
+
+REMAINING WORK, IN ORDER (handoffs/build-loop-prompt.txt has the long form with the measurements):
+  1. Wave 5 in flight — look + camera, never judged before.
+  2. COURSES — 7.0, 15 rounds, still descending. Sameness has been framed five ways across five waves and is now at the road surface itself: all four courses run on identical dark-grey speckled asphalt with identical white markings.
+  3. PERF — 6.5, 18 rounds, PLATEAUED. Three consecutive verdicts on one axis. Do not keep buying rounds without a new axis; it has had eighteen against two for five pieces never judged at all.
+  4. The rest of wave 1 — feel, track, cast.
+  5. A COHERENCE PASS (tools/coherence.workflow.mjs), which must NEVER run while a wave is running.
+  6. A PHONE CRITIC. tools/phone.mjs passes but no critic has ever played this on glass.
+
+PLAYER REPORT — FIXED AND GATED, 2026-08-12. The underground camera on Jackhammer Quarry was layout, not lens: benches sat hard against the road with no clearance for a chase rig trailing ~8m back and ~3m up. Before: 33/200 samples with the lens inside the landscape, worst 3.92m under with the kart ON THE ROAD at 83 m/s. After: 0/171, closest approach 3.17m ABOVE the surface. `node tools/underground.mjs` is now in `npm test` — it was deliberately kept out until it had been red, because a gate that has never failed is not a gate. Its three guards are documented in the handoff and each was bought with a wrong answer; read them before touching it.
+
+RENAME TO "GARY'S KART" — PARKED. DO NOT START IT. The user raised it on 2026-08-11 and then said the same day: "Just park the rename until I ask for it." It is NOT triggered by the board going green, NOT part of the definition of done, and NOT something to raise again. It waits for the user to ask in their own words. The research at the bottom of handoffs/build-loop-prompt.txt is reference so nobody re-derives it — it is not a to-do. If the board goes fully green and the rename has not been asked for, the build is finished: say so and stop.
+
+Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
+MARIO.CONE build loop — hourly. Repo adam91holt/mario.cone (PUBLIC), branch claude/waves-phases-routine-setup-faggxq. WFDIR=/root/.claude/projects/-home-user-mario-cone/796d0d90-4635-56a8-a763-6958ed7d5f0d/subagents/workflows
+
+READ handoffs/build-loop-prompt.txt AND FOLLOW IT. It is the durable, edited-in-place version of this procedure and it is always fresher than this message, because it is committed with every tick while this trigger text is only updated when someone remembers. If the two disagree, the file wins. What follows is the short form, kept here only so a tick that cannot read the repo is not blind.
+
+FIRST TICK IN A FRESH CONTAINER: `ls node_modules` — if missing, `npm install` before anything else.
+
+AND BEFORE YOU BELIEVE ONE BYTE OF THE LOCAL STATE: `git fetch origin claude/waves-phases-routine-setup-faggxq && git log --oneline HEAD..origin/claude/waves-phases-routine-setup-faggxq`. A RESTORED CONTAINER CAN COME BACK ON A STALE CHECKOUT. On 2026-08-13 it came back five commits behind with a working tree to match, and the stale tree was internally consistent so nothing looked wrong — a whole tick went into re-deriving work that was already pushed. The things that lie are all of them: the working tree, `git log`, `handoffs/*`, `tools/progress.state.json`, and `$WFDIR/$RUN/journal.jsonl`, which is under /root/.claude, is not in git, and freezes at whatever the snapshot caught. THE ONLY DURABLE RECORD IS THE PUSHED HISTORY — read `git log origin/<branch>` and the commit MESSAGES; this project writes its findings into them precisely so a lost container cannot take a verdict with it.
+NEVER RESUME A WAVE OFF A STALE JOURNAL. Resume reads that file as its cache, so a journal frozen at 8 results when the run reached 13 does not skip the missing five, it RE-BUYS them. If the journal disagrees with what the pushed commits say the wave reached, close the wave out on the recorded verdicts and launch the next one.
+
+EVERY TICK, before anything else: `node tools/session.mjs`. It refreshes docs/session/prompts.md and docs/session/session.jsonl — the conversation building this game, which the user asked to be published and kept current. It MERGES every transcript in the project dir with the archive in the repo, keyed on record uuid, and is append-only. If a run reports FEWER records than the file already had, stop and find out why rather than committing it.
+
+CURRENT: WAVE 5 = wf_4b71b881-5e9, launched 2026-08-13 08:31 UTC — look + camera, two rounds, no carry, tools/wave1.workflow.mjs. Both agents verified as builders on the right pieces. It is the first wave ever judged off a rung-0 review sheet and the first time either piece has been judged at all. Do NOT trust that run id — resolve it: RUN=$(ls -t $WFDIR | head -1). WAVE 4 (courses+perf, wf_6b3a5457-38c) IS CLOSED and must not be resumed; it earned courses 6.5 then 7.0 and perf 6.5 twice, every blind A/B still Mario Kart.
+
+ARGS ARE ON DISK: handoffs/wave.args.json, shaped {script, launched, note, args}. Resume with Workflow({scriptPath:<the file's "script">, resumeFromRunId:RUN, args:<the file's "args" object, byte-for-byte>}) — the args FIELD, not the whole file. Args that differ by one character miss the cache and re-buy the wave. When you launch a NEW wave, rewrite that file in the same breath.
+
+STEP 1 — PROVE the wave is alive:
+  date -u
+  ls -lt --time-style=+%H:%M:%S $WFDIR/$RUN/agent-*.jsonl | head -3
+  ps -eo etime,comm | grep -w claude
+(a) Newest agent-*.jsonl mtime older than ~25 minutes = dead. USE `ls -t`; a plain `ls | tail` sorts ALPHABETICALLY and once hid the only live agent behind eleven finished ones.
+(b) ELAPSED of the main `claude` process. DECISIVE. If claude has been alive for LESS time than the gap since the last agent write, the container restarted and every in-flight agent is dead however recent the mtimes look. Two agents whose last write is the IDENTICAL second is the same signature.
+Subagents run IN-PROCESS, so `ps aux | grep claude` shows nothing for a healthy wave. Concurrency is 2 on this 4-core box.
+
+STEP 2 — If DEAD, RESUME (subject to the stale-journal rule above), DO NOT RELAUNCH. Typecheck first, then commit and push whatever exists. Verdicts already in the journal are earned and must never be re-bought. If typecheck fails inside a file a dead agent was mid-write on, `git checkout --` it rather than committing a build that cannot compile.
+AFTER ANY LAUNCH OR RESUME, LOOK AT WHAT THE NEW AGENTS ACTUALLY ARE. A builder's transcript says 'YOUR PIECE:'; a critic's says 'PIECE UNDER REVIEW:'. If they are critics when you expected builders, the round is judging old work.
+
+STEP 3 — If ALIVE: `npx tsc --noEmit`; if clean, commit and push. Do NOT run captures or smoke while agents are active, and never pkill anything matching "capture.mjs" — agents run the same tools you do.
+NEVER MATCH A PROCESS PATTERN YOUR OWN SHELL'S COMMAND LINE ALSO MATCHES. `pkill -f "node foo.mjs"` matches the shell running that very command and kills the tick mid-sentence, twice now, and it looks exactly like a container suspend. A wait loop written as `until ! pgrep -f "tools/(phone|steer)"` never exits for the same reason. Anchor the pattern, or resolve the pid and `while kill -0 $PID`. `npm test` takes upwards of half an hour under software GL, most of it in phone.mjs — slow is not hung.
+
+STEP 4 — If FINISHED: typecheck, `node tools/capture.mjs --smoke`, `npm test` (six gates: typecheck, smoke, countdown, phone, steer, underground). Then `node tools/capture.mjs` and LOOK at the PNGs with Read — and check shots/index.json reads `budget.rung: 0` and `scenePx: "1600x900"` on every shot. Update tools/progress.state.json from the real verdicts, `node tools/progress.mjs`, `node tools/readmeshots.mjs`, commit and push. Then launch the next wave — two pieces, two rounds, carry the verdicts the last wave earned.
+THE MERGE TO MAIN IS THE USER'S CALL. A push to main redeploys the live game. Ask before opening the PR; do not merge unprompted.
+
+REMAINING WORK, IN ORDER (handoffs/build-loop-prompt.txt has the long form with the measurements):
+  1. Wave 5 in flight — look + camera, never judged before.
+  2. COURSES — 7.0, 15 rounds, still descending. Sameness has been framed five ways across five waves and is now at the road surface itself: all four courses run on identical dark-grey speckled asphalt with identical white markings.
+  3. PERF — 6.5, 18 rounds, PLATEAUED. Three consecutive verdicts on one axis. Do not keep buying rounds without a new axis; it has had eighteen against two for five pieces never judged at all.
+  4. The rest of wave 1 — feel, track, cast.
+  5. A COHERENCE PASS (tools/coherence.workflow.mjs), which must NEVER run while a wave is running.
+  6. A PHONE CRITIC. tools/phone.mjs passes but no critic has ever played this on glass.
+
+PLAYER REPORT — FIXED AND GATED, 2026-08-12. The underground camera on Jackhammer Quarry was layout, not lens: benches sat hard against the road with no clearance for a chase rig trailing ~8m back and ~3m up. Before: 33/200 samples with the lens inside the landscape, worst 3.92m under with the kart ON THE ROAD at 83 m/s. After: 0/171, closest approach 3.17m ABOVE the surface. `node tools/underground.mjs` is now in `npm test` — it was deliberately kept out until it had been red, because a gate that has never failed is not a gate. Its three guards are documented in the handoff and each was bought with a wrong answer; read them before touching it.
+
+RENAME TO "GARY'S KART" — PARKED. DO NOT START IT. The user raised it on 2026-08-11 and then said the same day: "Just park the rename until I ask for it." It is NOT triggered by the board going green, NOT part of the definition of done, and NOT something to raise again. It waits for the user to ask in their own words. The research at the bottom of handoffs/build-loop-prompt.txt is reference so nobody re-derives it — it is not a to-do. If the board goes fully green and the rename has not been asked for, the build is finished: say so and stop.
+
+Keep waves SHORT (two pieces, two rounds) and rely on resume rather than on a wave surviving. Stop when every piece in tools/progress.state.json is "pass". Message the user only when a wave lands, a wave had to be restarted, something needs a decision, or the build is finished.
+
+### 🤖 Claude — 2026-08-13 13:37 UTC
+
+Same stale-checkout signature as before — the container came back seven commits behind, and wave 5's workflow journal isn't on this machine at all. Resetting to the real head.
+
+### 🤖 Claude — 2026-08-13 13:38 UTC
+
+Wave 5 is dead — the container took it, and its round-two code was never committed, so the two round-one verdicts are what survived. Starting the close-out. Gates first, since they take half an hour under software GL.

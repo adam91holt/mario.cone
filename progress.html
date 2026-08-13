@@ -261,8 +261,8 @@
   // ── board state ──────────────────────────────────────────────────────
   // Updated as the build progresses. Everything below renders from this.
   const STATE = {
-  "phase": "Wave 4 closed: courses 7.0, perf 6.5",
-  "phaseNote": "Seventeen agents started and thirteen returned before the container churn took the run's journal with it, so wave 4 is closed on what the pushed history records rather than resumed off a frozen cache. The verdict that matters most is the one a perf critic found by pointing the harness at the harness: __QUALITY.gate() was returning applies:true, pass:true on a frame drawn at rung 6 and 800x450 while quoting a target captioned \"1600x900, 7 racers, cone-canyon, rung 0\", and the review sheet itself — the source of every art verdict, this board and the README images — was being photographed at the floor rung. Every art verdict this build produced before 2026-08-13 was made on a 0.75-scale picture with particles at 0.34, draw distance at 0.55 and scatter at 0.45. The sheet is pinned to rung 0 now and far gained 347,000 triangles it had never been seen with. Courses reached 7.0 and its gap walked all the way down to the road surface; perf came back 6.5 twice on the same axis, which is what a plateau looks like next to five pieces that have never been judged once.",
+  "phase": "Paused at the owner's request, after wave 5",
+  "phaseNote": "Six days, five waves, seventeen pieces, and a build that is stopping while it is still descending rather than because it ran out of things to fix. Wave 5 was the first wave ever judged off an honest review sheet and the first time look or camera had been judged at all — both came back 6.5 with the blind A/B still picking Mario Kart, and both named a gap no previous round had touched: the frame has a sun in the sky and no sun on the floor, and the drift swing rotates the boom the same way the chassis yaws so it cancels it, leaving the defining shot of the genre showing LESS machine angle than a straight line does. Its second round was in flight when the container was reclaimed and did not survive, so those two verdicts stand unanswered. That is the honest state: nothing here is finished, three of the seventeen pieces have never been judged once, and the two that have been judged eighteen and fifteen times are the two that plateaued. What did get finished is the measuring: six acceptance gates written from real reports, a frame budget that can no longer pass a build on a frame it did not measure, and a review sheet pinned to full quality so a critic sees the picture a player sees.",
   "pieces": [
     {
       "id": "feel",
@@ -278,9 +278,9 @@
       "name": "Camera",
       "scope": "src/render/camera",
       "state": "review",
-      "rounds": 2,
-      "verdict": "Merged. Trails travel direction rather than chassis yaw, and derives framing from the camera-to-kart vector.",
-      "gap": "Not yet signed off — wave 1 stalled before its closing verdicts were recorded. Queued for re-judging."
+      "rounds": 3,
+      "verdict": "6.5 — the first verdict the camera has ever received, on the piece that owns half the feel of a kart racer and had been merged unjudged since day one.",
+      "gap": "The drift swing rotates the boom the same way the chassis yaws, so it cancels it. Measured: a committed drift shows 0-18 degrees of visible chassis angle and exactly zero at the counter-steered end, which means the published drift frame shows LESS machine angle than the straight-line frame does. The defining shot of the genre is indistinguishable from driving straight."
     },
     {
       "id": "track",
@@ -296,9 +296,9 @@
       "name": "Lighting & post",
       "scope": "src/render",
       "state": "review",
-      "rounds": 2,
-      "verdict": "Merged. Fill cut to a fifth of key, so the game finally has a light side and a dark side.",
-      "gap": "Not yet signed off — wave 1 stalled before its closing verdicts were recorded. Queued for re-judging."
+      "rounds": 3,
+      "verdict": "6.5 — the first verdict art direction has ever received, and the first ever given on a rung-0 picture. Every art judgment made in this project before 2026-08-13 was made on a 0.75-scale frame with particles at 0.34 and draw distance at 0.55, so this is the first time anyone has scored what a player actually sees.",
+      "gap": "The sky is first-party and the ground plane is a greybox. Outside a ~50m bubble around the player nothing in the world casts a shadow onto the road or the desert; the terrain bake gives an entire mountain a 4-12% difference between its sun-facing and away-facing flank; and the cloud shadows that post.ts calls \"the whole floor breathing\" measure under 12% across 600px of open desert. The frame has a sun you can see in the sky and no sun you can see on the floor."
     },
     {
       "id": "cast",
@@ -419,6 +419,10 @@
     }
   ],
   "log": [
+    {
+      "at": "Paused",
+      "text": "<b>Stopped at the owner's request, after wave 5 — while still descending, not because it ran out of things to fix.</b> Wave 5 was the first wave judged off an honest review sheet and the first time <code>look</code> or <code>camera</code> had ever been judged: 6.5 each, both blind A/Bs still Mario Kart. Art direction: a frame with a sun in the sky and no sun on the floor. Camera: the drift swing cancels the chassis yaw, so the defining shot of the genre shows less machine angle than driving straight does. Round two was in flight when the container was reclaimed and did not survive, so both verdicts stand unanswered. Three of seventeen pieces have still never been judged once."
+    },
     {
       "at": "Wave 4",
       "text": "<b>The instrument was reading itself wrong, twice.</b> A perf critic pointed the harness at the harness and found <code>__QUALITY.gate()</code> returning <code>applies:true, pass:true</code> on a frame drawn at rung 6 and 800x450 while quoting a target captioned <i>1600x900, rung 0</i> — the project's only frame-budget assertion, passing a build on a frame it never measured. Worse: the review sheet itself was being photographed at the floor rung, so <b>every art verdict this build has ever produced was made on a degraded picture</b>. Both are closed, and <code>far</code> — the shot whose whole job is draw distance — gained 347,000 triangles it had never been seen with. Courses reached 7.0 with sameness framed for the fifth time, now at the tarmac itself."
@@ -590,7 +594,7 @@
       "caption": " The results sheet: finishing order, machines, championship, podium behind it."
     }
   ],
-  "updated": "2026-08-13 08:12 UTC"
+  "updated": "2026-08-13 13:39 UTC"
 };
 
   const LABEL = { queued: "Queued", build: "Building", review: "In review", fail: "Sent back", pass: "Passed" };
