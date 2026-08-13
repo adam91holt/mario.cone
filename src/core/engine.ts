@@ -67,7 +67,14 @@ export function createEngine(ctx: GameContext, canvas: HTMLCanvasElement): Engin
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = ctx.config.render.exposure;
   renderer.shadowMap.enabled = ctx.quality.shadows;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // **Ask for what this build actually gives.** `PCFSoftShadowMap` is deprecated
+  // in the vendored three: the shadow pass silently rewrites it to
+  // `PCFShadowMap` on its first render and warns about it on the console, which
+  // ARCHITECTURE §13 forbids and which meant the game believed it had soft
+  // shadows and was drawing hard ones. `render/lighting.ts` sets the same value
+  // at init and shapes the penumbra with `shadow.radius` instead; this is the
+  // boot-time half of the same statement.
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.info.autoReset = false;
 
   const scene = new THREE.Scene();

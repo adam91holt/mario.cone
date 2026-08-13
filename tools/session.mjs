@@ -25,15 +25,49 @@
 //
 //   node tools/session.mjs [--limit 2000]
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(ROOT, 'docs/session');
-const SRC =
-  process.env.CLAUDE_SESSION_FILE ??
-  '/root/.claude/projects/-home-user-mario-cone/e9fc5037-5a81-535b-8c48-d7c7034e82f9.jsonl';
+const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR
+  ?? '/root/.claude/projects/-home-user-mario-cone';
+
+/**
+ * Where the conversation comes from.
+ *
+ * This used to be one hardcoded transcript, and it broke the first time the
+ * build changed hands: the container is rebuilt on inactivity and a new session
+ * writes a new file, so the tool opened a path that no longer existed and the
+ * tick could not refresh the archive at all.
+ *
+ * More than one session has built this game, so it reads *every* transcript in
+ * the project directory and merges them with the archive already published in
+ * the repo. That last part is what makes it safe to run from a fresh container:
+ * the transcripts of finished sessions are gone from disk long before the work
+ * they describe is, and `docs/session/session.jsonl` is the only surviving copy.
+ * Pointing this at whatever session happens to be current and writing the
+ * result would replace six days of build with an afternoon.
+ *
+ * Records are merged by `uuid`, falling back to timestamp+type+session for the
+ * bookkeeping rows that carry no uuid, then sorted by time. Re-running it is
+ * therefore idempotent, and running it from any session only ever adds.
+ */
+async function sources() {
+  const found = [];
+  if (process.env.CLAUDE_SESSION_FILE) {
+    found.push(process.env.CLAUDE_SESSION_FILE);
+  } else {
+    const names = await readdir(PROJECT_DIR).catch(() => []);
+    for (const n of names.filter((n) => n.endsWith('.jsonl')).sort()) {
+      found.push(path.join(PROJECT_DIR, n));
+    }
+  }
+  // The published archive is a source like any other, and the oldest one.
+  found.unshift(path.join(OUT, 'session.jsonl'));
+  return found;
+}
 
 const argv = process.argv.slice(2);
 const opt = (n, d) => {
@@ -46,8 +80,36 @@ const LIMIT = Number(opt('limit', 2000));
 const SECRET = /(ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|sk-ant-[A-Za-z0-9-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/g;
 const scrub = (s) => s.replace(SECRET, '[REDACTED]');
 
-const raw = await readFile(SRC, 'utf8');
-const lines = raw.split('\n').filter((l) => l.trim());
+// Merge every source, newest wins on a repeat, then put the whole thing back in
+// time order. `seen` is keyed on the record's own identity rather than on its
+// text: the same turn re-read from a later source must not appear twice.
+const merged = new Map();
+const read = [];
+for (const src of await sources()) {
+  const raw = await readFile(src, 'utf8').catch(() => null);
+  if (raw === null) continue;
+  let n = 0;
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    let e;
+    try { e = JSON.parse(line); } catch { continue; }
+    // Records that carry no uuid are keyed on the whole line. Keying them on
+    // timestamp+type+session looked reasonable and silently ate 726 of the 736
+    // uuid-less records in the published archive, because that tuple is not
+    // unique among them. An exact repeat still collapses; nothing else does.
+    const key = e.uuid ?? line;
+    merged.set(key, line);
+    n++;
+  }
+  read.push(`${path.basename(src)} ${n}`);
+}
+console.log(`  sources: ${read.join(', ')}`);
+
+const lines = [...merged.values()].sort((a, b) => {
+  const ta = a.match(/"timestamp":"([^"]+)"/)?.[1] ?? '';
+  const tb = b.match(/"timestamp":"([^"]+)"/)?.[1] ?? '';
+  return ta < tb ? -1 : ta > tb ? 1 : 0;
+});
 
 /** Recursively shorten long strings, leaving structure and short text alone. */
 function trim(value) {

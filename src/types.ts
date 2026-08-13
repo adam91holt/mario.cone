@@ -341,6 +341,51 @@ export interface QualitySettings {
   bloom?: boolean;
 }
 
+/**
+ * The picture, as a thing a **player** may see and change.
+ *
+ * `ctx.quality` is the settings object the renderer reads and it is not this: it
+ * is the governor's output, rewritten from underneath whoever is looking at it,
+ * and it has no name a person could be shown and no way back. This is the other
+ * side — one rung out of a named ladder, the standing answer, and the two verbs
+ * a settings screen needs.
+ *
+ * It exists because of a defect with no other home. `core/quality.ts` measures
+ * the machine, walks the ladder down, and **writes where it settled to
+ * `localStorage` under a coarse hardware key**, so the answer survives reloads
+ * and sessions. That is correct for a governor and it was a one-way door:
+ * nothing in `src/ui/**` exposed a graphics, quality or resolution control of
+ * any kind, so a player whose picture had been permanently halved by one bad
+ * afternoon could not see that it had happened, refuse it, or clear it. The only
+ * door was `globalThis.__QUALITY`, which is a debugging surface.
+ *
+ * Filled in by `core/quality.ts` in `init()`. Absent when no governor is
+ * installed, which is why it is optional — read it as "if the game has a
+ * quality ladder, this is its front door".
+ */
+export interface QualityPreference {
+  /** Every rung, most expensive first, for a screen to list. `index` is the
+   *  value `set()` takes; `label` is the word this rung is called. */
+  readonly rungs: ReadonlyArray<{ index: number; label: string; tier: QualitySettings['tier'] }>;
+  /** The rung the picture is standing on right now, whoever chose it. */
+  readonly rung: number;
+  readonly label: string;
+  /** False once a person has picked. The governor never overrules a decision. */
+  readonly auto: boolean;
+  /** The rung stored for this machine, or -1 if nothing is stored. This is the
+   *  number a player has never been able to see. */
+  readonly remembered: number;
+  /**
+   * Pick a rung and hold it, or pass `null` to hand the picture back to the
+   * governor. A pick is remembered for this machine, so it survives a reload the
+   * same way the governor's own answer does.
+   */
+  set(rung: number | null): void;
+  /** Throw the remembered answer away and start again from the top of the
+   *  ladder on automatic. The "my game looks worse than it used to" button. */
+  forget(): void;
+}
+
 export interface TimeState {
   elapsed: number;
   dt: number;
@@ -396,6 +441,16 @@ export interface GameContext {
    * running is not a deterministic one.
    */
   budget?: FrameBudget;
+
+  /**
+   * The picture as a **preference**, installed by `core/quality.ts`.
+   *
+   * `quality` above is what the renderer reads; this is what a settings screen
+   * would bind to. See `QualityPreference` — it is the only way anything in
+   * `src/ui/**` can show a player the rung they are on, pick a different one, or
+   * clear a stored one.
+   */
+  qualityPref?: QualityPreference;
 
   /** Set by the harness installer. */
   harness?: HarnessApi;

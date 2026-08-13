@@ -1,0 +1,9 @@
+{
+  "script": "/home/user/mario.cone/tools/wave1.workflow.mjs",
+  "launched": "2026-08-13T08:30Z",
+  "note": "Wave 5. The first wave shot off an honest review sheet, and the first time look or camera has ever been judged. No carry: neither piece has a prior verdict to carry. Resume with Workflow({scriptPath: <script>, resumeFromRunId: RUN, args: <the args field below, byte-for-byte>}).",
+  "args": {
+    "pieces": ["look", "camera"],
+    "rounds": 2
+  }
+}

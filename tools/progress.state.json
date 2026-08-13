@@ -1,6 +1,6 @@
 {
-  "phase": "Paused at the owner’s request",
-  "phaseNote": "Build paused 2026-08-11. Nothing is running and the tree is clean and pushed. The last wave landed two verdicts for performance (7.0, 7.0) and one for the course roster (6.5) before its final agent died with the container; those verdicts are recorded here rather than re-bought. Every critic this wave still picked Mario Kart in the blind side-by-side. The phone build shipped and is live, but no critic has ever played it on glass.",
+  "phase": "Paused at the owner's request, after wave 5",
+  "phaseNote": "Six days, five waves, seventeen pieces, and a build that is stopping while it is still descending rather than because it ran out of things to fix. Wave 5 was the first wave ever judged off an honest review sheet and the first time look or camera had been judged at all — both came back 6.5 with the blind A/B still picking Mario Kart, and both named a gap no previous round had touched: the frame has a sun in the sky and no sun on the floor, and the drift swing rotates the boom the same way the chassis yaws so it cancels it, leaving the defining shot of the genre showing LESS machine angle than a straight line does. Its second round was in flight when the container was reclaimed and did not survive, so those two verdicts stand unanswered. That is the honest state: nothing here is finished, three of the seventeen pieces have never been judged once, and the two that have been judged eighteen and fifteen times are the two that plateaued. What did get finished is the measuring: six acceptance gates written from real reports, a frame budget that can no longer pass a build on a frame it did not measure, and a review sheet pinned to full quality so a critic sees the picture a player sees.",
   "pieces": [
     {
       "id": "feel",
@@ -16,9 +16,9 @@
       "name": "Camera",
       "scope": "src/render/camera",
       "state": "review",
-      "rounds": 2,
-      "verdict": "Merged. Trails travel direction rather than chassis yaw, and derives framing from the camera-to-kart vector.",
-      "gap": "Not yet signed off — wave 1 stalled before its closing verdicts were recorded. Queued for re-judging."
+      "rounds": 3,
+      "verdict": "6.5 — the first verdict the camera has ever received, on the piece that owns half the feel of a kart racer and had been merged unjudged since day one.",
+      "gap": "The drift swing rotates the boom the same way the chassis yaws, so it cancels it. Measured: a committed drift shows 0-18 degrees of visible chassis angle and exactly zero at the counter-steered end, which means the published drift frame shows LESS machine angle than the straight-line frame does. The defining shot of the genre is indistinguishable from driving straight."
     },
     {
       "id": "track",
@@ -34,9 +34,9 @@
       "name": "Lighting & post",
       "scope": "src/render",
       "state": "review",
-      "rounds": 2,
-      "verdict": "Merged. Fill cut to a fifth of key, so the game finally has a light side and a dark side.",
-      "gap": "Not yet signed off — wave 1 stalled before its closing verdicts were recorded. Queued for re-judging."
+      "rounds": 3,
+      "verdict": "6.5 — the first verdict art direction has ever received, and the first ever given on a rung-0 picture. Every art judgment made in this project before 2026-08-13 was made on a 0.75-scale frame with particles at 0.34 and draw distance at 0.55, so this is the first time anyone has scored what a player actually sees.",
+      "gap": "The sky is first-party and the ground plane is a greybox. Outside a ~50m bubble around the player nothing in the world casts a shadow onto the road or the desert; the terrain bake gives an entire mountain a 4-12% difference between its sun-facing and away-facing flank; and the cloud shadows that post.ts calls \"the whole floor breathing\" measure under 12% across 600px of open desert. The frame has a sun you can see in the sky and no sun you can see on the floor."
     },
     {
       "id": "cast",
@@ -124,9 +124,9 @@
       "name": "Course roster",
       "scope": "src/track/courses",
       "state": "fail",
-      "rounds": 7,
-      "verdict": "6.5. Hazards exist now — the courses can touch the player, closing the absence the last round failed on. One round this wave; the second died with the container before it returned.",
-      "gap": "All four courses are the same shape. Measured off the real driven line, every one is an irregular closed blob of 9-12 similar-radius corners whose longest straight is 72-83m — cone-canyon 83, saltpan 80, quarry 73, switchback 72, a spread of 11m or 1.4s at 54 m/s. So the roster reads as one circuit re-dressed in four ground colours rather than as four places, and on the select screen the four map cards are literally interchangeable."
+      "rounds": 15,
+      "verdict": "7.0, having dipped to 6.5 mid-wave. Five waves have now produced five framings of the same complaint — four drawings of one object, four paint jobs, four shapes in one world, two exposures of one place, and now one tarmac under four skies. Each round the builder closes the layer it was handed and the critic finds the layer beneath it. Unlike perf this is descent rather than circling: the object of the complaint has changed every single time, and there is a floor to that descent which is close.",
+      "gap": "All four courses are driven on the identical dark-grey speckled asphalt with the identical white markings. The roster is genuinely differentiated on geometry — lap times 51.2/56.4/68.4/61.8s, elevation 27.3/42.7/17.2/101.9m, and the four map cards pass the cover-the-names test — but the surface directly under the kart, which is most of what a player looks at for a whole lap, is one material in four places."
     },
     {
       "id": "themewire",
@@ -142,9 +142,9 @@
       "name": "Performance",
       "scope": "engine-wide",
       "state": "fail",
-      "rounds": 8,
-      "verdict": "7.0. Draw calls 539 to 326, and the ladder finally has a content half rather than being a resolution slider — the bloom pyramid and a grounded contact shadow survive to the bottom rung. Two rounds this wave, both scored 7.0, both lost the blind A/B to Mario Kart.",
-      "gap": "The ladder's own moves are now the worst thing the player sees. Round one: a rung change froze a live frame for 3,101ms and 1,494ms against a 512-875ms median, because applyScale() calls setPixelRatio() and reallocates the drawing buffer — the machinery built to smooth the frame delivered the biggest hitch of the session, at the moment the game was already failing. Round two fixed that and exposed the next one: the crowd trim is the ladder's most visible lever and the governor spends it mid-race on the start/finish straight, so the grandstands go from a packed house to bare grey tiers between one frame and the next, in front of the player."
+      "rounds": 18,
+      "verdict": "6.5 twice, down from 7.0, and both verdicts landed on the same axis — the definition of a plateau. Eighteen rounds against two for five pieces that have never been judged at all. The wave did produce the single most valuable finding in the project so far, but it was about the instrument rather than the engine: the frame budget was passing builds on a frame it had never measured, and the review sheet every critic reads was being shot at the floor rung.",
+      "gap": "Mario Kart fixes the picture before the race and never touches it again; ours renegotiates it live and pays twice. Once in a 3,037ms frozen frame the first time a ladder resolution is allocated — the later steps cost 15.9, 14.6 and 72.3ms, so it is pipeline creation, not fill — and once in a picture that visibly blurs behind a razor-sharp DOM HUD, because seven rungs shed 3 draw calls out of 311 and 6% of triangles while render scale walks 1.0 to 0.5. Prime every scale behind the closed launch board where primeShells already runs, then take the whole move in one frame instead of rationing it into five chances to hitch."
     },
     {
       "id": "coherence",
@@ -157,6 +157,14 @@
     }
   ],
   "log": [
+    {
+      "at": "Paused",
+      "text": "<b>Stopped at the owner's request, after wave 5 — while still descending, not because it ran out of things to fix.</b> Wave 5 was the first wave judged off an honest review sheet and the first time <code>look</code> or <code>camera</code> had ever been judged: 6.5 each, both blind A/Bs still Mario Kart. Art direction: a frame with a sun in the sky and no sun on the floor. Camera: the drift swing cancels the chassis yaw, so the defining shot of the genre shows less machine angle than driving straight does. Round two was in flight when the container was reclaimed and did not survive, so both verdicts stand unanswered. Three of seventeen pieces have still never been judged once."
+    },
+    {
+      "at": "Wave 4",
+      "text": "<b>The instrument was reading itself wrong, twice.</b> A perf critic pointed the harness at the harness and found <code>__QUALITY.gate()</code> returning <code>applies:true, pass:true</code> on a frame drawn at rung 6 and 800x450 while quoting a target captioned <i>1600x900, rung 0</i> — the project's only frame-budget assertion, passing a build on a frame it never measured. Worse: the review sheet itself was being photographed at the floor rung, so <b>every art verdict this build has ever produced was made on a degraded picture</b>. Both are closed, and <code>far</code> — the shot whose whole job is draw distance — gained 347,000 triangles it had never been seen with. Courses reached 7.0 with sameness framed for the fifth time, now at the tarmac itself."
+    },
     {
       "when": "2026-08-11 04:21 UTC",
       "text": "Courses added two authoring primitives and the drift chain came alive: player speed 49.7 to 84.7 m/s. perf cut draw calls 539 to 326 but its ladder removes only 3.7% of triangles from top to bottom, so it has nothing left to spend on a slow machine."

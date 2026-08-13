@@ -162,7 +162,87 @@ interface Hazard {
   /** The cue this hazard plays when it first arms, and when it lands a hit. */
   period: number;
   phase: number;
+  /** Where the field actually drives past this station. See `Census`. */
+  census: Census;
 }
+
+/**
+ * ── the instrument, and why it is built into the hazard rather than bolted on ─
+ *
+ * A round was lost to four hazards that were declared, drawn, signed, cycled,
+ * documented at 20-38% blocked — and which, over thirteen full races of seven
+ * racers, hit somebody **five times**. The gate on the mountain, cycling every
+ * eleven seconds at a claimed 38% blocked window over a 168-second race, is
+ * about thirty-five blocked passes across the field, and it produced zero.
+ *
+ * That is not tuning. A duty cycle is a statement about *time* and it says
+ * nothing at all about *space*: a body can be over the tarmac for 38% of every
+ * cycle and still never be within nine metres of the line anybody drives. Every
+ * `lateral` in this cup was authored as an offset off the road centre, and the
+ * road centre is not where a racing line is — it is the one place on a corner
+ * that nobody is.
+ *
+ * So each hazard now measures the field itself. Every time a racer crosses the
+ * station the hazard is anchored to, its lateral **in the hazard's own frame**
+ * — which is exactly `track.sample().lateral`, the same dot product against the
+ * same `right` vector — is binned. `__HAZARDS.census()` reports that histogram
+ * next to the lateral span the bodies actually sweep, so the question "does this
+ * hazard intersect the racing line" has a numeric answer instead of a paragraph.
+ *
+ * `tools/hazardcensus.mjs` is the reader. Nothing here may be tuned by
+ * assertion again: if the census says the field crosses at -9m and the body
+ * lives at +14m, the hazard does not exist however good the sign looks.
+ */
+interface Census {
+  passes: number;
+  hits: number;
+  /**
+   * ── why a pass was not a hit ────────────────────────────────────────────
+   *
+   * Three numbers, and between them they close the last hole in this
+   * instrument. A hazard that fires six times in one race and twice in the
+   * next has *something* varying, and "hits" alone cannot say which of the
+   * three candidates it is: the body was not on the road when the racer got
+   * there (`armed`), the body was on the road but not on that racer's line
+   * (`armed` minus `covered`), or the racer was standing on the one thing that
+   * makes it un-hittable — a stun, a star, the anti-pin floor, the two-second
+   * grace after the last hit — in which case the hazard did nothing wrong and
+   * the item system was simply busier that race (`guarded`).
+   *
+   * That last one is real and it is a *coupling*, not noise: the seed with 60
+   * item strikes had a third of the hazard hits of the seed with 31, because
+   * `stunned`, `invulnerable` and `HIT_COOLDOWN` all skip the contact test.
+   */
+  /** Passes where at least one body was live at the moment of crossing. */
+  armed: number;
+  /** ...and the crossing lateral was inside that body's lateral span. */
+  covered: number;
+  /** Passes where the racer could not be hit by anything, for any reason. */
+  guarded: number;
+  /** 1-metre bins over ±CENSUS_HALF metres of lateral. */
+  bins: Int32Array;
+  /** Previous along-road offset per racer, for edge-triggering one pass. */
+  lastZ: Float64Array;
+  /** Whether that value is fresh — a racer out of reach has no previous. */
+  seen: Uint8Array;
+}
+
+/** Half the census's lateral range, metres. Wide enough for any shoulder. */
+const CENSUS_HALF = 24;
+const CENSUS_BINS = CENSUS_HALF * 2;
+/** The most racers a census array is sized for. The grid is seven plus one. */
+const CENSUS_RACERS = 16;
+
+const census = (): Census => ({
+  passes: 0,
+  hits: 0,
+  armed: 0,
+  covered: 0,
+  guarded: 0,
+  bins: new Int32Array(CENSUS_BINS),
+  lastZ: new Float64Array(CENSUS_RACERS),
+  seen: new Uint8Array(CENSUS_RACERS),
+});
 
 /** The animated nodes each kind needs. Unused slots stay null. */
 interface Rig {
@@ -172,13 +252,15 @@ interface Rig {
   rocks: THREE.Object3D[];
   wall: THREE.Object3D | null;
   crest: THREE.Object3D | null;
+  /** The foam tongue lying on the road ahead of a bore. See `buildSurge`. */
+  toe: THREE.Object3D | null;
   arm: THREE.Object3D | null;
   beacons: THREE.Mesh[];
 }
 
 const emptyRig = (): Rig => ({
   chassis: null, tray: null, wheels: [], rocks: [],
-  wall: null, crest: null, arm: null, beacons: [],
+  wall: null, crest: null, toe: null, arm: null, beacons: [],
 });
 
 interface SignRig {
@@ -196,18 +278,60 @@ interface SignRig {
 // window as a second hand-written pair was the obvious build and it is the one
 // way this feature can lie to a player.
 
-/** The dumper's shuttle: out loaded, tip, back empty, load again. */
+/**
+ * The dumper's shuttle: out loaded, **stopped on the crossing**, on to the tip,
+ * back empty, stopped again, load again.
+ *
+ * ── the hold is why this hazard now exists ─────────────────────────────────
+ *
+ * The first build was a machine that never stopped: 0.22 of the cycle to cover
+ * 54 metres, twice. Censused over a whole race that came out at **four hits in
+ * twenty-two passes**, and the arithmetic says exactly why — a kart crossing the
+ * station is an instant, so what decides whether it is hit is the fraction of
+ * the cycle the machine spends over the *driven* band, and a machine sweeping
+ * 54 metres at 10 m/s is over any given 16 metres of it for a ninth of each
+ * traverse.
+ *
+ * So the truck now does what a haul truck actually does at a crossing: it
+ * **stops on it**. Nose out, body across the road, beacons turning, for a
+ * couple of seconds each way. That is the readable version as well as the
+ * effective one — nine and a half metres of stationary safety yellow parked
+ * across the Cut is a thing a player sees from two hundred metres and has time
+ * to lift for, where a machine crossing at ten metres a second is a thing that
+ * is either there or not by the time you arrive.
+ */
 const TRUCK = {
   /** Metres either side of the centreline the machine parks at. */
-  bay: 27,
-  /** Half the danger band across the road: the capsule plus a kart. */
-  guard: 3.3 + 2.55 + KART_R,
-  // 0.22 of a 24-second cycle to cover 54 metres is 10 m/s, which is what a
-  // loaded articulated dumper actually does. Tuning this is tuning the truck's
-  // *speed*, and a machine that size crossing at forty is a cartoon.
-  out0: 0.05, out1: 0.27,
-  tip0: 0.31, tip1: 0.47,
-  back0: 0.52, back1: 0.74,
+  bay: 24,
+  /**
+   * Half the danger band across the road: the capsule plus a kart.
+   *
+   * Kept in step with the capsule set in `resolve()` — 4.3 of half-length plus
+   * 2.55 of radius — because `crossWindow` decides the *lamps* off this number
+   * and the contact test decides the *hit* off the capsule, and the one way
+   * this feature can lie to a player is those two disagreeing.
+   */
+  guard: 4.3 + 2.55 + KART_R,
+  /**
+   * Run in, stand on the crossing, run out. Then tip at the far end.
+   *
+   * The stand is 0.14 of the cycle — a shade over two seconds on the Cut's
+   * fifteen-second machine and a second and a half on the haul road's eleven —
+   * and both numbers are chosen against **`HIT_COOLDOWN`**, which is 2.4. A
+   * body that stands still for longer than a racer's grace period hits the same
+   * racer twice out of one mistake; see `SURGE`, where a 5.7-second hold turned
+   * three bores into twenty-nine hits in a two-lap race. Under the grace, one
+   * machine is one hit, and the danger comes from the stop being *long enough
+   * to arrive during* rather than from it being long enough to sit inside.
+   *
+   * At 0.05 it was not: censused across five seeds the pair produced 6-17 hits
+   * a race, and the low end failed the bar. Three quarters of a second is not a
+   * machine stopping, it is a machine hesitating.
+   */
+  out0: 0.03, hold0: 0.15, hold1: 0.29, out1: 0.41,
+  tip0: 0.44, tip1: 0.55,
+  /** ...and the same again, empty, the other way. */
+  back0: 0.58, bhold0: 0.70, bhold1: 0.84, back1: 0.96,
 };
 
 /**
@@ -217,21 +341,59 @@ const TRUCK = {
  * needs them too — where a boulder sits and how big its capsule is have to be
  * one statement, or the rock a player can see and the rock that spins them are
  * two different rocks.
+ *
+ * **Four boulders, not three, and the lane they close is 17 metres wide.** The
+ * three-boulder version closed 13 metres of a 24-metre road and the census
+ * found the field crossing it in a band 7 metres wide that the rocks missed
+ * entirely; widening the fall is what makes the escape route a *choice* rather
+ * than an accident. `clear`/`gone` are likewise pushed out until the lane is
+ * shut for about half of every cycle — the Carousel's short lane is meant to
+ * have a wrong answer, and a wrong answer that is wrong one time in six is a
+ * thing nobody ever learns.
  */
 const ROCK = {
-  drop: 0.20, fallSec: 1.4, clear: 0.40, gone: 0.47, top: 20,
-  size: [2.4, 2.0, 1.7],
-  /** Lateral offsets in metres, so three of them close a 12-metre lane. */
-  spread: [-3.4, 0.4, 3.8],
+  drop: 0.10, fallSec: 1.4, clear: 0.54, gone: 0.60, top: 20,
+  size: [2.4, 2.1, 1.8, 2.2],
+  /** Lateral offsets in metres, so four of them close a 17-metre lane. */
+  spread: [-4.6, -1.0, 2.4, 6.0],
   /** ...and a little stagger along the road, so they are not a ruled rank. */
-  along: [-1.7, 1.7, 0.2],
+  along: [-1.7, 1.7, 0.2, -0.9],
 };
 
-/** The bore: in off the pan, over the lane, and drained back. */
-const SURGE = { in0: 0.10, in1: 0.24, hold: 0.29, out1: 0.40, gone: 0.46 };
+/**
+ * The bore: in off the pan, standing over the road, and drained back.
+ *
+ * The hold used to be five hundredths of a cycle — the wave arrived, touched
+ * the road and left again — and censused over two full laps it hit nobody at
+ * all.
+ *
+ * **The correction over-shot, and the way it over-shot is worth keeping.** A
+ * hold of 0.30 stood the bore on the road for 5.7 seconds against a
+ * `HIT_COOLDOWN` of 2.4, so a kart shoved by the wave was still inside it when
+ * its grace ran out and was shoved again: the census came back at an 88-93%
+ * hit rate on two of the three bores and 29 hazard hits in a two-lap race,
+ * which is not a hazard, it is a wall with a timer. **A body may not outstay
+ * the cooldown in one place.** The rest is now 2.1 seconds — under the grace,
+ * so one wave is one hit — and the danger is bought back in the *travel*
+ * instead: the bore crosses at about five metres a second rather than nine, so
+ * it is over any given lane twice as long on the way through without ever
+ * standing on one.
+ */
+const SURGE = { in0: 0.03, in1: 0.26, hold: 0.37, out1: 0.60, gone: 0.66 };
 
-/** The gate: shut, held, opened. */
-const BOOM = { shut0: 0.14, shut1: 0.24, open0: 0.44, open1: 0.52 };
+/**
+ * The gate: shut, held, opened.
+ *
+ * A shade over four tenths of the cycle rather than a third, and no more than
+ * that: the mountain is the course where a hazard costs the most, because a
+ * kart shoved off a 13% climb or off a promontory has nowhere to get its
+ * momentum back. Censused at half the cycle it produced 13-19 hits a race and
+ * one seed in four came home with a racer two laps down, which fails the bar
+ * every hazard is held to before anything else it does counts. **A hazard's
+ * price is a property of the road it is on**, so the mountain's gates are the
+ * one thing in the cup tuned *down* from what the count alone would allow.
+ */
+const BOOM = { shut0: 0.10, shut1: 0.20, open0: 0.53, open1: 0.63 };
 
 /**
  * `[start, end]` windows, in cycle fraction, where the body is over tarmac.
@@ -245,11 +407,17 @@ function crossWindow(h: Hazard, out: [number, number][]): [number, number][] {
   out.length = 0;
   switch (h.kind) {
     case 'truck': {
-      const f = clamp01((TRUCK.bay - (h.half + TRUCK.guard)) / (2 * TRUCK.bay));
-      const a = TRUCK.out1 - TRUCK.out0;
-      const b = TRUCK.back1 - TRUCK.back0;
-      out.push([TRUCK.out0 + a * f, TRUCK.out0 + a * (1 - f)]);
-      out.push([TRUCK.back0 + b * f, TRUCK.back0 + b * (1 - f)]);
+      // The machine reaches the tarmac part-way through its run in and leaves
+      // it part-way through its run out, with the stand on the crossing in
+      // between. `f` is the fraction of a half-traverse spent clear of the
+      // road, which is the only thing `half` changes about the window.
+      const f = clamp01((TRUCK.bay - (h.half + TRUCK.guard)) / TRUCK.bay);
+      const inA = TRUCK.hold0 - TRUCK.out0;
+      const outA = TRUCK.out1 - TRUCK.hold1;
+      out.push([TRUCK.out0 + inA * f, TRUCK.hold1 + outA * (1 - f)]);
+      const inB = TRUCK.bhold0 - TRUCK.back0;
+      const outB = TRUCK.back1 - TRUCK.bhold1;
+      out.push([TRUCK.back0 + inB * f, TRUCK.bhold1 + outB * (1 - f)]);
       break;
     }
     case 'rockfall':
@@ -610,7 +778,7 @@ function buildRockfall(
   const g = new THREE.Group();
   const rockM = mat(def.tint ?? 0x9a5a38, { flatShading: true });
   keep.push(rockM);
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < ROCK.size.length; i++) {
     const r = new THREE.Mesh(new THREE.IcosahedronGeometry(ROCK.size[i]!, 0), rockM);
     // Squashed off round: a sphere reads as a ball, and a ball on a road reads
     // as an item rather than as half the cliff above it.
@@ -633,31 +801,166 @@ function buildRockfall(
  * what makes it unmissable, and about five metres thick, which is what makes it
  * survivable.
  */
+/**
+ * How far the bore's foot is buried.
+ *
+ * See the note in `buildSurge`: this is 65cm rather than the 15cm it was,
+ * because the wave spends its whole approach out over a verge the road's crown
+ * has already fallen away from, and a translucent skirt inside the ground costs
+ * nothing while a gap under one is the thing a critic photographs.
+ */
+const SKIRT = -0.65;
+
 function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
   const g = new THREE.Group();
-  const N = 14;
-  const len = 26;
-  const waterM = new THREE.MeshLambertMaterial({
-    color: 0x4e8b9c, transparent: true, opacity: 0.82,
-    emissive: 0x0d2a33, side: THREE.DoubleSide,
+  // ── and then it was photographed a third time, from the chase camera ──────
+  //
+  //   *"The standing brine renders with a raised lilac-grey lip along its far
+  //   edge that reads as a floating slab."*
+  //
+  // That lip is this object, and the geometry says why. A bore 1.5 metres tall
+  // and 26 long is a **17:1 ribbon**, and the one facet it presents to a lens
+  // sitting 2.5 metres off the tarmac is the near-horizontal top of it — so
+  // whatever is painted up there is what the wave *is*, and what was painted up
+  // there was a continuous unbroken line of 0xEAF6F8 at 94% opacity: the
+  // palest, flattest, most opaque thing in the frame, laid across the water in
+  // a straight bar. It could not have read as anything but a plate.
+  //
+  // Three changes, all of them geometry rather than paint:
+  //
+  //   1. **It is taller and it is shorter**, so the proportion stops being a
+  //      ribbon: 2.5 metres at the crown over 22 metres of face, and the crown
+  //      is a crown — a broad along-length swell rather than a level top, so
+  //      the silhouette against the pan has a middle.
+  //   2. **The lip is broken.** The foam runs at three times the frequency of
+  //      the body and is *scalloped in plan* as well as in height, so a camera
+  //      looking along it sees lumps of white with dark water between them
+  //      rather than one line. Surf is discontinuous; a shelf is not.
+  //   3. **It has a toe.** A thin tongue of foam running out ahead of the wave
+  //      and lying flat on the road, which is the single strongest cue that
+  //      something is *water arriving* rather than an object being slid across
+  //      the tarmac — and it is the part a chase camera sees first.
+  // 54 rather than 30. At 22 metres of face that is a station every 40cm, and
+  // it is the whole of *"a visibly low-poly scalloped silhouette"*: the crown
+  // and the surf are both sampled here, so a 73cm station turned a wave into a
+  // row of chords against a white sky. Sixty-odd extra triangles.
+  const N = 54;
+  const len = 22;
+  // ── the bore has to be darker than the sheet it stands in ────────────────
+  //
+  // It was a paler teal at 0.82, which was correct while the flood sheet under
+  // it was not being drawn at all (see the winding note in `courses/flood.ts`)
+  // and became wrong the moment it was. Photographed together, the wave and
+  // the standing water were within a few values of each other, so the *body*
+  // of the wave vanished into the sheet and its foam lip — a metre and a half
+  // up, and the only part with any contrast left — read as a pale shelf
+  // floating in mid-air over the road with nothing holding it up.
+  //
+  // A metre and a half of water stacked on top of a sheet of water is deeper
+  // than the sheet, and deeper water is darker. So: darker, and more opaque
+  // than the thing it is standing in, which is what puts a body back under the
+  // crest.
+  //
+  // ── ...and then it had to be made of the same substance as the sheet ─────
+  //
+  // A later critic photographed the crossing and filed the bore as *"an opaque
+  // slab with a hard vertical front wall and a visibly faceted top edge — a
+  // collision volume with a colour."* Both halves of that survived the work
+  // above because the work above was all **silhouette**, and what was wrong by
+  // then was **material**: 0.9 opacity on a Lambert with a dark emissive is a
+  // painted solid, and it stood in a sheet that had meanwhile become a
+  // Fresnel mirror (see `courses/flood.ts`). Two objects made of the same
+  // substance may not disagree about what that substance looks like, and by
+  // this round they disagreed completely — the sheet returned the sky and the
+  // wave standing in it returned nothing at all.
+  //
+  // So the body is transparent enough to see the far bank through, the
+  // emissive is a *sky* colour rather than a bottom-of-a-pond colour, and both
+  // sides get a specular. It is still darker and denser than the sheet, which
+  // is the one thing about the old note that was right: a metre and a half of
+  // water stacked on a sheet of water is deeper, and deeper water is darker.
+  const waterM = new THREE.MeshPhongMaterial({
+    color: 0x40808f, transparent: true, opacity: 0.62,
+    emissive: 0x16323d, specular: 0xdff2ff, shininess: 90,
+    side: THREE.DoubleSide,
+    // The bore travels *through* the flood sheet, and two transparent surfaces
+    // that both write depth will punch holes in each other depending on which
+    // was submitted first. Neither writes; the render order decides.
+    depthWrite: false,
   });
   const foamM = new THREE.MeshLambertMaterial({
-    color: 0xeaf6f8, transparent: true, opacity: 0.94, side: THREE.DoubleSide,
+    color: 0xf4fbfd, emissive: 0x2b4652,
+    transparent: true, opacity: 0.90, side: THREE.DoubleSide,
+    depthWrite: false,
   });
   keep.push(waterM, foamM);
 
   // The body: a swept face with a slight scallop along its length so it is not
   // a ruled wall.
+  // ── the two things a bore may not do at its ends ──────────────────────────
+  //
+  // A critic photographed the flood on Saltpan Bypass and filed it as a decal
+  // with *"hard straight polygon edges… and at the outer ends it floats above
+  // the tarmac with a visible vertical side wall"*. The sheet took most of that
+  // note, and this object is where the rest of it lives, because a bore is what
+  // a reviewer sees when they photograph the flood: it is the tallest, nearest,
+  // most opaque piece of water on the course.
+  //
+  //   * **It ended in mid-air.** The face is a three-line tent — bottom, crest,
+  //     bottom — swept along the road, and the sweep simply *stopped* at ±13
+  //     metres at full height. From alongside, that is a metre and a half of
+  //     water ending on a flat vertical rectangle: the "side wall". `cap` takes
+  //     the crest down onto the bottom line over the last fifth at each end, so
+  //     the wave closes into a wedge and has no end to see.
+  //   * **It floated.** The rig sits on the road's centreline height and the
+  //     bore travels thirteen metres past the shoulder, where the crown has
+  //     fallen away and the verge has dropped further — so a skirt tucked 15cm
+  //     under the surface was, for the whole in-ramp, hanging over the ground
+  //     with daylight beneath it. The skirt is 65cm now. It is inside the road
+  //     wherever the road is flat, which costs nothing, and it is still inside
+  //     the ground where the ground has gone away, which is the point.
+  const ease = (v: number): number => { const k = clamp01(v); return k * k * (3 - 2 * k); };
+  /** 0 at both ends, 1 across the middle three fifths. */
+  const capAt = (t: number): number => ease(t / 0.2) * ease((1 - t) / 0.2);
+  /**
+   * The crown. A *bulge* along the length rather than a level top with ripples
+   * on it — the low harmonic carries most of the amplitude, so the wave has a
+   * middle and two shoulders and reads as one body of water instead of a bar.
+   */
+  const crown = (t: number): number =>
+    2.5 * (0.62 + 0.38 * Math.sin(Math.PI * t))
+    + 0.30 * Math.sin(t * 7.1) + 0.18 * Math.sin(t * 3.3 + 1.4);
+  const heightAt = (t: number): number => crown(t) * capAt(t) + SKIRT * (1 - capAt(t));
+  /** How far the crest has curled forward over the face at this station. */
+  const leanAt = (t: number): number => (1.35 + 0.35 * Math.sin(t * 5.0 + 0.6)) * capAt(t);
+
   const pos: number[] = [];
   const idx: number[] = [];
   for (let i = 0; i <= N; i++) {
     const t = i / N;
     const z = (t - 0.5) * len;
-    const h = 1.5 + 0.55 * Math.sin(t * 7.1) + 0.3 * Math.sin(t * 3.3 + 1.4);
-    const lean = 0.9 + 0.25 * Math.sin(t * 5.0 + 0.6);
-    pos.push(1.9, -0.15, z);
+    const cap = capAt(t);
+    const h = heightAt(t);
+    const lean = leanAt(t);
+    // The back of the wave is drawn *up* toward the crest rather than run flat
+    // out to a skirt: what is behind a bore is deeper water, not a ramp, and a
+    // long flat back is the other half of what made this read as a wedge from
+    // overhead.
+    // ── the back of a bore is short, not a ramp ──────────────────────────
+    //
+    // This was `(2.4, SKIRT + 0.55·cap·h)`, which put the back foot 1.4 metres
+    // up and 3.8 metres behind a crest 2.5 metres up: a sixteen-degree plane
+    // three metres wide, running the whole 22-metre length. A chase camera
+    // sees the *back* of a bore for most of the time one is on screen — the
+    // wave crosses the road and keeps going — so that plane is the single
+    // largest facet this object presents, and lit by a white sky it is the
+    // pale slab a critic photographed and called "an opaque slab with a hard
+    // vertical front wall". The front wall was the least of it; the slab was
+    // the back. At (1.5, 0.20) the same crest sits over a forty-degree back,
+    // so what the camera gets is a *crest* with water falling away behind it.
+    pos.push(1.5, SKIRT + 0.20 * cap * h, z);
     pos.push(-lean, h, z);
-    pos.push(-2.4, -0.15, z);
+    pos.push(-3.0, SKIRT, z);
   }
   for (let i = 0; i < N; i++) {
     const a = i * 3;
@@ -670,20 +973,38 @@ function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
   geo.computeVertexNormals();
   const wall = new THREE.Mesh(geo, waterM);
   wall.receiveShadow = true;
+  // Over the flood sheet (2), under the wake (4) and the crest. Nothing here
+  // writes depth, so this ordering is the only thing deciding what is in front
+  // of what where a bore is standing in standing water.
+  wall.renderOrder = 3;
   g.add(wall);
   rig.wall = wall;
 
-  // The crest: a thin foam lip riding the top edge, drawn slightly proud so it
-  // catches the sun even when the wall behind it is in shadow.
+  // ── the lip, broken ───────────────────────────────────────────────────────
+  //
+  // Same top edge, but the foam riding it is modulated at three times the
+  // frequency of the body and **in plan as well as in height**: where `surf`
+  // is low the lip pulls back onto the crest and all but disappears, where it
+  // is high the lip throws forward over the face. Along a lens axis that is
+  // lumps of white with dark water between them, which is surf; the continuous
+  // ribbon it replaces was the "raised lilac-grey lip" in the finding.
   const cpos: number[] = [];
   const cidx: number[] = [];
   for (let i = 0; i <= N; i++) {
     const t = i / N;
     const z = (t - 0.5) * len;
-    const h = 1.5 + 0.55 * Math.sin(t * 7.1) + 0.3 * Math.sin(t * 3.3 + 1.4);
-    const lean = 0.9 + 0.25 * Math.sin(t * 5.0 + 0.6);
-    cpos.push(-lean + 0.12, h + 0.34, z);
-    cpos.push(-lean - 0.75, h - 0.28, z);
+    const cap = capAt(t);
+    const h = heightAt(t);
+    const lean = leanAt(t);
+    const surf = 0.22 + 0.78 * clamp01(
+      0.5 + 0.62 * Math.sin(t * 23.0 + 0.4) + 0.30 * Math.sin(t * 41.0 + 2.1),
+    );
+    // Thrown further forward and hung further down the face than it was: the
+    // crest has to be wide enough to read as the top of the wave from behind
+    // as well as from in front, which is where most of a bore is watched from.
+    const throwF = 0.70 * cap * surf;
+    cpos.push(-lean - throwF * 0.10 + 0.30 * cap, h + 0.20 * cap * surf, z);
+    cpos.push(-lean - throwF * 1.6, h - 0.58 * cap * surf, z);
   }
   for (let i = 0; i < N; i++) {
     const a = i * 2;
@@ -694,10 +1015,63 @@ function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
   cgeo.setIndex(cidx);
   cgeo.computeVertexNormals();
   const crest = new THREE.Mesh(cgeo, foamM);
+  crest.renderOrder = 5;
   g.add(crest);
   rig.crest = crest;
 
+  // ── the toe ───────────────────────────────────────────────────────────────
+  //
+  // A tongue of foam lying flat on the road ahead of the face, running out to
+  // a ragged feathered edge. It is the part of an arriving wave a driver sees
+  // first and the part a chase camera sees most of — a horizontal sheet is the
+  // one surface a lens 2.5 metres up gets a full view of — and it is what says
+  // *the water is coming toward you* rather than *an object is being slid*.
+  const tpos: number[] = [];
+  const tidx: number[] = [];
+  const tcol: number[] = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const z = (t - 0.5) * len;
+    const cap = capAt(t);
+    const reach = (3.4 + 2.1 * Math.sin(t * 11.0 + 1.7) + 1.1 * Math.sin(t * 19.0)) * cap;
+    tpos.push(-lea(t), SKIRT + 0.12, z);
+    tcol.push(1, 1, 1, 1);
+    tpos.push(-3.0 - Math.max(0, reach), SKIRT + 0.06, z);
+    // Feathered to nothing at the leading edge: a tongue with a hard edge is a
+    // decal, which is the word this whole hazard was filed under.
+    //
+    // **Four components, not three.** With an itemSize-3 colour attribute the
+    // fade is a *multiply on the albedo* and the leading edge comes back as a
+    // dark grey band on the tarmac — the opposite of feathering. Three.js
+    // defines USE_COLOR_ALPHA on a vec4 attribute and multiplies the alpha
+    // too, which is the only way this edge actually goes away.
+    tcol.push(1, 1, 1, 0);
+  }
+  for (let i = 0; i < N; i++) {
+    const a = i * 2;
+    tidx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+  }
+  const tgeo = new THREE.BufferGeometry();
+  tgeo.setAttribute('position', new THREE.Float32BufferAttribute(tpos, 3));
+  tgeo.setAttribute('color', new THREE.Float32BufferAttribute(tcol, 4));
+  tgeo.setIndex(tidx);
+  tgeo.computeVertexNormals();
+  const toeM = new THREE.MeshBasicMaterial({
+    color: 0xdff0f3, transparent: true, opacity: 0.62,
+    vertexColors: true, depthWrite: false, side: THREE.DoubleSide,
+  });
+  keep.push(toeM);
+  const toe = new THREE.Mesh(tgeo, toeM);
+  toe.renderOrder = 4;
+  g.add(toe);
+  rig.toe = toe;
+
   return g;
+}
+
+/** The inner edge of the toe: hard against the foot of the face. */
+function lea(t: number): number {
+  return 3.0 - 0.4 * Math.sin(t * 9.0);
 }
 
 /** The avalanche gate: a lattice boom on a counterweighted pivot. */
@@ -850,8 +1224,8 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
           break;
         case 'rockfall':
           group.add(buildRockfall(rig, def, materials));
-          bodies = [body(), body(), body()];
-          reach = 30;
+          bodies = ROCK.size.map(() => body());
+          reach = 32;
           break;
         case 'surge':
           group.add(buildSurge(rig, materials));
@@ -866,10 +1240,11 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
       }
       root.add(group);
 
-      // The sign, on its own station and its own frame, `signAt` metres back on
-      // the driver's right-hand verge — which is the spline's negative side,
-      // and the side of the road a driver's eyes are already on through the
-      // corner every one of these hazards sits in.
+      // The sign, on its own station and its own frame, `signAt` metres back
+      // on the spline's negative verge. That is one side for every hazard on
+      // every course on purpose — a works site says what is about to happen to
+      // you from the same hand every time, and a sign that swaps sides is a
+      // sign a driver has to find before they can read it.
       const backD = ((d - (def.signAt ?? SIGN_BACK)) % L + L) % L;
       track.spline.atDistance(backD, s);
       const sign = buildSign(def.kind, stripe, materials);
@@ -892,6 +1267,7 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
         armed: 0, tick: 0, lastU: -1,
         period: Math.max(1, def.period),
         phase: def.phase ?? 0,
+        census: census(),
       });
     }
 
@@ -919,22 +1295,33 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
         // a half metres that make it unmissable lie across the racing road and
         // the four and a bit that a kart has to get past lie along it.
         const FAR = TRUCK.bay;
-        const speed = 2 * FAR / ((TRUCK.out1 - TRUCK.out0) * h.period);
         let x: number;
-        let facing: number;
         let tip = 0;
         let moving = false;
-        if (u < TRUCK.out0) { x = -FAR; facing = 1; }
-        else if (u < TRUCK.out1) {
-          x = lerp(-FAR, FAR, (u - TRUCK.out0) / (TRUCK.out1 - TRUCK.out0));
-          facing = 1; moving = true;
+        /** Metres travelled on this leg, for the wheels. */
+        let run = 0;
+        if (u < TRUCK.out0) { x = -FAR; }
+        else if (u < TRUCK.hold0) {
+          const k = (u - TRUCK.out0) / (TRUCK.hold0 - TRUCK.out0);
+          x = lerp(-FAR, 0, k); moving = true; run = k * FAR;
+        } else if (u < TRUCK.hold1) {
+          // **Stood on the crossing.** See `TRUCK`.
+          x = 0; run = FAR;
+        } else if (u < TRUCK.out1) {
+          const k = (u - TRUCK.hold1) / (TRUCK.out1 - TRUCK.hold1);
+          x = lerp(0, FAR, k); moving = true; run = FAR * (1 + k);
         } else if (u < TRUCK.tip1) {
-          x = FAR; facing = 1; tip = pulse(TRUCK.tip0, TRUCK.tip1, u);
-        } else if (u < TRUCK.back0) { x = FAR; facing = -1; }
-        else if (u < TRUCK.back1) {
-          x = lerp(FAR, -FAR, (u - TRUCK.back0) / (TRUCK.back1 - TRUCK.back0));
-          facing = -1; moving = true;
-        } else { x = -FAR; facing = -1; }
+          x = FAR; tip = pulse(TRUCK.tip0, TRUCK.tip1, u);
+        } else if (u < TRUCK.back0) { x = FAR; }
+        else if (u < TRUCK.bhold0) {
+          const k = (u - TRUCK.back0) / (TRUCK.bhold0 - TRUCK.back0);
+          x = lerp(FAR, 0, k); moving = true; run = -k * FAR;
+        } else if (u < TRUCK.bhold1) {
+          x = 0; run = -FAR;
+        } else if (u < TRUCK.back1) {
+          const k = (u - TRUCK.bhold1) / (TRUCK.back1 - TRUCK.bhold1);
+          x = lerp(0, -FAR, k); moving = true; run = -FAR * (1 + k);
+        } else { x = -FAR; }
         x += lat;
 
         const rig = h.rig;
@@ -946,29 +1333,30 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
           const turn = u < TRUCK.tip1 ? 0
             : u < TRUCK.back0 ? ramp(0, 1, (u - TRUCK.tip1) / (TRUCK.back0 - TRUCK.tip1))
               : u < TRUCK.back1 ? 1
-                : 1 - ramp(0, 1, (u - TRUCK.back1) / (1 - TRUCK.back1));
+                : 1 - ramp(0, 1, (u - TRUCK.back1) / (1 - TRUCK.back1 || 1));
           rig.chassis.rotation.y = turn * Math.PI;
           // Squat on the springs while the tray is up, and roll the wheels at
           // the speed the machine is actually travelling — a wheel that spins
           // while the machine is parked is the tell that nothing here is real.
           rig.chassis.position.y = -0.10 * tip;
           if (rig.tray) rig.tray.rotation.z = tip * 0.9;
-          if (moving) {
-            const travelled = facing > 0
-              ? (u - TRUCK.out0) * h.period * speed
-              : (u - TRUCK.back0) * h.period * speed;
-            for (const w of rig.wheels) w.rotation.z = -travelled / 1.35;
-          }
+          if (moving) for (const w of rig.wheels) w.rotation.z = -run / 1.35;
           // Loaded out, empty back: the rock leaves at the tip.
           const load = u < TRUCK.tip0 + (TRUCK.tip1 - TRUCK.tip0) * 0.55
             ? 1
             : u < TRUCK.back1 ? 0
-              : ramp(0, 1, (u - TRUCK.back1) / (1 - TRUCK.back1));
+              : ramp(0, 1, (u - TRUCK.back1) / (1 - TRUCK.back1 || 1));
           for (const r of rig.rocks) { r.scale.setScalar(load); r.visible = load > 0.02; }
         }
         // One capsule down the machine's long axis. 2.55m of radius wraps a
         // 4.8m-wide body and its wheels without claiming the air above it.
-        b[0]!.ax = x - 3.3; b[0]!.bx = x + 3.3;
+        //
+        // **4.3, not 3.3.** The machine is 9.4 metres end to end and the
+        // capsule was 6.6, so a metre and a half of hazard yellow at each end
+        // of it — the two striped cap plates, the ends a driver actually sees
+        // coming — was a picture a kart drove through. `TRUCK.guard` carries
+        // the same number, because that is what the lamps are computed off.
+        b[0]!.ax = x - 4.3; b[0]!.bx = x + 4.3;
         b[0]!.ay = b[0]!.by = 1.7;
         b[0]!.az = b[0]!.bz = 0;
         b[0]!.r = 2.55;
@@ -984,7 +1372,7 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
         const CLEAR = ROCK.clear;
         const GONE = ROCK.gone;
         const H0 = ROCK.top;
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < ROCK.size.length; i++) {
           const r = h.rig.rocks[i]!;
           const size = ROCK.size[i]!;
           const x = lat + ROCK.spread[i]!;
@@ -1048,7 +1436,7 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
           live = true;
         } else { x = out; }
 
-        if (visual && h.rig.wall && h.rig.crest) {
+        if (visual && h.rig.wall && h.rig.crest && h.rig.toe) {
           // The wall is dragged flat as it drains, so the retreat reads as
           // water losing energy rather than as a wall reversing.
           const bulk = u < SURGE.hold ? 1 : 1 - 0.55 * clamp01((u - SURGE.hold) / 0.12);
@@ -1057,9 +1445,21 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
           h.rig.wall.scale.set(1, s, 1);
           h.rig.crest.position.set(x, 0, Math.sin(u * TAU * 3) * 0.8);
           h.rig.crest.scale.set(1, s, 1);
-          h.rig.wall.visible = h.rig.crest.visible = u > SURGE.in0 - 0.04 && u < SURGE.gone;
+          // The tongue runs *ahead* of the face while the wave is advancing and
+          // is pulled back under it on the drain, so the one surface a chase
+          // camera sees all of is also the one that states the direction.
+          const adv = u < SURGE.hold ? 1 : Math.max(0.15, 1 - 2.4 * (u - SURGE.hold));
+          h.rig.toe.position.set(x, 0, 0);
+          h.rig.toe.scale.set(adv, 1, 1);
+          h.rig.wall.visible = h.rig.crest.visible = h.rig.toe.visible
+            = u > SURGE.in0 - 0.04 && u < SURGE.gone;
         }
-        ball(b[0]!, x, 0.8, 0, 2.7, live && Math.abs(x) < h.half + 4);
+        // 3.2 of radius, which is half the six-and-a-bit metres of water the
+        // face is actually made of. It used to be 2.7 against a 4.3m face —
+        // more grace than the wall had body — and it still hit nobody, because
+        // the bore was resting three metres past the edge of the lane anybody
+        // drove. Radius is not what was wrong with it; `lateral` was.
+        ball(b[0]!, x, 0.8, 0, 3.2, live && Math.abs(x) < h.half + 5);
         b[0]!.az = -12; b[0]!.bz = 12;
         b[0]!.ax = b[0]!.bx = x;
         break;
@@ -1196,6 +1596,75 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
       })),
     })),
     clock: () => clock,
+
+    /**
+     * ── the census: where the field drives, against where the bodies go ──────
+     *
+     * `lane` is the histogram of every racer's lateral, in the hazard's own
+     * frame, at the moment it crossed the station — the same number
+     * `track.sample().lateral` returns, measured at the lap fraction the hazard
+     * is anchored to. `reach` is the lateral interval the bodies actually sweep
+     * while live, **with a kart's radius already added**, swept over the whole
+     * cycle at 1/400 resolution.
+     *
+     * Those two intervals overlapping is the entire question. A hazard whose
+     * `lane` is [-11,-3] and whose `reach` is [+11,+20] is not a hard hazard or
+     * a badly tuned one; it is furniture with a clock in it, and no amount of
+     * period or duty will change that. See `tools/hazardcensus.mjs`.
+     */
+    census: () => list.map((h) => {
+      const c = h.census;
+      // Sweep the cycle for the lateral span the live bodies cover. `resolve`
+      // is pure and the sim re-resolves at the top of every step, so borrowing
+      // the body array here cannot leak into the simulation.
+      const uNow = wrap01(clock / h.period + h.phase);
+      let lo = Infinity, hi = -Infinity, liveU = 0;
+      for (let k = 0; k < 400; k++) {
+        resolve(h, k / 400, false);
+        let any = false;
+        for (const b of h.bodies) {
+          if (!b.live) continue;
+          any = true;
+          lo = Math.min(lo, b.ax - b.r - KART_R, b.bx - b.r - KART_R);
+          hi = Math.max(hi, b.ax + b.r + KART_R, b.bx + b.r + KART_R);
+        }
+        if (any) liveU++;
+      }
+      resolve(h, uNow, false);
+      const bins: [number, number][] = [];
+      for (let i = 0; i < CENSUS_BINS; i++) {
+        if (c.bins[i]! > 0) bins.push([i - CENSUS_HALF, c.bins[i]!]);
+      }
+      // Percentiles off the histogram, which is all a reader of this needs:
+      // the median is the line, and p05..p95 is how wide the field runs.
+      const pct = (q: number): number => {
+        const want = c.passes * q;
+        let acc = 0;
+        for (let i = 0; i < CENSUS_BINS; i++) {
+          acc += c.bins[i]!;
+          if (acc >= want) return i - CENSUS_HALF + 0.5;
+        }
+        return NaN;
+      };
+      return {
+        kind: h.kind,
+        at: Math.round(h.def.at * 1e4) / 1e4,
+        half: Math.round(h.half * 10) / 10,
+        passes: c.passes,
+        hits: c.hits,
+        armed: c.armed,
+        covered: c.covered,
+        guarded: c.guarded,
+        /** Lateral the field crossed at: p05, median, p95, in metres. */
+        lane: c.passes ? [pct(0.05), pct(0.5), pct(0.95)] : [NaN, NaN, NaN],
+        /** Lateral the live bodies sweep, kart radius included. */
+        reach: lo <= hi ? [Math.round(lo * 10) / 10, Math.round(hi * 10) / 10] : null,
+        /** Fraction of the cycle at least one body is live. */
+        liveDuty: Math.round((liveU / 400) * 1000) / 1000,
+        bins,
+      };
+    }),
+
     /** Fraction of one full cycle each hazard's body spends over the tarmac. */
     duty: () => list.map((h) => {
       const w = crossWindow(h, []);
@@ -1225,7 +1694,12 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
       epoch = ctx.time.elapsed;
       clock = prevClock = 0;
       cooldown.clear();
-      for (const h of list) { h.armed = h.tick = 0; h.lastU = -1; }
+      for (const h of list) {
+        h.armed = h.tick = 0; h.lastU = -1;
+        const c = h.census;
+        c.passes = c.hits = c.armed = c.covered = c.guarded = 0;
+        c.bins.fill(0); c.seen.fill(0);
+      }
     },
 
     fixedUpdate(dt: number): void {
@@ -1251,6 +1725,46 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
         if (!racing) continue;
 
         for (const racer of ctx.racers) {
+          // **The census runs before every skip in this loop, and that is the
+          // point.** What is being measured is where the field *drives*, not
+          // where the field is eligible to be hit — a pass made two tenths after
+          // a hit, or by a racer holding a star, is still a pass and still
+          // evidence about the line. Measuring it downstream of the fairness
+          // guards would quietly under-report exactly the passes a badly placed
+          // hazard produces.
+          const near = racer.pos.distanceToSquared(h.origin) <= h.reach * h.reach;
+          if (near) {
+            _p.copy(racer.pos).sub(h.origin);
+            const z = _p.dot(h.fwd);
+            const c = h.census;
+            const i = racer.id;
+            if (i < CENSUS_RACERS) {
+              if (c.seen[i] && c.lastZ[i]! < 0 && z >= 0) {
+                c.passes++;
+                const x = _p.dot(h.right);
+                const bin = Math.floor(x) + CENSUS_HALF;
+                if (bin >= 0 && bin < CENSUS_BINS) c.bins[bin]!++;
+                let live = false;
+                let over = false;
+                for (const b of h.bodies) {
+                  if (!b.live) continue;
+                  live = true;
+                  const lo = Math.min(b.ax, b.bx) - b.r - KART_R;
+                  const hi = Math.max(b.ax, b.bx) + b.r + KART_R;
+                  if (x >= lo && x <= hi) over = true;
+                }
+                if (live) c.armed++;
+                if (live && over) c.covered++;
+                if (racer.stunned > 0 || racer.invulnerable > 0
+                  || cooldown.has(racer.id) || racer.speed < HIT_MIN_SPEED) c.guarded++;
+              }
+              c.lastZ[i] = z;
+              c.seen[i] = 1;
+            }
+          } else if (racer.id < CENSUS_RACERS) {
+            h.census.seen[racer.id] = 0;
+          }
+
           if (racer.finished || racer.stunned > 0 || racer.invulnerable > 0) continue;
           if (cooldown.has(racer.id)) continue;
           // **A hazard may not pin.** The first build of the avalanche gate
@@ -1261,9 +1775,9 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
           // something you drive into; if there is no closing speed there is no
           // collision, and the racer gets the road back.
           if (racer.speed < HIT_MIN_SPEED) continue;
-          // Cheap reject before the capsules: one length compare against the
-          // radius that bounds every body this hazard owns.
-          if (racer.pos.distanceToSquared(h.origin) > h.reach * h.reach) continue;
+          // Cheap reject before the capsules: the census above already measured
+          // it, against the radius that bounds every body this hazard owns.
+          if (!near) continue;
           let struck = false;
           for (const b of h.bodies) {
             if (hits(h, b, racer)) { struck = true; break; }
@@ -1271,6 +1785,7 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
           if (!struck) continue;
 
           stunRacer(ctx, racer, h.def.hit ?? 'spin', null);
+          h.census.hits++;
           cooldown.set(racer.id, HIT_COOLDOWN);
           // `kart:hit` reaches fx, the camera and the HUD on its own. Sound
           // does not: `audio/index.ts` hangs its impacts off `item:strike`,
@@ -1366,7 +1881,7 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
           }
           if (crossed(ROCK.drop)) {
             _p.copy(h.origin)
-              .addScaledVector(h.right, (h.def.lateral ?? 0) * h.half - 6)
+              .addScaledVector(h.right, (h.def.lateral ?? 0) * h.half + 7)
               .addScaledVector(h.up, ROCK.top * 0.9);
             ctx.fx?.spawn('smoke', _p, { scale: 1.5 });
           }

@@ -66,8 +66,10 @@ export interface SurfacePatchDef {
   to: number;
   /**
    * Lateral band, as fractions of the half width, **in the spline's frame** —
-   * the same frame `ShortcutDef.side` uses and therefore the mirror of the
-   * driver's. `-1` is the driver's right edge, `+1` is the driver's left.
+   * the frame `sample().lateral` reports and the same one `ShortcutDef.side`
+   * uses. See `LATERAL FRAME` at the head of `HazardDef`: `+1` is the inside
+   * of a right-hand corner, and the sentence that used to sit here said the
+   * opposite.
    *
    * The band is what is declared; what is *built* is that band with its ends
    * faded in over a third of its length and its edge broken up by noise, so a
@@ -227,23 +229,61 @@ export interface RampDef {
  *      start flashing `lead` seconds before the body reaches the tarmac. The
  *      lamps are the contract: if they are dark, the road is yours.
  *
- * ── and one rule about the road ────────────────────────────────────────────
+ * ── and two rules about the road ───────────────────────────────────────────
  *
- * Only one hazard in the cup closes a whole carriageway (the quarry's dumper,
- * on a road eleven metres wide, for 1.6 seconds in nine). The other three take
- * away *a line* — the inside of the Carousel, the dry lane of a brine band, the
- * spur cut — and leave a way through for a driver who reads them. A hazard that
- * can only be waited out is a traffic light.
+ * Only the quarry's dumpers close a whole carriageway, and they do it by
+ * standing on the crossing for about two seconds in every twenty. Everything
+ * else takes away *a line* — the apex lane of the Carousel, a lane of the
+ * bypass, the inside of the Spur — and leaves a way through for a driver who
+ * reads it. A hazard that can only be waited out is a traffic light.
+ *
+ * And **a body may not outstay `HIT_COOLDOWN` in one place.** A hazard that
+ * stands still for longer than a racer's grace period hits the same racer
+ * twice out of one mistake, which is how the saltpan's three bores went from
+ * zero hits a race to twenty-nine in a single change: at an 88% hit rate the
+ * wave had stopped being something you drive into and become something you sit
+ * inside. Buy danger with travel, not with standing.
  */
 export type HazardKind = 'truck' | 'rockfall' | 'surge' | 'boom';
 
+/**
+ * ── LATERAL FRAME: the sentence that cost a whole round ────────────────────
+ *
+ * Every lateral in this file is a fraction of the road's half width in the
+ * **spline's** frame — which is exactly the number `track.sample().lateral`
+ * returns, because both are the same dot product against the same `right`
+ * vector. That part was always true. What was written next to it, in three
+ * separate interfaces, was that the spline's frame is *the mirror of the
+ * driver's* and that `-1` is the driver's right.
+ *
+ * It is the other way round. `racingline.ts` builds the worn line as
+ * `-sign(curvature) · commit · halfWidth`, and measured on the running game
+ * (`node tools/hazardcensus.mjs --profile`) the field crosses Cone Canyon's
+ * Carousel — a 185° right-hander — at a **median of +5.5 metres**, and
+ * Switchback's Spur — a 155° left — at a **median of −5.8**. So:
+ *
+ *     positive lateral  =  the inside of a right-hand corner
+ *     negative lateral  =  the inside of a left-hand corner
+ *
+ * Three of the cup's four hazards were authored off the inverted sentence and
+ * every one of them was placed in the empty half of the road. Over thirteen
+ * full races they hit a racer five times between them; the mountain's gate,
+ * cycling every eleven seconds at a 38% blocked window, hit nobody at all in
+ * any of them. Nothing about the periods, the widths or the stun profiles was
+ * wrong. They were simply not where anybody drives.
+ *
+ * **So do not reason about this frame — measure it.** `--profile` prints the
+ * driven line, in metres, at a hundred stations round the lap, and a hazard
+ * placed off that report cannot be wrong about which side of the road it is
+ * on. The plain census then proves it fired: the pass mark is 8-20 hazard hits
+ * per race, on every course, at every seed.
+ */
 export interface HazardDef {
   /** Lap fraction of the point on the road the hazard crosses. */
   at: number;
   /**
-   * Where on the road the body is, as a fraction of the half width, **in the
-   * spline's frame** — the same frame `ShortcutDef.side` and `SurfacePatchDef`
-   * use, and therefore the mirror of the driver's. `-1` is the driver's right.
+   * Where on the road the body is, as a fraction of the half width, in the
+   * frame described above — positive is the inside of a right-hander.
    *
    * What exactly it names depends on what is moving, because a machine that
    * crosses the road and a gate that swings onto it do not have the same
@@ -261,7 +301,28 @@ export interface HazardDef {
    */
   lateral?: number;
   kind: HazardKind;
-  /** Seconds of one full cycle. The whole hazard is a function of this. */
+  /**
+   * Seconds of one full cycle. The whole hazard is a function of this.
+   *
+   * ── keep it short, and the reason is not tempo ─────────────────────────────
+   *
+   * A cycle much longer than the field's own spread makes seven racers into
+   * **one sample**. They arrive at the station within a few seconds of each
+   * other, so on a seventeen-second cycle all seven meet the same phase, and a
+   * three-lap race with seven racers stops being twenty-one independent draws
+   * and becomes three. Measured: Cone Canyon's rockfall, at a 50% blocked
+   * window, came back armed on 16 of 27 passes at one seed and **3 of 22** at
+   * another — a four-sigma miss on a binomial that was never binomial, because
+   * the pack crossed together while the lane happened to be clear.
+   *
+   * That is what makes a hazard feel absent even when its duty is right: a
+   * whole race can go by in which nobody meets it, not because it is rare but
+   * because it is *correlated*. Under about twelve seconds the pack's own
+   * spread is a large fraction of the cycle and the racers decorrelate, and
+   * two stations on different periods decorrelate them again. Both are cheaper
+   * than turning the duty up, which is the move that turns a hazard into a
+   * wall.
+   */
   period: number;
   /** 0..1 offset into the cycle at the flag. Three surges 1/3 apart is a wave. */
   phase?: number;
@@ -306,18 +367,403 @@ export interface ShortcutDef {
   from: number;
   to: number;
   /**
-   * Which shoulder the cut runs down, in the *spline's* lateral frame — and
-   * that frame is the opposite of the driver's, because `TrackSpline` builds
-   * `right` as `tangent × up`, which points to the driver's **left**. So `-1`
-   * is the driver's right and `+1` is the driver's left, and the value you
-   * want is whichever side the corner's apex is on: `-1` for a right-hander,
-   * `+1` for a left.
+   * Which shoulder the cut runs down, in the *spline's* lateral frame — see
+   * `LATERAL FRAME` above `HazardDef`. The value you want is whichever side
+   * the corner's apex is on, and measured on the running game that is **`+1`
+   * for a right-hander and `-1` for a left**.
    *
    * Getting it backwards is silent rather than loud: the ribbon is painted on
    * the outside of the corner, `ai/knowledge.ts` measures a chord *longer*
    * than the arc, `save` clamps to zero, and no driver ever takes it.
+   *
+   * **All four of the cup's cuts are currently declared the other way round**,
+   * which is the same inverted sentence that put three hazards in the empty
+   * half of the road, and `--profile` shows the consequence: at Cone Canyon's
+   * Digger's Elbow, the Crusher, the Sump and the Spur the field runs wide
+   * onto the shoulder the cut is *not* painted on. They are left as they are
+   * for now because flipping four shortcuts changes the AI's line on the four
+   * tightest corners in the game, which is a change that has to be measured on
+   * its own rather than folded into a hazard round.
    */
   side: -1 | 1;
+}
+
+/**
+ * ── the kit: what the circuit is *built out of* ────────────────────────────
+ *
+ * A critic played the cup after the shapes were fixed and rejected it on a
+ * finding that no amount of further geometry could have answered:
+ *
+ *   *"The four circuits are now genuinely different shapes but they are still
+ *   the same place — identical start gantry, banner, grandstands, chequered
+ *   strip, kerb, barrier, asphalt and edge line on all four — so choosing a
+ *   course changes the map card and the terrain tint and never changes the
+ *   world you arrive in."*
+ *
+ * They were right, and the proof was four screenshots: `cone-canyon-grid.png`,
+ * `jackhammer-quarry-grid.png`, `saltpan-bypass-grid.png` and
+ * `switchback-summit-grid.png` shared the same yellow truss gantry to the
+ * pixel, the same navy hazard banner, the same five-bulb board and the same
+ * orange-and-white striped panel barrier on grey drums. A course was a
+ * *layout*; the thing standing over it was a constant.
+ *
+ * So a course now also declares its **kit** — the two pieces of built world a
+ * driver is looking at for the whole race:
+ *
+ *   * **`arrival`** — what stands over the start line, carries the circuit's
+ *     name and counts the race in. A truss gantry on a speedway, a conveyor
+ *     bridge over a quarry, a loading jetty over a salt works, a cable-car
+ *     pylon pair on a mountain. It is the establishing shot of the course and
+ *     it is the frame the player stares at through the whole countdown.
+ *   * **`barrier`** — what runs down both edges of the road for the entire lap.
+ *     This is, by area, the single most-seen object in the game after the
+ *     tarmac, and it was one object.
+ *
+ * ── where it is built, and why not in `track/` ─────────────────────────────
+ *
+ * `track/gantry.ts`, `track/barriers.ts` and `track/road.ts` build one of each,
+ * unconditionally, and they are not this module's files. `courses/kit.ts` is
+ * therefore a **system**, not a builder: it listens for `track:built`, hides
+ * the stock pieces the course has replaced, and stands its own in their place —
+ * exactly the intervention `render/ground.ts` already makes on the shoulder
+ * gravel, and for exactly the same reason. If the road module ever grows a
+ * barrier vocabulary of its own, this evaporates into a parameter.
+ *
+ * A course that declares no kit gets the stock look and nothing changes. Cone
+ * Canyon deliberately keeps it: the yellow truss and the striped panel *are*
+ * the speedway, and a cup needs one round that looks like the poster.
+ */
+export type ArrivalKind = 'gantry' | 'conveyor' | 'jetty' | 'pylon';
+
+/**
+ * What the edge of the road is made of.
+ *
+ *   * `panel`     — the stock roadworks kit: orange/white striped board on a
+ *                   concrete footing with steel posts and a capping rail.
+ *   * `jersey`    — a continuous battered concrete safety barrier, no posts, no
+ *                   rail, black-and-yellow toe bands at the joints. What a
+ *                   working pit actually puts beside a haul road.
+ *   * `seawall`   — a low salt-crusted rendered wall with a blue capping, half
+ *                   the height of anything else in the cup, so the one view the
+ *                   saltpan is built around stays open.
+ *   * `snowfence` — vertical timber slats on raking posts, gaps between them,
+ *                   snow packed along the foot. The only barrier in the cup you
+ *                   can see the landscape *through*.
+ */
+export type BarrierKind = 'panel' | 'jersey' | 'seawall' | 'snowfence';
+
+/**
+ * ── chapters: the three *places* one lap is made of ────────────────────────
+ *
+ * A critic photographed the same chase view at 22%, 50% and 78% of a lap on
+ * every course and rejected the roster on what came back:
+ *
+ *   *"Cone Canyon: y=12.8 / 13.0 / 2.1 — three near-identical frames, same
+ *   orange verge, same red-and-white striped fence, same tan cone hills, same
+ *   sky; with the minimap covered you cannot say which third of the lap you are
+ *   on. Saltpan Bypass: same white salt, same black ribbon with a yellow line,
+ *   same single distant butte, three times. Only one of four courses has
+ *   chapters."*
+ *
+ * The one that passed was Switchback Summit, and the reason it passed is worth
+ * naming exactly, because it is not artistry: **its road changes altitude by a
+ * hundred and sixteen metres**, so `render/theme.ts`'s snow ramp, the pines and
+ * the gorge all arrive on their own. Every other circuit in the cup is flat
+ * enough that the *landscape* is one landscape for the whole lap — and no
+ * amount of terrain tuning fixes that, because `track/terrain.ts` anchors the
+ * ground to the elevation of the nearest road (`ref` in `terrainHeight`), so
+ * the land beside a circuit always comes with it.
+ *
+ * A chapter is therefore **built**, not sculpted: a span of the lap that stands
+ * something along the road big enough to change the shape of the frame. Two
+ * spans of the same lap under the same sky read as two places if one is a
+ * corridor between walls and the other is open, and that is a thing a course
+ * can declare and `courses/kit.ts` can build.
+ *
+ *   * `cutting`  — the road runs in a trench between two faces that rise `height`
+ *                  metres from just outside the barrier. The horizon disappears,
+ *                  the sky narrows to a strip, and the walls carry the light.
+ *                  Rock on a canyon, sheet-piled concrete in a works.
+ *   * `viaduct`  — the road is up on a structure: a deck fascia overhanging both
+ *                  flanks, a parapet, and a through truss standing on it with
+ *                  portal braces overhead. What says *you are on something* when
+ *                  the landscape cannot be dug away underneath you.
+ *   * `portal`   — a single arch across the road: two rock stacks and a natural
+ *                  bridge between them. Not a span of road but a gate on it —
+ *                  the frame you drive through into the next chapter.
+ */
+export type ChapterKind = 'cutting' | 'viaduct' | 'portal';
+
+export interface ChapterDef {
+  /** What this place is called. Read by nothing; kept for the file to be legible. */
+  name: string;
+  /** Lap fraction of the leading edge, from the start line. */
+  from: number;
+  /** Lap fraction of the trailing edge. A `portal` uses the midpoint. */
+  to: number;
+  kind: ChapterKind;
+  /** Metres the faces stand above the road, or the truss above the deck. */
+  height?: number;
+  /** Metres of lateral batter on a cutting; deck overhang on a viaduct. */
+  batter?: number;
+  /**
+   * **Which flank the face stands on** — a `cutting` only. Omitted builds both,
+   * which is what a trench is.
+   *
+   * A quarry bench is not a trench and building it as one was the round-two
+   * finding in reverse: a haul road cut into a bench has a high wall on the
+   * *uphill* hand and nothing at all on the other, because the other hand is
+   * the drop to the bench below. Walling both sides of a bench closes the one
+   * view the course is about, and — worse — reads as the same corridor the
+   * canyon already owns. One face and an open drop is an **asymmetric** frame,
+   * which is the thing only the gallery had.
+   *
+   * The frame is the spline's — see `LATERAL FRAME` above `HazardDef`, `+1` is
+   * the inside of a right-hand corner, i.e. the driver's right.
+   */
+  side?: -1 | 1;
+  /** Body colour of the built thing. */
+  tint?: number;
+  /** Trim: capping, handrail, chevrons, hazard bands. */
+  accent?: number;
+  /**
+   * What the face is made of, which decides how it is drawn as well as what
+   * colour it is: `rock` is bedded strata with a broken crest, `works` is
+   * ribbed sheet pile with a capping beam and a hazard band along the toe.
+   */
+  face?: 'rock' | 'works';
+}
+
+/**
+ * ── an enclosed span: the noun the cup did not have ────────────────────────
+ *
+ * **The finding.** A critic played all four rounds and scored the cup 6.5 on a
+ * sentence that no amount of further palette work could have answered:
+ *
+ *   *"All four rounds are the same kind of place — a wide asphalt ribbon on
+ *   open ground under the same midday blue sky — so the cup changes tint and
+ *   plan-view silhouette but never changes what it feels like to be somewhere.
+ *   B is Mount Wario section three, and the reason B wins is not fidelity, it
+ *   is that B changes what kind of place you are in mid-course and A does not
+ *   change it across four whole courses."*
+ *
+ * Every noun this file owned was **outdoors**. A cutting narrows the sky to a
+ * strip; a viaduct puts the ground a long way down; a portal is one arch you
+ * are through in half a second. Not one of them takes the sky away, and the
+ * measurement that proves it is the roster's own feature audit: with only
+ * `chapters` to express *place*, Switchback Summit's feature set came out as a
+ * strict subset of Saltpan Bypass's, which is the exact re-skin condition
+ * `index.ts` declares fatal.
+ *
+ * So an enclosure is a **top-level noun** rather than a fourth chapter kind,
+ * and that is deliberate. A chapter changes the shape of the frame from
+ * outside it. An enclosure changes what lighting model the player is in: the
+ * key light stops reaching the road except through the openings, the horizon
+ * is gone rather than narrowed, the engine note has a wall to come back off,
+ * and the only colour in the frame that is not grey is the lamp run and the
+ * bright slot on the valley side. It is a different *kind* of thing and the
+ * audit has to be able to see that it is.
+ *
+ * ── the shape, and why it is a shed and not a tube ─────────────────────────
+ *
+ * A bored tunnel is the wrong object twice over. It is dark end to end, which
+ * on a course whose whole point is a hundred metres of gorge means throwing
+ * away the view; and it is a circle, which needs a hole punched through a
+ * landform the terrain module builds and this module cannot touch.
+ *
+ * A **gallery** is what an alpine pass actually uses, and it is better on
+ * every axis. One flank is a solid wall standing against the hill; the other
+ * is a row of piers with daylight between them; the roof is a shed falling
+ * from the wall side to the valley side, so an avalanche crosses the road
+ * rather than stopping on it. That gives, for free:
+ *
+ *   * **the strobe.** Piers at a fixed pitch cut the sun into bars that sweep
+ *     across the bonnet at exactly the rate the kart is travelling. It is the
+ *     single cheapest way to make speed legible, and it costs one shadow-
+ *     casting InstancedMesh.
+ *   * **a bright side and a dark side.** The frame is split down the middle:
+ *     black wall and lamp run to one hand, hot slots onto a gorge to the
+ *     other. Nothing else in the cup has an asymmetric frame.
+ *   * **a mouth.** The far portal is a lit rectangle in a black field from two
+ *     hundred metres out — a thing to drive *at*, which is what the four
+ *     circuits were short of.
+ */
+export interface EnclosureDef {
+  /** What this place is called. Read by nothing; kept so the file is legible. */
+  name: string;
+  /** Lap fraction of the up-course mouth, measured from the start line. */
+  from: number;
+  /** Lap fraction of the down-course mouth. */
+  to: number;
+  /**
+   * Metres of clear height under the soffit **at the wall side**, where the
+   * roof is highest. The valley side is `fall` metres lower.
+   *
+   * The floor on this is a camera number, not an art one. `config.camera.chase`
+   * puts the lens about 3m over the kart, `modes.far` adds 1.9 and
+   * `modes.cinematic` 3.0, so anything under about 7 metres photographs the
+   * inside of its own roof the moment a reviewer asks for a pulled-back shot.
+   */
+  height?: number;
+  /** Metres the soffit drops from the wall side to the valley side. */
+  fall?: number;
+  /**
+   * Which flank the solid wall stands on, in the spline's lateral frame — see
+   * `LATERAL FRAME` above `HazardDef`. The piers and the daylight go on the
+   * other one, so this is really the question *"which way does the view go"*.
+   */
+  side?: -1 | 1;
+  /** Metres between piers, and therefore the pitch of the light bars. */
+  pitch?: number;
+  /** Concrete body colour. */
+  tint?: number;
+  /** The chevrons round both mouths and the band along the deck edge. */
+  accent?: number;
+  /** The soffit lamp run. Unlit by anything — it is its own light. */
+  lamp?: number;
+}
+
+/**
+ * ── a belt of standing vegetation, close in ────────────────────────────────
+ *
+ * **The finding.** *"Switchback Summit is a 102m alpine mountain with no trees,
+ * bushes or vegetation of any kind — five metres past the kerb the world
+ * becomes a flat desaturated olive plane with a handful of tiny scatter props,
+ * and Mount Wario's equivalent moment is a dense pine forest."*
+ *
+ * `world/index.ts` does honour `theme.props.pines` and does place conifers, and
+ * that is why the finding is subtle rather than obvious. What it places is a
+ * **landscape** layer: 190 stands scattered over an eighteen-to-two-hundred-
+ * metre band the whole way round the lap, thinned again by a `free()` claim
+ * radius and cut by a treeline test against the nearest road. Averaged over
+ * 2.7km of circuit and a 190-metre-wide band that is roughly one stand every
+ * 2,700 square metres — correct for a distant hillside, and invisible from a
+ * chase camera whose sight line past the barrier is mostly the first thirty
+ * metres. The band that decides whether a road runs *through* forest is the one
+ * band nothing was allowed to plant in, because `world/` reserves the
+ * shoulder for cones, drums and trestles.
+ *
+ * So a treeline is a **kit** noun, standing with the barrier rather than with
+ * the landscape: a dense belt planted from just outside the barrier footing out
+ * to `far`, along declared spans of the lap, on one flank or both. It is the
+ * difference between a mountain that has trees on it somewhere and a mountain
+ * road you cannot see out of.
+ *
+ * The stands themselves are `world/landprops.ts`'s `pineStandGeo` — imported,
+ * never copied. A second conifer drawn in this directory would be two kinds of
+ * tree on one hillside, which is the coherence fault this whole file exists to
+ * answer.
+ */
+export interface TreelineDef {
+  /** Lap fraction of the leading edge, measured from the start line. */
+  from: number;
+  /** Lap fraction of the trailing edge. */
+  to: number;
+  /**
+   * Which flank, in the spline's lateral frame — see `LATERAL FRAME` above
+   * `HazardDef`. Omitted plants both, which is what a road through a forest is.
+   */
+  side?: -1 | 1;
+  /** Metres beyond the shoulder the belt starts. Defaults to 3. */
+  near?: number;
+  /** Metres beyond the shoulder it ends. Defaults to 56. */
+  far?: number;
+  /**
+   * Stands per hundred metres of road, per flank. A stand is three or four
+   * trees, so the default of 18 is sixty-odd trunks in a hundred metres of
+   * verge — a forest rather than a scatter, which is the whole point.
+   */
+  density?: number;
+  /**
+   * Metres a stand may stand above the road beside it before it is dropped.
+   *
+   * A treeline is the cue that makes a mountain read as a mountain, and a
+   * forest growing up through the snowline destroys it. Defaults to 22, which
+   * is comfortably under `render/theme.ts`'s snow ramp.
+   */
+  ceiling?: number;
+}
+
+/**
+ * ── crossings: the arrival structure, un-bolted from the start line ────────
+ *
+ * `arrival` puts one structure over the chequer, and a course gets exactly one
+ * of them. That was enough while the only thing anybody photographed was the
+ * grid — and a critic then photographed the shot a player actually lives in:
+ *
+ *   *"put the course's stated nouns in the first ten seconds of frame — the
+ *   overland conveyor, the haul truck, the jersey barrier. None of them are
+ *   present in the canonical racing shot, which is a bare two-lane road under
+ *   a sunset."*
+ *
+ * `capture.mjs` autopilots roughly nine seconds from the line before it takes
+ * `racing`, and on a course that covers four hundred metres in them the thing
+ * standing over the start line is four hundred metres behind the camera. A
+ * noun a course claims in its own name has to appear more than once a lap.
+ *
+ * So the same structures may be stood anywhere on the circuit. A crossing
+ * carries no banner and no start lights — those belong to the line — and is
+ * otherwise the same object, so the two read as one working plant rather than
+ * as a landmark and a copy of it.
+ */
+export interface CrossingDef {
+  /** What this is, for the file to be legible. Read by nothing. */
+  name: string;
+  /** Lap fraction it stands at, measured from the start line. */
+  at: number;
+  /** Which structure. Only the ones that genuinely span a road are offered. */
+  kind: 'conveyor' | 'jetty';
+  /**
+   * Radians the structure is skewed off square to the road.
+   *
+   * An overland belt is laid where the material has to go, not where the road
+   * happens to point, so a conveyor crossing at exactly ninety degrees reads as
+   * a gantry. Defaults to 0.
+   */
+  skew?: number;
+  /** Metres it stands clear of the road's own height. Defaults to 0. */
+  lift?: number;
+}
+
+export interface KitDef {
+  /** What stands over the start line. Defaults to the stock truss gantry. */
+  arrival?: ArrivalKind;
+  /**
+   * **The same plant, further round the lap.** See `CrossingDef` — the answer
+   * to a course whose signature noun is only ever in the establishing shot.
+   */
+  crossings?: CrossingDef[];
+  /** What runs down both edges of the road. Defaults to the stock panel. */
+  barrier?: BarrierKind;
+  /**
+   * Kerb livery. Red-and-white is a speedway's kerb and nowhere else's — a
+   * quarry paints hazard black-and-yellow on anything a truck can hit, a salt
+   * works paints works blue, and a mountain pass paints the snow poles.
+   * `pitch` is metres of one full stripe pair.
+   */
+  kerb?: { a: string; b: string; pitch?: number };
+  /** Road markings — edge lines, centre dashes and grid boxes. */
+  paint?: string;
+  /** The chequered strip on the line. Both halves, so it can be read on snow. */
+  chequer?: { dark: string; light: string };
+  /** Structural steel of the arrival piece. */
+  steel?: number;
+  /** Its high-vis accent: handrails, toe boards, cabins. */
+  accent?: number;
+  /** The name banner it carries: background, lettering, hazard strip. */
+  banner?: { field: string; ink: string; strip: string };
+  /**
+   * **The places this lap passes through.** See `ChapterDef` — a course with
+   * no chapters is one place for the whole race, which is the finding that put
+   * this here.
+   */
+  chapters?: ChapterDef[];
+  /**
+   * **What grows beside this road.** See `TreelineDef` — a dense belt in the
+   * band `world/` reserves for cones and drums, which is the band that decides
+   * whether a circuit runs *through* a landscape or merely past one.
+   */
+  treeline?: TreelineDef[];
 }
 
 /**
@@ -334,6 +780,97 @@ export interface LandmarkDef {
   height: number;
   /** 'mesa' is a flat-topped block; 'spire' is a needle. */
   kind?: 'mesa' | 'spire';
+}
+
+/**
+ * ── the skyline: a landform the height function cannot make ────────────────
+ *
+ * **The finding, and it is the one that put this cup at 6.5.**
+ *
+ *   *"Rounds 1 and 2 of the cup are the same place with two different
+ *   exposures — Cone Canyon and Jackhammer Quarry share the same orange-brown
+ *   ground and the same low-poly conical orange peaks on the horizon, so with
+ *   the HUD cropped a player cannot tell which round they are driving."*
+ *
+ * The peaks are `LandmarkDef`s, and the reason two courses share a silhouette
+ * is that `terrain.ts` has exactly two shapes in it: a dome and a needle. Both
+ * are **radially symmetric and smooth**, which is the definition of a cone,
+ * and both are *summed* into a height field — so overlapping them to make
+ * something else produces a taller lump rather than a different one. There is
+ * no arrangement of `mesa` that reads as a quarry.
+ *
+ * What makes a pit a pit is a *horizontal* line repeated up a wall: the bench,
+ * the flat catch berm between two blasted lifts. It is the exact opposite
+ * primitive to a cone, and it cannot be expressed as a height above a point —
+ * it is a profile revolved around one. So the skyline is **built**, in
+ * `courses/kit.ts`, out of the same lofted-ribbon machinery the chapters are,
+ * and the height field is left to do what it is good at: the ground the road
+ * is actually on.
+ *
+ * A course that declares a skyline should turn its `landmarks` off. Two
+ * horizons is one too many.
+ */
+export interface BenchRimDef {
+  /** Centre of the pit in world XZ — usually the middle of the circuit. */
+  x: number;
+  z: number;
+  /** Plan radius of the toe of the first face. Keep it clear of the road. */
+  radius: number;
+  /** Elevation of the toe. Below the surrounding ground, so it emerges. */
+  base: number;
+  /** How many lifts are cut into the wall. */
+  lifts: number;
+  /** Vertical rise of one lift, metres. */
+  lift: number;
+  /** Width of the flat catch bench between two lifts, metres. */
+  bench: number;
+  /** Horizontal run of one face over its rise — the batter. */
+  batter: number;
+  /** Peak-to-peak wander of the plan radius, metres. Defaults to 46. */
+  wander?: number;
+  /** Blasted rock. */
+  tint?: number;
+  /** Fines lying on the benches. */
+  dust?: number;
+}
+
+/**
+ * A spoil tip: flat top, terraced tipping face, and a stacker climbing it.
+ *
+ * A free-standing terraced landform: flat top, benched flanks, and optionally
+ * a stacker climbing it.
+ *
+ * It is one shape rather than one *thing*, and that is deliberate — on the
+ * quarry it is a spoil tip with an inclined belt running up the face, and on
+ * the canyon it is a sandstone butte with sedimentary benching, which is the
+ * same profile at a different tint with `stacker` off. What it is not, in
+ * either place, is a cone: the terrace is the whole point, and the terrace is
+ * exactly what `LandmarkDef` cannot express.
+ */
+export interface StackDef {
+  x: number;
+  z: number;
+  /** Elevation of the foot. */
+  base: number;
+  /** Height of the flat top above the foot. */
+  height: number;
+  /** Plan radius at the foot. */
+  foot: number;
+  /** Plan radius of the flat top. */
+  top: number;
+  /** Terrace lines down the face. Defaults to 5. */
+  lifts?: number;
+  /** Bearing the tip is elongated along and the stacker climbs, radians. */
+  bearing?: number;
+  /** Stand a stacker conveyor up the face. Defaults to false. */
+  stacker?: boolean;
+  tint?: number;
+  dust?: number;
+}
+
+export interface SkylineDef {
+  rim?: BenchRimDef;
+  stacks?: StackDef[];
 }
 
 /** Shaping of the landscape the circuit is cut into. */
@@ -368,11 +905,30 @@ export interface TerrainDef {
  *   3 Saltpan          `patches` with `style: 'brine'` — **the flood**. Three
  *                      sheets of standing water across the fastest road in the
  *                      game, each leaving a different dry lane.
- *   4 Switchback       `ramps` — **the kicker**. The only place in the cup a
- *                      kart leaves the ground because somebody built a ramp.
+ *   4 Switchback       `enclosures` — **the gallery**. Two hundred metres of
+ *                      road with a roof on it, on the steepest part of the
+ *                      climb. The only place in the cup with no sky in it.
  *
  * If you add a fifth course, it needs a fifth noun. A course whose feature list
  * is a subset of another course's is a re-skin, and this cup has been one.
+ *
+ * ── and the audit is over *nouns*, not over property names ─────────────────
+ *
+ * Round four used to own `ramps`, and `ramps` is what put it back in the bin.
+ * Saltpan grew a boost ramp of its own in an unrelated round, and from that
+ * moment `{shortcuts, ramps, hazards}` was a strict subset of
+ * `{shortcuts, ramps, hazards, chapters}` — a re-skin by this file's own rule,
+ * arrived at without anybody touching the mountain. Two of the four rounds
+ * failed the test the same way at the same time.
+ *
+ * The lesson is that a shared property name is not a shared noun and is not a
+ * private one either. `patches` is `island` on round one and `brine` on round
+ * three and those are two different mechanics; `chapters` is a `viaduct` on
+ * round three and would have been a `gallery` on round four. So the audit
+ * `index.ts` publishes is over **(property, kind)** pairs, and a noun that
+ * genuinely changes the rules — as an enclosure changes what is lighting the
+ * road — gets a property of its own so that the audit can see it without
+ * having to be told.
  *
  * ── and then a critic pointed out that none of those four could touch you ──
  *
@@ -404,11 +960,28 @@ export interface TrackFeatures {
   ramps?: RampDef[];
   /** Nose blocks marking a width pinch. See `GateDef`. */
   gates?: GateDef[];
+  /**
+   * **Spans of road with a roof on them.** See `EnclosureDef` — the only noun
+   * in this interface that takes the sky away rather than reshaping it, and
+   * the reason round four is no longer a subset of round three.
+   */
+  enclosures?: EnclosureDef[];
+  /**
+   * **What this circuit is built out of.** See `KitDef` — the arrival
+   * structure over the line and the barrier down both edges of the road.
+   * Omitted means the stock speedway kit.
+   */
+  kit?: KitDef;
   /** Lap fraction of the start gantry; defaults to the start line. */
   gantryAt?: number;
   /** Curvature above which a kerb is laid on the inside of a corner. */
   kerbCurvature?: number;
   terrain?: TerrainDef;
+  /**
+   * **What this course's horizon is made of.** See `SkylineDef` — the answer
+   * to two rounds of one cup sharing a set of cones.
+   */
+  skyline?: SkylineDef;
 }
 
 export interface CourseDefEx extends CourseDef {

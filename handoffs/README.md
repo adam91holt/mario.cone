@@ -15,19 +15,22 @@ font — every pixel and every sound is generated in code.
 
 ---
 
-## 1. State at the pause
+## 1. State — resumed 2026-08-11 18:14 UTC
 
-**Paused deliberately, at the owner's request. Nothing is running.**
+**Running again.** The pause below is history; it is kept because the verdicts it
+recorded are still the carry for the wave now in flight.
 
 | | |
 |---|---|
-| Branch | `claude/mario-kart-racing-game-z8wdf1` |
+| Branch | `claude/waves-phases-routine-setup-faggxq` (in sync with `origin/main`) |
 | Board | **0 of 17 pieces at "pass"** — the bar is 8.5 |
-| Hourly loop | `trig_01EAQCQD9TToG7aSacVrcW2s` — **disabled**, renamed `MARIO.CONE build loop (PAUSED 2026-08-11)` |
-| Last wave | `wf_a4784a0d-17d` — died with the container on its 7th agent |
-| In flight | nothing |
+| Hourly loop | `trig_016kZX2Ms5Z3DoxxD1AKBkSE` — **enabled**, hourly at :53 UTC, self-bound to session `session_01BBCEzQ8Tntz11FNErZ1pXg` |
+| Current wave | `wf_85f146bd-139` — courses + perf, 2 rounds each, both carrying prior verdicts |
+| Its args | `handoffs/wave.args.json` — pass these byte-for-byte to resume |
 
-The last wave returned six of seven agents and three carried scored verdicts.
+The wave that was in flight at the pause (`wf_a4784a0d-17d`) died with the
+container on its 7th agent. It returned six of seven agents and three carried
+scored verdicts.
 Those are already recorded in `tools/progress.state.json` — **do not re-buy
 them.** A critic's measured verdict is the most expensive artifact this system
 produces.
@@ -67,7 +70,7 @@ suspension. There is nothing else — no daemon, no background service.
 
 ```js
 update_trigger({
-  trigger_id: "trig_01EAQCQD9TToG7aSacVrcW2s",
+  trigger_id: "trig_016kZX2Ms5Z3DoxxD1AKBkSE",
   enabled: true,
   name: "MARIO.CONE build loop",
 })
@@ -76,7 +79,10 @@ update_trigger({
 **One critical caveat.** That Routine is *self-bound to the session that created
 it* — it fires into the original conversation, not into yours. If you are a new
 session, re-enabling it wakes a session you are not in. Either work in that
-session, or delete it and create a fresh one from your own (below).
+session, or delete it and create a fresh one from your own (below). Check with
+`list_triggers` before assuming it is still there: the previous one
+(`trig_01EAQCQD9TToG7aSacVrcW2s`) had vanished by the time this session picked
+the build up, which is why there is a new id here.
 
 ### If you are starting fresh (new session, or the Routine is gone)
 
@@ -94,15 +100,23 @@ this same conversation** rather than starting cold. A fresh-session-per-fire
 Routine would lose every scrap of context each hour and is the wrong shape for
 this.
 
-Before you arm it, fix two things in the prompt text — they are session- and
+Before you arm it, fix three things in the prompt text — they are session- and
 run-specific and **will be wrong for you**:
 
-1. **`WFDIR=`** on line 1. It points at the old session's workflow directory.
+1. **`WFDIR=`** on line 1. It points at the previous session's workflow directory.
    Yours is `/root/.claude/projects/<slugified-cwd>/<your-session-uuid>/subagents/workflows`.
-2. **The run id.** The prompt says `Current run: courses+perf wave =
-   wf_a4784a0d-17d`. That run is dead. Either update it after you launch, or
-   leave it — the prompt already says `Do NOT trust any run id written here —
-   resolve it: RUN=$(ls -t $WFDIR | head -1)`, which is the habit that matters.
+2. **The branch.** Line 1 names the branch the loop commits to.
+3. **The run id.** Either update it after you launch, or leave it — the prompt
+   already says `Do NOT trust any run id written here — resolve it: RUN=$(ls -t
+   $WFDIR | head -1)`, which is the habit that matters.
+
+One thing the fired session does **not** inherit: MCP connector tools. A Routine
+created from inside a session stores only the connectors that session itself
+holds, and this one stored none. Firing into a *persistent* session lands in a
+conversation that already has its servers connected, so it has not bitten yet —
+but if a tick finds `mcp__github__*` missing, push to the branch over plain git,
+say so, and leave the PR for a tick that can open one. Never let a missing PR
+tool become a reason to skip the push.
 
 ### The prompt is the memory — keep editing it
 
@@ -126,6 +140,10 @@ do.
 
 The prompt drives it, but the shape is:
 
+0. **`ls node_modules`.** A reclaimed container comes back without it, and every
+   agent that runs `npm run typecheck` or `--smoke` then fails on something that
+   has nothing to do with its piece. `npm install` first, before launching
+   anything.
 1. `node tools/session.mjs` — refresh the published conversation archive.
 2. Resolve the run id with `ls -t`, then **prove liveness** (see
    `build-system.md` §6 — this is the part that has burned the most time).
@@ -151,6 +169,7 @@ The prompt drives it, but the shape is:
 | `tools/session.mjs` | publishes the conversation to `docs/session/` |
 | `tools/phone.mjs` | the phone acceptance test, written from a real bug report |
 | `handoffs/build-loop-prompt.txt` | the exact hourly prompt, verbatim |
+| `handoffs/wave.args.json` | the args of the wave in flight, for a byte-exact resume |
 | `.github/workflows/deploy.yml` | pushes to `main` redeploy the game to Pages |
 
 ---
@@ -170,6 +189,23 @@ each one failed before its fix landed:
 | `tools/countdown.mjs` | nothing moves, and no boost is granted, before the flag |
 | `tools/phone.mjs` | the race waits for the player, and there are controls on glass |
 | `tools/steercheck.mjs` | left is left — it drives real key events, because `setInput()` bypasses the device layer |
+| `tools/underground.mjs` | the chase lens never ends up inside the landscape |
+
+`tools/underground.mjs` carries three guards, and every one of them was bought
+with a measurement that said the wrong thing:
+
+- **Terrain is the two meshes named `ground` and `embankment`.** Picking them by
+  vertex count also catches grandstands, crowds and an overhead sign, and
+  "reproduced" the bug 8.5 m underground on cone-canyon when the camera was
+  passing beneath a gantry under clear sky.
+- **`reset()` takes `courseId`/`vehicleId` and silently ignores unknown keys.**
+  Passing `course` loads the default, so the test measured cone-canyon four
+  times and printed four course names. It now checks `snapshot().track.id`
+  against what it asked for.
+- **The engine's rAF loop never stops**, and steps the simulation by wall time
+  alongside anything the harness drives, so `setTimeScale(0)` has to be
+  re-applied after *every* reset. Without it a sample labelled `t=2s` is nothing
+  of the sort. `capture.mjs` has always done this and says why.
 
 `tools/countdown.mjs` prints one standing **WARN** that is deliberately not a
 failure: the start grid on cone-canyon stands on a boost strip, so the flag

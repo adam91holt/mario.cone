@@ -448,9 +448,19 @@ export function createStage(ctx: GameContext): Stage | null {
   // Shadows follow the game's own quality switch, and take the same filter the
   // engine uses — the front-end was the one surface in the product with hard
   // shadow edges on it.
+  //
+  // That filter is `PCFShadowMap`, not `PCFSoftShadowMap`. `PCFSoftShadowMap`
+  // is deprecated in the vendored three: `WebGLShadowMap.render` rewrites it to
+  // `PCFShadowMap` on the first shadow pass and warns on the console while it
+  // does — which is the boot-time warning ARCHITECTURE §13 forbids, and it was
+  // coming from *this* renderer, `render/lighting.ts` and `core/engine.ts`
+  // having both already been corrected. Asking for what the build actually
+  // gives keeps "the same filter the engine uses" true instead of aspirational;
+  // the penumbra is shaped with `shadow.radius` on the key light below, the way
+  // the race's sun rig does it.
   const SHADOWS = ctx.quality.shadows !== false;
   renderer.shadowMap.enabled = SHADOWS;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
 
   const scene = new THREE.Scene();
   scene.background = gradientSky();
@@ -1053,14 +1063,37 @@ export function createStage(ctx: GameContext): Stage | null {
     }
   }
 
+  /**
+   * The render scale `src/core/quality.ts` has this machine on, 0..1.
+   *
+   * This set has its own renderer, so for eleven rounds it was the one surface
+   * in the product the performance ladder could not size — and it is the *first*
+   * surface a player ever sees. Measured on the untouched title screen under a
+   * software rasteriser: a 1135ms median delivered frame, 0.88fps, with the
+   * governor reporting `undrawn (race not in this frame)` and standing still,
+   * because every frame here was somebody else's work. It is this ladder's work
+   * now: the cap below is what this set costs *at rung 0*, and the rung scales
+   * it like everything else.
+   */
+  let ladderScale = 1;
+  const offQuality = ctx.bus.on<{ scale?: number }>('quality:changed', (e) => {
+    const s = typeof e?.scale === 'number' ? e.scale : 1;
+    // Clamped rather than trusted: a backing store of nought pixels is a lost
+    // context, and this renderer is the one the player is looking at.
+    ladderScale = s > 0.2 && s <= 1 ? s : 1;
+  });
+
   function resize(): void {
     const w = Math.max(2, canvas.clientWidth || 1280);
     const h = Math.max(2, canvas.clientHeight || 720);
     // Capped, because this set is drawn *on top of* a game that is already
     // paying for a full frame, and the reviewers' rasteriser is software.
-    const scale = Math.min(1, 1200 / w);
-    const bw = Math.round(w * scale);
-    const bh = Math.round(h * scale);
+    // ...and then scaled by the ladder, so that a machine the governor has
+    // taken to half resolution gets a half-resolution front-end too instead of
+    // a title screen that is the most expensive picture in the product.
+    const scale = Math.min(1, 1200 / w) * ladderScale;
+    const bw = Math.max(2, Math.round(w * scale));
+    const bh = Math.max(2, Math.round(h * scale));
     if (canvas.width === bw && canvas.height === bh) return;
     renderer.setSize(bw, bh, false);
     camera.aspect = w / h;
@@ -1409,6 +1442,7 @@ export function createStage(ctx: GameContext): Stage | null {
     },
 
     dispose(): void {
+      offQuality();
       clearParade();
       releaseMascot();
       for (const d of built.values()) {
