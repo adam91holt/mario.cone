@@ -540,6 +540,50 @@ export const coneCanyon: CourseDefEx = {
         { x: -690, z: 470, radius: 170, height: 118, kind: 'spire' },
       ],
     },
+
+    // ── the infield, which was a bare orange plane ────────────────────────
+    //
+    //   *"The infield between the two legs of the dogleg is a bare flat orange
+    //   plane with a single dark blob on it across ~200m. MK8 never leaves an
+    //   enclosed infield unpopulated."*
+    //
+    // **And no `landmarks` entry can fix it**, which is why this needed a
+    // second mechanism rather than three more lines above. `terrainHeight`
+    // gates every hero on `smoothstep(rimStart * 0.7, rimStart * 1.5, d)` —
+    // 122 to 262 metres beyond the shoulder — and the infield of this dogleg
+    // is measured at **102 metres from the nearest centreline at its widest
+    // point**, so a butte declared there evaluates to precisely zero height.
+    // The gate is right: it is what keeps the canyon wall off the road. The
+    // infield simply is not reachable from the height field at all.
+    //
+    // So the three buttes standing in it are `skyline.stacks` — the same
+    // lofted terraced profile the quarry's spoil tips are, at a sandstone tint
+    // with the plant switched off, which is what a sedimentary butte is. They
+    // cast and receive, so the enclosed ground finally has something moving
+    // across it, and their feet are held 30-35 metres outside the barrier on
+    // every bearing.
+    skyline: {
+      stacks: [
+        // The big one, on the wide half of the infield behind the Elbow. Its
+        // toe sits 54m from the centreline — 33 clear of the tarmac.
+        {
+          x: -262, z: -90, base: 0.4, height: 47, foot: 46, top: 15, lifts: 4,
+          bearing: 0.55, tint: 0xa9633a, dust: 0xdcbb85,
+        },
+        // Two more down the long thin half, at different heights, so the
+        // 700-metre run past the infield has three silhouettes rather than a
+        // repeat of one. The near-flat top on the last is the same landform
+        // eroded further — a butte that has lost its cap.
+        {
+          x: 118, z: -47, base: -10.5, height: 39, foot: 41, top: 13, lifts: 4,
+          bearing: 2.1, tint: 0xb0693c, dust: 0xd8b57e,
+        },
+        {
+          x: 300, z: -52, base: -10, height: 24, foot: 37, top: 19, lifts: 3,
+          bearing: 4.4, tint: 0x9e5c36, dust: 0xd3ae78,
+        },
+      ],
+    },
   },
 
   theme: {

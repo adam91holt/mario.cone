@@ -684,9 +684,55 @@ export interface TreelineDef {
   ceiling?: number;
 }
 
+/**
+ * ── crossings: the arrival structure, un-bolted from the start line ────────
+ *
+ * `arrival` puts one structure over the chequer, and a course gets exactly one
+ * of them. That was enough while the only thing anybody photographed was the
+ * grid — and a critic then photographed the shot a player actually lives in:
+ *
+ *   *"put the course's stated nouns in the first ten seconds of frame — the
+ *   overland conveyor, the haul truck, the jersey barrier. None of them are
+ *   present in the canonical racing shot, which is a bare two-lane road under
+ *   a sunset."*
+ *
+ * `capture.mjs` autopilots roughly nine seconds from the line before it takes
+ * `racing`, and on a course that covers four hundred metres in them the thing
+ * standing over the start line is four hundred metres behind the camera. A
+ * noun a course claims in its own name has to appear more than once a lap.
+ *
+ * So the same structures may be stood anywhere on the circuit. A crossing
+ * carries no banner and no start lights — those belong to the line — and is
+ * otherwise the same object, so the two read as one working plant rather than
+ * as a landmark and a copy of it.
+ */
+export interface CrossingDef {
+  /** What this is, for the file to be legible. Read by nothing. */
+  name: string;
+  /** Lap fraction it stands at, measured from the start line. */
+  at: number;
+  /** Which structure. Only the ones that genuinely span a road are offered. */
+  kind: 'conveyor' | 'jetty';
+  /**
+   * Radians the structure is skewed off square to the road.
+   *
+   * An overland belt is laid where the material has to go, not where the road
+   * happens to point, so a conveyor crossing at exactly ninety degrees reads as
+   * a gantry. Defaults to 0.
+   */
+  skew?: number;
+  /** Metres it stands clear of the road's own height. Defaults to 0. */
+  lift?: number;
+}
+
 export interface KitDef {
   /** What stands over the start line. Defaults to the stock truss gantry. */
   arrival?: ArrivalKind;
+  /**
+   * **The same plant, further round the lap.** See `CrossingDef` — the answer
+   * to a course whose signature noun is only ever in the establishing shot.
+   */
+  crossings?: CrossingDef[];
   /** What runs down both edges of the road. Defaults to the stock panel. */
   barrier?: BarrierKind;
   /**
@@ -734,6 +780,97 @@ export interface LandmarkDef {
   height: number;
   /** 'mesa' is a flat-topped block; 'spire' is a needle. */
   kind?: 'mesa' | 'spire';
+}
+
+/**
+ * ── the skyline: a landform the height function cannot make ────────────────
+ *
+ * **The finding, and it is the one that put this cup at 6.5.**
+ *
+ *   *"Rounds 1 and 2 of the cup are the same place with two different
+ *   exposures — Cone Canyon and Jackhammer Quarry share the same orange-brown
+ *   ground and the same low-poly conical orange peaks on the horizon, so with
+ *   the HUD cropped a player cannot tell which round they are driving."*
+ *
+ * The peaks are `LandmarkDef`s, and the reason two courses share a silhouette
+ * is that `terrain.ts` has exactly two shapes in it: a dome and a needle. Both
+ * are **radially symmetric and smooth**, which is the definition of a cone,
+ * and both are *summed* into a height field — so overlapping them to make
+ * something else produces a taller lump rather than a different one. There is
+ * no arrangement of `mesa` that reads as a quarry.
+ *
+ * What makes a pit a pit is a *horizontal* line repeated up a wall: the bench,
+ * the flat catch berm between two blasted lifts. It is the exact opposite
+ * primitive to a cone, and it cannot be expressed as a height above a point —
+ * it is a profile revolved around one. So the skyline is **built**, in
+ * `courses/kit.ts`, out of the same lofted-ribbon machinery the chapters are,
+ * and the height field is left to do what it is good at: the ground the road
+ * is actually on.
+ *
+ * A course that declares a skyline should turn its `landmarks` off. Two
+ * horizons is one too many.
+ */
+export interface BenchRimDef {
+  /** Centre of the pit in world XZ — usually the middle of the circuit. */
+  x: number;
+  z: number;
+  /** Plan radius of the toe of the first face. Keep it clear of the road. */
+  radius: number;
+  /** Elevation of the toe. Below the surrounding ground, so it emerges. */
+  base: number;
+  /** How many lifts are cut into the wall. */
+  lifts: number;
+  /** Vertical rise of one lift, metres. */
+  lift: number;
+  /** Width of the flat catch bench between two lifts, metres. */
+  bench: number;
+  /** Horizontal run of one face over its rise — the batter. */
+  batter: number;
+  /** Peak-to-peak wander of the plan radius, metres. Defaults to 46. */
+  wander?: number;
+  /** Blasted rock. */
+  tint?: number;
+  /** Fines lying on the benches. */
+  dust?: number;
+}
+
+/**
+ * A spoil tip: flat top, terraced tipping face, and a stacker climbing it.
+ *
+ * A free-standing terraced landform: flat top, benched flanks, and optionally
+ * a stacker climbing it.
+ *
+ * It is one shape rather than one *thing*, and that is deliberate — on the
+ * quarry it is a spoil tip with an inclined belt running up the face, and on
+ * the canyon it is a sandstone butte with sedimentary benching, which is the
+ * same profile at a different tint with `stacker` off. What it is not, in
+ * either place, is a cone: the terrace is the whole point, and the terrace is
+ * exactly what `LandmarkDef` cannot express.
+ */
+export interface StackDef {
+  x: number;
+  z: number;
+  /** Elevation of the foot. */
+  base: number;
+  /** Height of the flat top above the foot. */
+  height: number;
+  /** Plan radius at the foot. */
+  foot: number;
+  /** Plan radius of the flat top. */
+  top: number;
+  /** Terrace lines down the face. Defaults to 5. */
+  lifts?: number;
+  /** Bearing the tip is elongated along and the stacker climbs, radians. */
+  bearing?: number;
+  /** Stand a stacker conveyor up the face. Defaults to false. */
+  stacker?: boolean;
+  tint?: number;
+  dust?: number;
+}
+
+export interface SkylineDef {
+  rim?: BenchRimDef;
+  stacks?: StackDef[];
 }
 
 /** Shaping of the landscape the circuit is cut into. */
@@ -840,6 +977,11 @@ export interface TrackFeatures {
   /** Curvature above which a kerb is laid on the inside of a corner. */
   kerbCurvature?: number;
   terrain?: TerrainDef;
+  /**
+   * **What this course's horizon is made of.** See `SkylineDef` — the answer
+   * to two rounds of one cup sharing a set of cones.
+   */
+  skyline?: SkylineDef;
 }
 
 export interface CourseDefEx extends CourseDef {

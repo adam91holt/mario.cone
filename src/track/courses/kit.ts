@@ -75,8 +75,8 @@ import { resolveTheme } from '../../render/theme.ts';
 import { pineStandGeo } from '../../world/landprops.ts';
 import { LAND_PALETTES, type LandPalette } from '../../world/themes.ts';
 import {
-  features, type BarrierKind, type ChapterDef, type EnclosureDef, type KitDef,
-  type TreelineDef,
+  features, type BarrierKind, type BenchRimDef, type ChapterDef,
+  type EnclosureDef, type KitDef, type SkylineDef, type StackDef, type TreelineDef,
 } from './types.ts';
 import type { TrackSpline } from '../spline.ts';
 import type {
@@ -646,6 +646,17 @@ interface BuildArgs {
   kit: KitDef;
   name: string;
   materials: THREE.Material[];
+  /**
+   * Build the structure and nothing else.
+   *
+   * The same four objects are stood over the start line *and*, since a critic
+   * measured that a course's signature noun was four hundred metres behind the
+   * camera by the time the review frame is taken, further round the lap. See
+   * `CrossingDef`. What a crossing must not carry is the *signage*: one course
+   * name and one set of start lights per circuit, on the line, or the lap has
+   * two start lines in it.
+   */
+  bare?: boolean;
 }
 
 /** Height of the banner's hanging point. The same on every structure, so the
@@ -658,6 +669,7 @@ const BANNER_Y = 9.2;
  * signage rig is interchangeable and only the thing over it changes.
  */
 function addBanner(a: BuildArgs, width: number, carriedAt: number): THREE.Object3D {
+  if (a.bare) return new THREE.Group();
   const style = a.kit.banner ?? { field: '#1B2A4A', ink: '#FFC300', strip: '#FF6B1A' };
   const map = bannerTexture(a.name, style);
   const mat = new THREE.MeshStandardMaterial({
@@ -710,6 +722,7 @@ function addBanner(a: BuildArgs, width: number, carriedAt: number): THREE.Object
 }
 
 function addLampBoard(a: BuildArgs, y: number): THREE.Mesh[] {
+  if (a.bare) return [];
   const steel = a.kit.steel ?? 0xf0d64a;
   const boardMat = new THREE.MeshStandardMaterial({
     map: lampBoardTexture(steel), roughness: 0.5, side: THREE.DoubleSide,
@@ -766,9 +779,11 @@ function buildConveyor(a: BuildArgs): ArrivalParts {
   // The hanger beam the signage rig swings from, slung under the bridge on two
   // short rods. A banner hung off nothing is the tell that a structure was
   // designed round a fitting rather than the other way about.
-  st.add(-13, BANNER_Y + 1.4, 0, 13, BANNER_Y + 1.4, 0, 0.28);
-  st.add(-10, BANNER_Y + 1.4, 0, -10, 11.3, 0, 0.15);
-  st.add(10, BANNER_Y + 1.4, 0, 10, 13.5, 0, 0.15);
+  if (!a.bare) {
+    st.add(-13, BANNER_Y + 1.4, 0, 13, BANNER_Y + 1.4, 0, 0.28);
+    st.add(-10, BANNER_Y + 1.4, 0, -10, 11.3, 0, 0.15);
+    st.add(10, BANNER_Y + 1.4, 0, 10, 13.5, 0, 0.15);
+  }
   a.group.add(st.mesh(steel, 'kitConveyorTrestle', a.materials));
 
   // The belt housing: a long box, rolled about z so it climbs left to right.
@@ -1951,6 +1966,333 @@ function buildTreeline(
   stand(far, false);
 }
 
+// ── the skyline: horizontal lines, where the height field only has cones ───
+//
+// **The finding this exists to answer**, and it is the one that held the whole
+// roster at 6.5:
+//
+//   *"Cone Canyon and Jackhammer Quarry share the same orange-brown ground and
+//   the same low-poly conical orange peaks on the horizon, so with the HUD
+//   cropped a player cannot tell which round they are driving. Delete the
+//   conical orange peaks from the quarry's horizon — that exact silhouette is
+//   Cone Canyon's — and replace them with the quarry's own stepped bench
+//   profile and the Tip Face, so the horizon states 'pit' instead of
+//   'desert'."*
+//
+// The peaks were `LandmarkDef`s, and no arrangement of them could have been
+// anything else. `track/terrain.ts` offers two shapes — a dome and a needle —
+// both radially symmetric, both smooth, and both **summed** into one height
+// field, so overlapping a ring of them to make a wall gives a taller ring of
+// lumps. The primitive is wrong: what makes a pit read as a pit is a
+// *horizontal* line repeated up a face, the flat catch bench between two
+// blasted lifts, and a horizontal line is a property of a profile rather than
+// of a point.
+//
+// So the horizon is lofted here instead, out of the same ribbon-of-quads
+// machinery the chapters use, and it obeys the same three rules: one mesh, no
+// clock, nothing that a second boot of the same course would draw differently.
+//
+// Three things keep it from reading as a bullseye:
+//
+//   1. **Every lift wanders on its own phase.** The plan radius of each step
+//      carries three harmonics with a per-step phase offset, so bench four is
+//      not bench three moved outward — the benches pinch together on one
+//      bearing and open out on another, the way a face that has been worked
+//      unevenly actually does.
+//   2. **The crest is broken.** A height wobble that grows with the lift index
+//      puts up to half a lift of relief along the top edge, so the skyline is a
+//      ragged rampart rather than a ring at one elevation.
+//   3. **Bench and face are different materials.** The flats carry fines and
+//      the faces carry blasted rock, at a value separation wide enough to
+//      survive a kilometre of haze — which is what makes the terrace lines
+//      legible at all from the road.
+
+/** One station of a revolved profile: a plan radius, an elevation, and what it is. */
+interface Step {
+  r: number;
+  y: number;
+  /** True on a blasted face, false on the flat of a catch bench. */
+  face: boolean;
+}
+
+/** Radial wander at one bearing, on the phase belonging to one step. */
+function wobbleR(th: number, k: number, amp: number): number {
+  const p = k * 0.83;
+  return amp * (
+    0.55 * Math.sin(3 * th + p)
+    + 0.30 * Math.sin(5 * th + 1.7 - p * 0.6)
+    + 0.15 * Math.sin(8 * th + 4.1 + p * 1.4)
+  );
+}
+
+/**
+ * Revolve a profile about a centre and hand back one mesh.
+ *
+ * `segs` is the angular resolution; `cap` closes the last station into a point
+ * at the axis, which is what turns the same routine from a rim (an annulus,
+ * open in the middle, with the circuit inside it) into a tip (a solid heap).
+ */
+function loftProfile(
+  steps: Step[], cx: number, cz: number, segs: number,
+  wander: number, crestJitter: number, ellipse: number, bearing: number,
+  rock: number, fines: number, cap: boolean, inward = false,
+): THREE.BufferGeometry {
+  const n = steps.length;
+  const pos: number[] = [];
+  const uvs: number[] = [];
+  const col: number[] = [];
+  const idx: number[] = [];
+  const c = new THREE.Color();
+  const rockC = new THREE.Color(rock);
+  const finesC = new THREE.Color(fines);
+
+  // Arc length up the profile, so the strata in `rockFaceTexture` keep one
+  // pitch whether a lift is four metres or fourteen.
+  const arc: number[] = [0];
+  for (let k = 1; k < n; k++) {
+    const a = steps[k - 1]!;
+    const b = steps[k]!;
+    arc.push(arc[k - 1]! + Math.hypot(b.r - a.r, b.y - a.y));
+  }
+
+  for (let i = 0; i <= segs; i++) {
+    const th = (i / segs) * Math.PI * 2;
+    // Elongation along `bearing`. A tip is tipped from one end, so it is longer
+    // than it is wide, and a rim that is a perfect circle is a stadium.
+    const stretch = 1 + ellipse * Math.cos(2 * (th - bearing));
+    for (let k = 0; k < n; k++) {
+      const s = steps[k]!;
+      const r = Math.max(0, s.r * stretch + wobbleR(th, k, wander));
+      const rise = (k / Math.max(1, n - 1));
+      const jit = crestJitter * rise
+        * (0.6 * Math.sin(2 * th + 0.4) + 0.4 * Math.sin(5 * th + 2.2));
+      pos.push(cx + Math.cos(th) * r, s.y + jit, cz + Math.sin(th) * r);
+      // u climbs the face (the texture's beds are bands in u); v runs along the
+      // wall in metres, so one bearing of rock is not one bearing of stretched
+      // rock.
+      uvs.push(arc[k]! / 26, (th * (steps[0]!.r + 60)) / 34);
+      c.copy(s.face ? rockC : finesC);
+      // Lower lifts sit in the shade of the hole, upper lifts catch the sky.
+      c.multiplyScalar(0.80 + 0.30 * rise);
+      // Long-wavelength mottle so a forty-metre quad is not one flat value.
+      c.multiplyScalar(1 + 0.09 * Math.sin(th * 6.3 + k * 1.7));
+      col.push(c.r, c.g, c.b);
+    }
+  }
+  // ── which way the surface faces, and why it is not the same both times ────
+  //
+  // A heap is seen from outside and a pit wall is seen from inside, and the
+  // same winding cannot serve both: the geometric normal of a revolved strip
+  // is `(dy, -dr, 0)` in the radial plane, so a profile that widens as it
+  // rises (a rim) faces outward and down while one that narrows (a tip) faces
+  // outward and up. Wound one way, the entire rim was back-facing from every
+  // camera inside the circuit, and what a review frame photographed was four
+  // hairlines across the sky where the bench edges caught an odd pixel.
+  for (let i = 0; i < segs; i++) {
+    for (let k = 0; k < n - 1; k++) {
+      const a = i * n + k;
+      const b = a + n;
+      if (inward) idx.push(a, b, a + 1, a + 1, b, b + 1);
+      else idx.push(a, a + 1, b, b, a + 1, b + 1);
+    }
+  }
+  if (cap) {
+    // A flat top, closed on a centre vertex. A tip that is open at the top is a
+    // funnel from any camera above it, and the overhead shot is above it.
+    const centre = pos.length / 3;
+    const last = steps[n - 1]!;
+    pos.push(cx, last.y, cz);
+    uvs.push(arc[n - 1]! / 26, 0);
+    c.copy(finesC).multiplyScalar(1.06);
+    col.push(c.r, c.g, c.b);
+    for (let i = 0; i < segs; i++) {
+      idx.push(centre, (i + 1) * n + (n - 1), i * n + (n - 1));
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  geo.computeBoundingSphere();
+  return geo;
+}
+
+/**
+ * The benched rim: the wall of the hole, seen from inside it.
+ *
+ * The profile climbs face → bench → face → bench out of the ground, holds a
+ * crest wide enough to be a rim road rather than a knife edge, and then falls
+ * away outward so that nothing on the far side has to be modelled. From the
+ * pit floor the silhouette is a staircase; from overhead it is a set of
+ * concentric contour lines, which is what a quarry looks like on a map.
+ */
+function buildBenchRim(
+  root: THREE.Group, materials: THREE.Material[], d: BenchRimDef,
+): void {
+  const rock = d.tint ?? 0x7c7f86;
+  const fines = d.dust ?? 0x9d9a90;
+  const steps: Step[] = [];
+  let r = d.radius;
+  let y = d.base;
+  steps.push({ r, y, face: true });
+  for (let k = 0; k < d.lifts; k++) {
+    r += d.batter;
+    y += d.lift;
+    steps.push({ r, y, face: true });
+    r += d.bench;
+    steps.push({ r, y, face: false });
+  }
+  // The crest, then the back of the rim going away. Both are outside anything a
+  // player can reach; what they buy is a horizon that ends in ground rather
+  // than in a cliff edge with sky under it.
+  steps.push({ r: r + 74, y, face: false });
+  steps.push({ r: r + 190, y: y - d.lift * 2.4, face: true });
+  steps.push({ r: r + 330, y: d.base + d.lift, face: true });
+
+  const map = rockFaceTexture(rock);
+  // Double-sided: the crest is a knife edge from a chase camera in the pit and
+  // a flat top from the overhead shot, and a rim that vanishes when a reviewer
+  // presses the one button that shows a course's layout is not a rim.
+  const mat = new THREE.MeshLambertMaterial({ map, vertexColors: true, side: THREE.DoubleSide });
+  materials.push(mat);
+  const geo = loftProfile(
+    steps, d.x, d.z, 132, d.wander ?? 46, d.lift * 0.55, 0.07, 0.7,
+    rock, fines, false, true,
+  );
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = 'skylineRim';
+  // Far enough out that a shadow map has nothing to say about it, and big
+  // enough that asking would cost the whole cascade.
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  root.add(mesh);
+}
+
+/** A stacker: an inclined belt on legs, running up the face of a tip. */
+function buildTipBelt(
+  root: THREE.Group, materials: THREE.Material[], d: StackDef,
+): void {
+  const bearing = d.bearing ?? 0;
+  const steel = 0x6d777e;
+  const st = new Struts();
+  // From the foot on the tipping side up to a head pulley standing proud of the
+  // top. Built in the tip's own frame and then rotated onto its bearing.
+  const r0 = d.foot * 1.02;
+  const r1 = d.top * 0.35;
+  const y0 = d.base + 1;
+  const y1 = d.base + d.height + 11;
+  const bays = 9;
+  // A stacker on a tip two hundred metres across is half a kilometre from any
+  // camera that can see it, so its members are sized off the tip rather than
+  // off a walkway: a 0.9m chord on a 200m belt is under a pixel at that range
+  // and the whole structure disappears into the haze it was built to stand
+  // against.
+  const t = Math.max(1.1, d.foot * 0.026);
+  const deep = t * 3.6;
+  for (let i = 0; i < bays; i++) {
+    const t0 = i / bays;
+    const t1 = (i + 1) / bays;
+    const ax = r0 + (r1 - r0) * t0;
+    const bx = r0 + (r1 - r0) * t1;
+    const ay = y0 + (y1 - y0) * t0;
+    const by = y0 + (y1 - y0) * t1;
+    for (const dz of [-deep * 0.7, deep * 0.7]) {
+      st.add(ax, ay, dz, bx, by, dz, t);
+      st.add(ax, ay - deep, dz, bx, by - deep, dz, t * 0.8);
+      st.add(ax, ay, dz, ax, ay - deep, dz, t * 0.7);
+      st.add(ax, ay - deep, dz, bx, by, dz, t * 0.55);
+    }
+    // Legs, standing on the face under the belt.
+    if (i % 3 === 1) {
+      const foot = d.base + d.height * (0.10 + 0.62 * t0);
+      st.add(ax, ay - deep, -deep * 0.7, ax, foot, -deep * 0.7, t * 0.9);
+      st.add(ax, ay - deep, deep * 0.7, ax, foot, deep * 0.7, t * 0.9);
+    }
+  }
+  const lattice = st.mesh(steel, 'skylineStacker', materials);
+  lattice.castShadow = false;
+  lattice.receiveShadow = false;
+  const g = new THREE.Group();
+  g.add(lattice);
+  // The head, and the cone of fresh material coming off it. This is the part
+  // that says the plant is running.
+  const headMat = new THREE.MeshLambertMaterial({ color: 0xf2b705 });
+  materials.push(headMat);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(t * 6, t * 4, t * 5.4), headMat);
+  head.position.set(r1, y1, 0);
+  g.add(head);
+  const pileMat = new THREE.MeshLambertMaterial({ color: d.dust ?? 0x9d9a90 });
+  materials.push(pileMat);
+  const pile = new THREE.Mesh(new THREE.ConeGeometry(t * 4.5, t * 6, 12), pileMat);
+  pile.position.set(r1 - t * 2, d.base + d.height + t * 3, 0);
+  g.add(pile);
+  g.position.set(d.x, 0, d.z);
+  g.rotation.y = -bearing;
+  root.add(g);
+}
+
+/**
+ * A spoil tip: flat top, terraced tipping face, stacker up the side.
+ *
+ * The same loft as the rim with a cap on it, and deliberately elongated: the
+ * one thing on a quarry skyline that is *not* the pit needs a silhouette of its
+ * own, and a heap tipped from one end is a wedge rather than a dome.
+ */
+function buildStack(
+  root: THREE.Group, materials: THREE.Material[], d: StackDef,
+): void {
+  const rock = d.tint ?? 0x84837c;
+  const fines = d.dust ?? 0xa9a396;
+  const lifts = d.lifts ?? 5;
+  const steps: Step[] = [];
+  const rise = d.height / lifts;
+  const run = (d.foot - d.top) / lifts;
+  let r = d.foot;
+  let y = d.base;
+  steps.push({ r: r + 34, y: y - 14, face: true });
+  steps.push({ r, y, face: true });
+  for (let k = 0; k < lifts; k++) {
+    // The split is what a terrace *is*: a shallow bench is a bevel on a cone
+    // and reads as one. Nearly half the run goes into the flat, so from half a
+    // kilometre away the tip is a stack of horizontal lines rather than a
+    // smooth heap with a texture on it.
+    r -= run * 0.58;
+    y += rise;
+    steps.push({ r, y, face: true });
+    r -= run * 0.42;
+    steps.push({ r, y, face: false });
+  }
+  const map = rockFaceTexture(rock);
+  const mat = new THREE.MeshLambertMaterial({ map, vertexColors: true, side: THREE.DoubleSide });
+  materials.push(mat);
+  const geo = loftProfile(
+    // The crest jitter is held well under a lift: at half of one, the wander on
+    // bench four crosses bench three and the terrace lines stop being lines.
+    steps, d.x, d.z, 72, d.foot * 0.10, rise * 0.26, 0.26, d.bearing ?? 0,
+    rock, fines, true,
+  );
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = 'skylineStack';
+  // A stack may be a horizon two kilometres out or a butte standing in an
+  // infield eighty metres from the barrier, and the near one has to sit on the
+  // ground rather than hover over it. The shadow camera's own frustum culls the
+  // far ones, so this costs nothing where it would not have paid.
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  root.add(mesh);
+  if (d.stacker) buildTipBelt(root, materials, d);
+}
+
+function buildSkyline(
+  root: THREE.Group, materials: THREE.Material[], sky: SkylineDef,
+): void {
+  if (sky.rim) buildBenchRim(root, materials, sky.rim);
+  for (const t of sky.stacks ?? []) buildStack(root, materials, t);
+}
+
 // ── the enclosure: the one place in the cup with no sky in it ──────────────
 //
 // **The finding.** *"All four rounds are the same kind of place — a wide
@@ -2636,10 +2978,18 @@ export function createCourseKitSystem(ctx: GameContext): GameSystem {
 
     const kit = features(course).kit;
     const spans = features(course).enclosures;
-    if (!kit && !spans?.length) return;
+    const sky = features(course).skyline;
+    if (!kit && !spans?.length && !sky) return;
 
     root = new THREE.Group();
     root.name = 'courseKit';
+
+    // ── the horizon ─────────────────────────────────────────────────────────
+    //
+    // Off `features` rather than off `kit`, and first, for the same reason the
+    // enclosures are: a skyline is not a livery choice, it is what kind of
+    // place the course is in. See `SkylineDef`.
+    if (sky) buildSkyline(root, materials, sky);
 
     const chapterCtx: ChapterCtx = {
       spline,
@@ -2741,6 +3091,38 @@ export function createCourseKitSystem(ctx: GameContext): GameSystem {
       green = new THREE.MeshBasicMaterial({ color: LAMP_GREEN, toneMapped: false });
       materials.push(green);
       setLamps(NONE, red);
+      root.add(group);
+    }
+
+    // ── the same plant, further round the lap ───────────────────────────────
+    //
+    // See `CrossingDef`. Identical construction to the arrival, minus the
+    // signage, plus a skew — because an overland belt is laid where the
+    // material has to go and a structure square to the road reads as a gantry.
+    for (const cr of kit.crossings ?? []) {
+      const L = spline.length;
+      const d = ((((course.startDistance ?? 0) + cr.at * L) % L) + L) % L;
+      const s = spline.atDistance(d);
+      const group = new THREE.Group();
+      group.name = `crossing:${cr.kind}`;
+      const at = new THREE.Vector3();
+      surfacePoint(s, 0, verge, cr.lift ?? 0, at);
+      const fwd = new THREE.Vector3().crossVectors(s.right, s.up).normalize();
+      group.position.copy(at);
+      group.setRotationFromMatrix(new THREE.Matrix4().makeBasis(s.right, s.up, fwd));
+      group.rotateY(cr.skew ?? 0);
+      const args: BuildArgs = {
+        group,
+        // The skew lengthens the crossing: a belt laid at thirty degrees off
+        // square has to reach further to clear the same road.
+        span: (s.width * 0.5 + verge + 3.4) / Math.max(0.5, Math.cos(cr.skew ?? 0)),
+        kit,
+        name: course.name,
+        materials,
+        bare: true,
+      };
+      if (cr.kind === 'jetty') buildJetty(args);
+      else buildConveyor(args);
       root.add(group);
     }
 

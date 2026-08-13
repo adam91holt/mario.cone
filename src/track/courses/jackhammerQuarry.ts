@@ -463,6 +463,37 @@ export const jackhammerQuarry: CourseDefEx = {
     //     colour scheme.
     kit: {
       arrival: 'conveyor',
+      // ── the nouns, in the frame the round is judged on ─────────────────
+      //
+      //   *"Put the course's stated nouns in the first ten seconds of frame —
+      //   the overland conveyor, the haul truck, the jersey barrier. None of
+      //   them are present in the canonical racing shot, which is a bare
+      //   two-lane road under a sunset."*
+      //
+      // The conveyor was real and it was over the start line, and `racing` is
+      // taken four hundred and thirty-five metres later. A plant that appears
+      // once a lap is an establishing shot; a plant that crosses the road
+      // three times is a *place*. So the same belt steps down the pit with the
+      // benches — over Bench Two, over Bench Three, and once more on the haul
+      // out — which is also the honest arrangement, because that is the
+      // direction the material is going.
+      //
+      // All three sit on spans no chapter covers: a trestle leg stands 20
+      // metres off the centreline and a cutting face starts just outside the
+      // barrier, so a belt over a walled span puts its feet inside the rock.
+      crossings: [
+        // The first one is aimed at the review frame the same way the Tip Face
+        // is: `racing` is taken 435 metres from the line, which is the last few
+        // metres of Bench One, so this stands 91 metres further on — across the
+        // Screen Hairpin, which is the road the camera is pointed down. Fifty-
+        // nine was the first answer and it was too close: at that range the
+        // belt crosses the top fifth of the frame as an underside and reads as
+        // a ceiling rather than as a structure. Ninety-one puts the whole
+        // silhouette above the horizon with sky either side of it.
+        { name: 'SCREEN DISCHARGE', at: on('T2 SCREEN HAIRPIN', 0.80), kind: 'conveyor', skew: 0.38 },
+        { name: 'CRUSHER FEED', at: on('BENCH THREE', 0.45), kind: 'conveyor', skew: -0.30 },
+        { name: 'OVERLAND', at: on('h3', 0.50), kind: 'conveyor', skew: 0.44 },
+      ],
       barrier: 'jersey',
       kerb: { a: '#23262E', b: '#F2B705', pitch: 3.2 },
       paint: '#EFE9D8',
@@ -684,32 +715,100 @@ export const jackhammerQuarry: CourseDefEx = {
     // 225m rises at better than two metres per metre right where `room()` is
     // placing conveyors and berms on ground it never checks the slope of. Every
     // footprint below has its near edge past 260 metres of clear ground.
+    // ── and then the eleven faces on a ring were the whole problem ─────────
+    //
+    // The high wall used to be built here, out of eleven overlapping `mesa`
+    // landmarks and three `spire` stacks, on the reasoning stated above: the
+    // noise rim cannot make a continuous landform, `hero` can, so ring the
+    // circuit with heroes. It closed the horizon and it was, measured against
+    // the round it was supposed to fix, **the same object Cone Canyon has**:
+    //
+    //   *"Cone Canyon `far` and Jackhammer Quarry `racing`/`far` show the same
+    //   horizon vocabulary: low-poly conical orange peaks, orange haze, and a
+    //   pale blocky low-poly town on the left. Only the sky tint and exposure
+    //   differ. Two of four rounds are one place."*
+    //
+    // That is not a tuning failure, it is the primitive. `terrain.ts` has two
+    // shapes — a smooth dome and a smooth needle — and they are summed into a
+    // scalar field, so a ring of eleven of them is eleven cones however they
+    // are spaced, and the only free parameter left is what colour the haze
+    // paints them. Both courses reached for the same object because it is the
+    // only object there is.
+    //
+    // **So the horizon is built rather than sculpted.** See `SkylineDef` and
+    // `skyline` below: a benched rim and a spoil tip, lofted out of a revolved
+    // profile, whose defining feature is a *horizontal* line — the catch bench
+    // between two blasted lifts — which is precisely the thing a height field
+    // keyed on distance-from-a-point cannot express.
+    //
+    // What is left here is the ground the road is actually on, and the rim
+    // noise is down from 52 to 20: at 52 it was a field of lumps standing in
+    // front of the benches and eating the bottom three lifts of them. Spoil on
+    // the flat is what it is for.
     terrain: {
-      rimStart: 150,
+      rimStart: 170,
       rimEnd: 430,
-      rimHeight: 52,
-      landmarks: [
-        // ── the high wall: eleven faces on a ring, footprints overlapping ──
-        { x: 980, z: 30, radius: 330, height: 175, kind: 'mesa' },
-        { x: 830, z: -470, radius: 300, height: 150, kind: 'mesa' },
-        { x: 470, z: -830, radius: 320, height: 195, kind: 'mesa' },
-        { x: -30, z: -960, radius: 300, height: 160, kind: 'mesa' },
-        { x: -530, z: -800, radius: 330, height: 185, kind: 'mesa' },
-        { x: -870, z: -430, radius: 300, height: 205, kind: 'mesa' },
-        { x: -980, z: 90, radius: 320, height: 170, kind: 'mesa' },
-        { x: -800, z: 590, radius: 310, height: 190, kind: 'mesa' },
-        { x: -390, z: 900, radius: 300, height: 155, kind: 'mesa' },
-        { x: 200, z: 960, radius: 330, height: 200, kind: 'mesa' },
-        { x: 700, z: 690, radius: 310, height: 165, kind: 'mesa' },
-        // ── and three stacks standing inside the wall ─────────────────────
-        //
-        // A wall with nothing in front of it is a backdrop. These are the
-        // un-blasted stacks left standing on the pit floor — a different
-        // silhouette at a different distance, which is the whole of what makes
-        // a landscape read as deep. All three sit past the hero gate.
-        { x: -640, z: 250, radius: 130, height: 118, kind: 'spire' },
-        { x: 560, z: 430, radius: 140, height: 104, kind: 'spire' },
-        { x: 330, z: -560, radius: 120, height: 96, kind: 'spire' },
+      rimHeight: 20,
+    },
+
+    // ── the horizon this round owns ───────────────────────────────────────
+    //
+    // The circuit closes inside a 327-metre radius of (1.5, 17.9) — measured
+    // off the waypoints, per bearing, shoulder included — so the toe of the
+    // wall stands at 470 with at least 103 metres of clear, level ground in
+    // front of it on the worst bearing, which is well past the 146 metres
+    // `room()` reaches with a conveyor and clear of everything the props
+    // system places.
+    //
+    // Nine lifts of 15 metres on a 6.5-metre batter with a 13-metre catch
+    // bench: a 35-degree overall face, which is what a hard-rock quarry is
+    // worked at, and 135 metres of it, so the crest stands 73 metres over the
+    // weighbridge. The toe is buried at -62 — twenty under the datum — so the
+    // wall *emerges* from the pit floor instead of being set on it.
+    skyline: {
+      rim: {
+        x: 1.5, z: 17.9,
+        radius: 470,
+        base: -62,
+        lifts: 9,
+        lift: 15,
+        bench: 13,
+        batter: 6.5,
+        wander: 40,
+        // Unweathered grey rock and the pale fines lying on the benches. The
+        // value gap between the two is what makes the terrace lines legible
+        // through half a kilometre of dust, and it is the whole read.
+        tint: 0x74777e,
+        dust: 0xa7a49a,
+      },
+      // ── THE TIP FACE ──────────────────────────────────────────────────
+      //
+      // The first one is aimed. `capture.mjs` autopilots nine seconds from the
+      // line and takes `racing` from (-166, -12.8, 93) looking up the end of
+      // Bench One on a bearing of 2.39 radians out of the pit centre — so the
+      // tip sits on exactly that bearing, straddling the rim, and the frame
+      // this course is judged on has a terraced spoil heap with a stacker
+      // climbing it standing over the wall dead ahead. Measure the frame, then
+      // build for it.
+      stacks: [
+        {
+          x: 1.5 + Math.cos(2.39) * 660, z: 17.9 + Math.sin(2.39) * 660,
+          base: -20, height: 150, foot: 230, top: 80, lifts: 7,
+          // Stretched across the line of sight rather than along it: a heap
+          // tipped from one end presents a wide flat top and a long face, and
+          // a heap presenting its narrow end is a cone again.
+          bearing: 2.39 + Math.PI * 0.5,
+          stacker: true,
+          tint: 0x7d7b74, dust: 0xa9a396,
+        },
+        {
+          // The second is for the other half of the lap, on the far side of
+          // the pit, smaller and without plant on it — an old tip, finished.
+          x: 1.5 + Math.cos(5.55) * 640, z: 17.9 + Math.sin(5.55) * 640,
+          base: -26, height: 108, foot: 190, top: 74, lifts: 6,
+          bearing: 5.55 + Math.PI * 0.5,
+          tint: 0x7a7871, dust: 0xa5a196,
+        },
       ],
     },
   },
@@ -743,32 +842,79 @@ export const jackhammerQuarry: CourseDefEx = {
     // floor; the rest of this block is what a course file *can* do about the
     // hour, and it does all of it.
     //
-    // Rock flour at the end of the day: the same pale grey dust with the low
-    // sun's warmth in it. This is both the pit-floor albedo and — via
-    // `sunRig()` — the bounce light on every machine in the race, so warming it
-    // is what puts the hour onto the karts and not only onto the ground.
-    ground: 0xa89179,
+    // ── and then the hour ate the material ────────────────────────────────
+    //
+    // Every colour below used to be a warm one, and a critic photographed the
+    // consequence rather than the intent:
+    //
+    //   *"At overhead, road, verge, cut face and terrain are all the same
+    //   orange-brown at nearly the same value. The drivable surface is only
+    //   locatable from the thin white edge line — the road/off-road value
+    //   separation MK8 never gives up is gone under the golden-hour grade."*
+    //
+    // The arithmetic behind that is worth stating, because it is not obvious
+    // from any single number on this page. `render/theme.ts`'s quarry ramp is
+    // already grey — `QUARRY_FLOOR` is 0x77797F and the film of fines is
+    // capped at twenty-six per cent — and `render/ground.ts` then **multiplies
+    // it by the key light**. A key of 0xFFB96A is the ratio (1.00, 0.73, 0.42),
+    // so grey rock times that sun is orange rock, and no albedo on this page
+    // can survive it. The pit was grey and the light was the desert's.
+    //
+    // The fix is the one a location scout would reach for and it costs the
+    // round nothing it actually owns: **the sun is over the rim, so the pit is
+    // in the shade.** The warmth stays where it is real — in the sky, on the
+    // crest of the far benches, on the rim light down the edge of every
+    // machine — and the floor a player spends the race on is lit by the dome
+    // instead. That is a picture the other three rounds still cannot take, and
+    // it is the one a working pit at the end of the shift actually presents.
+    //
+    // Cold rock flour. Also, via `sunRig()`, the ground half of the hemisphere
+    // — so the bounce coming up off the pit floor onto every kart in the race
+    // is cold too, which is most of what puts the hour on the *machines*.
+    ground: 0x9ea4ac,
     // **The one sky in the cup that is not blue at the top.** Deep dust-violet
     // at the zenith, falling through a hot band to a low sun's amber. Nothing
     // here is a tint of anything on the other three cards.
-    sky: { top: 0x2b2f66, bottom: 0xdc9c62, horizon: 0xf8d3a2 },
-    // Half the visibility of Cone Canyon, on purpose — a working pit has its
-    // own weather, and it is the reason the far wall reads as far. The dust is
-    // the same dust; what has changed is what is lighting it, so the haze is
-    // now the warmest air in the game and still nowhere near the canyon's
-    // clean gold or the mountain's cold blue.
-    // The chroma here is held back on purpose and it took a photograph to know
-    // by how much. `render/lighting.ts` normalises this to unit luminance and
-    // multiplies the whole depth of the frame by it, so a saturated value does
-    // not warm the distance, it *replaces* it: at 0xE6A86E the pit's far
-    // benches came back as flat orange cut-outs with no rock in them at all,
-    // which is a worse failure than the midday blue it was fixing. This is the
-    // warmest air in the game and the benches still have grey in them.
-    fog: { color: 0xd9ab84, near: 210, far: 1250 },
-    // Low, warm and from the west, over the pit rim. `intensity` comes down
-    // with the elevation: a sun this colour at this height is a weaker key and
-    // the fill has to be allowed to carry the shaded halves of the benches.
-    sun: { color: 0xffb96a, intensity: 2.35, azimuth: 2.15, elevation: 0.17 },
+    // **And the horizon band is the only warm part of it.** `sunRig()` builds
+    // the hemisphere fill as `bottom` mixed 58% toward `top`, and that fill is
+    // what lights every upward-facing surface in the game — so an amber
+    // `bottom` under a violet `top` mixes to a *mauve* dome, and a pit floor of
+    // cold grey rock lit by a mauve dome photographs pink. It did: the first
+    // overhead after the regrade came back lilac from edge to edge. The sun has
+    // gone over the rim, so the sky above the hole is dusty blue and the amber
+    // is a band along the horizon where the sun still is. `horizon` is that
+    // band; `bottom` is the air over the pit, and it is cold.
+    // ── and it must survive the film stock ────────────────────────────────
+    //
+    // The zenith was 0x2B2F66, a dust-violet, and it photographed **magenta**.
+    // `render/grade.ts` runs a warm film stock over the composite, so a hue
+    // already sitting between red and blue is pushed the rest of the way, and
+    // the two frames that came back were a pink sky over a pink haze. A course
+    // does not get to declare a colour the pipeline cannot print.
+    //
+    // Deep indigo does the same job and survives it: it is still the only sky
+    // in the cup that is dark at the top, still nothing like round one's
+    // midday cyan over a pale horizon — the value structure is inverted, dark
+    // above and hot below — and its blue reads as blue after the grade rather
+    // than as fuchsia. The heat all lives in the band along the horizon where
+    // the sun actually is.
+    sky: { top: 0x1a2c63, bottom: 0x53699e, horizon: 0xffb877 },
+    // **Cold haze under a hot sky, and that is the whole separation.** It was
+    // amber at 210/1250, which put the entire horizon — benches, tips, rim,
+    // everything past the barrier — through the same warm multiply as the
+    // ground, and produced Cone Canyon's frame with a different HUD on it.
+    // Rock dust hanging in a hole that the sun has already left is *pale and
+    // cold*: it is lit by the sky dome rather than by the sun, which is a
+    // physical fact rather than a preference, and it is the reason the far
+    // benches read as rock instead of as orange cut-outs. Pushed out to
+    // 300/1450 as well, because the skyline this course now builds is 470 to
+    // 900 metres away and a 210-metre near plane dissolved it.
+    fog: { color: 0x9aa2b2, near: 300, far: 1450 },
+    // Low and from the west, over the pit rim — and desaturated, because that
+    // is what a sun looks like through half a kilometre of its own dust.
+    // 0xFFB96A was a sunset *filter*; this is a sun that has to leave grey rock
+    // grey while still warming everything it lands square on.
+    sun: { color: 0xffe2c2, intensity: 2.35, azimuth: 2.15, elevation: 0.17 },
     // The darkest road in the cup after the saltpan's. The floor is pale, so
     // the tarmac has to carry the contrast — a haul road cut through light
     // rock, with an orange edge where the canyon has yellow. Warmed a shade,

@@ -24,17 +24,21 @@
 //                             a square, with the haul road wrapped round the
 //                             outside. 249 metres of the lap under a 40-metre
 //                             radius; the longest straight anywhere on it is
-//                             160. *Overland conveyor across the grid,
-//                             concrete jersey barrier, hazard kerb.* **And the
-//                             last shift of the day** — the only round in the
-//                             cup that is not played at midday. See its theme
-//                             block: violet zenith, amber horizon, dust that
-//                             the low sun is coming through rather than over.
-//                             Three chapters, and two of them have **one
-//                             face**: the Tip Face over the outside of the
-//                             first hairpin, the Cut walled on both hands at
-//                             the bottom of the pit, and the High Wall along
-//                             the haul road out.
+//                             160. *Overland conveyor across the grid and
+//                             three more down the pit, concrete jersey
+//                             barrier, hazard kerb.* **And the last shift of
+//                             the day** — the only round in the cup that is
+//                             not played at midday, and the sun has already
+//                             gone over the rim: deep indigo zenith, a hot
+//                             amber band along the horizon where the sun
+//                             still is, and a **cold** pit under it. Three
+//                             chapters, and two of them have **one face**:
+//                             the Tip Face over the outside of the first
+//                             hairpin, the Cut walled on both hands at the
+//                             bottom of the pit, and the High Wall along the
+//                             haul road out. And the only `skyline` in the
+//                             cup with a `rim` on it — nine benched lifts
+//                             standing 73 metres over the weighbridge.
 //   3  Saltpan Bypass         2 laps · 3.52km · 4 long strips · 1 cut ·
 //                             1 drift · THE FLOOD (5 crossings) · THE SURGE ·
 //                             THE CAUSEWAY. **The wedge.** A right triangle
@@ -402,6 +406,53 @@
 // in `render/lighting.ts` clamps every course to 0.50-0.60 radians, so the
 // 0.17 the quarry declares is read as 0.50 and the long shadows the palette is
 // written for do not exist. The palette does everything a course file can.
+//
+// ── the round that found rounds one and two were one place ─────────────────
+//
+// Everything above this line separated the four circuits by *shape* and by
+// *palette*, and a critic then cropped the HUD off and could not tell which
+// round they were driving:
+//
+//   *"Cone Canyon and Jackhammer Quarry share the same orange-brown ground,
+//   the same low-poly conical orange peaks on the horizon and the same white
+//   blocky town on the left. The roster's differentiation lives entirely on
+//   the select-screen map card rather than in the frame they spend the race
+//   in. At overhead, road, verge, cut face and terrain are all one hue at one
+//   value — the drivable surface is only findable from the thin white line."*
+//
+// Three things were true at once and each of them has a different owner.
+//
+//   1. **The horizon was one object.** `terrain.ts` has two landform shapes, a
+//      smooth dome and a smooth needle, and both are summed into a scalar
+//      height field — so a *ring* of them is a ring of cones however it is
+//      spaced, and two courses that both wanted a wall reached for the same
+//      one because it is the only one there is. What makes a pit a pit is a
+//      **horizontal** line repeated up a face, and that is a property of a
+//      profile rather than of a point. So `TrackFeatures.skyline` was added
+//      and the horizon is now *lofted* in `kit.ts` — see `SkylineDef`. The
+//      quarry's fourteen landmarks are gone; it has a nine-lift benched rim
+//      and two terraced spoil stacks with a stacker on one of them. Cone
+//      Canyon keeps its buttes and uses three of the same stacks to populate
+//      the dogleg infield, which the hero gate could not reach at all.
+//   2. **The grade ate the material.** `render/ground.ts` multiplies the
+//      terrain albedo by the course's key light, so the quarry's 0xFFB96A
+//      sunset — a ratio of (1.00, 0.73, 0.42) — turned an already-grey rock
+//      ramp orange, and nothing on the course page could survive it. The
+//      answer was not to give up the hour: the sun has gone over the rim, so
+//      the *pit is in the shade*, the sky keeps the dusk and the key is
+//      desaturated to 0xFFE2C2. Note also that a violet zenith photographs
+//      **magenta** through `render/grade.ts`'s warm film stock — a course does
+//      not get to declare a colour the pipeline cannot print.
+//   3. **The nouns were only in the establishing shot.** `capture.mjs` takes
+//      `racing` 435 metres from the line, and the quarry's overland conveyor
+//      was over the start line. `KitDef.crossings` un-bolts the arrival
+//      structures from the chequer so a course's signature plant can appear
+//      more than once a lap; the quarry now has three, one of them aimed at
+//      the review frame by measurement rather than by estimate.
+//
+// **What is still not in this directory:** the pale blocky town is placed by
+// `world/index.ts` on both courses and is the last shared object in the two
+// frames.
 //
 // ── the round about *phase*: where the lap is cut, not what is on it ───────
 //

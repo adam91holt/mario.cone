@@ -252,13 +252,15 @@ interface Rig {
   rocks: THREE.Object3D[];
   wall: THREE.Object3D | null;
   crest: THREE.Object3D | null;
+  /** The foam tongue lying on the road ahead of a bore. See `buildSurge`. */
+  toe: THREE.Object3D | null;
   arm: THREE.Object3D | null;
   beacons: THREE.Mesh[];
 }
 
 const emptyRig = (): Rig => ({
   chassis: null, tray: null, wheels: [], rocks: [],
-  wall: null, crest: null, arm: null, beacons: [],
+  wall: null, crest: null, toe: null, arm: null, beacons: [],
 });
 
 interface SignRig {
@@ -811,8 +813,35 @@ const SKIRT = -0.65;
 
 function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
   const g = new THREE.Group();
-  const N = 14;
-  const len = 26;
+  // ── and then it was photographed a third time, from the chase camera ──────
+  //
+  //   *"The standing brine renders with a raised lilac-grey lip along its far
+  //   edge that reads as a floating slab."*
+  //
+  // That lip is this object, and the geometry says why. A bore 1.5 metres tall
+  // and 26 long is a **17:1 ribbon**, and the one facet it presents to a lens
+  // sitting 2.5 metres off the tarmac is the near-horizontal top of it — so
+  // whatever is painted up there is what the wave *is*, and what was painted up
+  // there was a continuous unbroken line of 0xEAF6F8 at 94% opacity: the
+  // palest, flattest, most opaque thing in the frame, laid across the water in
+  // a straight bar. It could not have read as anything but a plate.
+  //
+  // Three changes, all of them geometry rather than paint:
+  //
+  //   1. **It is taller and it is shorter**, so the proportion stops being a
+  //      ribbon: 2.5 metres at the crown over 22 metres of face, and the crown
+  //      is a crown — a broad along-length swell rather than a level top, so
+  //      the silhouette against the pan has a middle.
+  //   2. **The lip is broken.** The foam runs at three times the frequency of
+  //      the body and is *scalloped in plan* as well as in height, so a camera
+  //      looking along it sees lumps of white with dark water between them
+  //      rather than one line. Surf is discontinuous; a shelf is not.
+  //   3. **It has a toe.** A thin tongue of foam running out ahead of the wave
+  //      and lying flat on the road, which is the single strongest cue that
+  //      something is *water arriving* rather than an object being slid across
+  //      the tarmac — and it is the part a chase camera sees first.
+  const N = 30;
+  const len = 22;
   // ── the bore has to be darker than the sheet it stands in ────────────────
   //
   // It was a paler teal at 0.82, which was correct while the flood sheet under
@@ -860,19 +889,36 @@ function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
   //     with daylight beneath it. The skirt is 65cm now. It is inside the road
   //     wherever the road is flat, which costs nothing, and it is still inside
   //     the ground where the ground has gone away, which is the point.
+  const ease = (v: number): number => { const k = clamp01(v); return k * k * (3 - 2 * k); };
+  /** 0 at both ends, 1 across the middle three fifths. */
+  const capAt = (t: number): number => ease(t / 0.2) * ease((1 - t) / 0.2);
+  /**
+   * The crown. A *bulge* along the length rather than a level top with ripples
+   * on it — the low harmonic carries most of the amplitude, so the wave has a
+   * middle and two shoulders and reads as one body of water instead of a bar.
+   */
+  const crown = (t: number): number =>
+    2.5 * (0.62 + 0.38 * Math.sin(Math.PI * t))
+    + 0.30 * Math.sin(t * 7.1) + 0.18 * Math.sin(t * 3.3 + 1.4);
+  const heightAt = (t: number): number => crown(t) * capAt(t) + SKIRT * (1 - capAt(t));
+  /** How far the crest has curled forward over the face at this station. */
+  const leanAt = (t: number): number => (1.35 + 0.35 * Math.sin(t * 5.0 + 0.6)) * capAt(t);
+
   const pos: number[] = [];
   const idx: number[] = [];
   for (let i = 0; i <= N; i++) {
     const t = i / N;
     const z = (t - 0.5) * len;
-    // 0 at both ends, 1 across the middle three fifths.
-    const ease = (v: number): number => { const k = clamp01(v); return k * k * (3 - 2 * k); };
-    const cap = ease(t / 0.2) * ease((1 - t) / 0.2);
-    const h = (1.5 + 0.55 * Math.sin(t * 7.1) + 0.3 * Math.sin(t * 3.3 + 1.4)) * cap + SKIRT * (1 - cap);
-    const lean = (0.9 + 0.25 * Math.sin(t * 5.0 + 0.6)) * cap;
-    pos.push(2.9, SKIRT, z);
+    const cap = capAt(t);
+    const h = heightAt(t);
+    const lean = leanAt(t);
+    // The back of the wave is drawn *up* toward the crest rather than run flat
+    // out to a skirt: what is behind a bore is deeper water, not a ramp, and a
+    // long flat back is the other half of what made this read as a wedge from
+    // overhead.
+    pos.push(2.4, SKIRT + 0.55 * cap * h, z);
     pos.push(-lean, h, z);
-    pos.push(-3.4, SKIRT, z);
+    pos.push(-3.0, SKIRT, z);
   }
   for (let i = 0; i < N; i++) {
     const a = i * 3;
@@ -888,25 +934,28 @@ function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
   g.add(wall);
   rig.wall = wall;
 
-  // The crest: a thin foam lip riding the top edge, drawn slightly proud so it
-  // catches the sun even when the wall behind it is in shadow.
+  // ── the lip, broken ───────────────────────────────────────────────────────
+  //
+  // Same top edge, but the foam riding it is modulated at three times the
+  // frequency of the body and **in plan as well as in height**: where `surf`
+  // is low the lip pulls back onto the crest and all but disappears, where it
+  // is high the lip throws forward over the face. Along a lens axis that is
+  // lumps of white with dark water between them, which is surf; the continuous
+  // ribbon it replaces was the "raised lilac-grey lip" in the finding.
   const cpos: number[] = [];
   const cidx: number[] = [];
   for (let i = 0; i <= N; i++) {
     const t = i / N;
     const z = (t - 0.5) * len;
-    // The same taper the face carries. A foam lip that kept full height past
-    // the end of the wave under it would be a white bar hanging in the air.
-    const ease = (v: number): number => { const k = clamp01(v); return k * k * (3 - 2 * k); };
-    const cap = ease(t / 0.2) * ease((1 - t) / 0.2);
-    const h = (1.5 + 0.55 * Math.sin(t * 7.1) + 0.3 * Math.sin(t * 3.3 + 1.4)) * cap + SKIRT * (1 - cap);
-    const lean = (0.9 + 0.25 * Math.sin(t * 5.0 + 0.6)) * cap;
-    // Narrower than it was — 0.87m of lip tilted back at thirty-odd degrees
-    // presents very nearly its whole area to a chase camera, which is how a
-    // crest ends up reading as a shelf rather than as the top of a wave. Half
-    // that, and pitched steeper, so what the camera gets is a *line* of foam.
-    cpos.push(-lean + 0.10 * cap, h + 0.24 * cap, z);
-    cpos.push(-lean - 0.36 * cap, h - 0.20 * cap, z);
+    const cap = capAt(t);
+    const h = heightAt(t);
+    const lean = leanAt(t);
+    const surf = 0.22 + 0.78 * clamp01(
+      0.5 + 0.62 * Math.sin(t * 23.0 + 0.4) + 0.30 * Math.sin(t * 41.0 + 2.1),
+    );
+    const throwF = 0.62 * cap * surf;
+    cpos.push(-lean - throwF * 0.55, h + 0.16 * cap * surf, z);
+    cpos.push(-lean - throwF * 1.5, h - 0.52 * cap * surf, z);
   }
   for (let i = 0; i < N; i++) {
     const a = i * 2;
@@ -920,7 +969,53 @@ function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
   g.add(crest);
   rig.crest = crest;
 
+  // ── the toe ───────────────────────────────────────────────────────────────
+  //
+  // A tongue of foam lying flat on the road ahead of the face, running out to
+  // a ragged feathered edge. It is the part of an arriving wave a driver sees
+  // first and the part a chase camera sees most of — a horizontal sheet is the
+  // one surface a lens 2.5 metres up gets a full view of — and it is what says
+  // *the water is coming toward you* rather than *an object is being slid*.
+  const tpos: number[] = [];
+  const tidx: number[] = [];
+  const tcol: number[] = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const z = (t - 0.5) * len;
+    const cap = capAt(t);
+    const reach = (3.4 + 2.1 * Math.sin(t * 11.0 + 1.7) + 1.1 * Math.sin(t * 19.0)) * cap;
+    tpos.push(-lea(t), SKIRT + 0.12, z);
+    tcol.push(1, 1, 1);
+    tpos.push(-3.0 - Math.max(0, reach), SKIRT + 0.06, z);
+    // Feathered to nothing at the leading edge: a tongue with a hard edge is a
+    // decal, which is the word this whole hazard was filed under.
+    tcol.push(0.25, 0.25, 0.25);
+  }
+  for (let i = 0; i < N; i++) {
+    const a = i * 2;
+    tidx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+  }
+  const tgeo = new THREE.BufferGeometry();
+  tgeo.setAttribute('position', new THREE.Float32BufferAttribute(tpos, 3));
+  tgeo.setAttribute('color', new THREE.Float32BufferAttribute(tcol, 3));
+  tgeo.setIndex(tidx);
+  tgeo.computeVertexNormals();
+  const toeM = new THREE.MeshBasicMaterial({
+    color: 0xdff0f3, transparent: true, opacity: 0.62,
+    vertexColors: true, depthWrite: false, side: THREE.DoubleSide,
+  });
+  keep.push(toeM);
+  const toe = new THREE.Mesh(tgeo, toeM);
+  toe.renderOrder = 4;
+  g.add(toe);
+  rig.toe = toe;
+
   return g;
+}
+
+/** The inner edge of the toe: hard against the foot of the face. */
+function lea(t: number): number {
+  return 3.0 - 0.4 * Math.sin(t * 9.0);
 }
 
 /** The avalanche gate: a lattice boom on a counterweighted pivot. */
@@ -1285,7 +1380,7 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
           live = true;
         } else { x = out; }
 
-        if (visual && h.rig.wall && h.rig.crest) {
+        if (visual && h.rig.wall && h.rig.crest && h.rig.toe) {
           // The wall is dragged flat as it drains, so the retreat reads as
           // water losing energy rather than as a wall reversing.
           const bulk = u < SURGE.hold ? 1 : 1 - 0.55 * clamp01((u - SURGE.hold) / 0.12);
@@ -1294,7 +1389,14 @@ export function createHazardSystem(ctx: GameContext): GameSystem {
           h.rig.wall.scale.set(1, s, 1);
           h.rig.crest.position.set(x, 0, Math.sin(u * TAU * 3) * 0.8);
           h.rig.crest.scale.set(1, s, 1);
-          h.rig.wall.visible = h.rig.crest.visible = u > SURGE.in0 - 0.04 && u < SURGE.gone;
+          // The tongue runs *ahead* of the face while the wave is advancing and
+          // is pulled back under it on the drain, so the one surface a chase
+          // camera sees all of is also the one that states the direction.
+          const adv = u < SURGE.hold ? 1 : Math.max(0.15, 1 - 2.4 * (u - SURGE.hold));
+          h.rig.toe.position.set(x, 0, 0);
+          h.rig.toe.scale.set(adv, 1, 1);
+          h.rig.wall.visible = h.rig.crest.visible = h.rig.toe.visible
+            = u > SURGE.in0 - 0.04 && u < SURGE.gone;
         }
         // 3.2 of radius, which is half the six-and-a-bit metres of water the
         // face is actually made of. It used to be 2.7 against a 4.3m face —
