@@ -120,6 +120,9 @@ const MAX_RACERS = 12;
  * from one number so they cannot come apart.
  */
 function waterMaterial(tint: string, time: { value: number }): THREE.MeshPhongMaterial {
+  if ((globalThis as unknown as { __FLOOD_SOLID?: boolean }).__FLOOD_SOLID) {
+    return new THREE.MeshBasicMaterial({ color: 0xff00ff }) as unknown as THREE.MeshPhongMaterial;
+  }
   const mat = new THREE.MeshPhongMaterial({
     color: new THREE.Color(tint),
     specular: 0xfffdf6,
@@ -484,6 +487,10 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
 
   /** Water depth is what a wheel throws; below the sheet there is nothing. */
   let hasWater = false;
+  /** The road the sheets were built against, kept so the wake can lie on it. */
+  let splineRef: TrackSpline | null = null;
+  let vergeRef = 5;
+  let _near: SplineSample | null = null;
 
   function emit(
     x: number, y: number, z: number, vx: number, vy: number, vz: number,
@@ -630,6 +637,8 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
 
   function build(track: Track): void {
     dispose();
+    probe.sheets = 0;
+    probe.patches.length = 0;
     const course: CourseDef = track.course;
     const defs = (features(course).patches ?? []).filter(
       (d) => d.surface === 'water' || d.style === 'brine',
@@ -639,6 +648,9 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
     hasWater = true;
     const spline = track.spline as unknown as TrackSpline;
     const verge = course.vergeWidth ?? 5;
+    splineRef = spline;
+    vergeRef = verge;
+    _near = spline.atDistance(0);
     const L = spline.length;
     const start = course.startDistance ?? 0;
 
@@ -665,6 +677,7 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
       const hi = Math.max(def.latFrom, def.latTo);
       const d0 = ((start + def.from * L) % L + L) % L;
       const span = Math.max(8, (def.to - def.from) * L);
+      const v0 = buf.pos.length;
       // The same `PatchRuntime` shape `road.ts` resolves and `sample()` walks,
       // built from the same declaration. It is not *used* for the band here —
       // see `buildSheet` — but keeping it means the seed, the extent and the
@@ -674,6 +687,16 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
         c: (lo + hi) * 0.5, hw: (hi - lo) * 0.5,
         taper: 1.6, seed: i * 7.31 + 1.7, hard: true,
       }, verge, buf.pos, buf.col, buf.edge, buf.idx);
+      let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+      for (let k = v0; k < buf.pos.length; k += 3) {
+        x0 = Math.min(x0, buf.pos[k]!); x1 = Math.max(x1, buf.pos[k]!);
+        z0 = Math.min(z0, buf.pos[k + 2]!); z1 = Math.max(z1, buf.pos[k + 2]!);
+      }
+      probe.patches.push({
+        d0: +d0.toFixed(1), span: +span.toFixed(1),
+        lat: [lo, hi],
+        box: [+x0.toFixed(1), +z0.toFixed(1), +x1.toFixed(1), +z1.toFixed(1)],
+      });
     }
 
     for (const [tint, buf] of byTint) {
@@ -694,6 +717,19 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
       // markings under it, and before the spray standing on top of it.
       mesh.renderOrder = 2;
       root.add(mesh);
+      probe.sheets++;
+      geo.computeBoundingBox();
+      const bb = geo.boundingBox!;
+      if (probe.sheets === 1) {
+        probe.bounds = [bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z];
+      } else {
+        probe.bounds[0] = Math.min(probe.bounds[0]!, bb.min.x);
+        probe.bounds[1] = Math.min(probe.bounds[1]!, bb.min.y);
+        probe.bounds[2] = Math.min(probe.bounds[2]!, bb.min.z);
+        probe.bounds[3] = Math.max(probe.bounds[3]!, bb.max.x);
+        probe.bounds[4] = Math.max(probe.bounds[4]!, bb.max.y);
+        probe.bounds[5] = Math.max(probe.bounds[5]!, bb.max.z);
+      }
     }
 
     // ── spray ──────────────────────────────────────────────────────────────
@@ -825,6 +861,19 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
         if (p.age < 1) alive++;
       }
       const v0 = ri * WAKE_POINTS * 2;
+      // ── the count is what has been *recorded*, not what can be drawn ──────
+      //
+      // This line used to read `t.count = 0` inside the branch below, and it
+      // cost the wake its entire existence. A trail is born with one sample;
+      // one sample cannot be drawn as a ribbon, so the branch fired and threw
+      // the count away — and `record()`'s "have I travelled far enough for the
+      // next sample" test is `t.since < 2.4 && t.count > 0`, which with a count
+      // of zero is false, so the next frame recorded a *first* sample again.
+      // The trail therefore oscillated between one sample and none for as long
+      // as a machine stood in water, and `__FLOOD.wakes` read 0 with five
+      // racers submerged, which is exactly the "no wake trail" half of the
+      // finding. Pruning dead samples off the tail is correct; forgetting the
+      // live ones at the head is not.
       t.count = alive;
       if (alive < 2) {
         // A trail that has run out has to be *retired*, not merely skipped.
@@ -833,7 +882,6 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
         // frozen on the road behind wherever it left the water, for as long as
         // any higher-numbered racer was still leaving one.
         for (let k = 0; k < WAKE_POINTS * 2; k++) wakeAge[v0 + k] = 1;
-        t.count = 0;
         continue;
       }
 
@@ -884,11 +932,29 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
     _right.set(1, 0, 0).applyMatrix4(_m);
     const p = t.pts[t.head]!;
     p.x = r.pos.x;
-    // On the sheet, not in it. The sheet's own body sits at about 5cm over the
-    // crown and the kart's origin is at axle height, so this is measured off
-    // the water rather than off the machine.
-    p.y = r.pos.y - 0.30;
     p.z = r.pos.z;
+    // ── the wake lies on the water, and the water is not where the kart is ──
+    //
+    // This used to be `r.pos.y - 0.30`: the machine's own origin, dropped by a
+    // guess at axle height. A kart's origin is not a fixed height above the
+    // road — it rises on a landing, drops under load, and is nowhere near it
+    // at all mid-hop — so a ribbon hung off it either floats a foot over the
+    // sheet or sinks *under the tarmac*, where the depth test eats it and the
+    // wake simply is not there. Neither failure looks like a bug from a chase
+    // camera; both look like "the water does nothing".
+    //
+    // So the ribbon is placed off the *road*, by the same `surfacePoint` the
+    // sheet itself is built with and at a hair more lift, which is the only
+    // way the two can be guaranteed to agree. `nearest()` runs once per 2.4
+    // metres per machine — about sixteen calls a second for a whole field in
+    // water, against the sixty per machine a per-frame query would cost.
+    if (splineRef && _near) {
+      splineRef.nearest(r.pos, _near);
+      surfacePoint(_near, _near.lateral ?? 0, vergeRef, DEPTH + 0.018, _at);
+      p.y = _at.y;
+    } else {
+      p.y = r.pos.y - 0.30;
+    }
     p.rx = _right.x;
     p.rz = _right.z;
     p.half = 1.15;
@@ -896,6 +962,34 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
     t.head = (t.head + 1) % WAKE_POINTS;
     if (t.count < WAKE_POINTS) t.count++;
   }
+
+  /**
+   * `globalThis.__FLOOD` — the debugging surface, and it exists because of a
+   * measurement this file could not otherwise make.
+   *
+   * A reviewer looking at a still frame cannot tell "no spray was emitted"
+   * apart from "spray was emitted and is invisible", and those are opposite
+   * bugs with opposite fixes. `window.__GAME` reports `surface` — what the
+   * *simulation* thinks the machine is standing on — and nothing at all about
+   * whether the picture agrees. This reports the picture: how many sheets were
+   * built, where their world bounds are, how many droplets are alive, and how
+   * many machines this frame said were wet.
+   *
+   * Read-only, allocation-free at the call site apart from the object it
+   * returns, and never read by the game itself.
+   */
+  const probe = {
+    sheets: 0,
+    /** World-space AABB of every sheet together: [minX, minY, minZ, maxX, maxY, maxZ]. */
+    bounds: [0, 0, 0, 0, 0, 0] as number[],
+    /** One entry per declared sheet: where it was placed, and how big it came out. */
+    patches: [] as { d0: number; span: number; lat: number[]; box: number[] }[],
+    spray: 0,
+    wet: 0,
+    wakes: 0,
+    hasWater: false,
+  };
+  (globalThis as unknown as { __FLOOD?: typeof probe }).__FLOOD = probe;
 
   return {
     name: 'flood',
@@ -930,11 +1024,13 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
 
       const budget = Math.max(0.25, Math.min(1.4, ctx.quality.particles ?? 1));
       const racers = ctx.racers;
+      probe.wet = 0;
       for (let i = 0; i < racers.length && i < MAX_RACERS; i++) {
         const r = racers[i]!;
         const wet = r.surface === 'water' && r.grounded;
         const t = trails[i]!;
         if (wet) {
+          probe.wet++;
           if (!t.wasWet) splash(r, budget);
           sprayRacer(r, dt, budget);
           record(r, i, dt);
@@ -943,6 +1039,11 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
       }
       stepSpray(dt);
       stepWake(dt);
+      probe.spray = live;
+      probe.hasWater = hasWater;
+      let w = 0;
+      for (const t of trails) if (t.count > 1) w++;
+      probe.wakes = w;
     },
 
     dispose,

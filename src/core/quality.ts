@@ -119,11 +119,9 @@
 //   COLLAPSE_FRAMES 2      delivered frames           2.9s            ok (r8)
 //   COLLAPSE_SAMPLES 2     delivered frames           2.9s            ok (r8)
 //   COLLAPSE_DWELL 1.2     wall s of delivered play   1 frame         ok (r8)
-//   SCALE_HOLD_S 2         wall s of delivered play   1 frame         ok (r8)
 //   PANIC_MAX_STEP         rungs per change           the ladder      ok (r8)
 //   skipDraw frames        not a unit — discarded     see `undrawn`   ok (r8)
-//   SCALE_RAMP 0.04        scale per 16.7ms of frame  4 frames (***)  ok (r13)
-//   SCALE_RAMP_MAX 0.15    scale per frame, any rate  the cap         ok (r13)
+//   scale                  **no clock at all** — it rides the rung    (***)
 //   PRELUDE_WARM_S 3       wall s of front-end frames 3 frames        ok (r13)
 //   PRELUDE_SAMPLES 8      delivered front-end frames 9s at 0.9fps    ok (r13)
 //   PRELUDE_BUILD_SAMPLES  delivered front-end frames a seam          ok (r13)
@@ -157,14 +155,15 @@
 //   three times its own cost, on the bench that runs the gate. `gate()`
 //   normalises per step. See `STEPS_AT_60`.
 //
-//   (***) The one gate in this file that is deliberately *not* denominated in
-//   any of the four units, because it governs an animation rather than a
-//   decision, and an animation is frames at a rate. Read the row as "the whole
-//   traverse in 0.21 wall seconds, and never in fewer than four frames":
-//   thirteen frames at 60fps, four at 20fps, four at 0.7fps. The degenerate
-//   one-frame case used to be defended here as the correct one; a reviewer
-//   photographed the two frames it produces and they are a cut. See
-//   `SCALE_RAMP_MAX`.
+//   (***) The row that used to hold three constants and a rate limit, and now
+//   holds none. The render scale is not paced, not ramped and not rate-limited:
+//   it is a *field of the rung*, and it moves when and only when the rung moves,
+//   on that frame, through the same gate. Two rounds tried to give it a clock of
+//   its own — a dissolve to make the change legible, a hold to keep two changes
+//   apart — and both were paying for a transition cost that has since been
+//   removed at its source (`primeScaleSizes`) rather than spread out. A lever
+//   with no clock cannot disagree with the clock the decision was taken on. See
+//   the block where `SCALE_HOLD_S` used to be.
 //
 //   (*) `WARMUP_S` and `PANIC_ARM_S` stay in wall seconds on purpose: they gate
 //   a statistic, the sample counts beside them are what binds on a slow
@@ -306,10 +305,11 @@
 //   implements `setRenderScale`, the world is drawn into targets it owns at a
 //   fraction of their size, and the canvas never moves at all. What is left is
 //   a picture that goes slightly soft, which is a degree of the same thing
-//   every rung does. Rate-limited to one landing per `SCALE_HOLD_S`; inherits
-//   the moment gate from the rung change that asked for it. See `freeScalePath`
-//   and `serviceScale`, and note that `scaleFlushes` now stays at **0** for the
-//   life of a session.
+//   every rung does. It lands **on the frame the rung changes**, through the
+//   moment gate that rung change already passed and through no clock of its own
+//   — see `takeScale` — and the sizes it lands on are made warm at load so that
+//   landing costs an ordinary frame (`primeScaleSizes`). Note that
+//   `scaleFlushes` stays at **0** for the life of a session.
 //
 //   `tier` came out because holding it made `ctx.quality.tier` a lie: at the
 //   floor, mid-race, it read `high`. Exactly one module reads it —
@@ -842,6 +842,40 @@ const THIN_KNEE_PX = 6;
  * the seven rungs than the ladder used to give them. `render/lighting.ts`
  * guards its own write (`if (sun.shadow.mapSize.x !== ctx.quality.shadowSize)`)
  * so a frozen value means the map is allocated once, at boot, and never again.
+ *
+ * ── round sixteen tried to reopen this and could not ───────────────────────
+ *
+ * The suspicion was reasonable and worth writing down so nobody spends the
+ * round on it again: a 2048 map is 4.2M texels serving a 800x450 picture at the
+ * floor, which is eleven shadow texels per drawn pixel, and if the map were a
+ * real share of the frame then freezing it would be the ladder declining its
+ * largest lever. So it was measured — one page, one pinned rung, interleaved
+ * 2048 / 1024 / 512 / off / 2048 windows of fourteen seconds each, the same
+ * recipe every other pairwise number in this file comes from.
+ *
+ * The result is not a number, it is a warning about the bench:
+ *
+ *   2048  500ms      1024  483ms      512  800ms      off  983ms
+ *   ...and **2048 again, immediately afterwards, 983ms**, then 1550ms for the
+ *   identical configuration on the next pass.
+ *
+ * The control drifted by 3.1x inside one run — an order of magnitude more than
+ * anything the levers could be worth — so every row above is noise, including
+ * the two that appear to say the map is free. That is the same disease §5's
+ * "1.92x" paragraph was written about, arriving in a different room: **a
+ * software-rasteriser container shared with other agents cannot price anything
+ * whose effect is smaller than a factor of three.** Draw calls and triangles
+ * are exact here and time is not, which is why `gate()` is denominated in the
+ * first two.
+ *
+ * So the map stays frozen, on the argument above rather than on new evidence,
+ * and the honest statement of what is unknown is: *nobody has priced this
+ * shadow map on hardware*. If a later round has a quiet machine, the
+ * measurement to take is `shadowSize` at 2048 against 1024 at rung 6 — and if
+ * it turns out to be worth real time, the way to put it back on the ladder is
+ * as a **seam-held** lever (`SEAM_HELD`, plus a case in `seamDiffers` and a
+ * line in `composeSettings`), never a mid-race one, because the +262ms above is
+ * a depth attachment being rebuilt and that is precisely what a seam is for.
  */
 const SHADOW_PX = config.quality.high.shadowSize;
 
@@ -857,6 +891,44 @@ function rung(
     settings: { tier, ...config.quality[tier], ...trim, shadowSize: SHADOW_PX },
     content: { ...FULL_CONTENT, ...content },
   };
+}
+
+/**
+ * ── What each rung is *called*, to a player ────────────────────────────────
+ *
+ * `Rung.label` is this file's own word for a rung and it is an engineer's word:
+ * `high-`, `med-`, `thin`, `sparse`, `floor`. It is the right vocabulary for
+ * `probe()`, for `stats().rungLabel` and for the change log, all of which are
+ * read by somebody debugging a ladder — and it is unshippable on a select
+ * screen. A PICTURE row bound to it would print MED- and SPARSE next to
+ * MACHINE, CUP, CIRCUIT and CLASS.
+ *
+ * So the ladder publishes both, and the split is by audience rather than by
+ * accident: the engineering label stays on every diagnostic surface, and
+ * `QualityPreference.rungs[].label` — the field whose whole documented purpose
+ * is "the word this rung is called", read by nothing else in the repository —
+ * carries the player's word.
+ *
+ * This is here rather than in `ui/menus` because the ladder's *length* is this
+ * file's business. A screen holding its own seven names is a screen that lies
+ * the day a rung is added, and rungs have been added and removed in this file
+ * four times. Exported so the front-end can bind a row to the ladder rather
+ * than to a copy of it.
+ *
+ * Seven words, monotone, no dashes and no jargon, and every one of them a word
+ * a person can act on when their game looks worse than it used to.
+ */
+export const RUNG_NAMES: readonly string[] = [
+  'FULL', 'HIGH', 'MEDIUM', 'REDUCED', 'LOW', 'LOWER', 'MINIMUM',
+];
+
+/** The player's word for a rung, clamped, so an index from anywhere is safe to
+ *  display. Falls back to the engineering label if the two tables ever come
+ *  apart — a screen printing `sparse` is a bug worth seeing, and a screen
+ *  printing `undefined` is one nobody can diagnose. */
+export function rungName(index: number): string {
+  const i = index < 0 ? 0 : index >= LADDER.length ? LADDER.length - 1 : Math.round(index);
+  return RUNG_NAMES[i] ?? LADDER[i]?.label ?? '';
 }
 
 /**
@@ -1161,9 +1233,12 @@ const LADDER: readonly Rung[] = [
 //                 4.90. The apparatus that used to publish the blur went with
 //                 round eleven — see the note above `wantScale`, where a
 //                 hundred and forty lines were driving zero elements. What
-//                 keeps the lever seam-safe is that it is ramped rather than
-//                 stepped — see `SCALE_RAMP` — because a change small enough
-//                 not to be watched still cannot arrive all at once.
+//                 keeps the lever seam-safe is the moment gate the rung change
+//                 already passed, and nothing else: round sixteen deleted the
+//                 ramp that used to spread it over five frames, because the
+//                 ramp's own landings were measured at 3037ms and 547ms against
+//                 a 662ms median and it was buying five chances to hitch to
+//                 disguise one change. See the block where `SCALE_HOLD_S` was.
 //     `tier`      (a), by accident of what the field actually drives:
 //                 `SHADOW_EXTENT` in `render/lighting.ts`, 62 / 52 / 46m. The
 //                 outer edge of the shadow frustum moves ten metres.
@@ -1548,18 +1623,46 @@ const START_RUNG = 0;
 // hundred and fifty between them, so the derived number is reachable and the
 // only reason it is not the gate today is that this module cannot reach it.
 //
-// ── ...and the row that is closest to its ceiling, which is not draw calls ──
+// ── ...and the row that is closest to its ceiling, which is now draw calls ──
 //
-// On the smoke frame this round measured, rung 0 is **351 of 400 draw calls
-// (88%) and 930,112 of 1,000,000 triangles (93%)**, and the second of those is
-// the one to watch: `world` alone is 562,580 of them. The triangle line is a
-// regression tripwire rather than a frame-rate defence — the frame is
-// fill-bound and this file's own lever table measures every geometry lever at
-// 1-3% — but a tripwire at 93% will fire, and when it does the answer is a
-// conversation with `src/world/` about what the course is made of, **not** a
-// rung of this ladder. The ladder has already given up everything it can take
-// out of the world without a player noticing; the crowd is 172k of that 562k
-// and it is staying. See `ContentTrim.crowd`.
+// **Both lines are inside 10% of the tripwire and the draw-call line has
+// overtaken the triangle line.** `capture.mjs --smoke`, this round, unchanged
+// build:
+//
+//   draw calls       388 / 400      97%
+//   triangles     907,630 / 1,000,000  91%
+//   sim+update      2.58 / 6         43%   (target 4)
+//
+//   the ladder             calls  triangles  shelled
+//     rung 0 high           388     907,630        0
+//     rung 1 high-          329     907,038        3
+//     rung 2 med            327     894,420        3
+//     rung 3 med-           302     882,132        4
+//     rung 4 thin           301     872,148        4
+//     rung 5 sparse         296     834,714        4
+//     rung 6 floor          293     812,020        4
+//
+// The two previous readings this section carried were 338 and 351 draw calls,
+// so the frame has gained fifty submissions in two rounds while the ceiling has
+// not moved — and unlike the triangle line, the draw-call line is the resource
+// the derivation above says the frame is actually nearest its limit on. At 97%
+// the next agent who adds a set-piece trips `ladderFailures` on a build that
+// has nothing wrong with it, and the failure will read as a quality-ladder
+// defect because this file is where the gate lives.
+//
+// **The ladder cannot answer it.** Its whole descent is 388 -> 293, and 59 of
+// those 95 calls are one step (rung 1's shells). What is left is the three rows
+// named above with owners on them — the field's near case in `vehicles/`,
+// `hazards`' 26 submissions for 1,008 triangles in `track/courses/hazards.ts`,
+// and `itemRig`'s 22 — which are worth about a hundred and fifty between them
+// and would put rung 0 back under the 350 the derivation asks for. This is a
+// cross-module request restated with a number on it, not a rung.
+//
+// The triangle line stays a tripwire rather than a frame-rate defence — this
+// file's own lever table measures every geometry lever at 1-3% — and when it
+// fires the answer is still a conversation with `src/world/` about what the
+// course is made of. The crowd is 172k of it and it is staying. See
+// `ContentTrim.crowd`.
 export interface FrameCeiling {
   /** `renderer.info.render.calls` on a rung-0 racing frame. */
   drawCalls: number;
@@ -1925,90 +2028,55 @@ const SETTLE_FRAMES = 6;
 /** ...and after an emergency change, where waiting is its own cost. */
 const PANIC_SETTLE = 0.9;
 const PANIC_SETTLE_FRAMES = 2;
-/**
- * Delivered-play seconds between two landings of the render scale.
- *
- * The only number the live resolution lever adds, and it is a floor on how
- * often the picture may change size rather than a moment gate — the rung change
- * that asked for the move has already passed `pictureLocked()` and
- * `onAStraight()`. What this stops is a ladder that is oscillating, or one
- * taking a panic pop of six rungs, turning into six separate resizes: a
- * multi-rung change lands exactly one.
- *
- * Two seconds, which is one delivered frame on the machine this file exists for
- * and a hundred and twenty on one that is fine. That asymmetry is the right way
- * round: the failing machine gets its rescue on the next frame it draws, and
- * the healthy one — which by definition is not asking for a rung — cannot
- * flicker.
- */
-const SCALE_HOLD_S = 2;
-/**
- * How far the render scale may travel in one frame of a 60Hz display.
- *
- * ── Why the biggest lever on the ladder is now the slowest one ──────────────
- *
- * Because a dissolve is not a cut. Round eight made `scale` live and left it a
- * step function, and the review that followed caught the consequence live: the
- * collapse path took **1.00 to 0.50 in a single frame** — `collapsed (152x
- * budget) x6` at nine seconds — so the one thing a player was guaranteed to see
- * the governor do was the whole picture changing size at once, underneath the
- * course's beauty sweep. Every other lever in this file is graded (a ramp
- * anchored at a knee, a cap on the next burst, a threshold in projected
- * pixels); this one was not, and it is the loudest.
- *
- * ── ...and why it is denominated per *frame* and paced by the wall clock ────
- *
- * The unit rule (§2) says a person waiting is measured in wall seconds and a
- * statistic in delivered frames, and this is neither: it is an *animation*, and
- * an animation is frames **at a rate**. So the step is `SCALE_RAMP` per 16.7ms
- * of the frame that just went by, which reads correctly at both ends of the
- * range this file exists across:
- *
- *   at 60fps        0.04 a frame — 1.00 to 0.50 takes 13 frames, 0.21s. A
- *                   dissolve, which is what a player at 60fps can see.
- *   at 20fps        0.12 a frame — four frames, still 0.21s.
- *   at 0.7fps       `SCALE_RAMP_MAX` binds — four frames, 5.7 wall seconds.
- *
- * ── ...and the third row is capped, because the argument for not capping it
- *    was wrong in the one direction that matters ──────────────────────────────
- *
- * This row used to read *the whole traverse in one frame, and correctly*, on
- * the reasoning that a machine delivering a picture every 1.4 seconds has no
- * motion for a dissolve to live in and that thirteen frames of easing would be
- * eighteen seconds of the worst frame rate in the session. The second half of
- * that is true and is why `SCALE_RAMP_MAX` is 0.15 rather than 0.04. The first
- * half is false, and a reviewer photographed it being false: the two frames a
- * player actually saw were 0.3 race-seconds apart, same camera, same
- * composition, the gantry lettering crisp in one and mushy in the other, the
- * hazard chevrons broken into a dotted line. **A low frame rate does not hide a
- * cut. It leaves each side of it on the screen for a full second and makes it
- * more legible, not less** — the eye binds two identical compositions harder
- * than it binds two frames of a moving camera, which is the same finding
- * `sealedBeat` was written for, arriving one lever later.
- *
- * So the traverse is at least four steps at every frame rate this file can
- * measure, and the pacing still does its job in the band where it was right:
- * thirteen frames at 60fps, four at 20, four at 0.7. `probe().scaleSteps`
- * against `scaleRampFrames` is how a review tells a dissolve from a cut without
- * filming one, and `1 / 1` — the signature the last round shipped — can no
- * longer be produced by the collapse path.
- */
-const SCALE_RAMP = 0.04;
-/**
- * ...and the most the scale may travel in one frame, whatever that frame cost.
- *
- * 0.15 makes the ladder's longest traverse (1.00 to 0.50) four steps and its
- * ordinary one-rung moves one or two. Four is the smallest number that reads as
- * a change *happening* rather than as two unrelated pictures; below it the
- * before-frame and the after-frame are simply different, which is the artefact
- * this constant exists to stop the emergency path shipping.
- */
-const SCALE_RAMP_MAX = 0.15;
-/** ...and the frame period that rate is quoted against. Not `TARGET_MS`: this
- *  is a statement about how fast a change may be *watched*, which does not
- *  change if the target frame rate ever does. */
-const SCALE_RAMP_MS = 1000 / 60;
-/** Below this the ramp has arrived. One percent is `setRenderScale`'s own
+// ── the ramp and its rate limit, and why there is neither any more (r16) ────
+//
+// There were three constants here — `SCALE_RAMP`, `SCALE_RAMP_MAX`,
+// `SCALE_RAMP_MS` — and one rate limit, `SCALE_HOLD_S`, and between them they
+// spread one resolution change across five buffer sizes so that it would read
+// as a dissolve rather than as a cut. The argument was about *legibility*: two
+// frames a second apart at different sharpnesses are two pictures, and four
+// steps read as a change happening.
+//
+// It was measured, live, at 1280x720 on the page's own rAF loop, and the
+// measurement kills it:
+//
+//   the ramp's five landings, in order   1.00 -> 0.85   3037ms
+//                                        0.85 -> 0.70     15.9ms
+//                                        0.70 -> 0.66     14.6ms
+//                                        0.66 -> 0.51     72.3ms
+//                                        0.51 -> 0.50    547ms
+//   session median frame                                 662ms
+//
+// Two things fall out of that and they point the same way. The **first** step
+// is a hundred and ninety times the last three, which is not fill — 0.85 of a
+// frame is less fill than 1.00 — it is the driver creating a pipeline for a
+// framebuffer size it has never drawn into. And the ramp visits five sizes to
+// disguise one change, so it buys **five chances** to pay that. A mechanism
+// built to stop stutter was the two worst frames of the session.
+//
+// So: the sizes are made warm at load (`primeScaleSizes`, behind the closed
+// launch board, one composed render per rung), and with the first-touch cost
+// gone the change is taken whole, on the frame the rung changes, by the same
+// call that changes the rung. One change, one frame, one picture. The
+// legibility argument survives intact and is answered somewhere better — the
+// moment gate, which is what decides whether a player is looking at the picture
+// at all. See `takeScale`, `serviceScale` and `primeScaleSizes`.
+//
+// **And the rate limit went with it, because it was the ramp's other half.**
+// `SCALE_HOLD_S` was two delivered-play seconds between landings, and its
+// stated job — "a panic pop of six rungs lands exactly one resize" — is done by
+// the change being one change: `applyRung` sets one target and `takeScale`
+// moves to it once, on that frame. What the hold does when it is the only thing
+// left is strictly bad: it decouples the resolution from the rung that asked
+// for it, so a change the moment gate cleared lands its *content* now and its
+// *pixels* up to two seconds later, at a moment nothing gated. That is two
+// changes where the player was owed one, and the second one is the one nobody
+// checked the camera for. A rung change is already dwell-limited at both ends
+// (`DOWN_DWELL`, `UP_DWELL`, `SETTLE`) and moment-gated (`pictureLocked`,
+// `onAStraight`, `watchedBeat`); a second rate limit downstream of all three
+// was not protecting the player from the ladder, it was protecting the ladder
+// from its own transition cost. That cost is what `primeScaleSizes` removed.
+/** Below this the scale has arrived. One percent is `setRenderScale`'s own
  *  quantisation, so a smaller epsilon would ask for resizes of nought pixels. */
 const SCALE_EPS = 0.005;
 /** Seconds of quiet after a harness-driven frame before measuring resumes. */
@@ -3141,15 +3209,24 @@ export interface QualityProbe {
   scaleSteps: number;
   scaleFlushWhy: string;
   /**
-   * The lever is mid-dissolve, and the frames it has spent dissolving.
+   * Delivered frames on which the resolution the ladder had asked for was still
+   * not the resolution being drawn.
    *
-   * `scaleSteps` counts *arrivals* and this counts the frames between them, so
-   * the pair is the one honest answer to "was that a dissolve or a cut": a
-   * session with `scaleSteps: 3` and `scaleRampFrames: 3` cut three times.
-   * See `SCALE_RAMP`.
+   * **Zero is the assertion.** Round sixteen made the request and the landing
+   * the same call, so a want cannot outlive the frame that made it; the only
+   * ways to make this non-zero are a page whose composer cannot move the scale
+   * for free (where the seam is correctly the only door) and a want recorded
+   * before `render/` had installed one at all. It replaces `scaleRampFrames`,
+   * which counted the frames of a deliberate dissolve — a mechanism that
+   * measured itself hitching, at 2160ms against a 684ms median, and is gone.
    */
-  scaleRamping: boolean;
-  scaleRampFrames: number;
+  scaleLate: number;
+  /** How many distinct buffer sizes were made warm at load, and what that cost.
+   *  See `primeScaleSizes`. A session reporting `scalePrimed: 0` on a page with
+   *  a free composer has not primed and its first mid-race scale change will
+   *  pay pipeline creation on a frame the player is looking at. */
+  scalePrimed: number;
+  scalePrimeMs: number;
   /**
    * The pixels the world is actually drawn into, as `WxH`, and the canvas it is
    * resolved onto beside it.
@@ -4378,133 +4455,103 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
   /** ...and how many times the lever has landed at all, free path included. */
   let scaleSteps = 0;
   let lastFlushWhy = '';
-  /** `liveSeconds` at the last landing, for the rate limit. */
-  let lastScaleAt = -Infinity;
 
   /**
    * Ask for a render resolution. **Never rebuilds the swap chain.**
    *
-   * With a composer that can move it for free (`freeScalePath`), the request is
-   * serviced on the spot, subject only to `SCALE_HOLD_S` — see `serviceScale`.
-   * Without one, the request is *recorded* and the drawing buffer catches up at
-   * the next seam, which is the round-six behaviour: `setPixelRatio` is a
-   * swap-chain rebuild, a swap-chain rebuild is a three-second frame under a
-   * software rasteriser, and a three-second frame is the worst thing the player
-   * will see all session. It is also why the DOM HUD and the 3D used to come
-   * apart: shrinking the canvas under a fixed-size overlay leaves a pixel-sharp
-   * place badge against a half-resolution road in the same frame. Neither
-   * applies to the free path, where the canvas never moves at all.
+   * Records the want and nothing else. Every caller either lands it on the same
+   * line (`takeScale` from `applyRung`, `flushScale` from a seam or a bench) or
+   * is content for `serviceScale` to land it on the next delivered frame. The
+   * split exists for the one path that has no free composer: without
+   * `setRenderScale` the drawing buffer catches up at the next seam, which is
+   * the round-six behaviour, because `setPixelRatio` is a swap-chain rebuild, a
+   * swap-chain rebuild is a three-second frame under a software rasteriser, and
+   * a three-second frame is the worst thing the player will see all session. It
+   * is also why the DOM HUD and the 3D used to come apart: shrinking the canvas
+   * under a fixed-size overlay leaves a pixel-sharp place badge against a
+   * half-resolution road in the same frame. Neither applies to the free path,
+   * where the canvas never moves at all.
    */
   function applyScale(scale: number): void {
     wantScale = scale;
-    // **Recorded, not serviced.** The travelling is `serviceScale`'s, once per
-    // delivered frame, because the lever is a ramp now and a ramp needs frames
-    // to run across — see `SCALE_RAMP`. The callers that must have the whole
-    // thing immediately are the ones that are not a player watching a race, and
-    // they say so by calling `flushScale` on the next line: a seam, a bench, a
-    // reviewer pinning a rung.
   }
 
-  /** True while the render scale is easing toward a target it has not reached.
-   *  Nothing decides anything on the strength of it; it is what keeps
-   *  `SCALE_HOLD_S` gating the *start* of a traverse rather than every step. */
-  let ramping = false;
-  /** Frames the ramp has spent travelling this session, and the traverses it
-   *  has completed. Reported so a review can tell a dissolve from a cut without
-   *  filming one. */
-  let rampFrames = 0;
+  /** True when the ladder has asked for a size the buffer has not got. On the
+   *  free path this is false on every frame except the one a request is made
+   *  on and cannot survive a delivered frame; without a free composer it stays
+   *  true until the next seam. Reported as `scalePending`. */
+  let scaleWaiting = false;
+  /** Delivered frames spent in that state, session-long. **Zero is the healthy
+   *  reading** and a non-zero one means a want outlived a frame — a page with no
+   *  free composer, or a request made from outside the loop. Reported so that a
+   *  review can tell "the picture and the rung changed together" from "they
+   *  came apart", which is the whole of what the ramp got wrong. */
+  let scaleLateFrames = 0;
 
   /**
-   * Ease the render resolution toward whatever the ladder last asked for.
+   * Move the drawing buffer to the size the ladder has asked for. One call, one
+   * frame, no easing.
    *
-   * Called once per delivered frame with the wall gap that frame took, so a
-   * request the rate limit refused is never simply forgotten and a request it
-   * allowed arrives as a dissolve rather than as a cut. Does nothing at all
-   * without a free path — there the seam is still the only door.
+   * The bookkeeping is deliberately *not* here: the two callers own different
+   * halves of it. `applyRung` is about to clear its own window, file its own
+   * change entry and emit its own `quality:changed` carrying the scale this
+   * call just made true, so charging it a second clear and a second emit would
+   * report one change as two. `flushScale` has no such context and calls
+   * `landScale` itself.
    *
-   * Two gates, and they gate different things:
-   *
-   *   `SCALE_HOLD_S` gates the **start** of a traverse. It is the whole of the
-   *   mid-race safety argument and it is one line rather than a moment gate
-   *   because the caller is already gated: a rung change went through
-   *   `pictureLocked()` and `onAStraight()` before it got here. What it adds is
-   *   a floor on how often the picture may change size regardless of how fast
-   *   the ladder is moving — a panic pop that reaches the floor in one step
-   *   travels once, not six times.
-   *
-   *   `SCALE_RAMP` paces the **steps** of one. Deliberately not subject to the
-   *   hold: a ramp that had to wait two seconds between its own frames would be
-   *   a slideshow of intermediate resolutions, which is worse than the cut it
-   *   replaces.
+   * Returns whether anything moved.
    */
-  function serviceScale(gapMs: number): void {
-    if (!freeScalePath()) return;
-    if (Math.abs(liveScale - wantScale) < SCALE_EPS) { ramping = false; return; }
-    if (!ramping) {
-      if (liveSeconds - lastScaleAt < SCALE_HOLD_S) return;
-      ramping = true;
-    }
-    stepScale(gapMs);
-  }
-
-  /**
-   * One frame of the ramp.
-   *
-   * The step is `SCALE_RAMP` scaled by how long the last delivered frame
-   * actually took, which is what makes the same constant mean "a quarter of a
-   * second" on a machine at 60fps and "get on with it" on one at 0.7 — see
-   * `SCALE_RAMP` for why that is the right shape rather than a compromise.
-   *
-   * A gap of zero is a frame this file was not allowed to count: the page was
-   * hidden, the harness drove it, the draw was skipped. It is worth exactly one
-   * 60Hz step, so a page that only ever produces those still arrives eventually
-   * and never arrives in a jump.
-   */
-  function stepScale(gapMs: number): void {
+  function takeScale(why: string): boolean {
     const free = freeScalePath();
-    if (!free) return;
-    const pace = gapMs > 0 ? Math.max(1, gapMs / SCALE_RAMP_MS) : 1;
-    // Capped, so the traverse is a change a player can watch happening at every
-    // frame rate rather than a cut at the low end. See `SCALE_RAMP_MAX`.
-    const step = Math.min(SCALE_RAMP * pace, SCALE_RAMP_MAX);
-    const delta = wantScale - liveScale;
-    const next = Math.abs(delta) <= step
-      ? wantScale
-      : liveScale + (delta > 0 ? step : -step);
-    free.setRenderScale!(next);
-    liveScale = next;
-    rampFrames++;
-    // The DOM travels with it, every step, or the world dissolves under a HUD
-    // that snaps at the end — which is the same seam one frame wide.
-    if (Math.abs(liveScale - wantScale) < SCALE_EPS) {
-      // Arrived. Everything a landing owes the rest of the file is owed once,
-      // at the end, rather than thirteen times on the way: one `quality:changed`
-      // for the listeners that size themselves off it, one cleared window, one
-      // entry in the rate limit.
-      landScale('live', true);
-    } else {
-      // Mid-traverse the only thing that has to be true is that `stats()` is not
-      // lying about the resolution a reviewer is looking at.
-      publish();
-    }
+    if (!free) { scaleWaiting = Math.abs(liveScale - wantScale) >= SCALE_EPS; return false; }
+    if (Math.abs(liveScale - wantScale) < SCALE_EPS) { scaleWaiting = false; return false; }
+    free.setRenderScale!(wantScale);
+    liveScale = wantScale;
+    scaleSteps++;
+    scaleWaiting = false;
+    lastFlushWhy = why;
+    return true;
   }
 
   /**
-   * Book a completed traverse: the bookkeeping every landing owes, by either
-   * path, exactly once.
+   * Land any resolution the ladder asked for that has not landed yet.
+   *
+   * On the free path this is a no-op on every frame, because the request and
+   * the landing happen in the same call (`applyRung` -> `takeScale`). It is here
+   * for the two cases where they cannot: a want recorded before `render/` had
+   * installed a composer, and a page with no free path at all, where the seam
+   * is still the only door and this correctly does nothing.
+   *
+   * That it is a no-op is the assertion, not the implementation — `scaleLate`
+   * in the probe counts the frames on which it was not, and a session that ever
+   * reports a non-zero one has a resolution change decoupled from the rung that
+   * asked for it, which is the artefact round sixteen deleted.
+   */
+  function serviceScale(): void {
+    if (Math.abs(liveScale - wantScale) < SCALE_EPS) { scaleWaiting = false; return; }
+    if (!freeScalePath()) { scaleWaiting = true; return; }
+    scaleLateFrames++;
+    takeScale('late');
+    landScale('late', true);
+  }
+
+  /**
+   * Book a landing: the bookkeeping a resolution change owes when the caller is
+   * not `applyRung`.
    *
    * `own` is "this landing is part of the rung change currently being measured"
-   * — the governor's own ramp arriving, or the collapse path landing its own
-   * seam. It keeps the change entry alive across the clear, because the traverse
-   * *is* the change and the frames it costs are the frames `changeMs` exists to
-   * count. Everything else — a bench, a pin, a resize, a race build — is
-   * somebody else's reallocation landing inside our window, and is dropped
-   * rather than charged. See `clearStats`.
+   * — the collapse path landing its own seam, or `serviceScale` finally
+   * delivering a want the loop could not. It keeps the change entry alive across
+   * the clear, because the landing *is* the change and the frames it costs are
+   * the frames `changeMs` exists to count. Everything else — a bench, a pin, a
+   * resize, a race build — is somebody else's reallocation landing inside our
+   * window, and is dropped rather than charged. See `clearStats`.
+   *
+   * Not called on the ordinary governor path at all: there the scale moves
+   * inside `applyRung`, which owns all of this and does it once.
    */
   function landScale(why: string, own: boolean): void {
-    ramping = false;
-    scaleSteps++;
-    lastScaleAt = liveSeconds;
+    scaleWaiting = false;
     lastFlushWhy = why;
     // The frames before this one were drawn at a different resolution, so the
     // window is about to compare two different games.
@@ -4522,9 +4569,9 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    * rather than a setting:
    *
    *   **the free path** — `render/post.ts` resizes the targets it owns and the
-   *   canvas never moves. Called from `serviceScale` on any frame, subject to
-   *   the rate limit; the seams below call it too and it is simply already
-   *   current by the time they do.
+   *   canvas never moves. On this path the seams below almost always find the
+   *   buffer already current, because `applyRung` landed it on the frame the
+   *   rung changed. See `takeScale`.
    *
    *   **the fallback** — `renderer.setPixelRatio`, which rebuilds the drawing
    *   buffer. Only ever reached at a seam, and there are exactly four of those,
@@ -4537,15 +4584,13 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    */
   function flushScale(why: string): boolean {
     if (liveScale > wantScale - SCALE_EPS && liveScale < wantScale + SCALE_EPS) {
-      ramping = false;
+      scaleWaiting = false;
       return false;
     }
-    const free = freeScalePath();
-    if (free) {
-      free.setRenderScale!(wantScale);
-      liveScale = wantScale;
+    if (freeScalePath()) {
       // Everything the fallback path says below applies here too — the only
       // difference is the cost of the frame that does it.
+      takeScale(why);
       landScale(why, false);
       return true;
     }
@@ -4553,18 +4598,19 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     const have = ctx.renderer.getPixelRatio();
     if (have > want - 1e-3 && have < want + 1e-3) {
       liveScale = wantScale;
-      ramping = false;
+      scaleWaiting = false;
       return false;
     }
     ctx.renderer.setPixelRatio(want);
     liveScale = wantScale;
     scaleFlushes++;
+    scaleSteps++;
     // Everything in the window was measured at a different resolution, and the
     // frames immediately after this one are the reallocation rather than the
     // game. This path is a *seam* flush — a bench, a pin, a resize, a race
     // build — so it drops the change entry rather than charging its swap-chain
-    // rebuild to whatever rung change happened to be open. The governor's own
-    // ramp arriving is the other case and keeps it; see `landScale`.
+    // rebuild to whatever rung change happened to be open. The collapse path's
+    // own seam is the other case and keeps it; see `landScale`.
     //
     // ...and `landScale` emits `quality:changed` carrying the scale that is now
     // real, so that a second renderer could size its own backing store off it.
@@ -4705,10 +4751,13 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    * Two things `flushSeam` does are wrong here, and both were found by writing
    * it that way first:
    *
-   *   It flushes the **resolution**, which turns the ramp into a cut. The ramp
-   *   is already degenerate at 0.5fps (see `SCALE_RAMP`) but is three frames of
-   *   dissolve at the 12fps end of the collapse band, and there is no reason to
-   *   spend that. The scale stays on `serviceScale`.
+   *   It flushes the **resolution**, and there is nothing left here for it to
+   *   flush: the collapse's `applyRung` took the scale with it on the frame it
+   *   fired, through `takeScale`. This clause used to be the argument for
+   *   leaving the scale on a ramp that `serviceScale` would walk; the ramp is
+   *   gone and `serviceScale` is a no-op, so the line is kept only because a
+   *   `flushScale` here would still be a *second* statement about a lever that
+   *   has already landed.
    *
    *   It **abandons the futility verdict**, which is correct for a race build
    *   arriving long after some change and exactly wrong here: `markDrop()` armed
@@ -5576,8 +5625,9 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     // is not drawn at.
     //
     // It is safe to move with `liveScale` for the same reason `liveScale` is
-    // safe to move at all: the scale itself now arrives on a ramp (see
-    // `SCALE_RAMP`), so a threshold derived from it arrives on the same ramp.
+    // safe to move at all: the scale arrives on the frame its rung does, so a
+    // threshold derived from it arrives with the rung too, rather than trailing
+    // the resolution it is denominated in by however long a ramp took.
     const h = (canvas.height || canvas.clientHeight || 720) * liveScale;
     const pxPerMetre = (h * 0.5) / Math.tan((ctx.camera.fov * Math.PI) / 360);
     _cam.copy(ctx.camera.position);
@@ -5825,6 +5875,16 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    */
   function ladderFailures(walk: RungCost[]): string[] {
     const out: string[] = [];
+    // The one failure here that is not about a frame. A ladder that publishes
+    // fewer player-facing names than it has rungs hands a settings screen a row
+    // it cannot draw, and the day that happens is the day somebody adds a rung
+    // — which has happened four times in this file. Checked where every other
+    // claim the ladder makes about itself is checked. See `RUNG_NAMES`.
+    if (RUNG_NAMES.length !== LADDER.length) {
+      out.push(`RUNG_NAMES has ${RUNG_NAMES.length} entries for a ladder of `
+        + `${LADDER.length} rungs — a PICTURE row bound to qualityPref would `
+        + `print an engineering label for the rungs past the end`);
+    }
     if (!walk.length) return out;
     const top = walk[0]!;
     for (const r of walk) {
@@ -6079,15 +6139,49 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
 
   function applyRung(next: number, why: string): void {
     const from = index;
-    index = next < 0 ? 0 : next >= LADDER.length ? LADDER.length - 1 : next;
+    // ── the clamp, and the two doors it is behind ────────────────────────────
+    //
+    // `next < 0 ? 0 : next >= len ? len - 1 : next` looks like a clamp and is
+    // not one: `null` and `NaN` fail **both** comparisons and fall through to
+    // the identity branch. `index` then became `null`, `LADDER[null]` was
+    // `undefined`, and the very next line threw a `TypeError` out of
+    // `composeSettings` — after which `stats()` reported `rung: null,
+    // rungLabel: ""` for the rest of the session and a reviewer's measurement
+    // run died on it. `__QUALITY.set(null)` and `set(NaN)` both went straight
+    // through here, while `qualityPref.set()` — the door a settings screen will
+    // use — `Math.round`ed first and was safe. Two doors into one function,
+    // one of them validated, is one door too few, so the validation is *here*,
+    // where every door arrives, rather than on either of them.
+    //
+    // A `typeof` test rather than `Number(next)`, because `Number(null)` is
+    // **0** and 0 is a real rung: coercing would answer `set(null)` by silently
+    // installing the top of the ladder, which is a different wrong answer with
+    // no exception to make it visible. Anything that is not a number is not an
+    // instruction, and the ladder stays where it is. Then `Number.isFinite`,
+    // which is the one predicate that refuses `NaN` and both infinities, and
+    // `Math.round`, because a rung is an index and 3.5 is not one.
+    const asked = typeof next === 'number' ? next : NaN;
+    index = Number.isFinite(asked)
+      ? Math.max(0, Math.min(LADDER.length - 1, Math.round(asked)))
+      : from;
     const r = LADDER[index]!;
     // The frame-half, and only the frame-half. `installSettings` takes `aa`,
-    // the tier and the draw distance from `seamIndex` rather than from `r`, and
-    // `applyScale` records a want the drawing buffer will not honour until the
-    // next seam. What actually changes on this frame is the particle cap and
-    // the three pixel thresholds — see `SEAM_HELD`.
-    installSettings();
+    // the tier and the draw distance from `seamIndex` rather than from `r`.
+    // What changes on this frame is the particle cap, the three pixel
+    // thresholds — and, since round sixteen, the resolution: `takeScale` moves
+    // the buffer on this frame rather than recording a want for a ramp to walk
+    // to over the next five. See `SEAM_HELD` for the split and the block where
+    // `SCALE_HOLD_S` used to be for why the lever has no clock of its own.
+    //
+    // The scale moves **first**, and the order is load-bearing by one field:
+    // `composeSettings` asks `aaMoot()`, which is denominated in what the
+    // buffer *has*. Under the ramp that read the resolution the rung was
+    // leaving, so the edge resolve was decided against a picture that no longer
+    // existed by the time the ramp finished; taken together in one frame there
+    // is no such window, and `aa` is judged against the pixels it will resolve.
     applyScale(r.scale);
+    takeScale(why);
+    installSettings();
     applyFrameContent(r.content);
 
     // ── the climb's trial, settled here because both verdicts are rung moves ──
@@ -6476,8 +6570,10 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    * `seek('racing')` the moment the page is ready has no front-end frames to
    * read and no pre-flag beat to calibrate in — there is no "before the flag" in
    * a session that starts after it. On that path the collapse still fires
-   * in-race, and what round thirteen owes it is that it now *dissolves*: see
-   * `SCALE_RAMP_MAX`.
+   * in-race, and it lands whole, on one frame, at a size the load pass already
+   * made warm — which is a better answer than the dissolve round thirteen owed
+   * it, because the dissolve's own first step was the worst frame of the
+   * session. See `primeScaleSizes`.
    */
   function preludeAtBuild(): void {
     const b = ctx.budget;
@@ -6918,15 +7014,26 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    * it compiles nothing. It runs from `reset()`, once per course per session,
    * with the world built and immediately before main.ts's own priming frame.
    *
-   * ── What it deliberately does NOT do, and the measurement that says so ─────
+   * ── What it does not do, and what `primeScaleSizes` does instead ───────────
    *
-   * The review that sent this file back asked for the ladder's *buffers* to be
-   * pre-sized here as well as its programs — the eight post-stack render
-   * targets and the shadow map, at every rung — on the reading that a rung
-   * change costing 3.1x a steady frame with a flat program count (85, checked)
-   * had to be buffer reallocation. The first half of that is exactly right. The
-   * second half names the wrong buffers, and pre-sizing would have bought
-   * nothing at all.
+   * **Read the next paragraph together with `primeScaleSizes`, because this
+   * section used to argue against it and was wrong on one word.** An earlier
+   * review asked for the ladder's *buffers* to be pre-sized here as well as its
+   * programs, and the table below was the answer: pre-*sizing* buys nothing,
+   * because `setSize` on a render target is free and because the expensive path
+   * of the day — `setPixelRatio`, a canvas swap-chain rebuild — was measured at
+   * full price every time, cached or not.
+   *
+   * All of that stands. What it does not cover is pre-*drawing*, on the free
+   * path that did not exist when it was written. A target that has been sized
+   * has not been rasterised into, and rasterising into a new framebuffer
+   * geometry for the first time is where the cost of a scale change actually
+   * sits — the same shape as the program cliff this function was built for, one
+   * layer down. So the conclusion "walking the six rung sizes at load would cost
+   * six reallocations to buy the zero that measurement says is there" is
+   * answered rather than repeated: measured on this bench, the whole priming
+   * pass is 139ms of load, once, and it is drawn behind the same closed board as
+   * everything else here.
    *
    * Measured live at 320x180 under a software rasteriser, on the page's own rAF
    * loop, one lever at a time, each against the median delivered frame
@@ -6955,11 +7062,13 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
    *     change does that the row above it does not. It is a swap-chain rebuild,
    *     not a texture allocation — resizing the canvas to the size it already
    *     has is free, because Blink early-outs on an unchanged size.
-   *   - **Pre-sizing cannot help, because nothing is cached.** The last row is
-   *     the same change repeated to a size the driver had already allocated and
-   *     freed once, at full price. Walking the six rung sizes at load would
-   *     cost six of these reallocations — about two seconds of boot — to buy
-   *     the zero that measurement says is there. So it is not done.
+   *   - **Pre-*sizing* cannot help on that path, because nothing is cached.**
+   *     The last row is the same change repeated to a size the driver had
+   *     already allocated and freed once, at full price. That is a fact about
+   *     `setPixelRatio`, which this file no longer calls on any live path, and
+   *     it is the sentence `primeScaleSizes` had to answer before it could
+   *     exist: pre-*drawing* on the free path is a different operation with a
+   *     different price, measured at 139ms for the whole ladder.
    *   - **The shadow map's *size* carries a hitch of its own.** Shrinking it
    *     from 2048 to 768 is +262ms on its own, the same shape as the render
    *     scale and for the same reason — a depth attachment disposed and rebuilt
@@ -7043,6 +7152,107 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
     ctx.renderer.shadowMap.needsUpdate = true;
   }
 
+  /** Distinct buffer sizes made warm this session, and the wall time it took.
+   *  Reported through `probe()`; see `primeScaleSizes`. */
+  let primedSizes = 0;
+  let primeMs = 0;
+  /** The canvas the warm sizes are warm *for*. A resize invalidates all of
+   *  them, because every one of them is a fraction of this. */
+  let primedFor = '';
+
+  /**
+   * Draw one composed frame at **every resolution the ladder can ask for**,
+   * before it asks for one.
+   *
+   * ── The measurement this exists for ────────────────────────────────────────
+   *
+   * A live 62-second race at 1280x720 under a software rasteriser, 86 delivered
+   * frames, median 662ms. The governor moved the render scale six times, and
+   * the frames those moves landed on cost:
+   *
+   *   1.00 -> 0.85   3037ms      0.66 -> 0.51    72.3ms
+   *   0.85 -> 0.70     15.9ms    0.51 -> 0.50   547ms
+   *   0.70 -> 0.66     14.6ms    0.50 -> 0.56   405ms
+   *
+   * The **first** move cost a hundred and ninety times the two after it, on a
+   * change that draws *fewer* pixels than the frame before it. Fill cannot
+   * produce that shape and neither can `WebGLRenderTarget.setSize`, which the
+   * table on `precompileLadder` prices at zero. What is left is the driver
+   * creating a rasteriser pipeline for a framebuffer geometry it has not drawn
+   * into before — the same cost, in the same place and for the same reason, as
+   * the 762ms/30-program compile cliff `precompileLadder` was written to move
+   * off the frame. It is a load cost being paid at the worst possible moment: on
+   * the frame a struggling player is being rescued.
+   *
+   * ── So it is paid here ─────────────────────────────────────────────────────
+   *
+   * Same seam, same argument, one function further down: behind the closed
+   * launch board, on the frame `precompileLadder` already spends, where the
+   * canvas is covered edge to edge and the frames go nowhere. Every distinct
+   * `Rung.scale` gets `setRenderScale` and one real `composer.render(0)` —
+   * a real draw, because a `setSize` on its own allocates the target and never
+   * rasterises into it, and rasterising into it is the half that costs.
+   *
+   * Then the buffer is put back to the size it was found at and drawn once
+   * more, so the caller's next frame is the frame it was expecting.
+   *
+   * ── What it is keyed on, and what invalidates it ───────────────────────────
+   *
+   * The canvas, because every primed size is a fraction of it: a window resize
+   * makes seven warm sizes cold at once and the next race build re-primes them.
+   * Not the course — a pipeline is a property of the geometry and the material,
+   * and the material set is already primed per course one function up.
+   *
+   * ── ...and why the ladder's own rungs are the complete list ────────────────
+   *
+   * Because nothing else asks. Round sixteen deleted the ramp, so the only
+   * resolutions the governor can request are the seven on `LADDER`; the
+   * intermediate sizes the ramp used to invent — 0.85, 0.70, 0.66 — were cold by
+   * construction and could not have been primed by any list. That is the second
+   * half of the same fix, and either half without the other is worth much less
+   * than both: priming a ramp warms five sizes to spend five chances of missing
+   * one, and cutting without priming takes the whole 3037ms in a single frame.
+   */
+  function primeScaleSizes(): void {
+    const free = freeScalePath();
+    if (!free) return;
+    const key = `${Math.round(bufW())}x${Math.round(bufH())}`;
+    if (primedFor === key) return;
+    const back = liveScale;
+    const seen = new Set<number>();
+    // Whatever is on the screen now is warm by definition — it is what the last
+    // frame was drawn at — so it is seeded rather than visited.
+    seen.add(+back.toFixed(3));
+    const t0 = nowMs();
+    let done = 0;
+    try {
+      for (const r of LADDER) {
+        const s = +r.scale.toFixed(3);
+        if (seen.has(s)) continue;
+        seen.add(s);
+        free.setRenderScale!(s);
+        ctx.composer?.render(0);
+        done++;
+      }
+    } catch {
+      // A priming pass that did not happen is a slower first change, not a
+      // broken game. Never let it take the boot down — same rule as the
+      // compile above.
+    }
+    // Back to the size the caller was standing on, and drawn, so that the
+    // priming render is not itself the thing that leaves a cold buffer behind.
+    try {
+      free.setRenderScale!(back);
+      ctx.composer?.render(0);
+    } catch { /* as above */ }
+    liveScale = back;
+    primeMs += nowMs() - t0;
+    primedSizes += done;
+    // Only claimed once the pass actually completed a rung; a throw on the
+    // first one leaves the key unset so the next race build tries again.
+    if (done > 0) primedFor = key;
+  }
+
   const probe = (): QualityProbe => {
     const b = ctx.budget;
     const q = ctx.quality;
@@ -7057,13 +7267,15 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       tier: q.tier,
       scale: +liveScale.toFixed(3),
       scaleWanted: +(LADDER[index]?.scale ?? 1).toFixed(3),
-      scalePending: Math.abs(liveScale - (LADDER[index]?.scale ?? 1)) > 1e-3,
+      scalePending: scaleWaiting
+        || Math.abs(liveScale - (LADDER[index]?.scale ?? 1)) > 1e-3,
       scaleFree: freeScalePath() !== null,
       scaleFlushes,
       scaleSteps,
       scaleFlushWhy: lastFlushWhy,
-      scaleRamping: ramping,
-      scaleRampFrames: rampFrames,
+      scaleLate: scaleLateFrames,
+      scalePrimed: primedSizes,
+      scalePrimeMs: +primeMs.toFixed(1),
       scenePx: `${Math.max(2, Math.round(bufW() * liveScale))}x${Math.max(2, Math.round(bufH() * liveScale))}`,
       canvasPx: `${bufW()}x${bufH()}`,
       seamRung: seamIndex,
@@ -7734,7 +7946,18 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // its window and keeps the resolution of the window it used to have.
       // `engine.ts`'s `resize()` fires this whenever the *ratio* moves too, so
       // our own flush re-enters here exactly once and finds nothing to do.
-      ctx.bus.on('engine:resize', () => { flushSeam('resize'); });
+      ctx.bus.on('engine:resize', () => {
+        flushSeam('resize');
+        // Every warm buffer size was a fraction of a canvas that has just
+        // changed, so all of them are cold again. Re-primed **here** only when
+        // the front-end is covering the frame — the priming pass is six real
+        // draws and a resize can land in the middle of a race, which is the one
+        // place this file may not spend six frames. Otherwise the invalidation
+        // stands and the next race build pays it behind the closed board, which
+        // is where every other load cost in this file is paid.
+        primedFor = '';
+        if (frontEndCovers) primeScaleSizes();
+      });
 
       // ── the only two things that mean "that was not a frame" ─────────────
       //
@@ -7836,10 +8059,19 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // §7 spends three paragraphs on why an unheard emit is a bug rather than a
       // head start. A screen that wants to redraw on a governor move already has
       // `quality:changed`, which carries the rung and its label.
+      //
+      // The `label` on both surfaces below is the **player's** word — FULL,
+      // HIGH, MEDIUM, REDUCED, LOW, LOWER, MINIMUM — and not `Rung.label`,
+      // which is this file's own `high-` / `med-` / `thin` / `sparse` /
+      // `floor`. That vocabulary is correct on `probe()`, on
+      // `stats().rungLabel` and in the change log, all of which are read by
+      // somebody debugging the ladder, and it is unshippable on a select screen
+      // beside MACHINE, CUP, CIRCUIT and CLASS. Both are published, by
+      // audience; see `RUNG_NAMES`.
       ctx.qualityPref = {
-        rungs: LADDER.map((r, i) => ({ index: i, label: r.label, tier: r.settings.tier })),
+        rungs: LADDER.map((r, i) => ({ index: i, label: rungName(i), tier: r.settings.tier })),
         get rung() { return index; },
-        get label() { return LADDER[index]?.label ?? ''; },
+        get label() { return rungName(index); },
         get auto() { return auto; },
         get remembered() { return memoryRung; },
         /**
@@ -8007,23 +8239,22 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
          * move 654 triangles, which is what round nine is about.
          */
         /**
-         * Ask for a rung's frame-half the way the **governor** does, and leave
-         * the resolution to travel on its own.
+         * **Kept as an alias of `mid`, and it is no longer a second behaviour.**
          *
-         * The one thing `set()` and `mid()` cannot show, because both of them
-         * land the scale on the spot so that the next `render()` photographs
-         * the rung asked for. What a player actually gets is a dissolve, and a
-         * dissolve is only visible in a sequence: call this, then read
-         * `probe().scale` on each of the next few delivered frames and watch it
-         * walk. `scaleRamping` is true until it arrives.
-         *
-         * Exists because "is that a dissolve or a cut" is the question round
-         * nine was sent back for, and it was unanswerable from outside the page
-         * — the only two doors into the ladder both cut on purpose.
+         * This was the door that showed the render scale *travelling*: it asked
+         * for a rung's frame-half and left the resolution to a ramp, so a bench
+         * could read `probe().scale` on each of the next few delivered frames
+         * and watch it walk. Round sixteen deleted the ramp — its own first step
+         * was the worst frame of a 62-second session — so the scale lands on the
+         * frame the rung changes and there is nothing left to watch. A door that
+         * demonstrates a mechanism which no longer exists is worse than no door,
+         * so it says what it now is rather than pretending; any bench script
+         * still calling it gets a rung change and one picture, which is what a
+         * player gets.
          */
         ease(i: number): QualityProbe {
           auto = false;
-          applyRung(i, 'pinned (easing)');
+          applyRung(i, 'pinned (frame-half)');
           contentFrame();
           externalTouch();
           return probe();
@@ -8031,11 +8262,11 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
         mid(i: number): QualityProbe {
           auto = false;
           applyRung(i, 'pinned (frame-half)');
-          // The frame-half includes the resolution and the tier since round
-          // eight, and `serviceScale`'s rate limit is denominated in delivered
-          // play — which a frozen bench does not accrue, so a walk of `mid(0)`
-          // to `mid(6)` inside one `page.evaluate` would land the first step
-          // and refuse the other five. The bench is not a player; land it.
+          // The frame-half has included the resolution since round eight, and
+          // `applyRung` has landed it on the spot since round sixteen, so this
+          // is a no-op on any page with a free composer. It is kept for the page
+          // that has none, where the scale is still seam-held and a bench asking
+          // to photograph rung 5 still has to be given rung 5's pixels.
           flushScale('bench');
           contentFrame();
           externalTouch();
@@ -8090,10 +8321,20 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
          *
          * Two prices are worth stating. The walk costs fourteen software-GL
          * renders, so it is taken **once per page** and cached; a bench that
-         * wants it again passes `{ rewalk: true }`. And it moves the ladder,
-         * so it restores the rung it found, flushes the seam, and draws one
-         * more frame — which is why `frame` below is still the rung the caller
-         * was standing on and not the last rung the walk happened to visit.
+         * wants it again passes `{ rewalk: true }`, and `ladderCached` says
+         * which it got, because a cached walk was taken from a different camera
+         * than the caller is standing at. And it moves the ladder, so it
+         * restores the rung it found, flushes the seam, and draws one more frame
+         * — which is why `frame` below is the frame the caller was standing on
+         * and not the last rung the walk happened to visit.
+         *
+         * ── ...and `frame` is that frame rather than the walk's (round 16) ────
+         *
+         * It used to be `walked[0]`, and because the walk is cached and
+         * `tools/capture.mjs` never passes `rewalk`, every shot of a review
+         * sheet published the same three numbers under three different
+         * captions. See the note at `const top` for the sheet that was passed
+         * on a frame it had not photographed.
          */
         gate(opts?: { rewalk?: boolean }): {
           target: FrameCeiling;
@@ -8104,7 +8345,14 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
           };
           rung: number;
           scenePx: string;
+          /** Some ceiling assertion ran. True on any page with a harness, since
+           *  the walk always contains a real rung-0 frame. */
           applies: boolean;
+          /** ...and specifically: `frame` is a rung-0, full-scale frame, so the
+           *  rung-0 ceilings were applied to *it* as well as to the walk. False
+           *  on a shot taken at a lower rung, where a cheaper frame is the
+           *  correct answer rather than a passing one. */
+          frameApplies: boolean;
           pass: boolean;
           failures: string[];
           /** Where the draws went, worst first — so a failure names a culprit
@@ -8113,10 +8361,37 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
           /** Every rung, measured on one frame. Empty when there is no harness
            *  to drive a render with. See `walkLadder`. */
           ladder: RungCost[];
+          /** Whether `ladder` was taken now or is the cached walk from an
+           *  earlier `gate()` on this page — which was taken from a different
+           *  camera. It costs fourteen software-GL renders, so it is not retaken
+           *  per shot; saying which it is, is the difference between a cache and
+           *  a lie. Pass `{ rewalk: true }` for a fresh one. */
+          ladderCached: boolean;
         } {
+          const hadWalk = ladderWalk !== null && opts?.rewalk !== true;
+          // ── read the caller's frame BEFORE the walk moves the ladder ──────
+          //
+          // `renderer.info` describes whatever was drawn last, and the walk is
+          // about to draw fifteen more frames and leave its own restore frame
+          // in there. Measured: the restore frame is not the frame the caller
+          // photographed — 345 calls / 1,025,174 triangles against the 293 /
+          // 803,160 the same page had one render earlier — because the walk
+          // re-installs the seam and the world's own draw-distance pass has not
+          // re-asserted yet. Taking the reading here makes `frame` mean the one
+          // thing a reviewer needs it to mean: *the frame this gate call is
+          // about*, which for `tools/capture.mjs` is the frame in the PNG.
+          const liveInfo = ctx.renderer.info;
+          const liveCalls = liveInfo.render.calls;
+          const liveTris = liveInfo.render.triangles;
+          const liveRung = index;
+          const liveScaleAt = liveScale;
+          // Same argument, and it is the same frame: `audit()` is a traversal of
+          // `visible` and `count` against the live frustum, and the walk rewrites
+          // both. `groups` has to describe the frame `frame` counts or a failure
+          // names the wrong culprit.
+          const a = audit();
           const walked = walkLadder(opts?.rewalk === true);
           const b = ctx.budget;
-          const info = ctx.renderer.info;
           const steps = b && b.steps > 0 ? b.steps : 1;
           // The median of the window, not the last frame. See `CPU_WINDOW` —
           // the six shots of one review sheet reported 1.2 to 7.1ms of update
@@ -8125,31 +8400,55 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
           const cpuMs = cpuMedian();
           const simPerFrame = cpuSimRing;
           const updateMs = cpuUpdRing;
-          const a = audit();
           // ── which frame the ceilings are judged on ──────────────────────
           //
-          // The walk drew rung 0 *by construction*, so when there is a walk the
-          // budget is judged on that row rather than on wherever the governor
-          // happened to be standing when the caller asked. That is not a
-          // convenience: on the bench this gate runs on, the governor had
-          // walked to rung 6 by the time the smoke called it, `applies` came
-          // back false, and the whole frame budget — the one assertion this
-          // project has about what a frame may cost — **silently did not run**
-          // and printed "(budget not checked)" in a place that reads exactly
-          // like a pass. A gate whose coverage depends on how loaded the
-          // container was is not a gate.
+          // **The frame that was just drawn.** This used to report the walk's
+          // rung-0 row instead, and a reviewer caught what that costs: the walk
+          // is cached for the life of the page and `tools/capture.mjs` never
+          // passes `rewalk`, so a three-shot sheet published a byte-identical
+          // `frame` — 349 calls / 680,452 triangles — for `racing`, `pack` and
+          // `far`, while the frames actually photographed drew 353/680,232,
+          // 345/653,692 and **358/941,094**. The widest shot in the sheet sat at
+          // 94% of the triangle ceiling; the sheet reported it at 68%, from a
+          // different camera position, and passed. A budget that reports one
+          // camera's frame under every camera's name is not measuring the shot
+          // it is captioned with.
+          //
+          // So `frame` is `renderer.info` for the frame the caller is standing
+          // on, `ladder` is the walk, and the two never impersonate each other.
+          //
+          // The reason the substitution was made in the first place is real and
+          // is answered elsewhere: on a loaded bench the governor may have
+          // walked away from rung 0 by the time the smoke calls this, `applies`
+          // comes back false, and the ceiling assertions would **silently not
+          // run** behind a "(budget not checked)" line that reads exactly like a
+          // pass. That hole is closed by `ladderFailures`, which asserts the
+          // same two ceilings against every row of the walk — and row zero of
+          // the walk is a real rung-0 frame by construction. The budget is
+          // therefore checked on every call that has a harness, whatever rung
+          // the governor is standing on; what `applies` now gates is only the
+          // *second*, per-shot reading below.
           const top = walked.length ? walked[0] : null;
-          const drawCalls = top ? top.drawCalls : info.render.calls;
-          const triangles = top ? top.triangles : info.render.triangles;
-          const applies = top !== null || (index === 0 && liveScale > 0.999);
+          const drawCalls = liveCalls;
+          const triangles = liveTris;
+          // Is the frame in `frame` one the rung-0 ceilings describe? A rung-4
+          // frame is *supposed* to be cheaper and a frame drawn at 640x360
+          // proves nothing about the top of the ladder.
+          const frameApplies = liveRung === 0 && liveScaleAt > 0.999;
+          // ...and did this call assert the ceilings at all — which it did if
+          // either reading was judgeable. The walk always contains a real rung-0
+          // frame, so on any page with a harness this is true and the caller's
+          // "(budget not checked)" branch cannot swallow the one assertion this
+          // project has about what a frame may cost.
+          const applies = top !== null || frameApplies;
           const failures: string[] = [];
-          if (drawCalls > RUNG0.drawCalls) {
+          if (frameApplies && drawCalls > RUNG0.drawCalls) {
             failures.push(`draw calls ${drawCalls} over the rung-0 ceiling of `
-              + `${RUNG0.drawCalls} (${RUNG0.at})`);
+              + `${RUNG0.drawCalls} (${RUNG0.at}) — on the frame just drawn`);
           }
-          if (triangles > RUNG0.triangles) {
+          if (frameApplies && triangles > RUNG0.triangles) {
             failures.push(`triangles ${triangles} over the rung-0 ceiling of `
-              + `${RUNG0.triangles} (${RUNG0.at})`);
+              + `${RUNG0.triangles} (${RUNG0.at}) — on the frame just drawn`);
           }
           // Against `cpuMs`, not `cpuTargetMs`. The target is a statement and
           // this is a gate; see the field's own note on why they differ.
@@ -8174,14 +8473,14 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
               shadow: a.total.shadow,
               drawnTriangles: a.total.drawnTriangles,
             },
-            // The rung the numbers above describe, which is 0 whenever there
-            // was a walk. `probe().rung` is where the *governor* is standing.
-            rung: top ? top.rung : index,
-            scenePx: top
-              ? `${Math.max(2, Math.round(bufW()))}x${Math.max(2, Math.round(bufH()))}`
-              : `${Math.max(2, Math.round(bufW() * liveScale))}x`
-                + `${Math.max(2, Math.round(bufH() * liveScale))}`,
+            // The rung the numbers above describe, which is the rung the frame
+            // was drawn at — the same answer as `probe().rung`, and it is the
+            // same answer *because* `frame` is the live frame now.
+            rung: liveRung,
+            scenePx: `${Math.max(2, Math.round(bufW() * liveScaleAt))}x`
+              + `${Math.max(2, Math.round(bufH() * liveScaleAt))}`,
             applies,
+            frameApplies,
             pass: failures.length === 0,
             failures,
             groups: a.groups
@@ -8192,6 +8491,7 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
                 triangles: g.drawnTriangles,
               })),
             ladder: walked,
+            ladderCached: hadWalk && walked.length > 0,
           };
         },
         /**
@@ -8351,6 +8651,14 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // main.ts's own priming render rather than on a frame a player is
       // watching. Once per course per session; see `precompileLadder`.
       precompileLadder();
+      // ...and the same trick for the one thing on the ladder that is not a
+      // program: every resolution any rung can ask for, drawn once, here, so
+      // that the first time the governor moves the scale mid-race the driver
+      // has already built the pipeline for the size it is moving to. This is
+      // the frame that used to cost 3037ms; see `primeScaleSizes`. Once per
+      // canvas size per session, and after `precompileLadder` so the programs
+      // it is priming exist before they are drawn at six more sizes.
+      primeScaleSizes();
       // ── the content ladder's own load-time work ──────────────────────────
       //
       // Same moment, same argument, and the two halves have different
@@ -8685,16 +8993,15 @@ export function createQualitySystem(ctx: GameContext): GameSystem {
       // ── land any resolution the ladder has earned and not yet been given ──
       //
       // Above the early returns for the same reason the two blocks above it
-      // are: a rung the reviewer pinned, or one this session earned before the
-      // rate limit would let it land, is a rung whose *picture* has to arrive
-      // eventually. `serviceScale` is a no-op on every frame where the buffer
-      // already matches, which is almost all of them.
+      // are: a rung the reviewer pinned is a rung whose *picture* has to arrive.
       //
-      // It is handed the gap this frame took, because the lever is a ramp and
-      // the ramp is paced by the wall clock — see `SCALE_RAMP`. `secs` is zero
-      // on a frame this file is not allowed to count, and a frame that was not a
-      // picture is worth one 60Hz step rather than a jump.
-      serviceScale(secs * 1000);
+      // Since round sixteen this is a no-op on **every** frame of an ordinary
+      // session, because the request and the landing are the same call now
+      // (`applyRung` -> `takeScale`). It is kept, and it counts the frames on
+      // which it was not a no-op (`probe().scaleLate`), because "the resolution
+      // arrived on a frame of its own" is exactly the defect that was deleted
+      // and an instrument that would notice it coming back is worth one branch.
+      serviceScale();
 
       // `benchFrames` only moves when `renderFrame` was called from outside the
       // rAF loop: the front end primes exactly one such frame per race start,
