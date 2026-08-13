@@ -813,8 +813,22 @@ function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
   const g = new THREE.Group();
   const N = 14;
   const len = 26;
+  // ── the bore has to be darker than the sheet it stands in ────────────────
+  //
+  // It was a paler teal at 0.82, which was correct while the flood sheet under
+  // it was not being drawn at all (see the winding note in `courses/flood.ts`)
+  // and became wrong the moment it was. Photographed together, the wave and
+  // the standing water were within a few values of each other, so the *body*
+  // of the wave vanished into the sheet and its foam lip — a metre and a half
+  // up, and the only part with any contrast left — read as a pale shelf
+  // floating in mid-air over the road with nothing holding it up.
+  //
+  // A metre and a half of water stacked on top of a sheet of water is deeper
+  // than the sheet, and deeper water is darker. So: darker, and more opaque
+  // than the thing it is standing in, which is what puts a body back under the
+  // crest.
   const waterM = new THREE.MeshLambertMaterial({
-    color: 0x4e8b9c, transparent: true, opacity: 0.82,
+    color: 0x2d6274, transparent: true, opacity: 0.9,
     emissive: 0x0d2a33, side: THREE.DoubleSide,
   });
   const foamM = new THREE.MeshLambertMaterial({
@@ -887,8 +901,12 @@ function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
     const cap = ease(t / 0.2) * ease((1 - t) / 0.2);
     const h = (1.5 + 0.55 * Math.sin(t * 7.1) + 0.3 * Math.sin(t * 3.3 + 1.4)) * cap + SKIRT * (1 - cap);
     const lean = (0.9 + 0.25 * Math.sin(t * 5.0 + 0.6)) * cap;
-    cpos.push(-lean + 0.12 * cap, h + 0.34 * cap, z);
-    cpos.push(-lean - 0.75 * cap, h - 0.28 * cap, z);
+    // Narrower than it was — 0.87m of lip tilted back at thirty-odd degrees
+    // presents very nearly its whole area to a chase camera, which is how a
+    // crest ends up reading as a shelf rather than as the top of a wave. Half
+    // that, and pitched steeper, so what the camera gets is a *line* of foam.
+    cpos.push(-lean + 0.10 * cap, h + 0.24 * cap, z);
+    cpos.push(-lean - 0.36 * cap, h - 0.20 * cap, z);
   }
   for (let i = 0; i < N; i++) {
     const a = i * 2;

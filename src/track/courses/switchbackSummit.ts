@@ -655,10 +655,23 @@ export const switchbackSummit: CourseDefEx = {
         // metres above the road at its lowest. Thirty leaves a clear margin
         // under that and puts trees back on the hillside a chase camera is
         // actually pointed at.
+        //
+        // ── and the density came down to pay for it ────────────────────────
+        //
+        // Un-culling the rising flank is not a rounding error: it roughly
+        // doubles the stand count on a belt that runs a kilometre of valley,
+        // and measured through `__GAME.stats()` it took this course from
+        // 1,009k triangles to 1,099k — past `RUNG0.triangles`, the regression
+        // tripwire `core/quality.ts` sets at a million. A belt is a *density
+        // times a length*, and the length just grew, so the density is 11 per
+        // hundred metres per flank rather than 17. Photographed side by side
+        // the forest does not read thinner, because what a chase camera counts
+        // is trunks per unit of *sky*, not trunks per unit of road, and there
+        // are now two flanks of them.
         {
           from: on('T11 SPILLWAY KINK', 0.4),
           to: on('T3 FOOT OF THE CLIMB', 0.55),
-          near: 5, far: 70, density: 17, ceiling: 30,
+          near: 5, far: 70, density: 11, ceiling: 30,
         },
         // ── the flank under the Notch ───────────────────────────────────────
         //
@@ -668,7 +681,7 @@ export const switchbackSummit: CourseDefEx = {
         {
           from: on('T3 FOOT OF THE CLIMB', 0.55),
           to: on('T4 THE NOTCH', 0.55),
-          near: 6, far: 60, density: 12, ceiling: 24,
+          near: 6, far: 60, density: 9, ceiling: 24,
         },
         // ── the last stands, and why the belt does not simply stop ──────────
         //
@@ -687,8 +700,8 @@ export const switchbackSummit: CourseDefEx = {
         // of them climbs the cutting. Everything above the gallery stays bare.
         {
           from: on('T4 THE NOTCH', 0.55),
-          to: on('THE CLIMB', 0.22),
-          near: 5, far: 36, density: 6, ceiling: 15,
+          to: on('THE CLIMB', 0.25),
+          near: 5, far: 44, density: 9, ceiling: 16,
         },
         // ── coming back down into them ──────────────────────────────────────
         //
@@ -701,7 +714,7 @@ export const switchbackSummit: CourseDefEx = {
         {
           from: on('THE PLUNGE', 0.45),
           to: on('T11 SPILLWAY KINK', 0.4),
-          near: 5, far: 56, density: 13, ceiling: 24,
+          near: 5, far: 56, density: 10, ceiling: 24,
         },
       ],
 

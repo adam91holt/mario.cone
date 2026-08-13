@@ -497,7 +497,7 @@ void main() {
   // Fades out at the head as well as the tail: the wake has to *close* behind
   // the machine rather than end on a straight line.
   float fade = ( 1.0 - vAge ) * ( 1.0 - vAge ) * smoothstep( 0.0, 0.06, vAge );
-  gl_FragColor = vec4( vec3( 1.0, 0.995, 0.97 ), body * fade * 0.55 );
+  gl_FragColor = vec4( vec3( 1.0, 0.995, 0.97 ), body * fade * 0.44 );
   if ( gl_FragColor.a < 0.004 ) discard;
 }`;
 
@@ -651,7 +651,7 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
     // water at a walking pace still pushes a bow wave the width of itself. The
     // power bends the low end up without moving the top.
     const load = Math.min(1, Math.pow(Math.min(1, sp / 46), 0.6));
-    const n = Math.min(7, Math.round(budget * (1.9 + 7.4 * load) * dt * 60));
+    const n = Math.min(10, Math.round(budget * (2.6 + 9.0 * load) * dt * 60));
 
     for (let i = 0; i < n; i++) {
       const rear = i % 3 !== 0;
@@ -688,7 +688,7 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
         // five as it atomises.
         range(0.42, 0.86),
         range(0.26, 0.58) * (rear ? 1.4 : 1),
-        range(1.5, 2.7),
+        range(1.1, 1.9),
         range(0.50, 0.85) * (0.58 + 0.42 * load),
         rnd(),
       );
@@ -697,7 +697,7 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
     // The sheet itself, pushed sideways: a low flat curtain either side of the
     // machine that is thrown *out* rather than up. It is what makes the plume
     // read as displaced water instead of as steam.
-    const m = Math.min(3, Math.round(budget * (0.9 + 3.0 * load) * dt * 60));
+    const m = Math.min(4, Math.round(budget * (1.3 + 3.6 * load) * dt * 60));
     for (let i = 0; i < m; i++) {
       const side = i % 2 === 0 ? 1 : -1;
       _at.copy(r.pos)
@@ -710,7 +710,7 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
         range(0.6, 2.0),
         r.vel.z * 0.24 + _right.z * side * range(3.2, 7.4),
         range(0.55, 1.05),
-        range(0.55, 0.95), range(1.9, 3.2),
+        range(0.45, 0.80), range(1.5, 2.5),
         range(0.28, 0.46) * (0.55 + 0.45 * load),
         rnd() * 0.5,
       );
@@ -738,7 +738,7 @@ export function createFloodSystem(ctx: GameContext): GameSystem {
         range(2.6, 9.0),
         r.vel.z * 0.30 + _right.z * side * range(2.5, 9.5) + _fwd.z * range(0, 4),
         range(0.55, 1.15),
-        range(0.32, 0.78), range(2.0, 3.4),
+        range(0.30, 0.68), range(1.6, 2.7),
         range(0.42, 0.78),
         rnd(),
       );
