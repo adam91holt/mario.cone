@@ -429,6 +429,30 @@ function makeGameProxy(page) {
      * fourth thing to keep in step.
      */
     gate: () => page.evaluate(() => globalThis.__QUALITY?.gate?.() ?? null),
+    /**
+     * Pin the ladder at rung 0 and take it away from the governor.
+     *
+     * **Every shot on this sheet was being photographed at the floor.** The
+     * governor spends the ~23s of front-end boot judging a machine that is
+     * rendering a title screen through software GL, convicts it, and lands on
+     * rung 6 before the first shot is taken — so `index.json` recorded
+     * `rung: 6, scenePx: 1200x675` for racing, pack AND far, and every art
+     * critic this project has ever run judged a 0.75-scale picture with
+     * particles at 0.34, draw distance at 0.55 and scatter at 0.45. `far` — the
+     * shot whose entire job is to show draw distance — was the worst hit.
+     *
+     * The sheet is a photograph of what the game looks like, not a measurement
+     * of what this container can render, so it is pinned. `benchFrames` and
+     * `benchSteps` already protect the *budget* numbers from harness stepping;
+     * this protects the *picture* from the harness's own slowness.
+     */
+    pinRung0: () => page.evaluate(() => {
+      const q = globalThis.__QUALITY;
+      if (!q) return null;
+      q.auto(false);
+      q.set(0);
+      return q.probe?.() ?? null;
+    }),
     /** Run a function in the page. For the reviewer's-bench front doors —
      *  `__RACE.flag()` and friends — which reach states no amount of driving
      *  can. Everything a *player* can do goes through the harness above. */
@@ -482,7 +506,13 @@ async function withPage(fn) {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
     // Boot compiles shaders under software GL, which is slow — be patient.
     await page.waitForFunction(() => window.__GAME?.ready === true, null, { timeout: 120_000 });
-    return await fn(page, makeGameProxy(page), consoleErrors);
+    const game = makeGameProxy(page);
+    // Before anything is photographed or measured. See `pinRung0`.
+    const pinned = await game.pinRung0();
+    if (pinned && pinned.rung !== 0) {
+      log(`  WARN  asked for rung 0 and the ladder reports rung ${pinned.rung} — the sheet is not at full quality`);
+    }
+    return await fn(page, game, consoleErrors);
   } finally {
     await browser.close();
     await server.close();
