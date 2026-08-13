@@ -145,7 +145,16 @@ function waterMaterial(tint: string, time: { value: number }): THREE.MeshPhongMa
     // Judging the depth of a flooded road *is* the skill this sheet exists to
     // ask about, so the centre dashes and the edge line have to read through
     // it. An opaque sheet is a painted patch with a highlight on it.
-    opacity: 0.72,
+    //
+    // **And 0.72 was still opaque**, measured the only way that counts — the
+    // yellow centre line of the saltpan's hypotenuse stops dead at the
+    // waterline in the review frame and picks up again on the far side, which
+    // is exactly the finding this number was set to answer. 0.56 puts the
+    // markings back under the water, and what is lost — the sheet's body — is
+    // given back by the depth ramp below, which is where the body belongs
+    // anyway: a flooded road is thin at its margin and deep in the middle, and
+    // one flat alpha across the whole sheet says the opposite.
+    opacity: 0.56,
     depthWrite: false,
     polygonOffset: true,
     polygonOffsetFactor: -5,
@@ -246,6 +255,17 @@ function waterMaterial(tint: string, time: { value: number }): THREE.MeshPhongMa
           // and the sheet keeps its body.
           float diss = smoothstep( 0.0, ${MARGIN.toFixed(2)}, e );
           diffuseColor.a *= diss * diss;
+
+          // ── depth ────────────────────────────────────────────────────────
+          // Water gets darker and less transparent the further you are from
+          // the edge of it, because there is more of it between the eye and
+          // the tarmac. aEdge is already that distance, so the ramp is free
+          // — and it is the cue a driver actually reads to pick a line: the
+          // pale rim is where the sheet is survivable and the dark middle is
+          // where it is not.
+          float deep = smoothstep( ${MARGIN.toFixed(2)}, 7.0, e );
+          diffuseColor.a = min( 0.86, diffuseColor.a * ( 1.0 + 0.62 * deep ) );
+          diffuseColor.rgb *= 1.0 - 0.24 * deep;
 
           // ── the foam, and the wet band under it ──────────────────────────
           // A scrolling ragged crest riding the edge. The two trains beat

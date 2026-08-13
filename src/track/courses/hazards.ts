@@ -985,11 +985,17 @@ function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
     const cap = capAt(t);
     const reach = (3.4 + 2.1 * Math.sin(t * 11.0 + 1.7) + 1.1 * Math.sin(t * 19.0)) * cap;
     tpos.push(-lea(t), SKIRT + 0.12, z);
-    tcol.push(1, 1, 1);
+    tcol.push(1, 1, 1, 1);
     tpos.push(-3.0 - Math.max(0, reach), SKIRT + 0.06, z);
     // Feathered to nothing at the leading edge: a tongue with a hard edge is a
     // decal, which is the word this whole hazard was filed under.
-    tcol.push(0.25, 0.25, 0.25);
+    //
+    // **Four components, not three.** With an itemSize-3 colour attribute the
+    // fade is a *multiply on the albedo* and the leading edge comes back as a
+    // dark grey band on the tarmac — the opposite of feathering. Three.js
+    // defines USE_COLOR_ALPHA on a vec4 attribute and multiplies the alpha
+    // too, which is the only way this edge actually goes away.
+    tcol.push(1, 1, 1, 0);
   }
   for (let i = 0; i < N; i++) {
     const a = i * 2;
@@ -997,7 +1003,7 @@ function buildSurge(rig: Rig, keep: THREE.Material[]): THREE.Group {
   }
   const tgeo = new THREE.BufferGeometry();
   tgeo.setAttribute('position', new THREE.Float32BufferAttribute(tpos, 3));
-  tgeo.setAttribute('color', new THREE.Float32BufferAttribute(tcol, 3));
+  tgeo.setAttribute('color', new THREE.Float32BufferAttribute(tcol, 4));
   tgeo.setIndex(tidx);
   tgeo.computeVertexNormals();
   const toeM = new THREE.MeshBasicMaterial({

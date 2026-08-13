@@ -2073,7 +2073,10 @@ function loftProfile(
       uvs.push(arc[k]! / 26, (th * (steps[0]!.r + 60)) / 34);
       c.copy(s.face ? rockC : finesC);
       // Lower lifts sit in the shade of the hole, upper lifts catch the sky.
-      c.multiplyScalar(0.80 + 0.30 * rise);
+      // The ramp is deliberately shallow: at 0.80..1.10 the bottom of a
+      // nine-lift wall went black at dusk and the terrace lines with it, and
+      // the terrace lines are the only reason this object exists.
+      c.multiplyScalar(0.88 + 0.24 * rise);
       // Long-wavelength mottle so a forty-metre quad is not one flat value.
       c.multiplyScalar(1 + 0.09 * Math.sin(th * 6.3 + k * 1.7));
       col.push(c.r, c.g, c.b);

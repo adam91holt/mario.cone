@@ -490,8 +490,14 @@ export const jackhammerQuarry: CourseDefEx = {
         // belt crosses the top fifth of the frame as an underside and reads as
         // a ceiling rather than as a structure. Ninety-one puts the whole
         // silhouette above the horizon with sky either side of it.
+        //
+        // **Two, and it was three.** A conveyor is a dozen draw calls — a
+        // trestle, a housing, a hood, three rails, a stanchion bank, a web, a
+        // chute, a stockpile, a cabin — and three of them took the quarry's
+        // `far` frame to 428 against the 400 the cup's budget is derived on. A
+        // noun that appears twice a lap is a place; a noun that appears three
+        // times is the same place with a bill.
         { name: 'SCREEN DISCHARGE', at: on('T2 SCREEN HAIRPIN', 0.80), kind: 'conveyor', skew: 0.38 },
-        { name: 'CRUSHER FEED', at: on('BENCH THREE', 0.45), kind: 'conveyor', skew: -0.30 },
         { name: 'OVERLAND', at: on('h3', 0.50), kind: 'conveyor', skew: 0.44 },
       ],
       barrier: 'jersey',
@@ -778,8 +784,8 @@ export const jackhammerQuarry: CourseDefEx = {
         // Unweathered grey rock and the pale fines lying on the benches. The
         // value gap between the two is what makes the terrace lines legible
         // through half a kilometre of dust, and it is the whole read.
-        tint: 0x74777e,
-        dust: 0xa7a49a,
+        tint: 0x6f727a,
+        dust: 0xcdc8ba,
       },
       // ── THE TIP FACE ──────────────────────────────────────────────────
       //
@@ -799,7 +805,7 @@ export const jackhammerQuarry: CourseDefEx = {
           // a heap presenting its narrow end is a cone again.
           bearing: 2.39 + Math.PI * 0.5,
           stacker: true,
-          tint: 0x7d7b74, dust: 0xa9a396,
+          tint: 0x74736d, dust: 0xd2ccbc,
         },
         {
           // The second is for the other half of the lap, on the far side of
@@ -807,7 +813,7 @@ export const jackhammerQuarry: CourseDefEx = {
           x: 1.5 + Math.cos(5.55) * 640, z: 17.9 + Math.sin(5.55) * 640,
           base: -26, height: 108, foot: 190, top: 74, lifts: 6,
           bearing: 5.55 + Math.PI * 0.5,
-          tint: 0x7a7871, dust: 0xa5a196,
+          tint: 0x726f69, dust: 0xc9c3b4,
         },
       ],
     },
